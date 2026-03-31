@@ -29,6 +29,7 @@ class AppController extends ChangeNotifier {
   bool get databaseReady => _databaseReady;
   bool get checkingDatabase => _checkingDatabase;
   bool get downloadingDatabase => _downloadingDatabase;
+  bool get needsOnboarding => !_settings.hasCompletedOnboarding;
 
   Future<void> initialize() async {
     _settings = await storage.loadSettings();
@@ -86,6 +87,18 @@ class AppController extends ChangeNotifier {
     _history = _history.take(value).toList();
     await storage.saveSettings(_settings);
     await storage.saveHistory(_history);
+    notifyListeners();
+  }
+
+  Future<void> completeOnboarding() async {
+    _settings = _settings.copyWith(hasCompletedOnboarding: true);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> setOnboardingCompleted(bool value) async {
+    _settings = _settings.copyWith(hasCompletedOnboarding: value);
+    await storage.saveSettings(_settings);
     notifyListeners();
   }
 

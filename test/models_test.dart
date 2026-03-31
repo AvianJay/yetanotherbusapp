@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:yetanotherbusapp/core/models.dart';
+import 'package:taiwanbus_flutter/core/models.dart';
 
 void main() {
   test('eta presentation keeps seconds when enabled', () {

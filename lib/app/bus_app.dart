@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/app_controller.dart';
 import '../screens/home_screen.dart';
+import '../screens/onboarding_screen.dart';
 
 class BusApp extends StatelessWidget {
   const BusApp({required this.controller, super.key});
@@ -16,12 +17,14 @@ class BusApp extends StatelessWidget {
         animation: controller,
         builder: (context, _) {
           return MaterialApp(
-            title: 'YABus',
+            title: 'YetAnotherBusApp',
             debugShowCheckedModeBanner: false,
             themeMode: controller.settings.themeMode,
             theme: _buildTheme(Brightness.light),
             darkTheme: _buildTheme(Brightness.dark),
-            home: const HomeScreen(),
+            home: controller.needsOnboarding
+                ? const OnboardingScreen()
+                : const HomeScreen(),
           );
         },
       ),

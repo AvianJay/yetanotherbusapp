@@ -242,6 +242,30 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('啟動導覽', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      await controller.setOnboardingCompleted(false);
+                      if (!context.mounted) {
+                        return;
+                      }
+                      Navigator.of(context).pop();
+                    },
+                    icon: const Icon(Icons.restart_alt_rounded),
+                    label: const Text('重新執行首次導覽'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );

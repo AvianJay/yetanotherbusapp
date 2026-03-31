@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "tw.avianjay.yabus"
+    namespace = "tw.avianjay.taiwanbus.flutter"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,7 +20,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "tw.avianjay.yabus"
+        applicationId = "tw.avianjay.taiwanbus.flutter"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

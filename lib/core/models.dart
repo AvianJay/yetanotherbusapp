@@ -44,6 +44,7 @@ class AppSettings {
     required this.busUpdateTime,
     required this.busErrorUpdateTime,
     required this.maxHistory,
+    required this.hasCompletedOnboarding,
   });
 
   factory AppSettings.defaults() {
@@ -54,6 +55,7 @@ class AppSettings {
       busUpdateTime: 10,
       busErrorUpdateTime: 3,
       maxHistory: 10,
+      hasCompletedOnboarding: false,
     );
   }
 
@@ -65,6 +67,7 @@ class AppSettings {
       busUpdateTime: json['busUpdateTime'] as int? ?? 10,
       busErrorUpdateTime: json['busErrorUpdateTime'] as int? ?? 3,
       maxHistory: json['maxHistory'] as int? ?? 10,
+      hasCompletedOnboarding: json['hasCompletedOnboarding'] as bool? ?? false,
     );
   }
 
@@ -74,6 +77,7 @@ class AppSettings {
   final int busUpdateTime;
   final int busErrorUpdateTime;
   final int maxHistory;
+  final bool hasCompletedOnboarding;
 
   AppSettings copyWith({
     BusProvider? provider,
@@ -82,6 +86,7 @@ class AppSettings {
     int? busUpdateTime,
     int? busErrorUpdateTime,
     int? maxHistory,
+    bool? hasCompletedOnboarding,
   }) {
     return AppSettings(
       provider: provider ?? this.provider,
@@ -90,6 +95,8 @@ class AppSettings {
       busUpdateTime: busUpdateTime ?? this.busUpdateTime,
       busErrorUpdateTime: busErrorUpdateTime ?? this.busErrorUpdateTime,
       maxHistory: maxHistory ?? this.maxHistory,
+      hasCompletedOnboarding:
+          hasCompletedOnboarding ?? this.hasCompletedOnboarding,
     );
   }
 
@@ -101,6 +108,7 @@ class AppSettings {
       'busUpdateTime': busUpdateTime,
       'busErrorUpdateTime': busErrorUpdateTime,
       'maxHistory': maxHistory,
+      'hasCompletedOnboarding': hasCompletedOnboarding,
     };
   }
 }

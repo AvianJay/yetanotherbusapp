@@ -1,4 +1,4 @@
-# yetanotherbusapp
+# YetAnotherBusApp
 
 A new Flutter project.
 

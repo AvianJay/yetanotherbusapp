@@ -47,6 +47,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int? _targetInitialPathId;
   Map<int, int> _nearestStopByPath = const <int, int>{};
   final Map<int, GlobalKey> _stopKeys = <int, GlobalKey>{};
+  final Map<int, ScrollController> _scrollControllers =
+      <int, ScrollController>{};
 
   @override
   void initState() {
@@ -71,6 +73,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _countdownProgressController.dispose();
     _positionSubscription?.cancel();
     _tabController?.dispose();
+    for (final controller in _scrollControllers.values) {
+      controller.dispose();
+    }
     if (_wakelockEnabled == true) {
       unawaited(_setWakelock(false));
     }
@@ -318,6 +323,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     double alignment = 0.28,
     Duration duration = const Duration(milliseconds: 360),
   }) async {
+    var hasPrimedLazyList = false;
     for (var attempt = 0; attempt < 12; attempt++) {
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) {
@@ -330,6 +336,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final key = _stopKeys[_keyForStop(pathId, stopId)];
       final targetContext = key?.currentContext;
       if (targetContext == null || !targetContext.mounted) {
+        if (!hasPrimedLazyList) {
+          hasPrimedLazyList = await _scrollNearStop(
+            pathId,
+            stopId,
+            alignment: alignment,
+            duration: duration,
+          );
+        }
         continue;
       }
 
@@ -345,6 +359,44 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return false;
   }
 
+  Future<bool> _scrollNearStop(
+    int pathId,
+    int stopId, {
+    required double alignment,
+    required Duration duration,
+  }) async {
+    final detail = _detail;
+    final scrollController = _scrollControllers[pathId];
+    if (detail == null ||
+        scrollController == null ||
+        !scrollController.hasClients) {
+      return false;
+    }
+
+    final pathStops = detail.stopsByPath[pathId] ?? const <StopInfo>[];
+    final targetIndex = pathStops.indexWhere((stop) => stop.stopId == stopId);
+    if (targetIndex == -1) {
+      return false;
+    }
+
+    final maxScrollExtent = scrollController.position.maxScrollExtent;
+    if (maxScrollExtent <= 0) {
+      return false;
+    }
+
+    final stopRatio = pathStops.length <= 1
+        ? 0.0
+        : targetIndex / (pathStops.length - 1);
+    final viewport = scrollController.position.viewportDimension;
+    final targetOffset = (maxScrollExtent * stopRatio) - (viewport * alignment);
+    await scrollController.animateTo(
+      targetOffset.clamp(0.0, maxScrollExtent),
+      duration: duration,
+      curve: Curves.easeOutCubic,
+    );
+    return true;
+  }
+
   int? get _currentPathId {
     final detail = _detail;
     final tabController = _tabController;
@@ -357,6 +409,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   int _keyForStop(int pathId, int stopId) {
     return Object.hash(pathId, stopId);
+  }
+
+  ScrollController _scrollControllerForPath(int pathId) {
+    return _scrollControllers.putIfAbsent(pathId, ScrollController.new);
   }
 
   void _syncWakelock(bool enable) {
@@ -826,6 +882,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                             final pathStops =
                                 detail.stopsByPath[path.pathId] ?? const [];
                             return ListView.separated(
+                              controller: _scrollControllerForPath(path.pathId),
                               padding: const EdgeInsets.fromLTRB(
                                 16,
                                 12,

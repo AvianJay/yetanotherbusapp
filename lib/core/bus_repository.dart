@@ -189,7 +189,14 @@ class BusRepository {
 
     final paths = await getPaths(routeKey, provider: provider);
     final stops = await getStopsByRoute(routeKey, provider: provider);
-    final liveMap = await _getLiveStopMap(routeKey);
+    var hasLiveData = true;
+    Map<int, _LiveStopPayload> liveMap;
+    try {
+      liveMap = await _getLiveStopMap(routeKey);
+    } catch (_) {
+      hasLiveData = false;
+      liveMap = const <int, _LiveStopPayload>{};
+    }
     final stopsByPath = <int, List<StopInfo>>{
       for (final path in paths) path.pathId: <StopInfo>[],
     };
@@ -217,6 +224,7 @@ class BusRepository {
       route: route,
       paths: paths,
       stopsByPath: stopsByPath,
+      hasLiveData: hasLiveData,
     );
   }
 
@@ -413,45 +421,41 @@ class BusRepository {
   }
 
   Future<Map<int, _LiveStopPayload>> _getLiveStopMap(int routeKey) async {
-    try {
-      final response = await _client.get(
-        Uri.parse('${_busServerBaseUrl}api/route/$routeKey'),
-      );
-      if (response.statusCode != 200) {
-        throw HttpException('即時資料暫時無法取得 (${response.statusCode})');
-      }
-
-      final xmlText = utf8.decode(zlib.decode(response.bodyBytes));
-      final document = XmlDocument.parse(xmlText);
-      final result = <int, _LiveStopPayload>{};
-
-      for (final stopElement in document.findAllElements('e')) {
-        final stopId = int.tryParse(stopElement.getAttribute('id') ?? '') ?? 0;
-        result[stopId] = _LiveStopPayload(
-          sec: int.tryParse(stopElement.getAttribute('sec') ?? ''),
-          msg: stopElement.getAttribute('msg'),
-          t: stopElement.getAttribute('t'),
-          buses: stopElement
-              .findElements('b')
-              .map(
-                (busElement) => BusVehicle(
-                  id: busElement.getAttribute('id') ?? '',
-                  type: busElement.getAttribute('type') ?? '',
-                  note: busElement.getAttribute('note') ?? '',
-                  full: busElement.getAttribute('full') == '1',
-                  carOnStop:
-                      busElement.getAttribute('carOnStop')?.toLowerCase() ==
-                      'true',
-                ),
-              )
-              .toList(),
-        );
-      }
-
-      return result;
-    } catch (_) {
-      return {};
+    final response = await _client.get(
+      Uri.parse('${_busServerBaseUrl}api/route/$routeKey'),
+    );
+    if (response.statusCode != 200) {
+      throw HttpException('即時資料暫時無法取得 (${response.statusCode})');
     }
+
+    final xmlText = utf8.decode(zlib.decode(response.bodyBytes));
+    final document = XmlDocument.parse(xmlText);
+    final result = <int, _LiveStopPayload>{};
+
+    for (final stopElement in document.findAllElements('e')) {
+      final stopId = int.tryParse(stopElement.getAttribute('id') ?? '') ?? 0;
+      result[stopId] = _LiveStopPayload(
+        sec: int.tryParse(stopElement.getAttribute('sec') ?? ''),
+        msg: stopElement.getAttribute('msg'),
+        t: stopElement.getAttribute('t'),
+        buses: stopElement
+            .findElements('b')
+            .map(
+              (busElement) => BusVehicle(
+                id: busElement.getAttribute('id') ?? '',
+                type: busElement.getAttribute('type') ?? '',
+                note: busElement.getAttribute('note') ?? '',
+                full: busElement.getAttribute('full') == '1',
+                carOnStop:
+                    busElement.getAttribute('carOnStop')?.toLowerCase() ==
+                    'true',
+              ),
+            )
+            .toList(),
+      );
+    }
+
+    return result;
   }
 
   Future<Database> _openDatabase(BusProvider provider) async {

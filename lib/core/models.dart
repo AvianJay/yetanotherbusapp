@@ -336,11 +336,13 @@ class RouteDetailData {
     required this.route,
     required this.paths,
     required this.stopsByPath,
+    required this.hasLiveData,
   });
 
   final RouteSummary route;
   final List<PathInfo> paths;
   final Map<int, List<StopInfo>> stopsByPath;
+  final bool hasLiveData;
 }
 
 class NearbyStopResult {
@@ -392,7 +394,15 @@ EtaPresentation buildEtaPresentation(
     );
   }
 
-  final seconds = stop.sec ?? -1;
+  final seconds = stop.sec;
+  if (seconds == null) {
+    return const EtaPresentation(
+      text: '--',
+      backgroundColor: Color(0xFF364152),
+      foregroundColor: Color(0xFFD8E2F1),
+    );
+  }
+
   if (seconds <= 0) {
     return EtaPresentation(
       text: '進站中',
@@ -418,6 +428,13 @@ EtaPresentation buildEtaPresentation(
     backgroundColor: urgent ? Colors.orange.shade700 : const Color(0xFFE2F4F1),
     foregroundColor: urgent ? Colors.white : const Color(0xFF0D4E57),
   );
+}
+
+bool hasRealtimeStopData(StopInfo stop) {
+  return stop.sec != null ||
+      (stop.msg?.trim().isNotEmpty ?? false) ||
+      (stop.t?.trim().isNotEmpty ?? false) ||
+      stop.buses.isNotEmpty;
 }
 
 String formatDistance(double meters) {

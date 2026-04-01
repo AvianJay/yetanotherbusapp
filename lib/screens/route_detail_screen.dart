@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../app/bus_app.dart';
@@ -33,11 +35,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   RouteDetailData? _detail;
   Timer? _countdownTimer;
   TabController? _tabController;
+  StreamSubscription<Position>? _positionSubscription;
+  Position? _lastPosition;
   int _remainingSeconds = 0;
   bool _didScrollToInitialStop = false;
   bool _isScrollingToInitialStop = false;
+  bool _didAutoScrollToCurrentLocation = false;
+  bool _didAttemptLocationTracking = false;
   bool? _wakelockEnabled;
   int? _targetInitialPathId;
+  Map<int, int> _nearestStopByPath = const <int, int>{};
   final Map<int, GlobalKey> _stopKeys = <int, GlobalKey>{};
 
   @override
@@ -59,6 +66,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   @override
   void dispose() {
     _countdownTimer?.cancel();
+    _positionSubscription?.cancel();
     _tabController?.dispose();
     if (_wakelockEnabled == true) {
       unawaited(_setWakelock(false));
@@ -68,15 +76,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   Future<void> _refresh() async {
     final controller = AppControllerScope.read(context);
+    final previousDetail = _detail;
 
     setState(() {
       _isLoading = true;
       _error = null;
-      _statusMessage = '讀取中...';
+      _statusMessage = '正在更新';
     });
 
     try {
-      final detail = await controller.getRouteDetail(
+      final fetchedDetail = await controller.getRouteDetail(
         widget.routeKey,
         provider: widget.provider,
       );
@@ -84,14 +93,25 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         return;
       }
 
-      _syncTabController(detail);
+      final displayDetail = !fetchedDetail.hasLiveData && previousDetail != null
+          ? _mergeDetailWithPreviousLiveData(fetchedDetail, previousDetail)
+          : fetchedDetail;
+
+      _syncTabController(displayDetail);
       setState(() {
-        _detail = detail;
+        _detail = displayDetail;
         _isLoading = false;
-        _statusMessage = null;
+        _error = null;
+        _statusMessage = fetchedDetail.hasLiveData ? null : '即時資訊暫時無法取得';
       });
-      _startCountdown(controller.settings.busUpdateTime);
+      _startCountdown(
+        fetchedDetail.hasLiveData
+            ? controller.settings.busUpdateTime
+            : controller.settings.busErrorUpdateTime,
+      );
       _scrollToInitialStopIfNeeded();
+      _recalculateNearestStops();
+      unawaited(_ensureLocationTracking());
     } catch (error) {
       if (!mounted) {
         return;
@@ -99,10 +119,51 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       setState(() {
         _isLoading = false;
         _error = '$error';
-        _statusMessage = '更新失敗，稍後重試';
+        _statusMessage = previousDetail == null ? '讀取失敗' : '更新失敗，保留上一筆資料';
       });
       _startCountdown(controller.settings.busErrorUpdateTime);
     }
+  }
+
+  RouteDetailData _mergeDetailWithPreviousLiveData(
+    RouteDetailData next,
+    RouteDetailData previous,
+  ) {
+    final previousStops = <int, StopInfo>{};
+    for (final entry in previous.stopsByPath.entries) {
+      for (final stop in entry.value) {
+        previousStops[_keyForStop(stop.pathId, stop.stopId)] = stop;
+      }
+    }
+
+    final mergedStopsByPath = <int, List<StopInfo>>{};
+    for (final entry in next.stopsByPath.entries) {
+      mergedStopsByPath[entry.key] = entry.value.map((stop) {
+        if (hasRealtimeStopData(stop)) {
+          return stop;
+        }
+
+        final previousStop =
+            previousStops[_keyForStop(stop.pathId, stop.stopId)];
+        if (previousStop == null || !hasRealtimeStopData(previousStop)) {
+          return stop;
+        }
+
+        return stop.copyWith(
+          sec: previousStop.sec,
+          msg: previousStop.msg,
+          t: previousStop.t,
+          buses: previousStop.buses,
+        );
+      }).toList();
+    }
+
+    return RouteDetailData(
+      route: next.route,
+      paths: next.paths,
+      stopsByPath: mergedStopsByPath,
+      hasLiveData: next.hasLiveData,
+    );
   }
 
   void _syncTabController(RouteDetailData detail) {
@@ -137,6 +198,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       }
       setState(() {});
       _scrollToInitialStopIfNeeded();
+      _maybeScrollToCurrentLocation();
     });
   }
 
@@ -200,33 +262,46 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   Future<void> _attemptScrollToInitialStop(int pathId, int stopId) async {
     _isScrollingToInitialStop = true;
     try {
-      for (var attempt = 0; attempt < 12; attempt++) {
-        await WidgetsBinding.instance.endOfFrame;
-        if (!mounted || _didScrollToInitialStop) {
-          return;
-        }
-        if (_currentPathId != pathId) {
-          return;
-        }
-
-        final key = _stopKeys[_keyForStop(pathId, stopId)];
-        final targetContext = key?.currentContext;
-        if (targetContext == null || !targetContext.mounted) {
-          continue;
-        }
-
-        await Scrollable.ensureVisible(
-          targetContext,
-          duration: const Duration(milliseconds: 360),
-          curve: Curves.easeOutCubic,
-          alignment: 0.28,
-        );
+      final didScroll = await _scrollToStop(pathId, stopId);
+      if (didScroll) {
         _didScrollToInitialStop = true;
-        return;
       }
     } finally {
       _isScrollingToInitialStop = false;
     }
+  }
+
+  Future<bool> _scrollToStop(
+    int pathId,
+    int stopId, {
+    double alignment = 0.28,
+    Duration duration = const Duration(milliseconds: 360),
+  }) async {
+    for (var attempt = 0; attempt < 12; attempt++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) {
+        return false;
+      }
+      if (_currentPathId != pathId) {
+        return false;
+      }
+
+      final key = _stopKeys[_keyForStop(pathId, stopId)];
+      final targetContext = key?.currentContext;
+      if (targetContext == null || !targetContext.mounted) {
+        continue;
+      }
+
+      await Scrollable.ensureVisible(
+        targetContext,
+        duration: duration,
+        curve: Curves.easeOutCubic,
+        alignment: alignment,
+      );
+      return true;
+    }
+
+    return false;
   }
 
   int? get _currentPathId {
@@ -255,8 +330,115 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     try {
       await WakelockPlus.toggle(enable: enable);
     } catch (_) {
-      // Ignore unsupported platform or plugin errors and keep the page usable.
+      // Ignore unsupported platform or plugin errors.
     }
+  }
+
+  Future<void> _ensureLocationTracking() async {
+    if (_didAttemptLocationTracking) {
+      return;
+    }
+    _didAttemptLocationTracking = true;
+
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return;
+    }
+
+    final lastKnown = await Geolocator.getLastKnownPosition();
+    if (lastKnown != null) {
+      _updateNearestStops(lastKnown);
+    }
+
+    final current = await Geolocator.getCurrentPosition();
+    if (!mounted) {
+      return;
+    }
+    _updateNearestStops(current);
+
+    _positionSubscription = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+      ),
+    ).listen(_updateNearestStops);
+  }
+
+  void _recalculateNearestStops() {
+    final lastPosition = _lastPosition;
+    if (lastPosition != null) {
+      _updateNearestStops(lastPosition);
+    }
+  }
+
+  void _updateNearestStops(Position position) {
+    _lastPosition = position;
+    final detail = _detail;
+    if (detail == null) {
+      return;
+    }
+
+    final nearestByPath = <int, int>{};
+    for (final path in detail.paths) {
+      final pathStops = detail.stopsByPath[path.pathId] ?? const <StopInfo>[];
+      StopInfo? nearestStop;
+      double? nearestDistance;
+
+      for (final stop in pathStops) {
+        if (stop.lat == 0 && stop.lon == 0) {
+          continue;
+        }
+
+        final distance = Geolocator.distanceBetween(
+          position.latitude,
+          position.longitude,
+          stop.lat,
+          stop.lon,
+        );
+        if (nearestDistance == null || distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestStop = stop;
+        }
+      }
+
+      if (nearestStop != null) {
+        nearestByPath[path.pathId] = nearestStop.stopId;
+      }
+    }
+
+    if (!mapEquals(_nearestStopByPath, nearestByPath)) {
+      setState(() {
+        _nearestStopByPath = nearestByPath;
+      });
+    }
+    _maybeScrollToCurrentLocation();
+  }
+
+  void _maybeScrollToCurrentLocation() {
+    if (_didAutoScrollToCurrentLocation || widget.initialStopId != null) {
+      return;
+    }
+
+    final pathId = _currentPathId;
+    if (pathId == null) {
+      return;
+    }
+    final stopId = _nearestStopByPath[pathId];
+    if (stopId == null) {
+      return;
+    }
+
+    _didAutoScrollToCurrentLocation = true;
+    unawaited(_scrollToStop(pathId, stopId));
   }
 
   bool _isInitialStop(StopInfo stop) {
@@ -266,16 +448,45 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return _targetInitialPathId == null || _targetInitialPathId == stop.pathId;
   }
 
+  bool _isNearestStop(StopInfo stop) {
+    return _nearestStopByPath[stop.pathId] == stop.stopId;
+  }
+
+  Future<void> _openStopActions(StopInfo stop) async {
+    final action = await showDialog<_StopAction>(
+      context: context,
+      builder: (context) {
+        return SimpleDialog(
+          title: Text(stop.stopName),
+          children: [
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(_StopAction.favorite),
+              child: const Text('加入最愛'),
+            ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('取消'),
+            ),
+          ],
+        );
+      },
+    );
+    if (!mounted || action == null) {
+      return;
+    }
+
+    if (action == _StopAction.favorite) {
+      await _handleFavorite(stop);
+    }
+  }
+
   Future<void> _handleFavorite(StopInfo stop) async {
     final controller = AppControllerScope.read(context);
     String? groupName;
 
     if (controller.favoriteGroupNames.length > 1) {
       groupName = await _showGroupPicker(controller.favoriteGroupNames);
-      if (!mounted) {
-        return;
-      }
-      if (groupName == null) {
+      if (!mounted || groupName == null) {
         return;
       }
       if (groupName == '__new__') {
@@ -360,15 +571,44 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return result;
   }
 
-  Widget _buildStopChip({required Widget label, Widget? avatar}) {
-    return Chip(
-      avatar: avatar,
-      label: label,
-      padding: EdgeInsets.zero,
-      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      visualDensity: VisualDensity.compact,
-    );
+  Widget? _buildTrailingStatus(
+    ThemeData theme,
+    StopInfo stop, {
+    required bool isNearest,
+  }) {
+    if (stop.buses.isNotEmpty) {
+      final vehicle = stop.buses.first;
+      final backgroundColor = isNearest
+          ? Colors.cyan.shade400
+          : (vehicle.id.startsWith('E') || vehicle.id.endsWith('FV'))
+          ? Colors.amber.shade600
+          : theme.colorScheme.primary;
+      final foregroundColor = backgroundColor.computeLuminance() > 0.6
+          ? Colors.black87
+          : Colors.white;
+
+      return _RouteStatusPill(
+        icon: isNearest
+            ? Icons.gps_fixed_rounded
+            : vehicle.type == '1'
+            ? Icons.accessible_rounded
+            : Icons.directions_bus_rounded,
+        label: vehicle.id,
+        backgroundColor: backgroundColor,
+        foregroundColor: foregroundColor,
+      );
+    }
+
+    if (isNearest) {
+      return const _RouteStatusPill(
+        icon: Icons.gps_fixed_rounded,
+        label: '目前位置',
+        backgroundColor: Color(0xFF4CAF50),
+        foregroundColor: Colors.white,
+      );
+    }
+
+    return null;
   }
 
   Widget _buildStopTile(
@@ -376,88 +616,67 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     StopInfo stop, {
     required bool alwaysShowSeconds,
     required bool isHighlighted,
+    required bool isNearest,
   }) {
-    final message = (stop.msg ?? '').trim();
-    final vehicle = stop.buses.isEmpty ? null : stop.buses.first;
+    final trailingStatus = _buildTrailingStatus(
+      theme,
+      stop,
+      isNearest: isNearest,
+    );
 
-    return Card(
-      margin: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(
-          color: isHighlighted
-              ? theme.colorScheme.secondary
-              : theme.colorScheme.outlineVariant,
-        ),
-      ),
-      color: isHighlighted ? theme.colorScheme.secondaryContainer : null,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            EtaBadge(
-              stop: stop,
-              alwaysShowSeconds: alwaysShowSeconds,
-              size: 50,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 2),
+    return Material(
+      color: isHighlighted
+          ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.45)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => unawaited(_openStopActions(stop)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              EtaBadge(
+                stop: stop,
+                alwaysShowSeconds: alwaysShowSeconds,
+                size: 58,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      stop.stopName,
-                      style: theme.textTheme.titleSmall?.copyWith(
+                      stop.stopName.replaceAll('(', '\n('),
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontSize: 18,
                         fontWeight: FontWeight.w600,
-                        height: 1.15,
+                        color: theme.colorScheme.primary,
+                        height: 1.2,
                       ),
                     ),
-                    if (message.isNotEmpty || vehicle != null) ...[
-                      const SizedBox(height: 4),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: [
-                          if (message.isNotEmpty)
-                            _buildStopChip(label: Text(message)),
-                          if (vehicle != null)
-                            _buildStopChip(
-                              avatar: Icon(
-                                vehicle.type == '1'
-                                    ? Icons.accessible_rounded
-                                    : Icons.directions_bus_rounded,
-                                size: 16,
-                              ),
-                              label: Text(vehicle.id),
-                            ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            height: 1,
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                        ),
+                        if (trailingStatus != null) ...[
+                          const SizedBox(width: 12),
+                          trailingStatus,
                         ],
-                      ),
-                    ],
+                      ],
+                    ),
                   ],
                 ),
               ),
-            ),
-            PopupMenuButton<_StopAction>(
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-              icon: const Icon(Icons.more_horiz_rounded, size: 20),
-              onSelected: (value) {
-                if (value == _StopAction.favorite) {
-                  _handleFavorite(stop);
-                }
-              },
-              itemBuilder: (context) => const [
-                PopupMenuItem<_StopAction>(
-                  value: _StopAction.favorite,
-                  child: Text('加入最愛'),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -474,11 +693,21 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final progress = updateSeconds <= 0
         ? null
         : ((updateSeconds - _remainingSeconds) / updateSeconds).clamp(0.0, 1.0);
+    final currentPathId = _currentPathId;
+    final currentNearestStopId = currentPathId == null
+        ? null
+        : _nearestStopByPath[currentPathId];
 
     return Scaffold(
       appBar: AppBar(
         title: Text(detail?.route.routeName ?? '公車資訊'),
         actions: [
+          if (currentPathId != null && currentNearestStopId != null)
+            IconButton(
+              onPressed: () =>
+                  unawaited(_scrollToStop(currentPathId, currentNearestStopId)),
+              icon: const Icon(Icons.gps_fixed_rounded),
+            ),
           IconButton(
             onPressed: _refresh,
             icon: const Icon(Icons.refresh_rounded),
@@ -561,10 +790,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                             final pathStops =
                                 detail.stopsByPath[path.pathId] ?? const [];
                             return ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                              padding: const EdgeInsets.fromLTRB(
+                                16,
+                                12,
+                                16,
+                                20,
+                              ),
                               itemCount: pathStops.length,
                               separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 6),
+                                  const SizedBox(height: 18),
                               itemBuilder: (context, index) {
                                 final stop = pathStops[index];
                                 final key = _stopKeys.putIfAbsent(
@@ -579,6 +813,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                                     alwaysShowSeconds:
                                         controller.settings.alwaysShowSeconds,
                                     isHighlighted: _isInitialStop(stop),
+                                    isNearest: _isNearestStop(stop),
                                   ),
                                 );
                               },
@@ -588,6 +823,45 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _RouteStatusPill extends StatelessWidget {
+  const _RouteStatusPill({
+    required this.icon,
+    required this.label,
+    required this.backgroundColor,
+    required this.foregroundColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color backgroundColor;
+  final Color foregroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: foregroundColor),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: foregroundColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

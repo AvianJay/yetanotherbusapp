@@ -693,12 +693,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final controller = AppControllerScope.of(context);
     final detail = _detail;
     final theme = Theme.of(context);
-    final updateSeconds = _error == null
-        ? controller.settings.busUpdateTime
-        : controller.settings.busErrorUpdateTime;
-    final progress = updateSeconds <= 0
-        ? null
-        : ((updateSeconds - _remainingSeconds) / updateSeconds).clamp(0.0, 1.0);
     final currentPathId = _currentPathId;
     final currentNearestStopId = currentPathId == null
         ? null
@@ -746,14 +740,24 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           ),
         ],
       ),
-      bottomNavigationBar: BottomAppBar(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 0, 0, 2),
+      bottomNavigationBar: Material(
+        color: theme.bottomAppBarTheme.color ?? theme.colorScheme.surface,
+        child: SafeArea(
+          top: false,
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              LinearProgressIndicator(value: progress),
-              const SizedBox(height: 5),
+              AnimatedBuilder(
+                animation: _countdownProgressController,
+                builder: (context, child) {
+                  return LinearProgressIndicator(
+                    value: _countdownProgressController.value,
+                    minHeight: 4,
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(

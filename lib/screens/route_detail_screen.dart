@@ -657,7 +657,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         height: 1.2,
                       ),
                     ),
-                    // const SizedBox(height: 8),
+                    const SizedBox(),
                     Expanded(
                       child: Container(
                         height: 1,

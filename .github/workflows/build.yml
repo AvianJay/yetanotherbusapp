@@ -13,6 +13,12 @@ concurrency:
 
 env:
   FLUTTER_VERSION: 3.41.6
+  APP_REPO_OWNER: AvianJay
+  APP_REPO_NAME: yetanotherbusapp
+  APP_WORKFLOW_API_ID: build.yml
+  APP_WORKFLOW_NIGHTLY_ID: build
+  APP_NIGHTLY_ARTIFACT: android-apk-release
+  APP_UPDATE_CHANNEL: nightly
 
 jobs:
   verify:
@@ -93,7 +99,15 @@ jobs:
           fi
 
       - name: Build APK
-        run: flutter build apk --release
+        run: >
+          flutter build apk --release
+          --dart-define=APP_GIT_SHA=${{ github.sha }}
+          --dart-define=APP_UPDATE_CHANNEL=${{ env.APP_UPDATE_CHANNEL }}
+          --dart-define=APP_REPO_OWNER=${{ env.APP_REPO_OWNER }}
+          --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
+          --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
+          --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=${{ env.APP_NIGHTLY_ARTIFACT }}
 
       - name: Upload Android artifact
         uses: actions/upload-artifact@v6
@@ -121,7 +135,15 @@ jobs:
         run: flutter pub get
 
       - name: Build Web
-        run: flutter build web --release
+        run: >
+          flutter build web --release
+          --dart-define=APP_GIT_SHA=${{ github.sha }}
+          --dart-define=APP_UPDATE_CHANNEL=${{ env.APP_UPDATE_CHANNEL }}
+          --dart-define=APP_REPO_OWNER=${{ env.APP_REPO_OWNER }}
+          --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
+          --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
+          --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=${{ env.APP_NIGHTLY_ARTIFACT }}
 
       - name: Upload Web artifact
         uses: actions/upload-artifact@v6
@@ -152,7 +174,15 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows
-        run: flutter build windows --release
+        run: >
+          flutter build windows --release
+          --dart-define=APP_GIT_SHA=${{ github.sha }}
+          --dart-define=APP_UPDATE_CHANNEL=${{ env.APP_UPDATE_CHANNEL }}
+          --dart-define=APP_REPO_OWNER=${{ env.APP_REPO_OWNER }}
+          --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
+          --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
+          --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=${{ env.APP_NIGHTLY_ARTIFACT }}
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v6
@@ -188,7 +218,15 @@ jobs:
         run: flutter pub get
 
       - name: Build Linux
-        run: flutter build linux --release
+        run: >
+          flutter build linux --release
+          --dart-define=APP_GIT_SHA=${{ github.sha }}
+          --dart-define=APP_UPDATE_CHANNEL=${{ env.APP_UPDATE_CHANNEL }}
+          --dart-define=APP_REPO_OWNER=${{ env.APP_REPO_OWNER }}
+          --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
+          --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
+          --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=${{ env.APP_NIGHTLY_ARTIFACT }}
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v6
@@ -219,7 +257,15 @@ jobs:
         run: flutter pub get
 
       - name: Build macOS
-        run: flutter build macos --release
+        run: >
+          flutter build macos --release
+          --dart-define=APP_GIT_SHA=${{ github.sha }}
+          --dart-define=APP_UPDATE_CHANNEL=${{ env.APP_UPDATE_CHANNEL }}
+          --dart-define=APP_REPO_OWNER=${{ env.APP_REPO_OWNER }}
+          --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
+          --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
+          --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=${{ env.APP_NIGHTLY_ARTIFACT }}
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v6

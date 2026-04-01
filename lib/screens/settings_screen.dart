@@ -1,14 +1,39 @@
 import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
+import '../core/app_controller.dart';
 import '../core/models.dart';
+import '../widgets/app_update_dialog.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
+  Future<void> _checkAppUpdate(
+    BuildContext context,
+    AppController controller,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await controller.checkForAppUpdate();
+    if (!context.mounted) {
+      return;
+    }
+
+    if (result.hasUpdate) {
+      await showAppUpdateDialog(
+        context,
+        controller: controller,
+        result: result,
+      );
+      return;
+    }
+
+    messenger.showSnackBar(SnackBar(content: Text(result.message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
+    final buildInfo = controller.buildInfo;
 
     return Scaffold(
       appBar: AppBar(title: const Text('設定')),
@@ -24,7 +49,6 @@ class SettingsScreen extends StatelessWidget {
                   Text('外觀', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<ThemeMode>(
-                    key: ValueKey(controller.settings.themeMode),
                     initialValue: controller.settings.themeMode,
                     decoration: const InputDecoration(labelText: '主題'),
                     items: const [
@@ -58,10 +82,9 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('資料來源', style: Theme.of(context).textTheme.titleMedium),
+                  Text('資料庫', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<BusProvider>(
-                    key: ValueKey(controller.settings.provider),
                     initialValue: controller.settings.provider,
                     decoration: const InputDecoration(labelText: 'Provider'),
                     items: BusProvider.values
@@ -83,11 +106,10 @@ class SettingsScreen extends StatelessWidget {
                     future: controller.currentProviderLocalVersion(),
                     builder: (context, snapshot) {
                       final version = snapshot.data;
-                      return Text(
-                        version == null || version == 0
-                            ? '本機版本：尚未下載'
-                            : '本機版本：$version',
-                      );
+                      final text = version == null || version == 0
+                          ? '本機尚未下載資料庫'
+                          : '本機資料庫版本：$version';
+                      return Text(text);
                     },
                   ),
                   const SizedBox(height: 12),
@@ -107,14 +129,14 @@ class SettingsScreen extends StatelessWidget {
                                     return;
                                   }
                                   messenger.showSnackBar(
-                                    const SnackBar(content: Text('資料庫更新完成。')),
+                                    const SnackBar(content: Text('資料庫下載完成。')),
                                   );
                                 } catch (error) {
                                   if (!context.mounted) {
                                     return;
                                   }
                                   messenger.showSnackBar(
-                                    SnackBar(content: Text('更新失敗：$error')),
+                                    SnackBar(content: Text('下載資料庫失敗：$error')),
                                   );
                                 }
                               },
@@ -125,9 +147,9 @@ class SettingsScreen extends StatelessWidget {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : const Icon(Icons.sync_rounded),
+                            : const Icon(Icons.download_rounded),
                         label: Text(
-                          controller.downloadingDatabase ? '同步中...' : '同步資料庫',
+                          controller.downloadingDatabase ? '下載中…' : '下載最新資料庫',
                         ),
                       ),
                       OutlinedButton.icon(
@@ -142,8 +164,8 @@ class SettingsScreen extends StatelessWidget {
                             final lines = updates.entries
                                 .map(
                                   (entry) => entry.value == null
-                                      ? '${entry.key.label}：最新'
-                                      : '${entry.key.label}：可更新到 ${entry.value}',
+                                      ? '${entry.key.label}：無法取得版本'
+                                      : '${entry.key.label}：最新版本 ${entry.value}',
                                 )
                                 .join('\n');
                             messenger.showSnackBar(
@@ -154,12 +176,12 @@ class SettingsScreen extends StatelessWidget {
                               return;
                             }
                             messenger.showSnackBar(
-                              SnackBar(content: Text('檢查失敗：$error')),
+                              SnackBar(content: Text('檢查資料庫更新失敗：$error')),
                             );
                           }
                         },
                         icon: const Icon(Icons.cloud_outlined),
-                        label: const Text('檢查更新'),
+                        label: const Text('檢查資料庫更新'),
                       ),
                     ],
                   ),
@@ -174,18 +196,18 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('即時公車', style: Theme.of(context).textTheme.titleMedium),
+                  Text('顯示與更新', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 16),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('分鐘顯示秒數'),
+                    title: const Text('顯示秒數'),
                     value: controller.settings.alwaysShowSeconds,
                     onChanged: controller.updateAlwaysShowSeconds,
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('公車頁保持螢幕喚醒'),
-                    subtitle: const Text('開啟後在顯示站牌時不會自動熄屏'),
+                    title: const Text('公車頁面保持螢幕常亮'),
+                    subtitle: const Text('在路線詳情頁持續保持螢幕亮著。'),
                     value: controller.settings.keepScreenAwakeOnRouteDetail,
                     onChanged: controller.updateKeepScreenAwakeOnRouteDetail,
                   ),
@@ -202,7 +224,7 @@ class SettingsScreen extends StatelessWidget {
                     },
                   ),
                   const SizedBox(height: 8),
-                  Text('失敗重試間隔：${controller.settings.busErrorUpdateTime} 秒'),
+                  Text('錯誤後重試間隔：${controller.settings.busErrorUpdateTime} 秒'),
                   Slider(
                     min: 1,
                     max: 15,
@@ -224,9 +246,103 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(
+                    'App 更新',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  Text('目前版本：${buildInfo.displayVersion}'),
+                  Text('內建 commit：${buildInfo.shortGitSha}'),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<AppUpdateChannel>(
+                    initialValue: controller.settings.appUpdateChannel,
+                    decoration: const InputDecoration(labelText: '更新通道'),
+                    items: AppUpdateChannel.values
+                        .map(
+                          (channel) => DropdownMenuItem(
+                            value: channel,
+                            child: Text(channel.label),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        controller.updateAppUpdateChannel(value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<AppUpdateCheckMode>(
+                    initialValue: controller.settings.appUpdateCheckMode,
+                    decoration: const InputDecoration(labelText: '啟動時檢查'),
+                    items: AppUpdateCheckMode.values
+                        .map(
+                          (mode) => DropdownMenuItem(
+                            value: mode,
+                            child: Text(mode.label),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        controller.updateAppUpdateCheckMode(value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    controller.settings.appUpdateChannel.description,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    controller.settings.appUpdateCheckMode.description,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: controller.checkingAppUpdate
+                            ? null
+                            : () => _checkAppUpdate(context, controller),
+                        icon: controller.checkingAppUpdate
+                            ? const SizedBox.square(
+                                dimension: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.system_update_alt_rounded),
+                        label: Text(
+                          controller.checkingAppUpdate ? '檢查中…' : '檢查 app 更新',
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (controller.lastAppUpdateResult case final result?) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      '上次結果：${result.message}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text('搜尋紀錄', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 12),
-                  Text('最多保留：${controller.settings.maxHistory} 筆'),
+                  Text('最多保留 ${controller.settings.maxHistory} 筆'),
                   Slider(
                     min: 0,
                     max: 30,
@@ -256,7 +372,7 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('啟動導覽', style: Theme.of(context).textTheme.titleMedium),
+                  Text('首次啟動', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     onPressed: () async {
@@ -267,7 +383,7 @@ class SettingsScreen extends StatelessWidget {
                       Navigator.of(context).pop();
                     },
                     icon: const Icon(Icons.restart_alt_rounded),
-                    label: const Text('重新執行首次導覽'),
+                    label: const Text('重新開始設定流程'),
                   ),
                 ],
               ),

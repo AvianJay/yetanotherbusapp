@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_controller.dart';
+import '../core/models.dart';
 import '../screens/home_screen.dart';
 import '../screens/onboarding_screen.dart';
+import '../widgets/app_update_dialog.dart';
 
 class BusApp extends StatelessWidget {
   const BusApp({required this.controller, super.key});
@@ -22,9 +24,7 @@ class BusApp extends StatelessWidget {
             themeMode: controller.settings.themeMode,
             theme: _buildTheme(Brightness.light),
             darkTheme: _buildTheme(Brightness.dark),
-            home: controller.needsOnboarding
-                ? const OnboardingScreen()
-                : const HomeScreen(),
+            home: _AppHome(controller: controller),
           );
         },
       ),
@@ -78,6 +78,84 @@ class BusApp extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
     );
+  }
+}
+
+class _AppHome extends StatefulWidget {
+  const _AppHome({required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<_AppHome> createState() => _AppHomeState();
+}
+
+class _AppHomeState extends State<_AppHome> {
+  bool _startupCheckScheduled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _maybeScheduleStartupCheck();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AppHome oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _maybeScheduleStartupCheck();
+  }
+
+  void _maybeScheduleStartupCheck() {
+    if (_startupCheckScheduled || widget.controller.needsOnboarding) {
+      return;
+    }
+
+    _startupCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _runStartupCheck();
+    });
+  }
+
+  Future<void> _runStartupCheck() async {
+    final result = await widget.controller.maybeCheckForAppUpdateOnLaunch();
+    if (!mounted || result == null || !result.hasUpdate) {
+      return;
+    }
+
+    switch (widget.controller.settings.appUpdateCheckMode) {
+      case AppUpdateCheckMode.off:
+        return;
+      case AppUpdateCheckMode.notify:
+        final messenger = ScaffoldMessenger.maybeOf(context);
+        messenger?.showSnackBar(
+          SnackBar(
+            content: Text(result.message),
+            action: SnackBarAction(
+              label: '查看',
+              onPressed: () {
+                showAppUpdateDialog(
+                  context,
+                  controller: widget.controller,
+                  result: result,
+                );
+              },
+            ),
+          ),
+        );
+      case AppUpdateCheckMode.popup:
+        await showAppUpdateDialog(
+          context,
+          controller: widget.controller,
+          result: result,
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.controller.needsOnboarding
+        ? const OnboardingScreen()
+        : const HomeScreen();
   }
 }
 

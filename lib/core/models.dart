@@ -36,6 +36,77 @@ ThemeMode themeModeFromString(String value) {
   );
 }
 
+enum AppUpdateChannel {
+  developer,
+  nightly,
+  release;
+
+  String get label => switch (this) {
+    AppUpdateChannel.developer => '開發版',
+    AppUpdateChannel.nightly => 'Nightly',
+    AppUpdateChannel.release => 'Release',
+  };
+
+  String get description => switch (this) {
+    AppUpdateChannel.developer => '不檢查 app 更新',
+    AppUpdateChannel.nightly => '比對最新成功建置的 commit',
+    AppUpdateChannel.release => '比對 GitHub 最新發行版',
+  };
+}
+
+AppUpdateChannel appUpdateChannelFromString(String value) {
+  return AppUpdateChannel.values.firstWhere(
+    (channel) => channel.name == value,
+    orElse: () => _defaultAppUpdateChannel(),
+  );
+}
+
+AppUpdateChannel _defaultAppUpdateChannel() {
+  return appUpdateChannelFromStringConst(
+    const String.fromEnvironment('APP_UPDATE_CHANNEL', defaultValue: 'nightly'),
+  );
+}
+
+AppUpdateChannel appUpdateChannelFromStringConst(String value) {
+  return switch (value) {
+    'developer' => AppUpdateChannel.developer,
+    'release' => AppUpdateChannel.release,
+    _ => AppUpdateChannel.nightly,
+  };
+}
+
+enum AppUpdateCheckMode {
+  off,
+  notify,
+  popup;
+
+  String get label => switch (this) {
+    AppUpdateCheckMode.off => '關閉',
+    AppUpdateCheckMode.notify => '通知',
+    AppUpdateCheckMode.popup => '跳窗',
+  };
+
+  String get description => switch (this) {
+    AppUpdateCheckMode.off => '只在手動檢查時顯示',
+    AppUpdateCheckMode.notify => '啟動後用通知提示',
+    AppUpdateCheckMode.popup => '啟動後直接跳出更新視窗',
+  };
+}
+
+AppUpdateCheckMode appUpdateCheckModeFromString(String value) {
+  return AppUpdateCheckMode.values.firstWhere(
+    (mode) => mode.name == value,
+    orElse: () =>
+        const String.fromEnvironment(
+              'APP_UPDATE_CHANNEL',
+              defaultValue: 'nightly',
+            ) ==
+            'developer'
+        ? AppUpdateCheckMode.off
+        : AppUpdateCheckMode.popup,
+  );
+}
+
 class AppSettings {
   const AppSettings({
     required this.provider,
@@ -46,10 +117,12 @@ class AppSettings {
     required this.busErrorUpdateTime,
     required this.maxHistory,
     required this.hasCompletedOnboarding,
+    required this.appUpdateChannel,
+    required this.appUpdateCheckMode,
   });
 
   factory AppSettings.defaults() {
-    return const AppSettings(
+    return AppSettings(
       provider: BusProvider.twn,
       themeMode: ThemeMode.system,
       alwaysShowSeconds: false,
@@ -58,6 +131,15 @@ class AppSettings {
       busErrorUpdateTime: 3,
       maxHistory: 10,
       hasCompletedOnboarding: false,
+      appUpdateChannel: _defaultAppUpdateChannel(),
+      appUpdateCheckMode:
+          const String.fromEnvironment(
+                'APP_UPDATE_CHANNEL',
+                defaultValue: 'nightly',
+              ) ==
+              'developer'
+          ? AppUpdateCheckMode.off
+          : AppUpdateCheckMode.popup,
     );
   }
 
@@ -72,6 +154,23 @@ class AppSettings {
       busErrorUpdateTime: json['busErrorUpdateTime'] as int? ?? 3,
       maxHistory: json['maxHistory'] as int? ?? 10,
       hasCompletedOnboarding: json['hasCompletedOnboarding'] as bool? ?? false,
+      appUpdateChannel: appUpdateChannelFromString(
+        json['appUpdateChannel'] as String? ??
+            const String.fromEnvironment(
+              'APP_UPDATE_CHANNEL',
+              defaultValue: 'nightly',
+            ),
+      ),
+      appUpdateCheckMode: appUpdateCheckModeFromString(
+        json['appUpdateCheckMode'] as String? ??
+            (const String.fromEnvironment(
+                      'APP_UPDATE_CHANNEL',
+                      defaultValue: 'nightly',
+                    ) ==
+                    'developer'
+                ? 'off'
+                : 'popup'),
+      ),
     );
   }
 
@@ -83,6 +182,8 @@ class AppSettings {
   final int busErrorUpdateTime;
   final int maxHistory;
   final bool hasCompletedOnboarding;
+  final AppUpdateChannel appUpdateChannel;
+  final AppUpdateCheckMode appUpdateCheckMode;
 
   AppSettings copyWith({
     BusProvider? provider,
@@ -93,6 +194,8 @@ class AppSettings {
     int? busErrorUpdateTime,
     int? maxHistory,
     bool? hasCompletedOnboarding,
+    AppUpdateChannel? appUpdateChannel,
+    AppUpdateCheckMode? appUpdateCheckMode,
   }) {
     return AppSettings(
       provider: provider ?? this.provider,
@@ -105,6 +208,8 @@ class AppSettings {
       maxHistory: maxHistory ?? this.maxHistory,
       hasCompletedOnboarding:
           hasCompletedOnboarding ?? this.hasCompletedOnboarding,
+      appUpdateChannel: appUpdateChannel ?? this.appUpdateChannel,
+      appUpdateCheckMode: appUpdateCheckMode ?? this.appUpdateCheckMode,
     );
   }
 
@@ -118,6 +223,8 @@ class AppSettings {
       'busErrorUpdateTime': busErrorUpdateTime,
       'maxHistory': maxHistory,
       'hasCompletedOnboarding': hasCompletedOnboarding,
+      'appUpdateChannel': appUpdateChannel.name,
+      'appUpdateCheckMode': appUpdateCheckMode.name,
     };
   }
 }

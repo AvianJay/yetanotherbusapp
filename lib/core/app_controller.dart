@@ -1,16 +1,28 @@
 import 'package:flutter/material.dart';
 
+import 'app_build_info.dart';
+import 'app_update_installer.dart';
+import 'app_update_service.dart';
 import 'bus_repository.dart';
 import 'models.dart';
 import 'storage_service.dart';
 
 class AppController extends ChangeNotifier {
-  AppController({required this.repository, required this.storage});
+  AppController({
+    required this.repository,
+    required this.storage,
+    required this.buildInfo,
+    required this.appUpdateService,
+    required this.appUpdateInstaller,
+  });
 
   static const defaultFavoriteGroupName = '我的最愛';
 
   final BusRepository repository;
   final StorageService storage;
+  final AppBuildInfo buildInfo;
+  final AppUpdateService appUpdateService;
+  final AppUpdateInstaller appUpdateInstaller;
 
   AppSettings _settings = AppSettings.defaults();
   List<SearchHistoryEntry> _history = const [];
@@ -19,6 +31,9 @@ class AppController extends ChangeNotifier {
   bool _databaseReady = false;
   bool _checkingDatabase = false;
   bool _downloadingDatabase = false;
+  bool _checkingAppUpdate = false;
+  bool _startupAppUpdateChecked = false;
+  AppUpdateCheckResult? _lastAppUpdateResult;
 
   AppSettings get settings => _settings;
   List<SearchHistoryEntry> get history => List.unmodifiable(_history);
@@ -30,6 +45,8 @@ class AppController extends ChangeNotifier {
   bool get checkingDatabase => _checkingDatabase;
   bool get downloadingDatabase => _downloadingDatabase;
   bool get needsOnboarding => !_settings.hasCompletedOnboarding;
+  bool get checkingAppUpdate => _checkingAppUpdate;
+  AppUpdateCheckResult? get lastAppUpdateResult => _lastAppUpdateResult;
 
   Future<void> initialize() async {
     _settings = await storage.loadSettings();
@@ -96,6 +113,18 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateAppUpdateChannel(AppUpdateChannel value) async {
+    _settings = _settings.copyWith(appUpdateChannel: value);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updateAppUpdateCheckMode(AppUpdateCheckMode value) async {
+    _settings = _settings.copyWith(appUpdateCheckMode: value);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
   Future<void> completeOnboarding() async {
     _settings = _settings.copyWith(hasCompletedOnboarding: true);
     await storage.saveSettings(_settings);
@@ -122,6 +151,47 @@ class AppController extends ChangeNotifier {
 
   Future<Map<BusProvider, int?>> checkDatabaseUpdates() {
     return repository.checkForUpdates();
+  }
+
+  Future<AppUpdateCheckResult> checkForAppUpdate({
+    AppUpdateChannel? channel,
+  }) async {
+    if (_checkingAppUpdate) {
+      return _lastAppUpdateResult ??
+          const AppUpdateCheckResult(
+            status: AppUpdateStatus.unavailable,
+            message: '正在檢查更新中，請稍候。',
+          );
+    }
+
+    _checkingAppUpdate = true;
+    notifyListeners();
+    try {
+      final result = await appUpdateService.checkForUpdates(
+        channel ?? _settings.appUpdateChannel,
+      );
+      _lastAppUpdateResult = result;
+      return result;
+    } finally {
+      _checkingAppUpdate = false;
+      notifyListeners();
+    }
+  }
+
+  Future<AppUpdateCheckResult?> maybeCheckForAppUpdateOnLaunch() async {
+    if (_startupAppUpdateChecked ||
+        _settings.appUpdateCheckMode == AppUpdateCheckMode.off) {
+      return null;
+    }
+    _startupAppUpdateChecked = true;
+    return checkForAppUpdate();
+  }
+
+  Future<AppUpdateInstallResult> installAppUpdate(
+    AppUpdateInfo update, {
+    AppUpdateInstallProgressCallback? onProgress,
+  }) {
+    return appUpdateInstaller.installUpdate(update, onProgress: onProgress);
   }
 
   Future<int?> currentProviderLocalVersion() {

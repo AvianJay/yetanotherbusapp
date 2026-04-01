@@ -34,6 +34,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   String? _statusMessage;
   RouteDetailData? _detail;
   Timer? _countdownTimer;
+  late final AnimationController _countdownProgressController;
   TabController? _tabController;
   StreamSubscription<Position>? _positionSubscription;
   Position? _lastPosition;
@@ -50,6 +51,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   @override
   void initState() {
     super.initState();
+    _countdownProgressController = AnimationController(vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_refresh());
     });
@@ -66,6 +68,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   @override
   void dispose() {
     _countdownTimer?.cancel();
+    _countdownProgressController.dispose();
     _positionSubscription?.cancel();
     _tabController?.dispose();
     if (_wakelockEnabled == true) {
@@ -224,6 +227,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   void _startCountdown(int seconds) {
     _countdownTimer?.cancel();
     _remainingSeconds = seconds;
+    _countdownProgressController
+      ..stop()
+      ..duration = Duration(seconds: seconds <= 0 ? 1 : seconds)
+      ..value = 0;
+    if (seconds > 0) {
+      unawaited(_countdownProgressController.forward(from: 0));
+    }
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();

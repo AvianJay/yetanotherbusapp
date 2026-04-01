@@ -773,6 +773,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                   TabBar(
                     controller: _tabController,
                     isScrollable: true,
+                    tabAlignment: TabAlignment.fill,
                     tabs: detail.paths
                         .map((path) => Tab(text: path.name))
                         .toList(),

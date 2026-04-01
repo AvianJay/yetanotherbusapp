@@ -50,6 +50,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     });
 
     try {
+      var shouldAdvance = false;
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         setState(() {
@@ -72,6 +73,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           LocationPermission.unableToDetermine => '目前無法判斷定位權限狀態。',
         };
       });
+      shouldAdvance = permission == LocationPermission.always ||
+          permission == LocationPermission.whileInUse;
+
+      if (shouldAdvance) {
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+        if (mounted && _stepIndex == 2) {
+          await _nextStep();
+        }
+      }
     } catch (error) {
       setState(() {
         _permissionMessage = '定位權限請求失敗：$error';

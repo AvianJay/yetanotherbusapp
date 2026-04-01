@@ -20,7 +20,7 @@ class EtaBadge extends StatelessWidget {
       stop,
       alwaysShowSeconds: alwaysShowSeconds,
     );
-    final fontSize = eta.text.contains('\n') ? size * 0.21 : size * 0.24;
+    final fontSize = size * 0.24;
 
     return Container(
       width: size,

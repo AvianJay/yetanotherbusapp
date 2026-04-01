@@ -250,6 +250,37 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     });
   }
 
+  Widget _buildBottomProgressIndicator() {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 260),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        return SizeTransition(
+          sizeFactor: animation,
+          axis: Axis.horizontal,
+          axisAlignment: -1,
+          child: child,
+        );
+      },
+      child: _isLoading
+          ? const LinearProgressIndicator(
+              key: ValueKey('loading-progress'),
+              minHeight: 4,
+            )
+          : AnimatedBuilder(
+              key: const ValueKey('countdown-progress'),
+              animation: _countdownProgressController,
+              builder: (context, child) {
+                return LinearProgressIndicator(
+                  value: _countdownProgressController.value,
+                  minHeight: 4,
+                );
+              },
+            ),
+    );
+  }
+
   void _scrollToInitialStopIfNeeded() {
     if (_didScrollToInitialStop ||
         _isScrollingToInitialStop ||
@@ -748,24 +779,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              AnimatedBuilder(
-                animation: _countdownProgressController,
-                builder: (context, child) {
-                  return LinearProgressIndicator(
-                    value: _countdownProgressController.value,
-                    minHeight: 4,
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  _statusMessage ??
-                      (_remainingSeconds > 0
-                          ? '$_remainingSeconds 秒後更新'
-                          : '正在更新'),
-                  style: theme.textTheme.bodySmall,
+              _buildBottomProgressIndicator(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _statusMessage ??
+                        (_remainingSeconds > 0
+                            ? '$_remainingSeconds 秒後更新'
+                            : '正在更新'),
+                    style: theme.textTheme.bodySmall,
+                  ),
                 ),
               ),
             ],

@@ -27,6 +27,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
   String? _statusMessage;
   String? _loadedGroupName;
   String _loadedSignature = '';
+  String? _refreshingGroupName;
+  String _refreshingSignature = '';
   bool _refreshScheduled = false;
   int _refreshRequestId = 0;
   int _remainingSeconds = 0;
@@ -59,6 +61,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       _statusMessage = null;
       _loadedGroupName = null;
       _loadedSignature = '';
+      _refreshingGroupName = null;
+      _refreshingSignature = '';
       return;
     }
 
@@ -132,6 +136,11 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     final signature = _favoritesSignature(
       controller.favoritesInGroup(groupName),
     );
+    if (_isLoading &&
+        groupName == _refreshingGroupName &&
+        signature == _refreshingSignature) {
+      return;
+    }
     if (groupName != _loadedGroupName || signature != _loadedSignature) {
       _scheduleRefresh(forceResolveStatic: true);
     }
@@ -217,6 +226,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     setState(() {
       _isLoading = true;
       _error = null;
+      _refreshingGroupName = groupName;
+      _refreshingSignature = signature;
       _statusMessage = '正在更新';
     });
 
@@ -313,6 +324,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
         _isLoading = false;
         _error = null;
         _statusMessage = nextStatusMessage;
+        _refreshingGroupName = null;
+        _refreshingSignature = '';
       });
 
       _startCountdown(
@@ -328,6 +341,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       setState(() {
         _isLoading = false;
         _error = '$error';
+        _refreshingGroupName = null;
+        _refreshingSignature = '';
         _statusMessage = _items.isEmpty ? '載入失敗' : '更新失敗，保留上一筆資料';
       });
       _startCountdown(controller.settings.busErrorUpdateTime);
@@ -490,34 +505,32 @@ class _FavoritesScreenState extends State<FavoritesScreen>
           child: Card(
             child: ListTile(
               contentPadding: const EdgeInsets.all(14),
-              leading: Container(
-                width: 56,
-                height: 56,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Text(
-                  item.route.routeName,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelMedium,
+              leading: EtaBadge(
+                stop: item.stop,
+                alwaysShowSeconds: controller.settings.alwaysShowSeconds,
+                size: 52,
+              ),
+              title: RichText(
+                text: TextSpan(
+                  style: Theme.of(context).textTheme.titleMedium,
+                  children: [
+                    TextSpan(
+                      text: '${item.route.routeName} ',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    TextSpan(text: item.stop.stopName),
+                  ],
                 ),
               ),
-              title: Text(item.stop.stopName),
               subtitle: Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
                   '${item.reference.provider.label} · '
                   '${item.route.description.isEmpty ? "routeKey ${item.route.routeKey}" : item.route.description}',
                 ),
-              ),
-              trailing: EtaBadge(
-                stop: item.stop,
-                alwaysShowSeconds: controller.settings.alwaysShowSeconds,
-                size: 52,
               ),
               onTap: () {
                 Navigator.of(context).push(

@@ -920,7 +920,7 @@ class RouteTripMonitorService : Service() {
     }
 
     private fun supportsFrameworkLiveUpdate(): Boolean {
-        return Build.VERSION.SDK_INT >= LIVE_UPDATE_SDK_INT
+        return false
     }
 
     companion object {

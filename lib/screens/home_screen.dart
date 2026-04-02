@@ -50,7 +50,7 @@ class HomeScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Yet Another Bus App',
+                      '又一個公車的 App。',
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     // const SizedBox(height: 8),

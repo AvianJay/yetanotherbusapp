@@ -49,6 +49,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _isScrollingToInitialStop = false;
   bool _didAutoScrollToCurrentLocation = false;
   bool _didAttemptLocationTracking = false;
+  bool _didRecordRouteVisit = false;
   bool? _wakelockEnabled;
   bool _backgroundTripMonitorReady = false;
   bool _backgroundTripMonitorPromptInProgress = false;
@@ -167,6 +168,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _error = null;
         _statusMessage = fetchedDetail.hasLiveData ? null : '即時資訊暫時無法取得';
       });
+      if (!_didRecordRouteVisit) {
+        _didRecordRouteVisit = true;
+        unawaited(
+          controller.recordRouteVisit(
+            displayDetail.route,
+            provider: widget.provider,
+          ),
+        );
+      }
       _startCountdown(
         fetchedDetail.hasLiveData
             ? controller.settings.busUpdateTime

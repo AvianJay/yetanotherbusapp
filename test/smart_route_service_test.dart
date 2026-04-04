@@ -1,0 +1,69 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:taiwanbus_flutter/core/models.dart';
+import 'package:taiwanbus_flutter/core/smart_route_service.dart';
+
+void main() {
+  test('recordOpen increments total and hourly counters', () {
+    const profile = RouteUsageProfile(
+      provider: BusProvider.twn,
+      routeKey: 12,
+      routeName: '307',
+      totalOpens: 2,
+      lastOpenedAtMs: 0,
+      hourlyOpens: <int, int>{7: 2},
+    );
+
+    final updated = profile.recordOpen(
+      DateTime(2026, 4, 4, 7, 30),
+      routeName: '307',
+    );
+
+    expect(updated.totalOpens, 3);
+    expect(updated.countAtHour(7), 3);
+    expect(updated.preferredHour, 7);
+  });
+
+  test('chooseProfileForTime prefers the route used in this time window', () {
+    const morningRoute = RouteUsageProfile(
+      provider: BusProvider.twn,
+      routeKey: 101,
+      routeName: '307',
+      totalOpens: 8,
+      lastOpenedAtMs: 1712000000000,
+      hourlyOpens: <int, int>{7: 5, 8: 2},
+    );
+    const nightRoute = RouteUsageProfile(
+      provider: BusProvider.twn,
+      routeKey: 102,
+      routeName: '300',
+      totalOpens: 20,
+      lastOpenedAtMs: 1712000000000,
+      hourlyOpens: <int, int>{21: 10},
+    );
+
+    final result = SmartRouteService.chooseProfileForTime(
+      const [morningRoute, nightRoute],
+      DateTime(2026, 4, 4, 7, 20),
+    );
+
+    expect(result?.routeKey, 101);
+  });
+
+  test('chooseProfileForTime returns null outside learned hours', () {
+    const morningRoute = RouteUsageProfile(
+      provider: BusProvider.twn,
+      routeKey: 101,
+      routeName: '307',
+      totalOpens: 8,
+      lastOpenedAtMs: 1712000000000,
+      hourlyOpens: <int, int>{7: 5, 8: 2},
+    );
+
+    final result = SmartRouteService.chooseProfileForTime(
+      const [morningRoute],
+      DateTime(2026, 4, 4, 14, 00),
+    );
+
+    expect(result, isNull);
+  });
+}

@@ -9,6 +9,7 @@ class StorageService {
   static const _historyKey = 'search_history';
   static const _favoritesKey = 'favorite_groups';
   static const _trackedBusesKey = 'tracked_buses';
+  static const _routeUsageProfilesKey = 'route_usage_profiles';
 
   Future<AppSettings> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -129,6 +130,39 @@ class StorageService {
     await prefs.setString(
       _trackedBusesKey,
       jsonEncode(trackedBuses.map((entry) => entry.toJson()).toList()),
+    );
+  }
+
+  Future<List<RouteUsageProfile>> loadRouteUsageProfiles() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_routeUsageProfilesKey);
+    if (raw == null || raw.isEmpty) {
+      return const [];
+    }
+
+    try {
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded
+          .whereType<Map>()
+          .map(
+            (entry) => RouteUsageProfile.fromJson(
+              entry.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .where((entry) => entry.routeKey > 0)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> saveRouteUsageProfiles(
+    List<RouteUsageProfile> profiles,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _routeUsageProfilesKey,
+      jsonEncode(profiles.map((entry) => entry.toJson()).toList()),
     );
   }
 }

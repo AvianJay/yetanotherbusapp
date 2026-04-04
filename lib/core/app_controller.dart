@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 import 'android_home_integration.dart';
 import 'android_trip_monitor.dart';
@@ -7,6 +8,7 @@ import 'app_update_installer.dart';
 import 'app_update_service.dart';
 import 'bus_repository.dart';
 import 'models.dart';
+import 'smart_route_service.dart';
 import 'storage_service.dart';
 
 class AppController extends ChangeNotifier {
@@ -30,6 +32,7 @@ class AppController extends ChangeNotifier {
   List<SearchHistoryEntry> _history = const [];
   Map<String, List<FavoriteStop>> _favoriteGroups = const {};
   List<TrackedBus> _trackedBuses = const [];
+  List<RouteUsageProfile> _routeUsageProfiles = const [];
   bool _initialized = false;
   bool _databaseReady = false;
   bool _checkingDatabase = false;
@@ -44,6 +47,14 @@ class AppController extends ChangeNotifier {
       Map.unmodifiable(_favoriteGroups);
   List<String> get favoriteGroupNames => _favoriteGroups.keys.toList();
   List<TrackedBus> get trackedBuses => List.unmodifiable(_trackedBuses);
+  List<RouteUsageProfile> get routeUsageProfiles =>
+      List.unmodifiable(_routeUsageProfiles);
+  String get smartRouteSignature => _routeUsageProfiles
+      .map(
+        (entry) =>
+            '${entry.provider.name}:${entry.routeKey}:${entry.totalOpens}:${entry.lastOpenedAtMs}',
+      )
+      .join('|');
   bool get initialized => _initialized;
   bool get databaseReady => _databaseReady;
   bool get checkingDatabase => _checkingDatabase;
@@ -57,8 +68,12 @@ class AppController extends ChangeNotifier {
     _history = await storage.loadHistory();
     _favoriteGroups = await storage.loadFavoriteGroups();
     _trackedBuses = await storage.loadTrackedBuses();
+    _routeUsageProfiles = await storage.loadRouteUsageProfiles();
     await AndroidHomeIntegration.updateFavoriteWidgetAutoRefreshMinutes(
       _settings.favoriteWidgetAutoRefreshMinutes,
+    );
+    await AndroidHomeIntegration.syncSmartRouteNotifications(
+      _settings.enableSmartRouteNotifications,
     );
     await refreshDatabaseState();
     _initialized = true;
@@ -92,6 +107,19 @@ class AppController extends ChangeNotifier {
   Future<void> updateAlwaysShowSeconds(bool value) async {
     _settings = _settings.copyWith(alwaysShowSeconds: value);
     await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updateEnableSmartRecommendations(bool value) async {
+    _settings = _settings.copyWith(enableSmartRecommendations: value);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updateEnableSmartRouteNotifications(bool value) async {
+    _settings = _settings.copyWith(enableSmartRouteNotifications: value);
+    await storage.saveSettings(_settings);
+    await AndroidHomeIntegration.syncSmartRouteNotifications(value);
     notifyListeners();
   }
 
@@ -289,6 +317,81 @@ class AppController extends ChangeNotifier {
     _history = [];
     await storage.saveHistory(_history);
     notifyListeners();
+  }
+
+  Future<void> clearRouteUsageProfiles() async {
+    _routeUsageProfiles = const [];
+    await storage.saveRouteUsageProfiles(_routeUsageProfiles);
+    await AndroidHomeIntegration.syncSmartRouteNotifications(
+      _settings.enableSmartRouteNotifications,
+    );
+    notifyListeners();
+  }
+
+  Future<void> recordRouteVisit(
+    RouteSummary route, {
+    required BusProvider provider,
+    DateTime? openedAt,
+  }) async {
+    final timestamp = openedAt ?? DateTime.now();
+    final next = <RouteUsageProfile>[];
+    var found = false;
+
+    for (final profile in _routeUsageProfiles) {
+      if (profile.provider == provider && profile.routeKey == route.routeKey) {
+        next.add(profile.recordOpen(timestamp, routeName: route.routeName));
+        found = true;
+      } else {
+        next.add(profile);
+      }
+    }
+
+    if (!found) {
+      next.add(
+        RouteUsageProfile(
+          provider: provider,
+          routeKey: route.routeKey,
+          routeName: route.routeName,
+          totalOpens: 1,
+          lastOpenedAtMs: timestamp.millisecondsSinceEpoch,
+          hourlyOpens: <int, int>{timestamp.hour: 1},
+        ),
+      );
+    }
+
+    next.sort((left, right) {
+      final totalCompare = right.totalOpens.compareTo(left.totalOpens);
+      if (totalCompare != 0) {
+        return totalCompare;
+      }
+      return right.lastOpenedAtMs.compareTo(left.lastOpenedAtMs);
+    });
+    _routeUsageProfiles = next;
+    await storage.saveRouteUsageProfiles(_routeUsageProfiles);
+    await AndroidHomeIntegration.syncSmartRouteNotifications(
+      _settings.enableSmartRouteNotifications,
+    );
+    notifyListeners();
+  }
+
+  Future<SmartRouteSuggestion?> getSmartRouteSuggestion({
+    DateTime? now,
+    Position? position,
+  }) async {
+    if (!_settings.enableSmartRecommendations ||
+        !_databaseReady ||
+        _routeUsageProfiles.isEmpty) {
+      return null;
+    }
+
+    return SmartRouteService.loadSuggestion(
+      repository: repository,
+      profiles: _routeUsageProfiles.where(
+        (entry) => entry.provider == _settings.provider,
+      ),
+      now: now ?? DateTime.now(),
+      position: position,
+    );
   }
 
   Future<void> addFavoriteGroup(String name) async {

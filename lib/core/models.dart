@@ -112,6 +112,8 @@ class AppSettings {
     required this.provider,
     required this.themeMode,
     required this.alwaysShowSeconds,
+    required this.enableSmartRecommendations,
+    required this.enableSmartRouteNotifications,
     required this.keepScreenAwakeOnRouteDetail,
     required this.enableRouteBackgroundMonitor,
     required this.hasSeenRouteBackgroundMonitorPrompt,
@@ -129,6 +131,8 @@ class AppSettings {
       provider: BusProvider.twn,
       themeMode: ThemeMode.system,
       alwaysShowSeconds: false,
+      enableSmartRecommendations: true,
+      enableSmartRouteNotifications: false,
       keepScreenAwakeOnRouteDetail: true,
       enableRouteBackgroundMonitor: false,
       hasSeenRouteBackgroundMonitorPrompt: false,
@@ -154,6 +158,10 @@ class AppSettings {
       provider: busProviderFromString(json['provider'] as String? ?? 'twn'),
       themeMode: themeModeFromString(json['themeMode'] as String? ?? 'system'),
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
+      enableSmartRecommendations:
+          json['enableSmartRecommendations'] as bool? ?? true,
+      enableSmartRouteNotifications:
+          json['enableSmartRouteNotifications'] as bool? ?? false,
       keepScreenAwakeOnRouteDetail:
           json['keepScreenAwakeOnRouteDetail'] as bool? ?? true,
       enableRouteBackgroundMonitor:
@@ -189,6 +197,8 @@ class AppSettings {
   final BusProvider provider;
   final ThemeMode themeMode;
   final bool alwaysShowSeconds;
+  final bool enableSmartRecommendations;
+  final bool enableSmartRouteNotifications;
   final bool keepScreenAwakeOnRouteDetail;
   final bool enableRouteBackgroundMonitor;
   final bool hasSeenRouteBackgroundMonitorPrompt;
@@ -204,6 +214,8 @@ class AppSettings {
     BusProvider? provider,
     ThemeMode? themeMode,
     bool? alwaysShowSeconds,
+    bool? enableSmartRecommendations,
+    bool? enableSmartRouteNotifications,
     bool? keepScreenAwakeOnRouteDetail,
     bool? enableRouteBackgroundMonitor,
     bool? hasSeenRouteBackgroundMonitorPrompt,
@@ -219,6 +231,10 @@ class AppSettings {
       provider: provider ?? this.provider,
       themeMode: themeMode ?? this.themeMode,
       alwaysShowSeconds: alwaysShowSeconds ?? this.alwaysShowSeconds,
+      enableSmartRecommendations:
+          enableSmartRecommendations ?? this.enableSmartRecommendations,
+      enableSmartRouteNotifications:
+          enableSmartRouteNotifications ?? this.enableSmartRouteNotifications,
       keepScreenAwakeOnRouteDetail:
           keepScreenAwakeOnRouteDetail ?? this.keepScreenAwakeOnRouteDetail,
       enableRouteBackgroundMonitor:
@@ -244,6 +260,8 @@ class AppSettings {
       'provider': provider.name,
       'themeMode': themeMode.name,
       'alwaysShowSeconds': alwaysShowSeconds,
+      'enableSmartRecommendations': enableSmartRecommendations,
+      'enableSmartRouteNotifications': enableSmartRouteNotifications,
       'keepScreenAwakeOnRouteDetail': keepScreenAwakeOnRouteDetail,
       'enableRouteBackgroundMonitor': enableRouteBackgroundMonitor,
       'hasSeenRouteBackgroundMonitorPrompt':
@@ -429,6 +447,109 @@ class TrackedBusSnapshot {
     }
     return '未知路線';
   }
+}
+
+class RouteUsageProfile {
+  const RouteUsageProfile({
+    required this.provider,
+    required this.routeKey,
+    required this.routeName,
+    required this.totalOpens,
+    required this.lastOpenedAtMs,
+    this.hourlyOpens = const <int, int>{},
+  });
+
+  factory RouteUsageProfile.fromJson(Map<String, dynamic> json) {
+    final rawHourlyOpens = json['hourlyOpens'];
+    final hourlyOpens = <int, int>{};
+    if (rawHourlyOpens is Map) {
+      rawHourlyOpens.forEach((key, value) {
+        final hour = int.tryParse(key.toString());
+        final count = (value as num?)?.toInt();
+        if (hour != null && hour >= 0 && hour < 24 && count != null && count > 0) {
+          hourlyOpens[hour] = count;
+        }
+      });
+    }
+
+    return RouteUsageProfile(
+      provider: busProviderFromString(json['provider'] as String? ?? 'twn'),
+      routeKey: (json['routeKey'] as num?)?.toInt() ?? 0,
+      routeName: json['routeName'] as String? ?? '',
+      totalOpens: (json['totalOpens'] as num?)?.toInt() ?? 0,
+      lastOpenedAtMs: (json['lastOpenedAtMs'] as num?)?.toInt() ?? 0,
+      hourlyOpens: hourlyOpens,
+    );
+  }
+
+  final BusProvider provider;
+  final int routeKey;
+  final String routeName;
+  final int totalOpens;
+  final int lastOpenedAtMs;
+  final Map<int, int> hourlyOpens;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'provider': provider.name,
+      'routeKey': routeKey,
+      'routeName': routeName,
+      'totalOpens': totalOpens,
+      'lastOpenedAtMs': lastOpenedAtMs,
+      'hourlyOpens': hourlyOpens.map(
+        (key, value) => MapEntry(key.toString(), value),
+      ),
+    };
+  }
+
+  int countAtHour(int hour) => hourlyOpens[hour] ?? 0;
+
+  int get preferredHour {
+    var bestHour = 0;
+    var bestCount = -1;
+    for (var hour = 0; hour < 24; hour++) {
+      final count = countAtHour(hour);
+      if (count > bestCount) {
+        bestHour = hour;
+        bestCount = count;
+      }
+    }
+    return bestHour;
+  }
+
+  RouteUsageProfile recordOpen(DateTime openedAt, {String? routeName}) {
+    final hour = openedAt.hour;
+    final nextHourlyOpens = <int, int>{...hourlyOpens};
+    nextHourlyOpens[hour] = (nextHourlyOpens[hour] ?? 0) + 1;
+    return RouteUsageProfile(
+      provider: provider,
+      routeKey: routeKey,
+      routeName: routeName?.trim().isNotEmpty == true ? routeName!.trim() : this.routeName,
+      totalOpens: totalOpens + 1,
+      lastOpenedAtMs: openedAt.millisecondsSinceEpoch,
+      hourlyOpens: nextHourlyOpens,
+    );
+  }
+}
+
+class SmartRouteSuggestion {
+  const SmartRouteSuggestion({
+    required this.profile,
+    required this.score,
+    required this.reason,
+    this.detail,
+    this.nearestStop,
+    this.nearestPath,
+    this.distanceMeters,
+  });
+
+  final RouteUsageProfile profile;
+  final double score;
+  final String reason;
+  final RouteDetailData? detail;
+  final StopInfo? nearestStop;
+  final PathInfo? nearestPath;
+  final double? distanceMeters;
 }
 
 class RouteSummary {

@@ -85,6 +85,12 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                "setSmartRouteNotificationsEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    SmartRouteNotificationScheduler.sync(this, enabled)
+                    result.success(null)
+                }
+
                 else -> result.notImplemented()
             }
         }

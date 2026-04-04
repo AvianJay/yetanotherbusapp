@@ -46,4 +46,13 @@ class AndroidHomeIntegration {
       'minutes': minutes,
     });
   }
+
+  static Future<void> syncSmartRouteNotifications(bool enabled) async {
+    if (!_isAndroid) {
+      return;
+    }
+    await _channel.invokeMethod<void>('setSmartRouteNotificationsEnabled', {
+      'enabled': enabled,
+    });
+  }
 }

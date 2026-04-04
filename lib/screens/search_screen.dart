@@ -74,6 +74,33 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  Future<void> _openRoute({
+    required BusProvider provider,
+    required int routeKey,
+    required String routeName,
+    RouteSummary? route,
+    bool saveHistory = false,
+  }) async {
+    final busController = AppControllerScope.read(context);
+    if (saveHistory && route != null) {
+      await busController.addHistoryEntry(route, provider: provider);
+    }
+    await busController.recordRouteSelection(
+      provider: provider,
+      routeKey: routeKey,
+      routeName: routeName,
+    );
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            RouteDetailScreen(routeKey: routeKey, provider: provider),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final busController = AppControllerScope.of(context);
@@ -116,12 +143,11 @@ class _SearchScreenState extends State<SearchScreen> {
               history: busController.history,
               onClear: busController.clearHistory,
               onSelect: (entry) {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => RouteDetailScreen(
-                      routeKey: entry.routeKey,
-                      provider: entry.provider,
-                    ),
+                unawaited(
+                  _openRoute(
+                    provider: entry.provider,
+                    routeKey: entry.routeKey,
+                    routeName: entry.routeName,
                   ),
                 );
               },
@@ -161,20 +187,12 @@ class _SearchScreenState extends State<SearchScreen> {
                           : route.description,
                     ),
                     onTap: () async {
-                      await busController.addHistoryEntry(
-                        route,
+                      await _openRoute(
                         provider: provider,
-                      );
-                      if (!context.mounted) {
-                        return;
-                      }
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => RouteDetailScreen(
-                            routeKey: route.routeKey,
-                            provider: provider,
-                          ),
-                        ),
+                        routeKey: route.routeKey,
+                        routeName: route.routeName,
+                        route: route,
+                        saveHistory: true,
                       );
                     },
                   ),

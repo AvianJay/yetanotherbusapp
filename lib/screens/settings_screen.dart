@@ -56,13 +56,9 @@ class SettingsScreen extends StatelessWidget {
       return;
     }
     if (!granted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            '智慧推薦通知需要通知權限。',
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('智慧推薦通知需要通知權限。')));
       return;
     }
     await controller.updateEnableSmartRouteNotifications(true);
@@ -163,27 +159,20 @@ class SettingsScreen extends StatelessWidget {
                             : () async {
                                 final messenger = ScaffoldMessenger.of(context);
                                 try {
-                                  await controller.downloadCurrentProviderDatabase();
+                                  await controller
+                                      .downloadCurrentProviderDatabase();
                                   if (!context.mounted) {
                                     return;
                                   }
                                   messenger.showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        '資料庫下載完成。',
-                                      ),
-                                    ),
+                                    const SnackBar(content: Text('資料庫下載完成。')),
                                   );
                                 } catch (error) {
                                   if (!context.mounted) {
                                     return;
                                   }
                                   messenger.showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        '下載資料庫失敗：$error',
-                                      ),
-                                    ),
+                                    SnackBar(content: Text('下載資料庫失敗：$error')),
                                   );
                                 }
                               },
@@ -196,16 +185,15 @@ class SettingsScreen extends StatelessWidget {
                               )
                             : const Icon(Icons.download_rounded),
                         label: Text(
-                          controller.downloadingDatabase
-                              ? '下載中...'
-                              : '下載最新資料庫',
+                          controller.downloadingDatabase ? '下載中...' : '下載最新資料庫',
                         ),
                       ),
                       OutlinedButton.icon(
                         onPressed: () async {
                           final messenger = ScaffoldMessenger.of(context);
                           try {
-                            final updates = await controller.checkDatabaseUpdates();
+                            final updates = await controller
+                                .checkDatabaseUpdates();
                             if (!context.mounted) {
                               return;
                             }
@@ -224,9 +212,7 @@ class SettingsScreen extends StatelessWidget {
                               return;
                             }
                             messenger.showSnackBar(
-                              SnackBar(
-                                content: Text('檢查資料庫更新失敗：$error'),
-                              ),
+                              SnackBar(content: Text('檢查資料庫更新失敗：$error')),
                             );
                           }
                         },
@@ -257,9 +243,7 @@ class SettingsScreen extends StatelessWidget {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('智慧推薦'),
-                    subtitle: const Text(
-                      '學習你在不同時段最常打開的路線，並在首頁推薦給你。',
-                    ),
+                    subtitle: const Text('學習你在不同時段最常打開的路線，並在首頁推薦給你。'),
                     value: controller.settings.enableSmartRecommendations,
                     onChanged: controller.updateEnableSmartRecommendations,
                   ),
@@ -267,9 +251,7 @@ class SettingsScreen extends StatelessWidget {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('智慧推薦通知'),
-                      subtitle: const Text(
-                        '在你常打開這條路線的時間點附近，依最近站牌到站時間主動提醒。',
-                      ),
+                      subtitle: const Text('在你常打開這條路線的時間點附近，依最近站牌到站時間主動提醒。'),
                       value: controller.settings.enableSmartRouteNotifications,
                       onChanged: (value) => _toggleSmartRouteNotifications(
                         context,
@@ -280,9 +262,7 @@ class SettingsScreen extends StatelessWidget {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('公車頁面保持螢幕常亮'),
-                    subtitle: const Text(
-                      '在路線詳情頁持續保持螢幕亮著。',
-                    ),
+                    subtitle: const Text('在路線詳情頁持續保持螢幕亮著。'),
                     value: controller.settings.keepScreenAwakeOnRouteDetail,
                     onChanged: controller.updateKeepScreenAwakeOnRouteDetail,
                   ),
@@ -290,9 +270,7 @@ class SettingsScreen extends StatelessWidget {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('背景乘車提醒'),
-                      subtitle: const Text(
-                        '在背景持續追蹤目前路線，並在接近目的地下車時提醒你。',
-                      ),
+                      subtitle: const Text('在背景持續追蹤目前路線，並在接近目的地下車時提醒你。'),
                       value: controller.settings.enableRouteBackgroundMonitor,
                       onChanged: (value) {
                         controller.updateEnableRouteBackgroundMonitor(value);
@@ -305,8 +283,7 @@ class SettingsScreen extends StatelessWidget {
                           controller.settings.favoriteWidgetAutoRefreshMinutes,
                       decoration: const InputDecoration(
                         labelText: '最愛小工具背景更新',
-                        helperText:
-                            'Android 背景排程最低 15 分鐘一次',
+                        helperText: 'Android 背景排程最低 15 分鐘一次',
                       ),
                       items: _favoriteWidgetRefreshOptions
                           .map(
@@ -360,7 +337,10 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('App 更新', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'App 更新',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 12),
                   Text('目前版本：${buildInfo.displayVersion}'),
                   Text('內建 commit：${buildInfo.shortGitSha}'),
@@ -422,9 +402,7 @@ class SettingsScreen extends StatelessWidget {
                           )
                         : const Icon(Icons.system_update_alt_rounded),
                     label: Text(
-                      controller.checkingAppUpdate
-                          ? '檢查中...'
-                          : '檢查 app 更新',
+                      controller.checkingAppUpdate ? '檢查中...' : '檢查 app 更新',
                     ),
                   ),
                   if (controller.lastAppUpdateResult case final result?) ...[
@@ -445,7 +423,10 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('搜尋紀錄與學習', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    '搜尋紀錄與學習',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 12),
                   Text('最多保留 ${controller.settings.maxHistory} 筆'),
                   Slider(
@@ -460,6 +441,8 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text('已學習路線：${controller.routeUsageProfiles.length} 條'),
+                  const SizedBox(height: 4),
+                  Text('已記錄路線選擇：${controller.recordedRouteSelections} 次'),
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 12,
@@ -474,6 +457,11 @@ class SettingsScreen extends StatelessWidget {
                         onPressed: controller.clearRouteUsageProfiles,
                         icon: const Icon(Icons.psychology_alt_outlined),
                         label: const Text('清除智慧推薦學習'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: controller.clearRouteSelectionHistory,
+                        icon: const Icon(Icons.route_outlined),
+                        label: const Text('清除路線選擇紀錄'),
                       ),
                     ],
                   ),

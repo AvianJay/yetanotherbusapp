@@ -18,9 +18,9 @@ class SmartRouteService {
 
     for (final profile in profiles) {
       final isRelevantNow =
-          profile.countAtHour(currentHour) > 0 ||
-          profile.countAtHour(previousHour) > 0 ||
-          profile.countAtHour(nextHour) > 0;
+          profile.combinedCountAtHour(currentHour) > 0 ||
+          profile.combinedCountAtHour(previousHour) > 0 ||
+          profile.combinedCountAtHour(nextHour) > 0;
       if (!isRelevantNow) {
         continue;
       }
@@ -38,15 +38,21 @@ class SmartRouteService {
     final currentHour = now.hour;
     final previousHour = (currentHour + 23) % 24;
     final nextHour = (currentHour + 1) % 24;
-    final currentCount = profile.countAtHour(currentHour);
-    final adjacentCount =
+    final currentOpenCount = profile.countAtHour(currentHour);
+    final currentSelectionCount = profile.selectionCountAtHour(currentHour);
+    final adjacentOpenCount =
         profile.countAtHour(previousHour) + profile.countAtHour(nextHour);
-    final preferredCount = profile.countAtHour(profile.preferredHour);
-    final recencyDays = profile.lastOpenedAtMs <= 0
+    final adjacentSelectionCount =
+        profile.selectionCountAtHour(previousHour) +
+        profile.selectionCountAtHour(nextHour);
+    final preferredCount = profile.combinedCountAtHour(profile.preferredHour);
+    final recencyDays = profile.latestInteractionAtMs <= 0
         ? 365
         : now
               .difference(
-                DateTime.fromMillisecondsSinceEpoch(profile.lastOpenedAtMs),
+                DateTime.fromMillisecondsSinceEpoch(
+                  profile.latestInteractionAtMs,
+                ),
               )
               .inDays;
     final recencyBonus = recencyDays <= 2
@@ -55,22 +61,25 @@ class SmartRouteService {
         ? 0.75
         : 0.0;
 
-    return (currentCount * 5) +
-        (adjacentCount * 2.5) +
+    return (currentOpenCount * 5) +
+        (currentSelectionCount * 3.5) +
+        (adjacentOpenCount * 2.5) +
+        (adjacentSelectionCount * 1.5) +
         (preferredCount * 0.5) +
         (profile.totalOpens * 0.15) +
+        (profile.totalSelections * 0.1) +
         recencyBonus;
   }
 
   static String buildReason(RouteUsageProfile profile, DateTime now) {
-    final currentCount = profile.countAtHour(now.hour);
+    final currentCount = profile.combinedCountAtHour(now.hour);
     if (currentCount > 0) {
-      return '你常在這個時段打開這條路線。';
+      return '你常在這個時段點開這條路線。';
     }
 
     final preferredHour = profile.preferredHour;
     final label = preferredHour.toString().padLeft(2, '0');
-    return '你通常會在 $label:00 左右查看這條路線。';
+    return '你通常會在 $label:00 左右點開這條路線。';
   }
 
   static SmartRouteSuggestion buildSuggestion({

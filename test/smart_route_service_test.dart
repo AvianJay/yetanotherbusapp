@@ -23,6 +23,25 @@ void main() {
     expect(updated.preferredHour, 7);
   });
 
+  test('recordSelection increments selection counters', () {
+    const profile = RouteUsageProfile(
+      provider: BusProvider.twn,
+      routeKey: 12,
+      routeName: '307',
+      totalOpens: 0,
+      lastOpenedAtMs: 0,
+    );
+
+    final updated = profile.recordSelection(
+      DateTime(2026, 4, 4, 18, 10),
+      routeName: '307',
+    );
+
+    expect(updated.totalSelections, 1);
+    expect(updated.selectionCountAtHour(18), 1);
+    expect(updated.preferredHour, 18);
+  });
+
   test('chooseProfileForTime prefers the route used in this time window', () {
     const morningRoute = RouteUsageProfile(
       provider: BusProvider.twn,
@@ -41,10 +60,10 @@ void main() {
       hourlyOpens: <int, int>{21: 10},
     );
 
-    final result = SmartRouteService.chooseProfileForTime(
-      const [morningRoute, nightRoute],
-      DateTime(2026, 4, 4, 7, 20),
-    );
+    final result = SmartRouteService.chooseProfileForTime(const [
+      morningRoute,
+      nightRoute,
+    ], DateTime(2026, 4, 4, 7, 20));
 
     expect(result?.routeKey, 101);
   });
@@ -59,11 +78,29 @@ void main() {
       hourlyOpens: <int, int>{7: 5, 8: 2},
     );
 
-    final result = SmartRouteService.chooseProfileForTime(
-      const [morningRoute],
-      DateTime(2026, 4, 4, 14, 00),
-    );
+    final result = SmartRouteService.chooseProfileForTime(const [
+      morningRoute,
+    ], DateTime(2026, 4, 4, 14, 00));
 
     expect(result, isNull);
+  });
+
+  test('chooseProfileForTime also uses selection history', () {
+    const selectedRoute = RouteUsageProfile(
+      provider: BusProvider.twn,
+      routeKey: 202,
+      routeName: '綠3',
+      totalOpens: 0,
+      lastOpenedAtMs: 0,
+      totalSelections: 4,
+      lastSelectedAtMs: 1712000000000,
+      hourlySelections: <int, int>{18: 4},
+    );
+
+    final result = SmartRouteService.chooseProfileForTime(const [
+      selectedRoute,
+    ], DateTime(2026, 4, 4, 18, 15));
+
+    expect(result?.routeKey, 202);
   });
 }

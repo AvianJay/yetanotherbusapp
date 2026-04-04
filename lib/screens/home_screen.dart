@@ -68,29 +68,24 @@ class HomeScreen extends StatelessWidget {
                               final messenger = ScaffoldMessenger.of(context);
                               Navigator.of(sheetContext).pop();
                               try {
-                                await controller.downloadCurrentProviderDatabase();
+                                await controller
+                                    .downloadCurrentProviderDatabase();
                                 if (!context.mounted) {
                                   return;
                                 }
                                 messenger.showSnackBar(
-                                  const SnackBar(
-                                    content: Text('資料庫下載完成。'),
-                                  ),
+                                  const SnackBar(content: Text('資料庫下載完成。')),
                                 );
                               } catch (error) {
                                 if (!context.mounted) {
                                   return;
                                 }
                                 messenger.showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      '資料庫下載失敗：$error',
-                                    ),
-                                  ),
+                                  SnackBar(content: Text('資料庫下載失敗：$error')),
                                 );
                               }
                             },
-                        icon: controller.downloadingDatabase
+                      icon: controller.downloadingDatabase
                           ? const SizedBox.square(
                               dimension: 16,
                               child: CircularProgressIndicator(strokeWidth: 2),
@@ -103,9 +98,7 @@ class HomeScreen extends StatelessWidget {
                       label: Text(
                         controller.downloadingDatabase
                             ? '下載中...'
-                            : (controller.databaseReady
-                                  ? '重新下載'
-                                  : '下載資料庫'),
+                            : (controller.databaseReady ? '重新下載' : '下載資料庫'),
                       ),
                     ),
                     OutlinedButton.icon(
@@ -113,7 +106,8 @@ class HomeScreen extends StatelessWidget {
                         final messenger = ScaffoldMessenger.of(context);
                         Navigator.of(sheetContext).pop();
                         try {
-                          final updates = await controller.checkDatabaseUpdates();
+                          final updates = await controller
+                              .checkDatabaseUpdates();
                           if (!context.mounted) {
                             return;
                           }
@@ -265,8 +259,29 @@ class _SmartRecommendationCard extends StatefulWidget {
       _SmartRecommendationCardState();
 }
 
+class _SmartCardData {
+  const _SmartCardData.recommended(this.suggestion) : nearby = null;
+
+  const _SmartCardData.nearby(this.nearby) : suggestion = null;
+
+  final SmartRouteSuggestion? suggestion;
+  final _NearbyFallbackData? nearby;
+}
+
+class _NearbyFallbackData {
+  const _NearbyFallbackData({
+    required this.result,
+    required this.liveStop,
+    this.path,
+  });
+
+  final NearbyStopResult result;
+  final StopInfo? liveStop;
+  final PathInfo? path;
+}
+
 class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
-  Future<SmartRouteSuggestion?>? _future;
+  Future<_SmartCardData?>? _future;
   String _reloadKey = '';
 
   @override
@@ -335,27 +350,73 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     }
   }
 
-  Future<SmartRouteSuggestion?> _loadSuggestion() async {
+  Future<_SmartCardData?> _loadSuggestion() async {
     final controller = widget.controller;
     if (!controller.settings.enableSmartRecommendations ||
-        !controller.databaseReady ||
-        controller.routeUsageProfiles.isEmpty) {
+        !controller.databaseReady) {
       return null;
     }
 
     final position = await _resolvePosition();
-    return controller.getSmartRouteSuggestion(position: position);
+    if (controller.routeUsageProfiles.isNotEmpty) {
+      final suggestion = await controller.getSmartRouteSuggestion(
+        position: position,
+      );
+      if (suggestion != null) {
+        return _SmartCardData.recommended(suggestion);
+      }
+    }
+
+    if (position == null || controller.settings.provider == BusProvider.twn) {
+      return null;
+    }
+
+    try {
+      final nearbyStops = await controller.getNearbyStops(
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+      if (nearbyStops.isEmpty) {
+        return null;
+      }
+
+      final nearest = nearbyStops.first;
+      final detail = await controller.getRouteDetail(
+        nearest.route.routeKey,
+        provider: controller.settings.provider,
+      );
+      final liveStop = _findStopInDetail(
+        detail,
+        pathId: nearest.stop.pathId,
+        stopId: nearest.stop.stopId,
+      );
+      final path = _findPath(detail, nearest.stop.pathId);
+      return _SmartCardData.nearby(
+        _NearbyFallbackData(result: nearest, liveStop: liveStop, path: path),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _openSettings() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
   }
 
   Future<void> _openSuggestion(SmartRouteSuggestion suggestion) async {
+    final controller = widget.controller;
     final pathId = suggestion.nearestPath?.pathId;
     final stopId = suggestion.nearestStop?.stopId;
+    await controller.recordRouteSelection(
+      provider: suggestion.profile.provider,
+      routeKey: suggestion.profile.routeKey,
+      routeName: suggestion.profile.routeName,
+    );
+    if (!mounted) {
+      return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => RouteDetailScreen(
@@ -368,10 +429,55 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     );
   }
 
+  Future<void> _openNearbyFallback(_NearbyFallbackData nearby) async {
+    final controller = widget.controller;
+    await controller.recordRouteSelection(
+      provider: controller.settings.provider,
+      routeKey: nearby.result.route.routeKey,
+      routeName: nearby.result.route.routeName,
+    );
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RouteDetailScreen(
+          routeKey: nearby.result.route.routeKey,
+          provider: controller.settings.provider,
+          initialPathId: nearby.result.stop.pathId,
+          initialStopId: nearby.result.stop.stopId,
+        ),
+      ),
+    );
+  }
+
+  StopInfo? _findStopInDetail(
+    RouteDetailData detail, {
+    required int pathId,
+    required int stopId,
+  }) {
+    final stops = detail.stopsByPath[pathId] ?? const <StopInfo>[];
+    for (final stop in stops) {
+      if (stop.stopId == stopId) {
+        return stop;
+      }
+    }
+    return null;
+  }
+
+  PathInfo? _findPath(RouteDetailData detail, int pathId) {
+    for (final path in detail.paths) {
+      if (path.pathId == pathId) {
+        return path;
+      }
+    }
+    return null;
+  }
+
   Widget _buildDisabledState(BuildContext context) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '根據你在不同時段最常打開的路線，主動推薦現在最可能要查的那一條。',
+      subtitle: '根據你在不同時段最常點開的路線，主動推薦現在最可能要查的那一條。',
       trailing: IconButton(
         tooltip: '設定',
         onPressed: _openSettings,
@@ -381,7 +487,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '這個功能目前已關閉。開啟後，YABus 會學習你在不同時段最常查看的路線，並在首頁直接推薦。',
+            '這個功能目前已關閉。開啟後，YABus 會學習你在不同時段最常點開的路線，並在首頁直接推薦。',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 16),
@@ -398,17 +504,15 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   Widget _buildNeedDatabaseState(BuildContext context) {
     return const _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '根據你平常打開路線的時間點，推薦你現在最可能要看的路線。',
-      child: Text(
-        '請先下載本地資料庫。下載完成後，這張卡片才會開始學習你的使用習慣並顯示附近站牌到站時間。',
-      ),
+      subtitle: '根據你平常點開路線的時間點，推薦你現在最可能要看的路線。',
+      child: Text('請先下載本地資料庫。下載完成後，這張卡片才會開始學習你的使用習慣並顯示附近站牌到站時間。'),
     );
   }
 
   Widget _buildEmptyState(BuildContext context) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '根據你平常打開路線的時間點，推薦你現在最可能要看的路線。',
+      subtitle: '根據你平常點開路線的時間點，推薦你現在最可能要看的路線。',
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -418,7 +522,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '再多打開幾次常用路線，尤其是在你平常會查車的時段，這裡就會慢慢學到你的習慣。',
+            '再多點開幾次常用路線，尤其是在你平常會查車的時段，這裡就會慢慢學到你的習慣；如果有定位資料，也會優先嘗試帶你看最近站點。',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 14),
@@ -443,6 +547,26 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     );
   }
 
+  Widget _buildRouteTile({
+    required BuildContext context,
+    required VoidCallback onTap,
+    required Widget child,
+  }) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 14, 16),
+          child: child,
+        ),
+      ),
+    );
+  }
+
   Widget _buildSuggestionState(
     BuildContext context,
     SmartRouteSuggestion suggestion,
@@ -462,91 +586,162 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         onPressed: _refresh,
         icon: const Icon(Icons.refresh_rounded),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      suggestion.profile.routeName,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+      child: _buildRouteTile(
+        context: context,
+        onTap: () => _openSuggestion(suggestion),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    suggestion.profile.routeName,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
-                    const SizedBox(height: 6),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '你最常在 $preferredHourLabel:00 左右點開這條路線，累計 ${suggestion.profile.totalInteractions} 次。',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  if (suggestion.nearestPath != null) ...[
+                    const SizedBox(height: 8),
                     Text(
-                      '你最常在 $preferredHourLabel:00 左右打開這條路線，累計 ${suggestion.profile.totalOpens} 次。',
-                      style: theme.textTheme.bodyMedium,
+                      '方向：${suggestion.nearestPath!.name}',
+                      style: theme.textTheme.bodySmall,
                     ),
-                    if (suggestion.nearestPath != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        '方向：${suggestion.nearestPath!.name}',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
                   ],
-                ),
+                  const SizedBox(height: 10),
+                  if (nearestStop != null)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.gps_fixed_rounded, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                nearestStop.stopName,
+                                style: theme.textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                suggestion.distanceMeters == null
+                                    ? '目前沒有位置資料，先用你的習慣推薦這條路線。'
+                                    : '距離你約 ${formatDistance(suggestion.distanceMeters!)}。',
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Text(
+                      '目前沒有位置資料，先只根據你的使用習慣推薦這條路線。',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                ],
               ),
-              if (nearestStop != null)
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (nearestStop != null)
+                  EtaBadge(
+                    stop: nearestStop,
+                    alwaysShowSeconds: controller.settings.alwaysShowSeconds,
+                    size: 64,
+                  ),
+                const SizedBox(height: 12),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNearbyFallbackState(
+    BuildContext context,
+    _NearbyFallbackData nearby,
+  ) {
+    final controller = widget.controller;
+    final theme = Theme.of(context);
+    final stop = nearby.liveStop ?? nearby.result.stop;
+
+    return _SmartRecommendationShell(
+      title: '智慧推薦',
+      subtitle: '這個時段還沒有學到明確偏好，先帶你看最近的站點。',
+      trailing: IconButton(
+        tooltip: '重新整理',
+        onPressed: _refresh,
+        icon: const Icon(Icons.refresh_rounded),
+      ),
+      child: _buildRouteTile(
+        context: context,
+        onTap: () => _openNearbyFallback(nearby),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    nearby.result.route.routeName,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '最近站點：${nearby.result.stop.stopName}',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '距離你約 ${formatDistance(nearby.result.distanceMeters)}。',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  if (nearby.path != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      '方向：${nearby.path!.name}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
                 EtaBadge(
-                  stop: nearestStop,
+                  stop: stop,
                   alwaysShowSeconds: controller.settings.alwaysShowSeconds,
                   size: 64,
                 ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          if (nearestStop != null)
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest
-                    .withValues(alpha: 0.65),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.gps_fixed_rounded),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          nearestStop.stopName,
-                          style: theme.textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          suggestion.distanceMeters == null
-                              ? '目前沒有位置資料，先只用習慣推薦這條路線。'
-                              : '距離你約 ${formatDistance(suggestion.distanceMeters!)}。',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else
-            Text(
-              '目前沒有位置資料，先只根據你的使用習慣推薦這條路線。',
-              style: theme.textTheme.bodyMedium,
+                const SizedBox(height: 12),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ],
             ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: () => _openSuggestion(suggestion),
-            icon: const Icon(Icons.directions_bus_rounded),
-            label: const Text('查看這條路線'),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -560,11 +755,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     if (!controller.databaseReady) {
       return _buildNeedDatabaseState(context);
     }
-    if (controller.routeUsageProfiles.isEmpty) {
-      return _buildEmptyState(context);
-    }
 
-    return FutureBuilder<SmartRouteSuggestion?>(
+    return FutureBuilder<_SmartCardData?>(
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
@@ -592,11 +784,17 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
           );
         }
 
-        final suggestion = snapshot.data;
-        if (suggestion == null) {
+        final cardData = snapshot.data;
+        if (cardData == null) {
           return _buildEmptyState(context);
         }
-        return _buildSuggestionState(context, suggestion);
+        if (cardData.suggestion case final suggestion?) {
+          return _buildSuggestionState(context, suggestion);
+        }
+        if (cardData.nearby case final nearby?) {
+          return _buildNearbyFallbackState(context, nearby);
+        }
+        return _buildEmptyState(context);
       },
     );
   }

@@ -543,8 +543,16 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   '${item.route.description.isEmpty ? "routeKey ${item.route.routeKey}" : item.route.description}',
                 ),
               ),
-              onTap: () {
-                Navigator.of(context).push(
+              onTap: () async {
+                await controller.recordRouteSelection(
+                  provider: item.reference.provider,
+                  routeKey: item.reference.routeKey,
+                  routeName: item.route.routeName,
+                );
+                if (!context.mounted) {
+                  return;
+                }
+                await Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => RouteDetailScreen(
                       routeKey: item.reference.routeKey,

@@ -49,10 +49,19 @@ class AppController extends ChangeNotifier {
   List<TrackedBus> get trackedBuses => List.unmodifiable(_trackedBuses);
   List<RouteUsageProfile> get routeUsageProfiles =>
       List.unmodifiable(_routeUsageProfiles);
+  int get recordedRouteSelections => _routeUsageProfiles.fold(
+    0,
+    (total, entry) => total + entry.totalSelections,
+  );
   String get smartRouteSignature => _routeUsageProfiles
       .map(
         (entry) =>
-            '${entry.provider.name}:${entry.routeKey}:${entry.totalOpens}:${entry.lastOpenedAtMs}',
+            '${entry.provider.name}:'
+            '${entry.routeKey}:'
+            '${entry.totalOpens}:'
+            '${entry.lastOpenedAtMs}:'
+            '${entry.totalSelections}:'
+            '${entry.lastSelectedAtMs}',
       )
       .join('|');
   bool get initialized => _initialized;
@@ -328,18 +337,79 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> clearRouteSelectionHistory() async {
+    _routeUsageProfiles =
+        _routeUsageProfiles
+            .map((profile) => profile.clearSelections())
+            .where((profile) => profile.totalInteractions > 0)
+            .toList()
+          ..sort(_compareRouteUsageProfiles);
+    await storage.saveRouteUsageProfiles(_routeUsageProfiles);
+    await AndroidHomeIntegration.syncSmartRouteNotifications(
+      _settings.enableSmartRouteNotifications,
+    );
+    notifyListeners();
+  }
+
+  Future<void> recordRouteSelection({
+    required BusProvider provider,
+    required int routeKey,
+    required String routeName,
+    DateTime? selectedAt,
+  }) async {
+    final timestamp = selectedAt ?? DateTime.now();
+    await _recordRouteActivity(
+      provider: provider,
+      routeKey: routeKey,
+      record: (profile) =>
+          profile.recordSelection(timestamp, routeName: routeName),
+      create: () => RouteUsageProfile(
+        provider: provider,
+        routeKey: routeKey,
+        routeName: routeName.trim(),
+        totalOpens: 0,
+        lastOpenedAtMs: 0,
+        totalSelections: 1,
+        lastSelectedAtMs: timestamp.millisecondsSinceEpoch,
+        hourlySelections: <int, int>{timestamp.hour: 1},
+      ),
+    );
+  }
+
   Future<void> recordRouteVisit(
     RouteSummary route, {
     required BusProvider provider,
     DateTime? openedAt,
   }) async {
     final timestamp = openedAt ?? DateTime.now();
+    await _recordRouteActivity(
+      provider: provider,
+      routeKey: route.routeKey,
+      record: (profile) =>
+          profile.recordOpen(timestamp, routeName: route.routeName),
+      create: () => RouteUsageProfile(
+        provider: provider,
+        routeKey: route.routeKey,
+        routeName: route.routeName,
+        totalOpens: 1,
+        lastOpenedAtMs: timestamp.millisecondsSinceEpoch,
+        hourlyOpens: <int, int>{timestamp.hour: 1},
+      ),
+    );
+  }
+
+  Future<void> _recordRouteActivity({
+    required BusProvider provider,
+    required int routeKey,
+    required RouteUsageProfile Function(RouteUsageProfile profile) record,
+    required RouteUsageProfile Function() create,
+  }) async {
     final next = <RouteUsageProfile>[];
     var found = false;
 
     for (final profile in _routeUsageProfiles) {
-      if (profile.provider == provider && profile.routeKey == route.routeKey) {
-        next.add(profile.recordOpen(timestamp, routeName: route.routeName));
+      if (profile.provider == provider && profile.routeKey == routeKey) {
+        next.add(record(profile));
         found = true;
       } else {
         next.add(profile);
@@ -347,31 +417,37 @@ class AppController extends ChangeNotifier {
     }
 
     if (!found) {
-      next.add(
-        RouteUsageProfile(
-          provider: provider,
-          routeKey: route.routeKey,
-          routeName: route.routeName,
-          totalOpens: 1,
-          lastOpenedAtMs: timestamp.millisecondsSinceEpoch,
-          hourlyOpens: <int, int>{timestamp.hour: 1},
-        ),
-      );
+      next.add(create());
     }
 
-    next.sort((left, right) {
-      final totalCompare = right.totalOpens.compareTo(left.totalOpens);
-      if (totalCompare != 0) {
-        return totalCompare;
-      }
-      return right.lastOpenedAtMs.compareTo(left.lastOpenedAtMs);
-    });
+    next.sort(_compareRouteUsageProfiles);
     _routeUsageProfiles = next;
     await storage.saveRouteUsageProfiles(_routeUsageProfiles);
     await AndroidHomeIntegration.syncSmartRouteNotifications(
       _settings.enableSmartRouteNotifications,
     );
     notifyListeners();
+  }
+
+  int _compareRouteUsageProfiles(
+    RouteUsageProfile left,
+    RouteUsageProfile right,
+  ) {
+    final interactionCompare = right.totalInteractions.compareTo(
+      left.totalInteractions,
+    );
+    if (interactionCompare != 0) {
+      return interactionCompare;
+    }
+
+    final latestCompare = right.latestInteractionAtMs.compareTo(
+      left.latestInteractionAtMs,
+    );
+    if (latestCompare != 0) {
+      return latestCompare;
+    }
+
+    return right.totalOpens.compareTo(left.totalOpens);
   }
 
   Future<SmartRouteSuggestion?> getSmartRouteSuggestion({

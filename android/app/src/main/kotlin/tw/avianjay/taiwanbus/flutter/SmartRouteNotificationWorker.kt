@@ -184,13 +184,28 @@ private object SmartRouteNotificationSupport {
                     hourlyOpens[hour] = count
                 }
             }
+            val hourlySelections = mutableMapOf<Int, Int>()
+            val selectionObject = item.optJSONObject("hourlySelections")
+            selectionObject?.keys()?.forEach { key ->
+                val hour = key.toIntOrNull() ?: return@forEach
+                if (hour !in 0..23) {
+                    return@forEach
+                }
+                val count = selectionObject.optInt(key, 0)
+                if (count > 0) {
+                    hourlySelections[hour] = count
+                }
+            }
             result += SmartRouteProfile(
                 provider = item.optString("provider", "twn"),
                 routeKey = routeKey,
                 routeName = item.optString("routeName", "").trim(),
                 totalOpens = item.optInt("totalOpens", 0),
                 lastOpenedAtMs = item.optLong("lastOpenedAtMs", 0L),
+                totalSelections = item.optInt("totalSelections", 0),
+                lastSelectedAtMs = item.optLong("lastSelectedAtMs", 0L),
                 hourlyOpens = hourlyOpens,
+                hourlySelections = hourlySelections,
             )
         }
         return result
@@ -209,9 +224,9 @@ private object SmartRouteNotificationSupport {
 
         return profiles
             .filter {
-                it.countAtHour(currentHour) > 0 ||
-                    it.countAtHour(previousHour) > 0 ||
-                    it.countAtHour(nextHour) > 0
+                it.combinedCountAtHour(currentHour) > 0 ||
+                    it.combinedCountAtHour(previousHour) > 0 ||
+                    it.combinedCountAtHour(nextHour) > 0
             }
             .maxByOrNull { profile ->
                 scoreProfile(profile, currentHour, previousHour, nextHour, nowMs)
@@ -471,23 +486,31 @@ private object SmartRouteNotificationSupport {
         nextHour: Int,
         nowMs: Long,
     ): Double {
-        val currentCount = profile.countAtHour(currentHour)
-        val adjacentCount = profile.countAtHour(previousHour) + profile.countAtHour(nextHour)
-        val preferredCount = profile.countAtHour(profile.preferredHour)
-        val recencyDays = if (profile.lastOpenedAtMs <= 0L) {
+        val currentOpenCount = profile.countAtHour(currentHour)
+        val currentSelectionCount = profile.selectionCountAtHour(currentHour)
+        val adjacentOpenCount =
+            profile.countAtHour(previousHour) + profile.countAtHour(nextHour)
+        val adjacentSelectionCount =
+            profile.selectionCountAtHour(previousHour) +
+                profile.selectionCountAtHour(nextHour)
+        val preferredCount = profile.combinedCountAtHour(profile.preferredHour)
+        val recencyDays = if (profile.latestInteractionAtMs <= 0L) {
             365.0
         } else {
-            (nowMs - profile.lastOpenedAtMs).toDouble() / (24 * 60 * 60 * 1000)
+            (nowMs - profile.latestInteractionAtMs).toDouble() / (24 * 60 * 60 * 1000)
         }
         val recencyBonus = when {
             recencyDays <= 2 -> 1.5
             recencyDays <= 7 -> 0.75
             else -> 0.0
         }
-        return (currentCount * 5) +
-            (adjacentCount * 2.5) +
+        return (currentOpenCount * 5) +
+            (currentSelectionCount * 3.5) +
+            (adjacentOpenCount * 2.5) +
+            (adjacentSelectionCount * 1.5) +
             (preferredCount * 0.5) +
             (profile.totalOpens * 0.15) +
+            (profile.totalSelections * 0.1) +
             recencyBonus
     }
 
@@ -698,16 +721,24 @@ private data class SmartRouteProfile(
     val routeName: String,
     val totalOpens: Int,
     val lastOpenedAtMs: Long,
+    val totalSelections: Int,
+    val lastSelectedAtMs: Long,
     val hourlyOpens: Map<Int, Int>,
+    val hourlySelections: Map<Int, Int>,
 ) {
     fun countAtHour(hour: Int): Int = hourlyOpens[hour] ?: 0
+    fun selectionCountAtHour(hour: Int): Int = hourlySelections[hour] ?: 0
+    fun combinedCountAtHour(hour: Int): Int = countAtHour(hour) + selectionCountAtHour(hour)
+
+    val latestInteractionAtMs: Long
+        get() = maxOf(lastOpenedAtMs, lastSelectedAtMs)
 
     val preferredHour: Int
         get() {
             var bestHour = 0
             var bestCount = -1
             for (hour in 0..23) {
-                val count = countAtHour(hour)
+                val count = combinedCountAtHour(hour)
                 if (count > bestCount) {
                     bestHour = hour
                     bestCount = count

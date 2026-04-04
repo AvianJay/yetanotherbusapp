@@ -456,7 +456,10 @@ class RouteUsageProfile {
     required this.routeName,
     required this.totalOpens,
     required this.lastOpenedAtMs,
+    this.totalSelections = 0,
+    this.lastSelectedAtMs = 0,
     this.hourlyOpens = const <int, int>{},
+    this.hourlySelections = const <int, int>{},
   });
 
   factory RouteUsageProfile.fromJson(Map<String, dynamic> json) {
@@ -466,7 +469,11 @@ class RouteUsageProfile {
       rawHourlyOpens.forEach((key, value) {
         final hour = int.tryParse(key.toString());
         final count = (value as num?)?.toInt();
-        if (hour != null && hour >= 0 && hour < 24 && count != null && count > 0) {
+        if (hour != null &&
+            hour >= 0 &&
+            hour < 24 &&
+            count != null &&
+            count > 0) {
           hourlyOpens[hour] = count;
         }
       });
@@ -478,7 +485,10 @@ class RouteUsageProfile {
       routeName: json['routeName'] as String? ?? '',
       totalOpens: (json['totalOpens'] as num?)?.toInt() ?? 0,
       lastOpenedAtMs: (json['lastOpenedAtMs'] as num?)?.toInt() ?? 0,
+      totalSelections: (json['totalSelections'] as num?)?.toInt() ?? 0,
+      lastSelectedAtMs: (json['lastSelectedAtMs'] as num?)?.toInt() ?? 0,
       hourlyOpens: hourlyOpens,
+      hourlySelections: _decodeHourlyCounts(json['hourlySelections']),
     );
   }
 
@@ -487,7 +497,10 @@ class RouteUsageProfile {
   final String routeName;
   final int totalOpens;
   final int lastOpenedAtMs;
+  final int totalSelections;
+  final int lastSelectedAtMs;
   final Map<int, int> hourlyOpens;
+  final Map<int, int> hourlySelections;
 
   Map<String, dynamic> toJson() {
     return {
@@ -496,19 +509,30 @@ class RouteUsageProfile {
       'routeName': routeName,
       'totalOpens': totalOpens,
       'lastOpenedAtMs': lastOpenedAtMs,
+      'totalSelections': totalSelections,
+      'lastSelectedAtMs': lastSelectedAtMs,
       'hourlyOpens': hourlyOpens.map(
+        (key, value) => MapEntry(key.toString(), value),
+      ),
+      'hourlySelections': hourlySelections.map(
         (key, value) => MapEntry(key.toString(), value),
       ),
     };
   }
 
   int countAtHour(int hour) => hourlyOpens[hour] ?? 0;
+  int selectionCountAtHour(int hour) => hourlySelections[hour] ?? 0;
+  int combinedCountAtHour(int hour) =>
+      countAtHour(hour) + selectionCountAtHour(hour);
+  int get totalInteractions => totalOpens + totalSelections;
+  int get latestInteractionAtMs =>
+      lastOpenedAtMs > lastSelectedAtMs ? lastOpenedAtMs : lastSelectedAtMs;
 
   int get preferredHour {
     var bestHour = 0;
     var bestCount = -1;
     for (var hour = 0; hour < 24; hour++) {
-      final count = countAtHour(hour);
+      final count = combinedCountAtHour(hour);
       if (count > bestCount) {
         bestHour = hour;
         bestCount = count;
@@ -524,11 +548,65 @@ class RouteUsageProfile {
     return RouteUsageProfile(
       provider: provider,
       routeKey: routeKey,
-      routeName: routeName?.trim().isNotEmpty == true ? routeName!.trim() : this.routeName,
+      routeName: routeName?.trim().isNotEmpty == true
+          ? routeName!.trim()
+          : this.routeName,
       totalOpens: totalOpens + 1,
       lastOpenedAtMs: openedAt.millisecondsSinceEpoch,
+      totalSelections: totalSelections,
+      lastSelectedAtMs: lastSelectedAtMs,
       hourlyOpens: nextHourlyOpens,
+      hourlySelections: hourlySelections,
     );
+  }
+
+  RouteUsageProfile recordSelection(DateTime selectedAt, {String? routeName}) {
+    final hour = selectedAt.hour;
+    final nextHourlySelections = <int, int>{...hourlySelections};
+    nextHourlySelections[hour] = (nextHourlySelections[hour] ?? 0) + 1;
+    return RouteUsageProfile(
+      provider: provider,
+      routeKey: routeKey,
+      routeName: routeName?.trim().isNotEmpty == true
+          ? routeName!.trim()
+          : this.routeName,
+      totalOpens: totalOpens,
+      lastOpenedAtMs: lastOpenedAtMs,
+      totalSelections: totalSelections + 1,
+      lastSelectedAtMs: selectedAt.millisecondsSinceEpoch,
+      hourlyOpens: hourlyOpens,
+      hourlySelections: nextHourlySelections,
+    );
+  }
+
+  RouteUsageProfile clearSelections() {
+    return RouteUsageProfile(
+      provider: provider,
+      routeKey: routeKey,
+      routeName: routeName,
+      totalOpens: totalOpens,
+      lastOpenedAtMs: lastOpenedAtMs,
+      hourlyOpens: hourlyOpens,
+    );
+  }
+
+  static Map<int, int> _decodeHourlyCounts(Object? rawCounts) {
+    final counts = <int, int>{};
+    if (rawCounts is! Map) {
+      return counts;
+    }
+    rawCounts.forEach((key, value) {
+      final hour = int.tryParse(key.toString());
+      final count = (value as num?)?.toInt();
+      if (hour != null &&
+          hour >= 0 &&
+          hour < 24 &&
+          count != null &&
+          count > 0) {
+        counts[hour] = count;
+      }
+    });
+    return counts;
   }
 }
 

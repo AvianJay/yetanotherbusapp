@@ -236,7 +236,7 @@ class _TrackedBusesScreenState extends State<TrackedBusesScreen>
     _scheduleRefresh();
   }
 
-  void _openRouteDetail(TrackedBusSnapshot item) {
+  Future<void> _openRouteDetail(TrackedBusSnapshot item) async {
     final routeKey = item.effectiveRouteKey;
     if (routeKey == null) {
       ScaffoldMessenger.of(
@@ -245,7 +245,15 @@ class _TrackedBusesScreenState extends State<TrackedBusesScreen>
       return;
     }
 
-    Navigator.of(context).push(
+    await AppControllerScope.read(context).recordRouteSelection(
+      provider: item.trackedBus.provider,
+      routeKey: routeKey,
+      routeName: item.displayRouteName,
+    );
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => RouteDetailScreen(
           routeKey: routeKey,
@@ -352,7 +360,7 @@ class _TrackedBusesScreenState extends State<TrackedBusesScreen>
         return Card(
           child: ListTile(
             contentPadding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
-            onTap: () => _openRouteDetail(item),
+            onTap: () => unawaited(_openRouteDetail(item)),
             leading: _TrackedBusStateChip(state: item.state),
             title: Text(
               item.trackedBus.vehicleId,

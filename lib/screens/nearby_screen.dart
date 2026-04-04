@@ -161,8 +161,16 @@ class _NearbyScreenState extends State<NearbyScreen> {
                         '${controller.settings.provider.label} · ${item.route.routeName}',
                       ),
                     ),
-                    onTap: () {
-                      Navigator.of(context).push(
+                    onTap: () async {
+                      await controller.recordRouteSelection(
+                        provider: controller.settings.provider,
+                        routeKey: item.route.routeKey,
+                        routeName: item.route.routeName,
+                      );
+                      if (!context.mounted) {
+                        return;
+                      }
+                      await Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           builder: (_) => RouteDetailScreen(
                             routeKey: item.route.routeKey,

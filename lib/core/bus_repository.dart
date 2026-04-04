@@ -241,6 +241,63 @@ class BusRepository {
     );
   }
 
+  Future<TrackedBusSnapshot> getTrackedBusSnapshot(
+    TrackedBus trackedBus,
+  ) async {
+    final response = await _client.get(
+      Uri.parse(
+        '${_busServerBaseUrl}api/bus/${Uri.encodeComponent(trackedBus.vehicleId)}',
+      ),
+    );
+    final plainText = utf8
+        .decode(response.bodyBytes, allowMalformed: true)
+        .trim();
+    if (response.statusCode == 210 || plainText.toLowerCase() == 'offline') {
+      return TrackedBusSnapshot(
+        trackedBus: trackedBus,
+        state: TrackedBusState.offline,
+      );
+    }
+    if (response.statusCode != 200) {
+      throw HttpException(
+        '無法取得 ${trackedBus.vehicleId} 的車輛資訊 (${response.statusCode})',
+      );
+    }
+
+    final xmlText = _decodeBusServerPayload(response.bodyBytes);
+    if (xmlText.trim().toLowerCase() == 'offline') {
+      return TrackedBusSnapshot(
+        trackedBus: trackedBus,
+        state: TrackedBusState.offline,
+      );
+    }
+
+    final document = XmlDocument.parse(xmlText);
+    final busElement = document.rootElement.name.local == 'b'
+        ? document.rootElement
+        : _firstWhereOrNull(
+            document.findAllElements('b'),
+            (element) => element.name.local == 'b',
+          );
+    if (busElement == null) {
+      throw const FormatException('Unexpected tracked bus payload.');
+    }
+
+    return TrackedBusSnapshot(
+      trackedBus: trackedBus,
+      state: TrackedBusState.online,
+      currentRouteKey: int.tryParse(busElement.getAttribute('key') ?? ''),
+      currentRouteName: busElement.getAttribute('rzh'),
+      currentPathId: int.tryParse(busElement.getAttribute('pid') ?? ''),
+      currentPathName: busElement.getAttribute('pzh'),
+      currentStopId: int.tryParse(busElement.getAttribute('sid') ?? ''),
+      currentStopName: busElement.getAttribute('szh'),
+      longitude: double.tryParse(busElement.getAttribute('lon') ?? ''),
+      latitude: double.tryParse(busElement.getAttribute('lat') ?? ''),
+      carOnStop: busElement.getAttribute('carOnStop')?.toLowerCase() == 'true',
+    );
+  }
+
   Future<List<NearbyStopResult>> fetchNearbyStops({
     required BusProvider provider,
     required double latitude,
@@ -469,6 +526,21 @@ class BusRepository {
     }
 
     return result;
+  }
+
+  String _decodeBusServerPayload(List<int> bytes) {
+    final plainText = utf8.decode(bytes, allowMalformed: true).trim();
+    if (plainText.startsWith('<?xml') ||
+        plainText.toLowerCase() == 'offline' ||
+        plainText.startsWith('<b')) {
+      return plainText;
+    }
+
+    try {
+      return utf8.decode(zlib.decode(bytes));
+    } catch (_) {
+      return plainText;
+    }
   }
 
   Future<Database> _openDatabase(BusProvider provider) async {

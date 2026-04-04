@@ -5,6 +5,7 @@ import 'favorites_screen.dart';
 import 'nearby_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
+import 'tracked_buses_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -152,6 +153,21 @@ class HomeScreen extends StatelessWidget {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const FavoritesScreen(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            _FeatureCard(
+              icon: Icons.directions_bus_filled_outlined,
+              title: '追蹤公車',
+              subtitle: controller.trackedBuses.isEmpty
+                  ? '在路線頁點車牌後，可以把公車加入追蹤清單。'
+                  : '目前追蹤 ${controller.trackedBuses.length} 輛公車，查看最新位置與離線狀態。',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const TrackedBusesScreen(),
                   ),
                 );
               },

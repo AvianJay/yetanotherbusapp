@@ -11,6 +11,7 @@ import '../core/android_trip_monitor.dart';
 import '../core/app_launch_service.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
+import '../core/twbusforum.dart';
 import '../widgets/eta_badge.dart';
 
 class RouteDetailScreen extends StatefulWidget {
@@ -1269,7 +1270,57 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return result;
   }
 
+  Future<void> _openVehicleForum(String vehicleId) async {
+    final didLaunch = await openTwBusForumSearch(vehicleId);
+    if (!mounted || didLaunch) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('無法開啟 TWBusforum。')));
+  }
+
+  Future<void> _toggleTrackedVehicle(BusVehicle vehicle) async {
+    final controller = AppControllerScope.read(context);
+    final isTracked = controller.isTrackedBus(vehicle.id);
+    if (isTracked) {
+      await controller.removeTrackedBus(vehicle.id);
+    } else {
+      await controller.addTrackedBus(
+        TrackedBus(
+          provider: widget.provider,
+          vehicleId: vehicle.id,
+          routeKey: widget.routeKey,
+          routeName: _detail?.route.routeName,
+        ),
+      );
+    }
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isTracked ? '已移除 ${vehicle.id} 的追蹤。' : '已開始追蹤 ${vehicle.id}。',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleVehicleAction(
+    BusVehicle vehicle,
+    _VehicleAction action,
+  ) async {
+    switch (action) {
+      case _VehicleAction.toggleTracking:
+        await _toggleTrackedVehicle(vehicle);
+      case _VehicleAction.twBusForum:
+        await _openVehicleForum(vehicle.id);
+    }
+  }
+
   Widget? _buildTrailingStatus(
+    BuildContext context,
     ThemeData theme,
     StopInfo stop, {
     required bool isNearest,
@@ -1285,6 +1336,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     if (stop.buses.isNotEmpty) {
+      final controller = AppControllerScope.read(context);
       final vehicle = stop.buses.first;
       final backgroundColor = isNearest
           ? Colors.cyan.shade400
@@ -1294,16 +1346,35 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final foregroundColor = backgroundColor.computeLuminance() > 0.6
           ? Colors.black87
           : Colors.white;
+      final isTracked = controller.isTrackedBus(vehicle.id);
 
-      return _RouteStatusPill(
-        icon: isNearest
-            ? Icons.gps_fixed_rounded
-            : vehicle.type == '1'
-            ? Icons.accessible_rounded
-            : Icons.directions_bus_rounded,
-        label: vehicle.id,
-        backgroundColor: backgroundColor,
-        foregroundColor: foregroundColor,
+      return PopupMenuButton<_VehicleAction>(
+        padding: EdgeInsets.zero,
+        tooltip: vehicle.id,
+        onSelected: (action) =>
+            unawaited(_handleVehicleAction(vehicle, action)),
+        itemBuilder: (context) {
+          return [
+            PopupMenuItem<_VehicleAction>(
+              value: _VehicleAction.toggleTracking,
+              child: Text(isTracked ? '移除追蹤公車' : '加入追蹤公車'),
+            ),
+            const PopupMenuItem<_VehicleAction>(
+              value: _VehicleAction.twBusForum,
+              child: Text('搜尋 TWBusforum'),
+            ),
+          ];
+        },
+        child: _RouteStatusPill(
+          icon: isNearest
+              ? Icons.gps_fixed_rounded
+              : vehicle.type == '1'
+              ? Icons.accessible_rounded
+              : Icons.directions_bus_rounded,
+          label: vehicle.id,
+          backgroundColor: backgroundColor,
+          foregroundColor: foregroundColor,
+        ),
       );
     }
 
@@ -1320,6 +1391,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   Widget _buildStopTile(
+    BuildContext context,
     ThemeData theme,
     StopInfo stop, {
     required bool alwaysShowSeconds,
@@ -1328,6 +1400,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     required bool isDestination,
   }) {
     final trailingStatus = _buildTrailingStatus(
+      context,
       theme,
       stop,
       isNearest: isNearest,
@@ -1527,6 +1600,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                                 return Container(
                                   key: key,
                                   child: _buildStopTile(
+                                    context,
                                     theme,
                                     stop,
                                     alwaysShowSeconds:
@@ -1587,3 +1661,5 @@ class _RouteStatusPill extends StatelessWidget {
 }
 
 enum _StopAction { favorite, destination, shortcut }
+
+enum _VehicleAction { toggleTracking, twBusForum }

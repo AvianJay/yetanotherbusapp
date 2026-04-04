@@ -338,6 +338,99 @@ class FavoriteStop {
   }
 }
 
+class TrackedBus {
+  const TrackedBus({
+    required this.provider,
+    required this.vehicleId,
+    this.routeKey,
+    this.routeName,
+  });
+
+  factory TrackedBus.fromJson(Map<String, dynamic> json) {
+    return TrackedBus(
+      provider: busProviderFromString(json['provider'] as String? ?? 'twn'),
+      vehicleId: (json['vehicleId'] as String? ?? '').trim().toUpperCase(),
+      routeKey: (json['routeKey'] as num?)?.toInt(),
+      routeName: json['routeName'] as String?,
+    );
+  }
+
+  final BusProvider provider;
+  final String vehicleId;
+  final int? routeKey;
+  final String? routeName;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'provider': provider.name,
+      'vehicleId': vehicleId,
+      if (routeKey != null) 'routeKey': routeKey,
+      if (routeName != null) 'routeName': routeName,
+    };
+  }
+
+  bool sameVehicle(String otherVehicleId) {
+    return vehicleId.toUpperCase() == otherVehicleId.trim().toUpperCase();
+  }
+}
+
+enum TrackedBusState {
+  online,
+  offline,
+  error;
+
+  String get label => switch (this) {
+    TrackedBusState.online => '在線上',
+    TrackedBusState.offline => '離線',
+    TrackedBusState.error => '更新失敗',
+  };
+}
+
+class TrackedBusSnapshot {
+  const TrackedBusSnapshot({
+    required this.trackedBus,
+    required this.state,
+    this.currentRouteKey,
+    this.currentRouteName,
+    this.currentPathId,
+    this.currentPathName,
+    this.currentStopId,
+    this.currentStopName,
+    this.longitude,
+    this.latitude,
+    this.carOnStop = false,
+    this.message,
+  });
+
+  final TrackedBus trackedBus;
+  final TrackedBusState state;
+  final int? currentRouteKey;
+  final String? currentRouteName;
+  final int? currentPathId;
+  final String? currentPathName;
+  final int? currentStopId;
+  final String? currentStopName;
+  final double? longitude;
+  final double? latitude;
+  final bool carOnStop;
+  final String? message;
+
+  bool get isOnline => state == TrackedBusState.online;
+  int? get effectiveRouteKey => currentRouteKey ?? trackedBus.routeKey;
+
+  String get displayRouteName {
+    final onlineName = currentRouteName?.trim();
+    if (onlineName != null && onlineName.isNotEmpty) {
+      return onlineName;
+    }
+    final savedName = trackedBus.routeName?.trim();
+    if (savedName != null && savedName.isNotEmpty) {
+      return savedName;
+    }
+    return '未知路線';
+  }
+}
+
 class RouteSummary {
   const RouteSummary({
     required this.sourceProvider,

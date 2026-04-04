@@ -8,6 +8,7 @@ class StorageService {
   static const _settingsKey = 'app_settings';
   static const _historyKey = 'search_history';
   static const _favoritesKey = 'favorite_groups';
+  static const _trackedBusesKey = 'tracked_buses';
 
   Future<AppSettings> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -98,5 +99,36 @@ class StorageService {
           MapEntry(key, value.map((item) => item.toJson()).toList()),
     );
     await prefs.setString(_favoritesKey, jsonEncode(payload));
+  }
+
+  Future<List<TrackedBus>> loadTrackedBuses() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_trackedBusesKey);
+    if (raw == null || raw.isEmpty) {
+      return const [];
+    }
+
+    try {
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded
+          .whereType<Map>()
+          .map(
+            (entry) => TrackedBus.fromJson(
+              entry.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .where((entry) => entry.vehicleId.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> saveTrackedBuses(List<TrackedBus> trackedBuses) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _trackedBusesKey,
+      jsonEncode(trackedBuses.map((entry) => entry.toJson()).toList()),
+    );
   }
 }

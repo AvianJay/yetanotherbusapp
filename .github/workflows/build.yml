@@ -17,7 +17,6 @@ env:
   APP_REPO_NAME: yetanotherbusapp
   APP_WORKFLOW_API_ID: build.yml
   APP_WORKFLOW_NIGHTLY_ID: build
-  APP_NIGHTLY_ARTIFACT: android-apk-release
   APP_UPDATE_CHANNEL: nightly
 
 jobs:
@@ -107,7 +106,7 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
-          --dart-define=APP_NIGHTLY_ARTIFACT=${{ env.APP_NIGHTLY_ARTIFACT }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=android-apk-release
 
       - name: Upload Android artifact
         uses: actions/upload-artifact@v6
@@ -143,7 +142,7 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
-          --dart-define=APP_NIGHTLY_ARTIFACT=${{ env.APP_NIGHTLY_ARTIFACT }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=web-release
 
       - name: Upload Web artifact
         uses: actions/upload-artifact@v6
@@ -182,7 +181,7 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
-          --dart-define=APP_NIGHTLY_ARTIFACT=${{ env.APP_NIGHTLY_ARTIFACT }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=windows-release
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v6
@@ -226,7 +225,7 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
-          --dart-define=APP_NIGHTLY_ARTIFACT=${{ env.APP_NIGHTLY_ARTIFACT }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=linux-release
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v6
@@ -265,7 +264,7 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
-          --dart-define=APP_NIGHTLY_ARTIFACT=${{ env.APP_NIGHTLY_ARTIFACT }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=macos-release
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v6
@@ -304,7 +303,7 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
-          --dart-define=APP_NIGHTLY_ARTIFACT=${{ env.APP_NIGHTLY_ARTIFACT }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=ios-unsigned-ipa
 
       - name: Archive Runner.app
         run: |

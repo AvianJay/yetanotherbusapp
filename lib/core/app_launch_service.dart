@@ -75,11 +75,17 @@ class AppLaunchService {
       }
     });
 
-    final payload = await _channel.invokeMethod<Map<Object?, Object?>>(
-      'takeInitialLaunchAction',
-    );
-    if (payload != null) {
-      _initialAction = AppLaunchAction.fromMap(payload);
+    try {
+      final payload = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'takeInitialLaunchAction',
+      );
+      if (payload != null) {
+        _initialAction = AppLaunchAction.fromMap(payload);
+      }
+    } on MissingPluginException {
+      _initialAction = null;
+    } on PlatformException {
+      _initialAction = null;
     }
   }
 }

@@ -278,10 +278,11 @@ private enum FavoriteWidgetRouteFetcher {
 
     let bufferSize = 64 * 1024
     var output = Data()
-    var dummyByte: UInt8 = 0
+    var dummyDestinationByte: UInt8 = 0
+    var dummySourceByte: UInt8 = 0
 
-    return withUnsafeMutablePointer(to: &dummyByte) { dummyDstPtr in
-      withUnsafePointer(to: &dummyByte) { dummySrcPtr in
+    return withUnsafeMutablePointer(to: &dummyDestinationByte) { dummyDstPtr in
+      withUnsafePointer(to: &dummySourceByte) { dummySrcPtr in
         var stream = compression_stream(
           dst_ptr: dummyDstPtr,
           dst_size: 0,

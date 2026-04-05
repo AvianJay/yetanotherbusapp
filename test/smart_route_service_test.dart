@@ -90,17 +90,47 @@ void main() {
       provider: BusProvider.twn,
       routeKey: 202,
       routeName: '綠3',
-      totalOpens: 0,
-      lastOpenedAtMs: 0,
+      totalOpens: 3,
+      lastOpenedAtMs: 1712000000000,
       totalSelections: 4,
       lastSelectedAtMs: 1712000000000,
+      hourlyOpens: <int, int>{18: 1, 17: 1, 19: 1},
       hourlySelections: <int, int>{18: 4},
+    );
+    const weakerRoute = RouteUsageProfile(
+      provider: BusProvider.twn,
+      routeKey: 303,
+      routeName: '綠5',
+      totalOpens: 3,
+      lastOpenedAtMs: 1712000000000,
+      hourlyOpens: <int, int>{18: 2, 17: 1},
     );
 
     final result = SmartRouteService.chooseProfileForTime(const [
       selectedRoute,
+      weakerRoute,
     ], DateTime(2026, 4, 4, 18, 15));
 
     expect(result?.routeKey, 202);
+  });
+
+  test('chooseProfileForTime requires enough actual opens', () {
+    const notLearnedEnough = RouteUsageProfile(
+      provider: BusProvider.twn,
+      routeKey: 88,
+      routeName: '11',
+      totalOpens: 1,
+      lastOpenedAtMs: 1712000000000,
+      totalSelections: 4,
+      lastSelectedAtMs: 1712000000000,
+      hourlyOpens: <int, int>{7: 1},
+      hourlySelections: <int, int>{7: 4},
+    );
+
+    final result = SmartRouteService.chooseProfileForTime(const [
+      notLearnedEnough,
+    ], DateTime(2026, 4, 4, 7, 10));
+
+    expect(result, isNull);
   });
 }

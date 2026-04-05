@@ -6,22 +6,18 @@ import 'models.dart';
 class SmartRouteService {
   const SmartRouteService._();
 
+  static const int minTotalOpensForRecommendation = 3;
+  static const int minRelevantInteractionsForRecommendation = 2;
+
   static RouteUsageProfile? chooseProfileForTime(
     Iterable<RouteUsageProfile> profiles,
     DateTime now,
   ) {
     RouteUsageProfile? bestProfile;
     double bestScore = 0;
-    final currentHour = now.hour;
-    final previousHour = (currentHour + 23) % 24;
-    final nextHour = (currentHour + 1) % 24;
 
     for (final profile in profiles) {
-      final isRelevantNow =
-          profile.combinedCountAtHour(currentHour) > 0 ||
-          profile.combinedCountAtHour(previousHour) > 0 ||
-          profile.combinedCountAtHour(nextHour) > 0;
-      if (!isRelevantNow) {
+      if (!hasEnoughHistoryForRecommendation(profile, now)) {
         continue;
       }
 
@@ -32,6 +28,24 @@ class SmartRouteService {
       }
     }
     return bestProfile;
+  }
+
+  static bool hasEnoughHistoryForRecommendation(
+    RouteUsageProfile profile,
+    DateTime now,
+  ) {
+    if (profile.totalOpens < minTotalOpensForRecommendation) {
+      return false;
+    }
+
+    final currentHour = now.hour;
+    final previousHour = (currentHour + 23) % 24;
+    final nextHour = (currentHour + 1) % 24;
+    final relevantInteractions =
+        profile.combinedCountAtHour(currentHour) +
+        profile.combinedCountAtHour(previousHour) +
+        profile.combinedCountAtHour(nextHour);
+    return relevantInteractions >= minRelevantInteractionsForRecommendation;
   }
 
   static double scoreProfileForTime(RouteUsageProfile profile, DateTime now) {

@@ -56,6 +56,9 @@ class SmartRouteNotificationWorker(
                 profiles = profiles,
                 nowMs = now,
             ) ?: return Result.success()
+            if (SmartRouteNotificationSupport.wasRecentlyInteracted(candidate, now)) {
+                return Result.success()
+            }
 
             val currentLocation = SmartRouteNotificationSupport.loadCurrentLocation(
                 applicationContext,
@@ -106,6 +109,8 @@ class SmartRouteNotificationWorker(
 }
 
 private object SmartRouteNotificationSupport {
+    private const val MIN_TOTAL_OPENS_FOR_RECOMMENDATION = 3
+    private const val MIN_RELEVANT_INTERACTIONS_FOR_RECOMMENDATION = 2
     private const val FLUTTER_PREFERENCES_NAME = "FlutterSharedPreferences"
     private const val SETTINGS_KEY = "flutter.app_settings"
     private const val SETTINGS_FALLBACK_KEY = "app_settings"
@@ -119,6 +124,7 @@ private object SmartRouteNotificationSupport {
         "在你常查看某條路線的時間點附近，依最近站牌到站時間主動提醒。"
     private const val ROUTE_REQUEST_TIMEOUT_MS = 10_000
     private const val NOTIFICATION_COOLDOWN_MS = 75 * 60 * 1000L
+    private const val RECENT_INTERACTION_SUPPRESSION_MS = 30 * 60 * 1000L
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -224,13 +230,24 @@ private object SmartRouteNotificationSupport {
 
         return profiles
             .filter {
-                it.combinedCountAtHour(currentHour) > 0 ||
-                    it.combinedCountAtHour(previousHour) > 0 ||
-                    it.combinedCountAtHour(nextHour) > 0
+                hasEnoughHistoryForRecommendation(
+                    profile = it,
+                    currentHour = currentHour,
+                    previousHour = previousHour,
+                    nextHour = nextHour,
+                )
             }
             .maxByOrNull { profile ->
                 scoreProfile(profile, currentHour, previousHour, nextHour, nowMs)
             }
+    }
+
+    fun wasRecentlyInteracted(profile: SmartRouteProfile, nowMs: Long): Boolean {
+        val lastInteractionAt = profile.latestInteractionAtMs
+        if (lastInteractionAt <= 0L) {
+            return false
+        }
+        return nowMs - lastInteractionAt < RECENT_INTERACTION_SUPPRESSION_MS
     }
 
     fun loadCurrentLocation(context: Context): Location? {
@@ -512,6 +529,22 @@ private object SmartRouteNotificationSupport {
             (profile.totalOpens * 0.15) +
             (profile.totalSelections * 0.1) +
             recencyBonus
+    }
+
+    private fun hasEnoughHistoryForRecommendation(
+        profile: SmartRouteProfile,
+        currentHour: Int,
+        previousHour: Int,
+        nextHour: Int,
+    ): Boolean {
+        if (profile.totalOpens < MIN_TOTAL_OPENS_FOR_RECOMMENDATION) {
+            return false
+        }
+        val relevantInteractions =
+            profile.combinedCountAtHour(currentHour) +
+                profile.combinedCountAtHour(previousHour) +
+                profile.combinedCountAtHour(nextHour)
+        return relevantInteractions >= MIN_RELEVANT_INTERACTIONS_FOR_RECOMMENDATION
     }
 
     private fun hasLocationPermission(context: Context): Boolean {

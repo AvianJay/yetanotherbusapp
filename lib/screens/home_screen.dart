@@ -522,7 +522,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '再多點開幾次常用路線，尤其是在你平常會查車的時段，這裡就會慢慢學到你的習慣；如果有定位資料，也會優先嘗試帶你看最近站點。',
+            '再多打開幾次常用路線，尤其是在你平常會查車的時段。至少累積幾次實際開啟後，這裡才會開始穩定推薦；如果有定位資料，也會優先嘗試帶你看最近站點。',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 14),

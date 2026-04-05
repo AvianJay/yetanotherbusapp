@@ -12,6 +12,7 @@ import org.json.JSONObject
 
 object SmartRouteNotificationScheduler {
     private const val WORK_NAME = "smart_route_notification_refresh"
+    private const val MIN_TOTAL_OPENS_FOR_RECOMMENDATION = 3
     private const val FLUTTER_PREFERENCES_NAME = "FlutterSharedPreferences"
     private const val SETTINGS_KEY = "flutter.app_settings"
     private const val SETTINGS_FALLBACK_KEY = "app_settings"
@@ -70,7 +71,14 @@ object SmartRouteNotificationScheduler {
             ?: preferences.getString(ROUTE_USAGE_FALLBACK_KEY, null)
             ?: return false
         return try {
-            JSONArray(raw).length() > 0
+            val profiles = JSONArray(raw)
+            for (index in 0 until profiles.length()) {
+                val item = profiles.optJSONObject(index) ?: continue
+                if (item.optInt("totalOpens", 0) >= MIN_TOTAL_OPENS_FOR_RECOMMENDATION) {
+                    return true
+                }
+            }
+            false
         } catch (_: Exception) {
             false
         }

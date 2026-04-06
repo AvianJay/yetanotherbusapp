@@ -65,34 +65,40 @@ final class LiveActivityBridge {
 
     let routeName = args["routeName"] as? String ?? ""
     let pathName = args["pathName"] as? String ?? ""
-    let stopName = args["stopName"] as? String ?? ""
     let routeKey = args["routeKey"] as? Int ?? 0
     let provider = args["provider"] as? String ?? ""
     let pathId = args["pathId"] as? Int ?? 0
-    let stopId = args["stopId"] as? Int ?? 0
+    let displayStopId = args["displayStopId"] as? Int ?? 0
+    let displayStopName = args["displayStopName"] as? String ?? ""
+    let modeLabel = args["modeLabel"] as? String
+    let statusText = args["statusText"] as? String
 
     let etaSeconds = args["etaSeconds"] as? Int
     let etaMessage = args["etaMessage"] as? String
     let vehicleId = args["vehicleId"] as? String
-    let nextStopName = args["nextStopName"] as? String
+    let progressValue = args["progressValue"] as? Int
+    let progressTotal = args["progressTotal"] as? Int
 
     endAllActivities()
 
     let attributes = BusArrivalAttributes(
       routeName: routeName,
       pathName: pathName,
-      stopName: stopName,
       routeKey: routeKey,
       provider: provider,
-      pathId: pathId,
-      stopId: stopId
+      pathId: pathId
     )
 
     let state = BusArrivalAttributes.ContentState(
+      displayStopId: displayStopId,
+      displayStopName: displayStopName,
+      modeLabel: modeLabel,
+      statusText: statusText,
       etaSeconds: etaSeconds,
       etaMessage: etaMessage,
       vehicleId: vehicleId,
-      nextStopName: nextStopName,
+      progressValue: progressValue,
+      progressTotal: progressTotal,
       updatedAt: Date()
     )
 
@@ -123,16 +129,26 @@ final class LiveActivityBridge {
       return
     }
 
+    let displayStopId = args["displayStopId"] as? Int ?? 0
+    let displayStopName = args["displayStopName"] as? String ?? ""
+    let modeLabel = args["modeLabel"] as? String
+    let statusText = args["statusText"] as? String
     let etaSeconds = args["etaSeconds"] as? Int
     let etaMessage = args["etaMessage"] as? String
     let vehicleId = args["vehicleId"] as? String
-    let nextStopName = args["nextStopName"] as? String
+    let progressValue = args["progressValue"] as? Int
+    let progressTotal = args["progressTotal"] as? Int
 
     let state = BusArrivalAttributes.ContentState(
+      displayStopId: displayStopId,
+      displayStopName: displayStopName,
+      modeLabel: modeLabel,
+      statusText: statusText,
       etaSeconds: etaSeconds,
       etaMessage: etaMessage,
       vehicleId: vehicleId,
-      nextStopName: nextStopName,
+      progressValue: progressValue,
+      progressTotal: progressTotal,
       updatedAt: Date()
     )
 
@@ -186,10 +202,15 @@ final class LiveActivityBridge {
   private func endAllActivities() {
     let activities = Activity<BusArrivalAttributes>.activities
     let finalState = BusArrivalAttributes.ContentState(
+      displayStopId: 0,
+      displayStopName: "",
+      modeLabel: nil,
+      statusText: nil,
       etaSeconds: nil,
       etaMessage: nil,
       vehicleId: nil,
-      nextStopName: nil,
+      progressValue: nil,
+      progressTotal: nil,
       updatedAt: Date()
     )
     for activity in activities {

@@ -1,7 +1,43 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import 'models.dart';
+class LiveActivityDisplayState {
+  const LiveActivityDisplayState({
+    required this.stopId,
+    required this.stopName,
+    this.modeLabel,
+    this.statusText,
+    this.etaSeconds,
+    this.etaMessage,
+    this.vehicleId,
+    this.progressValue,
+    this.progressTotal,
+  });
+
+  final int stopId;
+  final String stopName;
+  final String? modeLabel;
+  final String? statusText;
+  final int? etaSeconds;
+  final String? etaMessage;
+  final String? vehicleId;
+  final int? progressValue;
+  final int? progressTotal;
+
+  Map<String, Object?> toArguments() {
+    return <String, Object?>{
+      'displayStopId': stopId,
+      'displayStopName': stopName,
+      'modeLabel': modeLabel,
+      'statusText': statusText,
+      'etaSeconds': etaSeconds,
+      'etaMessage': etaMessage,
+      'vehicleId': vehicleId,
+      'progressValue': progressValue,
+      'progressTotal': progressTotal,
+    }..removeWhere((_, value) => value == null);
+  }
+}
 
 class LiveActivityService {
   LiveActivityService._();
@@ -20,15 +56,10 @@ class LiveActivityService {
   static Future<bool> startLiveActivity({
     required String routeName,
     required String pathName,
-    required String stopName,
     required int routeKey,
     required String provider,
     required int pathId,
-    required int stopId,
-    int? etaSeconds,
-    String? etaMessage,
-    String? vehicleId,
-    String? nextStopName,
+    required LiveActivityDisplayState state,
   }) async {
     if (!_isIOS) {
       return false;
@@ -38,16 +69,11 @@ class LiveActivityService {
       final arguments = <String, Object?>{
         'routeName': routeName,
         'pathName': pathName,
-        'stopName': stopName,
         'routeKey': routeKey,
         'provider': provider,
         'pathId': pathId,
-        'stopId': stopId,
-        'etaSeconds': etaSeconds,
-        'etaMessage': etaMessage,
-        'vehicleId': vehicleId,
-        'nextStopName': nextStopName,
-      }..removeWhere((_, value) => value == null);
+        ...state.toArguments(),
+      };
       final result = await _channel.invokeMethod<String>(
         'startLiveActivity',
         arguments,
@@ -63,24 +89,16 @@ class LiveActivityService {
     }
   }
 
-  static Future<void> updateLiveActivity({
-    int? etaSeconds,
-    String? etaMessage,
-    String? vehicleId,
-    String? nextStopName,
-  }) async {
+  static Future<void> updateLiveActivity(LiveActivityDisplayState state) async {
     if (!_isIOS || _activeActivityId == null) {
       return;
     }
 
     try {
-      final arguments = <String, Object?>{
-        'etaSeconds': etaSeconds,
-        'etaMessage': etaMessage,
-        'vehicleId': vehicleId,
-        'nextStopName': nextStopName,
-      }..removeWhere((_, value) => value == null);
-      await _channel.invokeMethod<void>('updateLiveActivity', arguments);
+      await _channel.invokeMethod<void>(
+        'updateLiveActivity',
+        state.toArguments(),
+      );
     } on PlatformException {
       // Ignore; activity may have been dismissed by the user.
     } on MissingPluginException {
@@ -117,44 +135,5 @@ class LiveActivityService {
     } on MissingPluginException {
       return false;
     }
-  }
-
-  /// Extracts the live stop data for [stopId] from the route detail and
-  /// pushes it to the active Dynamic Island.
-  static Future<void> updateFromRouteDetail(
-    RouteDetailData detail, {
-    required int pathId,
-    required int stopId,
-  }) async {
-    if (!_isIOS || _activeActivityId == null) {
-      return;
-    }
-
-    final pathStops = detail.stopsByPath[pathId] ?? const <StopInfo>[];
-    StopInfo? targetStop;
-    String? nextStopName;
-    for (var i = 0; i < pathStops.length; i++) {
-      if (pathStops[i].stopId == stopId) {
-        targetStop = pathStops[i];
-        if (i + 1 < pathStops.length) {
-          nextStopName = pathStops[i + 1].stopName;
-        }
-        break;
-      }
-    }
-
-    if (targetStop == null) {
-      return;
-    }
-
-    final vehicleId =
-        targetStop.buses.isNotEmpty ? targetStop.buses.first.id : null;
-
-    await updateLiveActivity(
-      etaSeconds: targetStop.sec,
-      etaMessage: targetStop.msg,
-      vehicleId: vehicleId,
-      nextStopName: nextStopName,
-    );
   }
 }

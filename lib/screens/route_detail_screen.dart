@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -59,6 +60,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _liveActivityActive = false;
   int? _liveActivityStopId;
   int? _liveActivityPathId;
+  bool _liveActivityBoardingWindowOpen = false;
+  bool _liveActivityRideConfirmed = false;
+  int? _liveActivityLastNearestStopIndex;
   int? _requestedPathId;
   int? _requestedStopId;
   int? _targetInitialPathId;
@@ -192,7 +196,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       unawaited(_ensureLocationTracking());
       unawaited(_maybePromptForBackgroundTripMonitor());
       unawaited(_configureBackgroundTripMonitorIfNeeded());
-      unawaited(_updateLiveActivityIfNeeded(displayDetail));
     } catch (error) {
       if (!mounted) {
         return;
@@ -285,6 +288,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _boardingStopName = null;
         _destinationStopId = null;
         _destinationStopName = null;
+        _resetLiveActivityRideState();
       }
       setState(() {});
       _scrollToInitialStopIfNeeded();
@@ -701,20 +705,36 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   Future<void> _configureBackgroundTripMonitorIfNeeded({
     bool forcePermissionCheck = false,
   }) async {
-    if (!_isAndroid || !mounted) {
+    if (!mounted) {
       return;
     }
 
     final controller = AppControllerScope.read(context);
     if (!controller.settings.enableRouteBackgroundMonitor) {
       _backgroundTripMonitorReady = false;
-      await AndroidTripMonitor.stop();
+      if (_isAndroid) {
+        await AndroidTripMonitor.stop();
+      }
+      if (_isIOS) {
+        await _stopLiveActivity();
+      }
       return;
     }
 
     final detail = _detail;
     final pathInfo = _currentPathInfo;
     if (detail == null || pathInfo == null) {
+      if (_isIOS) {
+        await _stopLiveActivity();
+      }
+      return;
+    }
+
+    if (_isIOS) {
+      await _syncLiveActivityForBackgroundMonitor(detail, pathInfo);
+      return;
+    }
+    if (!_isAndroid) {
       return;
     }
 
@@ -762,6 +782,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _boardingStopName = null;
         _destinationStopId = null;
         _destinationStopName = null;
+        _resetLiveActivityRideState();
       });
     }
 
@@ -895,6 +916,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   Future<void> _setDestinationStop(StopInfo stop) async {
     final boardingStop = _currentBoardingCandidateStop();
     setState(() {
+      _resetLiveActivityRideState();
       _boardingStopId = boardingStop?.stopId;
       _boardingStopName = boardingStop?.stopName;
       _destinationStopId = stop.stopId;
@@ -914,6 +936,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
     setState(() {
+      _resetLiveActivityRideState();
       _boardingStopId = null;
       _boardingStopName = null;
       _destinationStopId = null;
@@ -1087,39 +1110,25 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return _nearestStopByPath[stop.pathId] == stop.stopId;
   }
 
-  bool get _isIOS =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+  bool get _isIOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
-  Future<void> _startLiveActivity(StopInfo stop) async {
-    final detail = _detail;
-    final pathInfo = _currentPathInfo;
-    if (detail == null || pathInfo == null) {
-      return;
-    }
+  void _resetLiveActivityRideState() {
+    _liveActivityBoardingWindowOpen = false;
+    _liveActivityRideConfirmed = false;
+    _liveActivityLastNearestStopIndex = null;
+  }
 
-    final pathStops = detail.stopsByPath[pathInfo.pathId] ?? const <StopInfo>[];
-    String? nextStopName;
-    for (var i = 0; i < pathStops.length; i++) {
-      if (pathStops[i].stopId == stop.stopId && i + 1 < pathStops.length) {
-        nextStopName = pathStops[i + 1].stopName;
-        break;
-      }
-    }
-
-    final vehicleId = stop.buses.isNotEmpty ? stop.buses.first.id : null;
-
+  Future<void> _startLiveActivity(
+    PathInfo pathInfo,
+    LiveActivityDisplayState displayState,
+  ) async {
     final didStart = await LiveActivityService.startLiveActivity(
-      routeName: detail.route.routeName,
+      routeName: _detail?.route.routeName ?? '',
       pathName: pathInfo.name,
-      stopName: stop.stopName,
       routeKey: widget.routeKey,
       provider: widget.provider.name,
       pathId: pathInfo.pathId,
-      stopId: stop.stopId,
-      etaSeconds: stop.sec,
-      etaMessage: stop.msg,
-      vehicleId: vehicleId,
-      nextStopName: nextStopName,
+      state: displayState,
     );
 
     if (!mounted) {
@@ -1129,16 +1138,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (didStart) {
       setState(() {
         _liveActivityActive = true;
-        _liveActivityStopId = stop.stopId;
+        _liveActivityStopId = displayState.stopId;
         _liveActivityPathId = pathInfo.pathId;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已開啟 ${stop.stopName} 的動態島即時追蹤。')),
-      );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('無法啟動即時動態，請確認裝置支援。')),
-      );
+      setState(() {
+        _liveActivityActive = false;
+        _liveActivityStopId = null;
+        _liveActivityPathId = null;
+      });
     }
   }
 
@@ -1148,32 +1156,378 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
     setState(() {
+      _resetLiveActivityRideState();
       _liveActivityActive = false;
       _liveActivityStopId = null;
       _liveActivityPathId = null;
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已關閉動態島追蹤。')),
+  }
+
+  int? _resolveNearestStopIndex(List<StopInfo> pathStops) {
+    if (pathStops.isEmpty) {
+      return null;
+    }
+
+    final nearestStopId = _nearestStopByPath[_currentPathId];
+    if (nearestStopId != null) {
+      final index = pathStops.indexWhere(
+        (stop) => stop.stopId == nearestStopId,
+      );
+      if (index != -1) {
+        return index;
+      }
+    }
+
+    final position = _lastPosition;
+    if (position == null) {
+      return null;
+    }
+
+    var nearestIndex = -1;
+    double? nearestDistance;
+    for (var index = 0; index < pathStops.length; index++) {
+      final stop = pathStops[index];
+      if (stop.lat == 0 && stop.lon == 0) {
+        continue;
+      }
+
+      final distance = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        stop.lat,
+        stop.lon,
+      );
+      if (nearestDistance == null || distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    }
+
+    return nearestIndex == -1 ? null : nearestIndex;
+  }
+
+  String _displayEtaText(StopInfo stop) {
+    final message = stop.msg?.trim() ?? '';
+    if (message.isNotEmpty) {
+      if (message.contains('進站') || message.contains('到站')) {
+        return '進站中';
+      }
+      if (message.contains('即將')) {
+        return '即將進站';
+      }
+      if (message.contains('未發車')) {
+        return '未發車';
+      }
+      if (message.contains('末班')) {
+        return '末班已過';
+      }
+      return message;
+    }
+
+    final seconds = stop.sec;
+    if (seconds == null) {
+      return '--';
+    }
+    if (seconds <= 0) {
+      return '進站中';
+    }
+    if (seconds < 60) {
+      return '即將進站';
+    }
+    return '${seconds ~/ 60} 分';
+  }
+
+  bool _isImmediateEtaText(String? etaText) {
+    final value = etaText?.trim() ?? '';
+    return value.contains('進站') || value.contains('即將');
+  }
+
+  bool _isBusApproachingStop(StopInfo stop) {
+    final message = stop.msg?.trim() ?? '';
+    return stop.buses.isNotEmpty ||
+        (stop.sec != null && stop.sec! <= 0) ||
+        message.contains('進站') ||
+        message.contains('到站');
+  }
+
+  int? _findClosestBusIndex(List<StopInfo> stops, int nearestIndex) {
+    final busIndexes = <int>[];
+    for (var index = 0; index < stops.length; index++) {
+      if (_isBusApproachingStop(stops[index])) {
+        busIndexes.add(index);
+      }
+    }
+    if (busIndexes.isEmpty) {
+      return null;
+    }
+
+    final behindOrAtUser = busIndexes.where((index) => index <= nearestIndex);
+    if (behindOrAtUser.isNotEmpty) {
+      return behindOrAtUser.reduce(math.max);
+    }
+    return busIndexes.reduce(math.min);
+  }
+
+  int _resolveBoardingIndex(
+    List<StopInfo> pathStops,
+    int nearestIndex,
+    int destinationIndex,
+  ) {
+    final explicitBoardingIndex = _boardingStopId == null
+        ? -1
+        : pathStops.indexWhere((stop) => stop.stopId == _boardingStopId);
+    final fallbackIndex = explicitBoardingIndex == -1
+        ? nearestIndex
+        : explicitBoardingIndex;
+    return math.min(fallbackIndex, destinationIndex);
+  }
+
+  double? _distanceToStop(StopInfo stop) {
+    final position = _lastPosition;
+    if (position == null || (stop.lat == 0 && stop.lon == 0)) {
+      return null;
+    }
+
+    return Geolocator.distanceBetween(
+      position.latitude,
+      position.longitude,
+      stop.lat,
+      stop.lon,
     );
   }
 
-  Future<void> _updateLiveActivityIfNeeded(RouteDetailData detail) async {
-    if (!_liveActivityActive ||
-        _liveActivityPathId == null ||
-        _liveActivityStopId == null) {
+  bool _updateLiveActivityRideState({
+    required int nearestIndex,
+    required int boardingIndex,
+    required int? busStopsUntilBoarding,
+    required String boardingEtaText,
+    required double? boardingDistanceMeters,
+    required int? busIndex,
+  }) {
+    final userNearBoardingStop =
+        (boardingDistanceMeters != null && boardingDistanceMeters <= 180.0) ||
+        nearestIndex == boardingIndex;
+    final busNearBoardingStop =
+        (busStopsUntilBoarding != null && busStopsUntilBoarding <= 1) ||
+        _isImmediateEtaText(boardingEtaText);
+    if (userNearBoardingStop && busNearBoardingStop) {
+      _liveActivityBoardingWindowOpen = true;
+    }
+
+    final previousNearest = _liveActivityLastNearestStopIndex;
+    _liveActivityLastNearestStopIndex = nearestIndex;
+    final movedForward =
+        previousNearest != null && nearestIndex > previousNearest;
+    final busNearUser =
+        busIndex != null && (nearestIndex - busIndex).abs() <= 1;
+
+    if (!_liveActivityRideConfirmed &&
+        _liveActivityBoardingWindowOpen &&
+        movedForward &&
+        nearestIndex >= boardingIndex &&
+        busNearUser) {
+      _liveActivityRideConfirmed = true;
+    }
+
+    return _liveActivityRideConfirmed;
+  }
+
+  String _pathStatusPrefix(String pathName) {
+    final trimmed = pathName.trim();
+    return trimmed.isEmpty ? '背景乘車提醒進行中' : trimmed;
+  }
+
+  String? _buildBusDistanceSummary(int? stopsAway) {
+    if (stopsAway == null) {
+      return null;
+    }
+    if (stopsAway == 0) {
+      return '公車即將進站';
+    }
+    return '公車還有 $stopsAway 站';
+  }
+
+  String _buildNearestStatusText({
+    required String pathName,
+    required StopInfo nearestStop,
+    required String nearestEtaText,
+    required int? busStopsAway,
+  }) {
+    final parts = <String>[
+      _pathStatusPrefix(pathName),
+      '最近站牌 ${nearestStop.stopName}',
+    ];
+    if (nearestEtaText != '--') {
+      parts.add(nearestEtaText);
+    }
+    final busDistanceSummary = _buildBusDistanceSummary(busStopsAway);
+    if (busDistanceSummary != null) {
+      parts.add(busDistanceSummary);
+    }
+    return parts.join(' · ');
+  }
+
+  String _buildWaitingBoardingText({
+    required String pathName,
+    required StopInfo boardingStop,
+    required StopInfo destinationStop,
+    required int? busStopsUntilBoarding,
+  }) {
+    final parts = <String>[
+      _pathStatusPrefix(pathName),
+      '尚未上車',
+      '上車站 ${boardingStop.stopName}',
+      '目的地 ${destinationStop.stopName}',
+    ];
+    final busDistanceSummary = _buildBusDistanceSummary(busStopsUntilBoarding);
+    if (busDistanceSummary != null) {
+      parts.add(busDistanceSummary);
+    }
+    return parts.join(' · ');
+  }
+
+  String? _vehicleIdForStop(StopInfo stop) {
+    if (stop.buses.isEmpty) {
+      return null;
+    }
+    return stop.buses.first.id;
+  }
+
+  LiveActivityDisplayState? _buildLiveActivityDisplayState(
+    RouteDetailData detail,
+    PathInfo pathInfo,
+  ) {
+    final pathStops = detail.stopsByPath[pathInfo.pathId] ?? const <StopInfo>[];
+    if (pathStops.isEmpty) {
+      _resetLiveActivityRideState();
+      return null;
+    }
+
+    final nearestIndex = _resolveNearestStopIndex(pathStops);
+    if (nearestIndex == null) {
+      _resetLiveActivityRideState();
+      return LiveActivityDisplayState(
+        stopId: pathStops.first.stopId,
+        stopName: '等待目前位置',
+        modeLabel: '定位中',
+        statusText: _pathStatusPrefix(pathInfo.name),
+      );
+    }
+
+    final nearestStop = pathStops[nearestIndex];
+    final nearestEtaText = _displayEtaText(nearestStop);
+    final busIndex = _findClosestBusIndex(pathStops, nearestIndex);
+    final destinationIndex = _destinationStopId == null
+        ? null
+        : pathStops.indexWhere((stop) => stop.stopId == _destinationStopId);
+    if (destinationIndex == null || destinationIndex == -1) {
+      _resetLiveActivityRideState();
+      final busStopsAway = busIndex == null
+          ? null
+          : math.max(nearestIndex - busIndex, 0);
+      return LiveActivityDisplayState(
+        stopId: nearestStop.stopId,
+        stopName: nearestStop.stopName,
+        modeLabel: '最近站牌',
+        statusText: _buildNearestStatusText(
+          pathName: pathInfo.name,
+          nearestStop: nearestStop,
+          nearestEtaText: nearestEtaText,
+          busStopsAway: busStopsAway,
+        ),
+        etaSeconds: nearestStop.sec,
+        etaMessage: nearestStop.msg,
+        vehicleId: _vehicleIdForStop(nearestStop),
+      );
+    }
+
+    final destinationStop = pathStops[destinationIndex];
+    final boardingIndex = _resolveBoardingIndex(
+      pathStops,
+      nearestIndex,
+      destinationIndex,
+    );
+    final boardingStop = pathStops[boardingIndex];
+    final boardingEtaText = _displayEtaText(boardingStop);
+    final busStopsUntilBoarding = busIndex == null
+        ? null
+        : math.max(boardingIndex - busIndex, 0);
+    final hasBoarded = _updateLiveActivityRideState(
+      nearestIndex: nearestIndex,
+      boardingIndex: boardingIndex,
+      busStopsUntilBoarding: busStopsUntilBoarding,
+      boardingEtaText: boardingEtaText,
+      boardingDistanceMeters: _distanceToStop(boardingStop),
+      busIndex: busIndex,
+    );
+
+    if (!hasBoarded) {
+      final boardingProgressValue = busIndex == null
+          ? 0
+          : math.min(busIndex + 1, boardingIndex + 1);
+      return LiveActivityDisplayState(
+        stopId: boardingStop.stopId,
+        stopName: boardingStop.stopName,
+        modeLabel: '尚未上車',
+        statusText: _buildWaitingBoardingText(
+          pathName: pathInfo.name,
+          boardingStop: boardingStop,
+          destinationStop: destinationStop,
+          busStopsUntilBoarding: busStopsUntilBoarding,
+        ),
+        etaSeconds: boardingStop.sec,
+        etaMessage: boardingStop.msg,
+        vehicleId: _vehicleIdForStop(boardingStop),
+        progressValue: boardingProgressValue,
+        progressTotal: boardingIndex + 1,
+      );
+    }
+
+    final currentProgress = math.min(nearestIndex + 1, destinationIndex + 1);
+    final onboardStatusParts = <String>['已上車', '最近站牌 ${nearestStop.stopName}'];
+    if (nearestEtaText != '--') {
+      onboardStatusParts.add(nearestEtaText);
+    }
+
+    return LiveActivityDisplayState(
+      stopId: destinationStop.stopId,
+      stopName: destinationStop.stopName,
+      modeLabel: '已上車',
+      statusText: onboardStatusParts.join(' · '),
+      etaSeconds: destinationStop.sec,
+      etaMessage: destinationStop.msg,
+      vehicleId: _vehicleIdForStop(destinationStop),
+      progressValue: currentProgress,
+      progressTotal: destinationIndex + 1,
+    );
+  }
+
+  Future<void> _syncLiveActivityForBackgroundMonitor(
+    RouteDetailData detail,
+    PathInfo pathInfo,
+  ) async {
+    final displayState = _buildLiveActivityDisplayState(detail, pathInfo);
+    if (displayState == null) {
+      await _stopLiveActivity();
       return;
     }
-    await LiveActivityService.updateFromRouteDetail(
-      detail,
-      pathId: _liveActivityPathId!,
-      stopId: _liveActivityStopId!,
-    );
-  }
 
-  bool _isLiveActivityStop(StopInfo stop) {
-    return _liveActivityActive &&
-        stop.stopId == _liveActivityStopId &&
-        stop.pathId == _liveActivityPathId;
+    final needsRestart =
+        !_liveActivityActive || _liveActivityPathId != pathInfo.pathId;
+    if (needsRestart) {
+      await _startLiveActivity(pathInfo, displayState);
+      return;
+    }
+
+    await LiveActivityService.updateLiveActivity(displayState);
+    if (!mounted) {
+      return;
+    }
+    if (_liveActivityStopId != displayState.stopId) {
+      setState(() {
+        _liveActivityStopId = displayState.stopId;
+      });
+    }
   }
 
   // ignore: unused_element
@@ -1300,12 +1654,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     Navigator.of(context).pop(_StopAction.shortcut),
                 child: const Text('新增到主畫面'),
               ),
-            if (_isIOS)
-              SimpleDialogOption(
-                onPressed: () =>
-                    Navigator.of(context).pop(_StopAction.liveActivity),
-                child: Text(_isLiveActivityStop(stop) ? '關閉動態島追蹤' : '動態島即時追蹤'),
-              ),
             SimpleDialogOption(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('取消'),
@@ -1324,12 +1672,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       await _handleDestinationAction(stop);
     } else if (action == _StopAction.shortcut) {
       await _handlePinnedShortcut(stop);
-    } else if (action == _StopAction.liveActivity) {
-      if (_isLiveActivityStop(stop)) {
-        await _stopLiveActivity();
-      } else {
-        await _startLiveActivity(stop);
-      }
     }
   }
 
@@ -1443,15 +1785,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     required bool isNearest,
     required bool isDestination,
   }) {
-    if (_isLiveActivityStop(stop)) {
-      return const _RouteStatusPill(
-        icon: Icons.circle,
-        label: '動態島',
-        backgroundColor: Color(0xFF00BCD4),
-        foregroundColor: Colors.white,
-      );
-    }
-
     if (isDestination) {
       return _RouteStatusPill(
         icon: Icons.flag_rounded,
@@ -1620,12 +1953,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     : Icons.flag_rounded,
               ),
             ),
-          if (_isIOS && _liveActivityActive)
-            IconButton(
-              onPressed: _stopLiveActivity,
-              icon: const Icon(Icons.stop_circle_rounded),
-              tooltip: '關閉動態島',
-            ),
           IconButton(
             onPressed: _refresh,
             icon: const Icon(Icons.refresh_rounded),
@@ -1792,6 +2119,6 @@ class _RouteStatusPill extends StatelessWidget {
   }
 }
 
-enum _StopAction { favorite, destination, shortcut, liveActivity }
+enum _StopAction { favorite, destination, shortcut }
 
 enum _VehicleAction { toggleTracking, twBusForum }

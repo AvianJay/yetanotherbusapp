@@ -27,8 +27,6 @@ struct BusArrivalLiveActivity: Widget {
     }
   }
 
-  // MARK: - Compact Leading
-
   @ViewBuilder
   private func compactLeadingView(
     context: ActivityViewContext<BusArrivalAttributes>
@@ -44,8 +42,6 @@ struct BusArrivalLiveActivity: Widget {
     }
   }
 
-  // MARK: - Compact Trailing
-
   @ViewBuilder
   private func compactTrailingView(
     context: ActivityViewContext<BusArrivalAttributes>
@@ -56,8 +52,6 @@ struct BusArrivalLiveActivity: Widget {
       .lineLimit(1)
       .minimumScaleFactor(0.7)
   }
-
-  // MARK: - Minimal
 
   @ViewBuilder
   private func minimalView(
@@ -73,13 +67,11 @@ struct BusArrivalLiveActivity: Widget {
     }
   }
 
-  // MARK: - Expanded
-
   @ViewBuilder
   private func expandedLeading(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 6) {
         routeBadge(context.attributes.routeName)
         Text(context.attributes.pathName)
@@ -87,13 +79,25 @@ struct BusArrivalLiveActivity: Widget {
           .foregroundStyle(.secondary)
           .lineLimit(1)
       }
+
+      if let modeLabel = trimmedText(context.state.modeLabel) {
+        modePill(modeLabel)
+      }
+
       HStack(spacing: 5) {
         Image(systemName: "mappin.circle.fill")
           .font(.system(size: 14))
           .foregroundStyle(.cyan)
-        Text(context.attributes.stopName)
+        Text(displayStopName(context.state))
           .font(.system(size: 15, weight: .semibold))
           .lineLimit(1)
+      }
+
+      if let statusText = trimmedText(context.state.statusText) {
+        Text(statusText)
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
       }
     }
   }
@@ -108,9 +112,8 @@ struct BusArrivalLiveActivity: Widget {
         .foregroundStyle(etaColor(context.state))
         .lineLimit(1)
         .minimumScaleFactor(0.6)
-      if let vehicleId = context.state.vehicleId,
-        !vehicleId.trimmingCharacters(in: .whitespaces).isEmpty
-      {
+
+      if let vehicleId = trimmedText(context.state.vehicleId) {
         HStack(spacing: 3) {
           Image(systemName: "bus")
             .font(.system(size: 10))
@@ -127,21 +130,14 @@ struct BusArrivalLiveActivity: Widget {
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
     VStack(spacing: 8) {
-      etaProgressBar(context.state)
+      progressBar(context.state)
 
       HStack {
-        if let nextStop = context.state.nextStopName,
-          !nextStop.trimmingCharacters(in: .whitespaces).isEmpty
-        {
-          HStack(spacing: 4) {
-            Image(systemName: "arrow.right.circle")
-              .font(.system(size: 11))
-              .foregroundStyle(.secondary)
-            Text("下一站 \(nextStop)")
-              .font(.system(size: 12, weight: .medium))
-              .foregroundStyle(.secondary)
-              .lineLimit(1)
-          }
+        if let statusText = trimmedText(context.state.statusText) {
+          Text(statusText)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
         }
         Spacer()
         Text(context.state.updatedAt, style: .time)
@@ -150,8 +146,6 @@ struct BusArrivalLiveActivity: Widget {
       }
     }
   }
-
-  // MARK: - Lock Screen Banner
 
   @ViewBuilder
   private func lockScreenView(
@@ -167,27 +161,28 @@ struct BusArrivalLiveActivity: Widget {
             .lineLimit(1)
         }
 
+        if let modeLabel = trimmedText(context.state.modeLabel) {
+          modePill(modeLabel)
+        }
+
         HStack(spacing: 5) {
           Image(systemName: "mappin.circle.fill")
             .font(.system(size: 14))
             .foregroundStyle(.cyan)
-          Text(context.attributes.stopName)
+          Text(displayStopName(context.state))
             .font(.system(size: 16, weight: .semibold))
             .lineLimit(1)
         }
 
-        if let nextStop = context.state.nextStopName,
-          !nextStop.trimmingCharacters(in: .whitespaces).isEmpty
-        {
-          HStack(spacing: 4) {
-            Image(systemName: "arrow.right.circle")
-              .font(.system(size: 11))
-            Text("下一站 \(nextStop)")
-              .font(.system(size: 12, weight: .medium))
-              .lineLimit(1)
-          }
-          .foregroundStyle(.secondary)
+        if let statusText = trimmedText(context.state.statusText) {
+          Text(statusText)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
         }
+
+        progressBar(context.state)
+          .padding(.top, 2)
       }
 
       Spacer(minLength: 8)
@@ -199,9 +194,7 @@ struct BusArrivalLiveActivity: Widget {
           .lineLimit(1)
           .minimumScaleFactor(0.5)
 
-        if let vehicleId = context.state.vehicleId,
-          !vehicleId.trimmingCharacters(in: .whitespaces).isEmpty
-        {
+        if let vehicleId = trimmedText(context.state.vehicleId) {
           HStack(spacing: 3) {
             Image(systemName: "bus")
               .font(.system(size: 10))
@@ -223,7 +216,7 @@ struct BusArrivalLiveActivity: Widget {
         provider: context.attributes.provider,
         routeKey: context.attributes.routeKey,
         pathId: context.attributes.pathId,
-        stopId: context.attributes.stopId
+        stopId: context.state.displayStopId
       )
     )
     .containerBackground(for: .widget) {
@@ -237,8 +230,6 @@ struct BusArrivalLiveActivity: Widget {
       )
     }
   }
-
-  // MARK: - Subviews
 
   @ViewBuilder
   private func routeBadge(_ name: String) -> some View {
@@ -260,8 +251,21 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   @ViewBuilder
-  private func etaProgressBar(_ state: BusArrivalAttributes.ContentState) -> some View {
-    let progress = etaProgress(state)
+  private func modePill(_ label: String) -> some View {
+    Text(label)
+      .font(.system(size: 11, weight: .semibold))
+      .foregroundStyle(.white.opacity(0.92))
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background(
+        Capsule(style: .continuous)
+          .fill(Color.white.opacity(0.14))
+      )
+  }
+
+  @ViewBuilder
+  private func progressBar(_ state: BusArrivalAttributes.ContentState) -> some View {
+    let progress = progressFraction(state)
     GeometryReader { geometry in
       ZStack(alignment: .leading) {
         RoundedRectangle(cornerRadius: 3, style: .continuous)
@@ -281,10 +285,20 @@ struct BusArrivalLiveActivity: Widget {
     .frame(height: 5)
   }
 
-  // MARK: - Formatting
+  private func trimmedText(_ value: String?) -> String? {
+    guard let value else {
+      return nil
+    }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  private func displayStopName(_ state: BusArrivalAttributes.ContentState) -> String {
+    trimmedText(state.displayStopName) ?? "背景乘車提醒"
+  }
 
   private func formatETACompact(_ state: BusArrivalAttributes.ContentState) -> String {
-    if let msg = state.etaMessage?.trimmingCharacters(in: .whitespaces), !msg.isEmpty {
+    if let msg = trimmedText(state.etaMessage) {
       if msg.count > 4 {
         return String(msg.prefix(4))
       }
@@ -303,7 +317,7 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   private func formatETAMinimal(_ state: BusArrivalAttributes.ContentState) -> String {
-    if let msg = state.etaMessage?.trimmingCharacters(in: .whitespaces), !msg.isEmpty {
+    if let msg = trimmedText(state.etaMessage) {
       return String(msg.prefix(2))
     }
     guard let sec = state.etaSeconds else {
@@ -319,7 +333,7 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   private func formatETAExpanded(_ state: BusArrivalAttributes.ContentState) -> String {
-    if let msg = state.etaMessage?.trimmingCharacters(in: .whitespaces), !msg.isEmpty {
+    if let msg = trimmedText(state.etaMessage) {
       return msg
     }
     guard let sec = state.etaSeconds else {
@@ -340,7 +354,7 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   private func etaColor(_ state: BusArrivalAttributes.ContentState) -> Color {
-    if let msg = state.etaMessage?.trimmingCharacters(in: .whitespaces), !msg.isEmpty {
+    if trimmedText(state.etaMessage) != nil {
       return Color(red: 0.0, green: 0.7, blue: 0.65)
     }
     guard let sec = state.etaSeconds else {
@@ -356,6 +370,14 @@ struct BusArrivalLiveActivity: Widget {
       return Color(red: 0.94, green: 0.42, blue: 0.0)
     }
     return Color(red: 0.0, green: 0.74, blue: 0.83)
+  }
+
+  private func progressFraction(_ state: BusArrivalAttributes.ContentState) -> CGFloat {
+    if let total = state.progressTotal, total > 0 {
+      let value = min(max(state.progressValue ?? 0, 0), total)
+      return CGFloat(Double(value) / Double(total))
+    }
+    return etaProgress(state)
   }
 
   private func etaProgress(_ state: BusArrivalAttributes.ContentState) -> CGFloat {

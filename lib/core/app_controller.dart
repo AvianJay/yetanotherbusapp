@@ -8,6 +8,7 @@ import 'app_update_installer.dart';
 import 'app_update_service.dart';
 import 'bus_repository.dart';
 import 'ios_widget_integration.dart';
+import 'live_activity_service.dart';
 import 'models.dart';
 import 'smart_route_service.dart';
 import 'storage_service.dart';
@@ -152,6 +153,7 @@ class AppController extends ChangeNotifier {
     await storage.saveSettings(_settings);
     if (!value) {
       await AndroidTripMonitor.stop();
+      await LiveActivityService.endLiveActivity();
     }
     notifyListeners();
   }

@@ -70,6 +70,8 @@ class SettingsScreen extends StatelessWidget {
     final buildInfo = controller.buildInfo;
     final isAndroid =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    final supportsRouteBackgroundMonitor = isAndroid || isIOS;
 
     return Scaffold(
       appBar: AppBar(title: const Text('設定')),
@@ -266,11 +268,15 @@ class SettingsScreen extends StatelessWidget {
                     value: controller.settings.keepScreenAwakeOnRouteDetail,
                     onChanged: controller.updateKeepScreenAwakeOnRouteDetail,
                   ),
-                  if (isAndroid)
+                  if (supportsRouteBackgroundMonitor)
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('背景乘車提醒'),
-                      subtitle: const Text('在背景持續追蹤目前路線，並在接近目的地下車時提醒你。'),
+                      subtitle: Text(
+                        isIOS
+                            ? '設定下車提醒後，會透過即時動態在背景持續顯示目前路線，並在接近目的地下車時提醒你。'
+                            : '在背景持續追蹤目前路線，並在接近目的地下車時提醒你。',
+                      ),
                       value: controller.settings.enableRouteBackgroundMonitor,
                       onChanged: (value) {
                         controller.updateEnableRouteBackgroundMonitor(value);

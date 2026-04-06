@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -26,14 +27,23 @@ class IOSWidgetIntegration {
       (key, value) =>
           MapEntry(key, value.map((item) => item.toJson()).toList()),
     );
-    try {
-      await _channel.invokeMethod<void>('syncFavoriteGroups', {
-        'json': jsonEncode(payload),
-      });
-    } on MissingPluginException {
-      // Widgets are not wired on every Apple platform/runtime.
-    } on PlatformException {
-      // Ignore widget sync failures so the main app still works.
+    for (var attempt = 0; attempt < 4; attempt++) {
+      try {
+        await _channel.invokeMethod<void>('syncFavoriteGroups', {
+          'json': jsonEncode(payload),
+        });
+        return;
+      } on MissingPluginException {
+        if (attempt == 3) {
+          return;
+        }
+      } on PlatformException {
+        if (attempt == 3) {
+          return;
+        }
+      }
+
+      await Future<void>.delayed(const Duration(milliseconds: 500));
     }
   }
 }

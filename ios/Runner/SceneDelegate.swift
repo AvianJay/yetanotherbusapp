@@ -11,6 +11,9 @@ class SceneDelegate: FlutterSceneDelegate {
       _ = AppLaunchBridge.shared.handle(url: url)
     }
     super.scene(scene, willConnectTo: session, options: connectionOptions)
+    DispatchQueue.main.async { [weak self] in
+      self?.configureBridgesIfNeeded()
+    }
   }
 
   override func scene(_ scene: UIScene, openURLContexts urlContexts: Set<UIOpenURLContext>) {
@@ -20,5 +23,20 @@ class SceneDelegate: FlutterSceneDelegate {
       }
     }
     super.scene(scene, openURLContexts: urlContexts)
+  }
+
+  override func sceneDidBecomeActive(_ scene: UIScene) {
+    super.sceneDidBecomeActive(scene)
+    configureBridgesIfNeeded()
+  }
+
+  private func configureBridgesIfNeeded() {
+    guard let flutterViewController = window?.rootViewController as? FlutterViewController else {
+      return
+    }
+
+    let messenger = flutterViewController.binaryMessenger
+    AppLaunchBridge.shared.configure(messenger: messenger)
+    WidgetDataBridge.shared.configure(messenger: messenger)
   }
 }

@@ -20,6 +20,10 @@
 		A22222222222222222222222 /* WidgetDataBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A22222222222222222222223 /* WidgetDataBridge.swift */; };
 		A33333333333333333333333 /* YABusWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44444444444444444444445 /* YABusWidgetsBundle.swift */; };
 		A44444444444444444444444 /* FavoriteGroupWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55555555555555555555556 /* FavoriteGroupWidgets.swift */; };
+		DA2222222222222222222222 /* BusArrivalAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1111111111111111111111 /* BusArrivalAttributes.swift */; };
+		DA3333333333333333333333 /* BusArrivalAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1111111111111111111111 /* BusArrivalAttributes.swift */; };
+		DA5555555555555555555555 /* BusArrivalLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA4444444444444444444444 /* BusArrivalLiveActivity.swift */; };
+		DA7777777777777777777777 /* LiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA6666666666666666666666 /* LiveActivityBridge.swift */; };
 		A55555555555555555555555 /* YABusWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A88888888888888888888889 /* YABusWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B10D408340E6876BA3EF880F /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10C38EB2602C10CAC3218B20 /* Pods_Runner.framework */; };
 /* End PBXBuildFile section */
@@ -91,8 +95,11 @@
 		A11111111111111111111112 /* AppLaunchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLaunchBridge.swift; sourceTree = "<group>"; };
 		A22222222222222222222223 /* WidgetDataBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetDataBridge.swift; sourceTree = "<group>"; };
 		A33333333333333333333334 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
+		DA1111111111111111111111 /* BusArrivalAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusArrivalAttributes.swift; sourceTree = "<group>"; };
+		DA6666666666666666666666 /* LiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityBridge.swift; sourceTree = "<group>"; };
 		A44444444444444444444445 /* YABusWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YABusWidgetsBundle.swift; sourceTree = "<group>"; };
 		A55555555555555555555556 /* FavoriteGroupWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteGroupWidgets.swift; sourceTree = "<group>"; };
+		DA4444444444444444444444 /* BusArrivalLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusArrivalLiveActivity.swift; sourceTree = "<group>"; };
 		A66666666666666666666667 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A77777777777777777777778 /* YABusWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = YABusWidgets.entitlements; sourceTree = "<group>"; };
 		A88888888888888888888889 /* YABusWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = YABusWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -190,6 +197,8 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				A11111111111111111111112 /* AppLaunchBridge.swift */,
 				A22222222222222222222223 /* WidgetDataBridge.swift */,
+				DA6666666666666666666666 /* LiveActivityBridge.swift */,
+				DA1111111111111111111111 /* BusArrivalAttributes.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 				A33333333333333333333334 /* Runner.entitlements */,
@@ -202,6 +211,7 @@
 			children = (
 				A44444444444444444444445 /* YABusWidgetsBundle.swift */,
 				A55555555555555555555556 /* FavoriteGroupWidgets.swift */,
+				DA4444444444444444444444 /* BusArrivalLiveActivity.swift */,
 				A66666666666666666666667 /* Info.plist */,
 				A77777777777777777777778 /* YABusWidgets.entitlements */,
 			);
@@ -467,6 +477,8 @@
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				A11111111111111111111111 /* AppLaunchBridge.swift in Sources */,
 				A22222222222222222222222 /* WidgetDataBridge.swift in Sources */,
+				DA7777777777777777777777 /* LiveActivityBridge.swift in Sources */,
+				DA2222222222222222222222 /* BusArrivalAttributes.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 			);
@@ -478,6 +490,8 @@
 			files = (
 				A33333333333333333333333 /* YABusWidgetsBundle.swift in Sources */,
 				A44444444444444444444444 /* FavoriteGroupWidgets.swift in Sources */,
+				DA5555555555555555555555 /* BusArrivalLiveActivity.swift in Sources */,
+				DA3333333333333333333333 /* BusArrivalAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

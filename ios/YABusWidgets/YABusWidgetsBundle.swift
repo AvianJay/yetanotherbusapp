@@ -5,5 +5,6 @@ import WidgetKit
 struct YABusWidgetsBundle: WidgetBundle {
   var body: some Widget {
     FavoriteGroupWidget()
+    BusArrivalLiveActivity()
   }
 }

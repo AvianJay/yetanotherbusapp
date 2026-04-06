@@ -1,0 +1,203 @@
+import ActivityKit
+import Flutter
+import Foundation
+
+final class LiveActivityBridge {
+  static let shared = LiveActivityBridge()
+
+  private let channelName = "tw.avianjay.taiwanbus.flutter/live_activity"
+  private var channel: FlutterMethodChannel?
+  private var currentActivityId: String?
+
+  private init() {}
+
+  func configure(messenger: FlutterBinaryMessenger) {
+    if channel != nil {
+      return
+    }
+
+    let methodChannel = FlutterMethodChannel(
+      name: channelName,
+      binaryMessenger: messenger
+    )
+    methodChannel.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      self.handle(call: call, result: result)
+    }
+    channel = methodChannel
+  }
+
+  private func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "startLiveActivity":
+      handleStart(call: call, result: result)
+    case "updateLiveActivity":
+      handleUpdate(call: call, result: result)
+    case "endLiveActivity":
+      handleEnd(result: result)
+    case "isLiveActivityActive":
+      handleIsActive(result: result)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  // MARK: - Start
+
+  private func handleStart(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard #available(iOS 16.2, *) else {
+      result(FlutterError(code: "unsupported", message: "Live Activities require iOS 16.2+", details: nil))
+      return
+    }
+
+    guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+      result(FlutterError(code: "disabled", message: "Live Activities are disabled.", details: nil))
+      return
+    }
+
+    guard let args = call.arguments as? [String: Any] else {
+      result(FlutterError(code: "invalid_args", message: "Missing arguments.", details: nil))
+      return
+    }
+
+    let routeName = args["routeName"] as? String ?? ""
+    let pathName = args["pathName"] as? String ?? ""
+    let stopName = args["stopName"] as? String ?? ""
+    let routeKey = args["routeKey"] as? Int ?? 0
+    let provider = args["provider"] as? String ?? ""
+    let pathId = args["pathId"] as? Int ?? 0
+    let stopId = args["stopId"] as? Int ?? 0
+
+    let etaSeconds = args["etaSeconds"] as? Int
+    let etaMessage = args["etaMessage"] as? String
+    let vehicleId = args["vehicleId"] as? String
+    let nextStopName = args["nextStopName"] as? String
+
+    endAllActivities()
+
+    let attributes = BusArrivalAttributes(
+      routeName: routeName,
+      pathName: pathName,
+      stopName: stopName,
+      routeKey: routeKey,
+      provider: provider,
+      pathId: pathId,
+      stopId: stopId
+    )
+
+    let state = BusArrivalAttributes.ContentState(
+      etaSeconds: etaSeconds,
+      etaMessage: etaMessage,
+      vehicleId: vehicleId,
+      nextStopName: nextStopName,
+      updatedAt: Date()
+    )
+
+    do {
+      let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(120))
+      let activity = try Activity.request(
+        attributes: attributes,
+        content: content,
+        pushType: nil
+      )
+      currentActivityId = activity.id
+      result(activity.id)
+    } catch {
+      result(FlutterError(code: "start_failed", message: error.localizedDescription, details: nil))
+    }
+  }
+
+  // MARK: - Update
+
+  private func handleUpdate(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard #available(iOS 16.2, *) else {
+      result(nil)
+      return
+    }
+
+    guard let args = call.arguments as? [String: Any] else {
+      result(FlutterError(code: "invalid_args", message: "Missing arguments.", details: nil))
+      return
+    }
+
+    let etaSeconds = args["etaSeconds"] as? Int
+    let etaMessage = args["etaMessage"] as? String
+    let vehicleId = args["vehicleId"] as? String
+    let nextStopName = args["nextStopName"] as? String
+
+    let state = BusArrivalAttributes.ContentState(
+      etaSeconds: etaSeconds,
+      etaMessage: etaMessage,
+      vehicleId: vehicleId,
+      nextStopName: nextStopName,
+      updatedAt: Date()
+    )
+
+    Task {
+      guard let activityId = currentActivityId else {
+        await MainActor.run { result(nil) }
+        return
+      }
+
+      let activities = Activity<BusArrivalAttributes>.activities
+      guard let activity = activities.first(where: { $0.id == activityId }) else {
+        await MainActor.run { result(nil) }
+        return
+      }
+
+      let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(120))
+      await activity.update(content)
+      await MainActor.run { result(nil) }
+    }
+  }
+
+  // MARK: - End
+
+  private func handleEnd(result: @escaping FlutterResult) {
+    guard #available(iOS 16.2, *) else {
+      result(nil)
+      return
+    }
+
+    endAllActivities()
+    result(nil)
+  }
+
+  // MARK: - Is Active
+
+  private func handleIsActive(result: @escaping FlutterResult) {
+    guard #available(iOS 16.2, *) else {
+      result(false)
+      return
+    }
+
+    let hasActive = !Activity<BusArrivalAttributes>.activities.filter {
+      $0.activityState == .active
+    }.isEmpty
+    result(hasActive)
+  }
+
+  // MARK: - Helpers
+
+  @available(iOS 16.2, *)
+  private func endAllActivities() {
+    let activities = Activity<BusArrivalAttributes>.activities
+    let finalState = BusArrivalAttributes.ContentState(
+      etaSeconds: nil,
+      etaMessage: nil,
+      vehicleId: nil,
+      nextStopName: nil,
+      updatedAt: Date()
+    )
+    for activity in activities {
+      Task {
+        let content = ActivityContent(state: finalState, staleDate: nil)
+        await activity.end(content, dismissalPolicy: .immediate)
+      }
+    }
+    currentActivityId = nil
+  }
+}

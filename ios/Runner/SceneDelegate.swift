@@ -38,5 +38,6 @@ class SceneDelegate: FlutterSceneDelegate {
     let messenger = flutterViewController.binaryMessenger
     AppLaunchBridge.shared.configure(messenger: messenger)
     WidgetDataBridge.shared.configure(messenger: messenger)
+    LiveActivityBridge.shared.configure(messenger: messenger)
   }
 }

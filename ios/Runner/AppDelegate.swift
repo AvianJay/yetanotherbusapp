@@ -15,6 +15,7 @@ import UIKit
     let messenger = engineBridge.applicationRegistrar.messenger()
     AppLaunchBridge.shared.configure(messenger: messenger)
     WidgetDataBridge.shared.configure(messenger: messenger)
+    LiveActivityBridge.shared.configure(messenger: messenger)
   }
 
   override func application(

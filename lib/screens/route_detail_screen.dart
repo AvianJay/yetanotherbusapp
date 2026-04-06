@@ -191,9 +191,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         );
       }
       _startCountdown(
-        fetchedDetail.hasLiveData
-            ? controller.settings.busUpdateTime
-            : controller.settings.busErrorUpdateTime,
+        _effectiveRefreshIntervalSeconds(
+          fetchedDetail.hasLiveData
+              ? controller.settings.busUpdateTime
+              : controller.settings.busErrorUpdateTime,
+        ),
       );
       _scrollToInitialStopIfNeeded();
       _recalculateNearestStops();
@@ -210,8 +212,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _error = '$error';
         _statusMessage = previousDetail == null ? '讀取失敗' : '更新失敗，保留上一筆資料';
       });
-      _startCountdown(controller.settings.busErrorUpdateTime);
+      _startCountdown(
+        _effectiveRefreshIntervalSeconds(controller.settings.busErrorUpdateTime),
+      );
     }
+  }
+
+  int _effectiveRefreshIntervalSeconds(int baseSeconds) {
+    if (!_isIOS || !_liveActivityActive) {
+      return baseSeconds;
+    }
+
+    return math.max(3, math.min(baseSeconds, 5));
   }
 
   RouteDetailData _mergeDetailWithPreviousLiveData(
@@ -1074,7 +1086,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final locationSettings = enableBackgroundLocationStream
         ? AppleSettings(
             accuracy: LocationAccuracy.high,
-            distanceFilter: 10,
+            distanceFilter: _liveActivityActive ? 5 : 10,
             pauseLocationUpdatesAutomatically: false,
             activityType: ActivityType.automotiveNavigation,
             showBackgroundLocationIndicator: false,
@@ -1082,7 +1094,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           )
         : const LocationSettings(
             accuracy: LocationAccuracy.high,
-            distanceFilter: 10,
+            distanceFilter: 5,
           );
 
     await _positionSubscription?.cancel();
@@ -1863,10 +1875,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
 
-    final refreshIntervalSeconds = math.max(
-      controller.settings.busUpdateTime,
-      10,
-    );
+    final refreshIntervalSeconds = _liveActivityActive
+        ? _effectiveRefreshIntervalSeconds(controller.settings.busUpdateTime)
+        : math.max(controller.settings.busUpdateTime, 10);
     final now = DateTime.now();
     final lastRefreshAt = _lastBackgroundDataRefreshAt;
     if (lastRefreshAt != null &&

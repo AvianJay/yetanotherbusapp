@@ -114,16 +114,14 @@ struct BusArrivalLiveActivity: Widget {
   private func expandedTrailing(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(alignment: .trailing, spacing: 2) {
-      countdownText(
+    VStack(alignment: .trailing, spacing: 4) {
+      largeCountdownText(
         context.state,
-        style: .expanded,
-        font: .system(size: 28, weight: .bold, design: .rounded)
+        font: .system(size: 30, weight: .black, design: .rounded),
+        minimumScaleFactor: 0.62
       )
-      .foregroundStyle(etaColor(context.state))
-      .lineLimit(1)
-      .minimumScaleFactor(0.6)
-      .monospacedDigit()
+
+      updatedAgoText(context.state)
 
       if let vehicleId = trimmedText(context.state.vehicleId) {
         HStack(spacing: 3) {
@@ -144,17 +142,13 @@ struct BusArrivalLiveActivity: Widget {
     VStack(spacing: 8) {
       stopLineView(context.state)
 
-      HStack {
+      HStack(alignment: .center) {
         if let statusText = trimmedText(context.state.statusText) {
           Text(statusText)
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.secondary)
-            .lineLimit(1)
+            .lineLimit(2)
         }
-        Spacer()
-        Text(context.state.updatedAt, style: .time)
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color(white: 0.5))
       }
     }
   }
@@ -163,67 +157,62 @@ struct BusArrivalLiveActivity: Widget {
   private func lockScreenView(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    HStack(spacing: 16) {
-      VStack(alignment: .leading, spacing: 6) {
-        HStack(spacing: 8) {
-          routeBadge(context.attributes.routeName)
-          Text(context.attributes.pathName)
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
-
-        if let modeLabel = trimmedText(context.state.modeLabel) {
-          modePill(modeLabel)
-        }
-
-        HStack(spacing: 5) {
-          Image(systemName: "mappin.circle.fill")
-            .font(.system(size: 14))
-            .foregroundStyle(.cyan)
-          Text(displayStopName(context.state))
-            .font(.system(size: 16, weight: .semibold))
-            .lineLimit(1)
-        }
-
-        if let statusText = trimmedText(context.state.statusText) {
-          Text(statusText)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.secondary)
-            .lineLimit(2)
-        }
-
-        stopLineView(context.state)
-          .padding(.top, 2)
-      }
-
-      Spacer(minLength: 8)
-
-      VStack(alignment: .trailing, spacing: 4) {
-        countdownText(
-          context.state,
-          style: .expanded,
-          font: .system(size: 32, weight: .bold, design: .rounded)
-        )
-        .foregroundStyle(etaColor(context.state))
-        .lineLimit(1)
-        .minimumScaleFactor(0.5)
-        .monospacedDigit()
-
-        if let vehicleId = trimmedText(context.state.vehicleId) {
-          HStack(spacing: 3) {
-            Image(systemName: "bus")
-              .font(.system(size: 10))
-            Text(vehicleId)
-              .font(.system(size: 11, weight: .medium, design: .monospaced))
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .top, spacing: 18) {
+        VStack(alignment: .leading, spacing: 6) {
+          HStack(spacing: 8) {
+            routeBadge(context.attributes.routeName)
+            Text(context.attributes.pathName)
+              .font(.system(size: 13, weight: .medium))
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
           }
-          .foregroundStyle(.secondary)
-        }
 
-        Text(context.state.updatedAt, style: .time)
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color(white: 0.5))
+          if let modeLabel = trimmedText(context.state.modeLabel) {
+            modePill(modeLabel)
+          }
+
+          HStack(spacing: 5) {
+            Image(systemName: "mappin.circle.fill")
+              .font(.system(size: 14))
+              .foregroundStyle(.cyan)
+            Text(displayStopName(context.state))
+              .font(.system(size: 16, weight: .semibold))
+              .lineLimit(1)
+          }
+
+          if let statusText = trimmedText(context.state.statusText) {
+            Text(statusText)
+              .font(.system(size: 12, weight: .medium))
+              .foregroundStyle(.secondary)
+              .lineLimit(2)
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        VStack(alignment: .trailing, spacing: 6) {
+          largeCountdownText(
+            context.state,
+            font: .system(size: 34, weight: .black, design: .rounded),
+            minimumScaleFactor: 0.52
+          )
+
+          updatedAgoText(context.state)
+
+          if let vehicleId = trimmedText(context.state.vehicleId) {
+            HStack(spacing: 3) {
+              Image(systemName: "bus")
+                .font(.system(size: 10))
+              Text(vehicleId)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+            }
+            .foregroundStyle(.secondary)
+          }
+        }
+        .frame(minWidth: 110, alignment: .trailing)
       }
+
+      stopLineView(context.state)
     }
     .padding(.horizontal, 20)
     .padding(.vertical, 14)
@@ -391,7 +380,7 @@ struct BusArrivalLiveActivity: Widget {
       .fill(Color.white.opacity(intensity))
       .frame(maxWidth: .infinity)
       .frame(height: 2)
-      .padding(.horizontal, 6)
+      .padding(.horizontal, 4)
   }
 
   @ViewBuilder
@@ -400,18 +389,19 @@ struct BusArrivalLiveActivity: Widget {
     isCurrent: Bool,
     isHighlighted: Bool
   ) -> some View {
-    Text(text)
+    Text(compactStopLineLabel(text))
       .font(
         .system(
-          size: isCurrent ? 11 : 10,
+          size: isCurrent ? 10.5 : 9.5,
           weight: isCurrent || isHighlighted ? .semibold : .medium
         )
       )
       .foregroundStyle(stopLineLabelColor(isCurrent: isCurrent, isHighlighted: isHighlighted))
       .lineLimit(2)
       .minimumScaleFactor(0.7)
+      .lineSpacing(-1)
       .multilineTextAlignment(.center)
-      .frame(maxWidth: .infinity, alignment: .top)
+      .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
   }
 
   private func stopLineData(
@@ -465,6 +455,52 @@ struct BusArrivalLiveActivity: Widget {
       return Color(red: 0.55, green: 0.9, blue: 0.98)
     }
     return Color.white.opacity(0.68)
+  }
+
+  private func compactStopLineLabel(_ text: String) -> String {
+    let trimmed = trimmedText(text) ?? text
+    let separators = ["(", "（", " ", "/", "／", "-", "－"]
+    var candidate = trimmed
+    for separator in separators {
+      if let range = candidate.range(of: separator) {
+        candidate = String(candidate[..<range.lowerBound])
+        break
+      }
+    }
+
+    if candidate.count <= 4 {
+      return candidate
+    }
+
+    return String(candidate.prefix(4)) + "…"
+  }
+
+  @ViewBuilder
+  private func largeCountdownText(
+    _ state: BusArrivalAttributes.ContentState,
+    font: Font,
+    minimumScaleFactor: CGFloat
+  ) -> some View {
+    countdownText(
+      state,
+      style: .expanded,
+      font: font
+    )
+    .foregroundStyle(etaColor(state))
+    .lineLimit(1)
+    .minimumScaleFactor(minimumScaleFactor)
+    .monospacedDigit()
+    .tracking(-1.1)
+    .shadow(color: etaColor(state).opacity(0.16), radius: 10, x: 0, y: 3)
+  }
+
+  @ViewBuilder
+  private func updatedAgoText(_ state: BusArrivalAttributes.ContentState) -> some View {
+    (Text("更新於 ") + Text(state.updatedAt, style: .relative))
+      .font(.system(size: 10, weight: .medium, design: .rounded))
+      .foregroundStyle(Color.white.opacity(0.48))
+      .monospacedDigit()
+      .lineLimit(1)
   }
 
   @ViewBuilder

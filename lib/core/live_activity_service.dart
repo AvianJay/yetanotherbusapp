@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -37,7 +35,7 @@ class LiveActivityService {
     }
 
     try {
-      final result = await _channel.invokeMethod<String>('startLiveActivity', {
+      final arguments = <String, Object?>{
         'routeName': routeName,
         'pathName': pathName,
         'stopName': stopName,
@@ -45,11 +43,15 @@ class LiveActivityService {
         'provider': provider,
         'pathId': pathId,
         'stopId': stopId,
-        if (etaSeconds != null) 'etaSeconds': etaSeconds,
-        if (etaMessage != null) 'etaMessage': etaMessage,
-        if (vehicleId != null) 'vehicleId': vehicleId,
-        if (nextStopName != null) 'nextStopName': nextStopName,
-      });
+        'etaSeconds': etaSeconds,
+        'etaMessage': etaMessage,
+        'vehicleId': vehicleId,
+        'nextStopName': nextStopName,
+      }..removeWhere((_, value) => value == null);
+      final result = await _channel.invokeMethod<String>(
+        'startLiveActivity',
+        arguments,
+      );
       _activeActivityId = result;
       return result != null;
     } on PlatformException {
@@ -72,12 +74,13 @@ class LiveActivityService {
     }
 
     try {
-      await _channel.invokeMethod<void>('updateLiveActivity', {
-        if (etaSeconds != null) 'etaSeconds': etaSeconds,
-        if (etaMessage != null) 'etaMessage': etaMessage,
-        if (vehicleId != null) 'vehicleId': vehicleId,
-        if (nextStopName != null) 'nextStopName': nextStopName,
-      });
+      final arguments = <String, Object?>{
+        'etaSeconds': etaSeconds,
+        'etaMessage': etaMessage,
+        'vehicleId': vehicleId,
+        'nextStopName': nextStopName,
+      }..removeWhere((_, value) => value == null);
+      await _channel.invokeMethod<void>('updateLiveActivity', arguments);
     } on PlatformException {
       // Ignore; activity may have been dismissed by the user.
     } on MissingPluginException {

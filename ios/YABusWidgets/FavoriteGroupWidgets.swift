@@ -10,25 +10,86 @@ enum FavoriteWidgetSharedStore {
 
   static func loadFavoriteGroups() -> [String: [FavoriteWidgetStop]] {
     guard
-      let defaults = UserDefaults(suiteName: appGroupIdentifier),
-      let raw = defaults.string(forKey: favoriteGroupsKey),
-      let data = raw.data(using: .utf8)
+      let payload = loadFavoriteGroupsPayload()
     else {
       return [:]
     }
 
-    do {
-      return try JSONDecoder().decode([String: [FavoriteWidgetStop]].self, from: data)
-    } catch {
-      return [:]
+    return payload.reduce(into: [String: [FavoriteWidgetStop]]()) { result, entry in
+      let groupName = entry.key.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !groupName.isEmpty else {
+        return
+      }
+
+      guard let rawStops = entry.value as? [Any] else {
+        result[groupName] = []
+        return
+      }
+
+      result[groupName] = rawStops.compactMap { rawStop in
+        guard let stopMap = rawStop as? [String: Any] else {
+          return nil
+        }
+
+        let provider = (stopMap["provider"] as? String ?? "")
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+        let routeKey = integerValue(from: stopMap["routeKey"])
+        let pathId = integerValue(from: stopMap["pathId"])
+        let stopId = integerValue(from: stopMap["stopId"])
+        guard !provider.isEmpty, routeKey > 0, pathId >= 0, stopId >= 0 else {
+          return nil
+        }
+
+        return FavoriteWidgetStop(
+          provider: provider,
+          routeKey: routeKey,
+          pathId: pathId,
+          stopId: stopId,
+          routeName: (stopMap["routeName"] as? String)?.nilIfBlank,
+          stopName: (stopMap["stopName"] as? String)?.nilIfBlank
+        )
+      }
     }
   }
 
   static func loadFavoriteGroupNames() -> [String] {
-    loadFavoriteGroups().keys
+    guard let payload = loadFavoriteGroupsPayload() else {
+      return []
+    }
+
+    return payload.keys
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
       .sorted()
+  }
+
+  private static func loadFavoriteGroupsPayload() -> [String: Any]? {
+    guard
+      let defaults = UserDefaults(suiteName: appGroupIdentifier),
+      let raw = defaults.string(forKey: favoriteGroupsKey),
+      let data = raw.data(using: .utf8)
+    else {
+      return nil
+    }
+
+    do {
+      return try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    } catch {
+      return nil
+    }
+  }
+
+  private static func integerValue(from value: Any?) -> Int {
+    switch value {
+    case let number as NSNumber:
+      return number.intValue
+    case let number as Int:
+      return number
+    case let text as String:
+      return Int(text) ?? 0
+    default:
+      return 0
+    }
   }
 }
 
@@ -65,6 +126,64 @@ private struct FavoriteWidgetLiveStop: Hashable {
   let vehicleId: String?
 }
 
+struct FavoriteGroupEntity: AppEntity {
+  static let typeDisplayRepresentation = TypeDisplayRepresentation(
+    name: "\u{6211}\u{7684}\u{6700}\u{611b}\u{7fa4}\u{7d44}"
+  )
+  static let defaultQuery = FavoriteGroupQuery()
+
+  let id: String
+
+  var displayRepresentation: DisplayRepresentation {
+    DisplayRepresentation(title: "\(id)")
+  }
+}
+
+struct FavoriteGroupQuery: EntityQuery {
+  func entities(
+    for identifiers: [FavoriteGroupEntity.ID]
+  ) async throws -> [FavoriteGroupEntity] {
+    let availableNames = Set(FavoriteWidgetSharedStore.loadFavoriteGroupNames())
+    return identifiers.compactMap { identifier in
+      guard availableNames.contains(identifier) else {
+        return nil
+      }
+      return FavoriteGroupEntity(id: identifier)
+    }
+  }
+
+  func suggestedEntities() async throws -> [FavoriteGroupEntity] {
+    FavoriteWidgetSharedStore.loadFavoriteGroupNames().map { name in
+      FavoriteGroupEntity(id: name)
+    }
+  }
+
+  func defaultResult() async -> FavoriteGroupEntity? {
+    FavoriteWidgetSharedStore.loadFavoriteGroupNames().first.map { name in
+      FavoriteGroupEntity(id: name)
+    }
+  }
+}
+
+extension FavoriteGroupQuery: EntityStringQuery {
+  func entities(matching string: String) async throws -> [FavoriteGroupEntity] {
+    let query = string.trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+    let names = FavoriteWidgetSharedStore.loadFavoriteGroupNames()
+    let filteredNames: [String]
+    if query.isEmpty {
+      filteredNames = names
+    } else {
+      filteredNames = names.filter { name in
+        name.lowercased().contains(query)
+      }
+    }
+    return filteredNames.map { name in
+      FavoriteGroupEntity(id: name)
+    }
+  }
+}
+
 struct FavoriteGroupConfigurationIntent: WidgetConfigurationIntent {
   static var title: LocalizedStringResource =
     "\u{6211}\u{7684}\u{6700}\u{611b}\u{7fa4}\u{7d44}"
@@ -72,28 +191,8 @@ struct FavoriteGroupConfigurationIntent: WidgetConfigurationIntent {
     "\u{986f}\u{793a}\u{55ae}\u{4e00}\u{6700}\u{611b}\u{7fa4}\u{7d44}\u{7684}\u{5230}\u{7ad9}\u{6642}\u{9593}\u{3002}"
   )
 
-  @Parameter(
-    title: "\u{7fa4}\u{7d44}",
-    optionsProvider: FavoriteGroupOptionsProvider()
-  )
-  var groupName: String?
-}
-
-struct FavoriteGroupOptionsProvider: DynamicOptionsProvider {
-  func results() async throws -> ItemCollection<String> {
-    let groupNames = FavoriteWidgetSharedStore.loadFavoriteGroupNames()
-    return ItemCollection {
-      ItemSection(
-        items: groupNames.map { groupName in
-          IntentItem(groupName)
-        }
-      )
-    }
-  }
-
-  func defaultResult() async -> String? {
-    FavoriteWidgetSharedStore.loadFavoriteGroupNames().first
-  }
+  @Parameter(title: "\u{7fa4}\u{7d44}")
+  var group: FavoriteGroupEntity?
 }
 
 struct FavoriteGroupTimelineProvider: AppIntentTimelineProvider {
@@ -160,7 +259,7 @@ private enum FavoriteGroupEntryLoader {
     }
 
     let sortedNames = groups.keys.sorted()
-    let requestedName = configuration.groupName?
+    let requestedName = configuration.group?.id
       .trimmingCharacters(in: .whitespacesAndNewlines)
     let selectedName = requestedName.flatMap { groups[$0] == nil ? nil : $0 } ?? sortedNames[0]
 

@@ -7,6 +7,7 @@ import WidgetKit
 enum FavoriteWidgetSharedStore {
   static let appGroupIdentifier = "group.tw.avianjay.taiwanbus.flutter"
   static let favoriteGroupsKey = "favorite_groups_json"
+  static let favoriteGroupsFileName = "favorite_groups.json"
 
   static func loadFavoriteGroups() -> [String: [FavoriteWidgetStop]] {
     guard
@@ -64,6 +65,21 @@ enum FavoriteWidgetSharedStore {
   }
 
   private static func loadFavoriteGroupsPayload() -> [String: Any]? {
+    if
+      let containerURL = FileManager.default.containerURL(
+        forSecurityApplicationGroupIdentifier: appGroupIdentifier
+      )
+    {
+      let fileURL = containerURL.appendingPathComponent(favoriteGroupsFileName)
+      if
+        let data = try? Data(contentsOf: fileURL),
+        let object = try? JSONSerialization.jsonObject(with: data),
+        let payload = object as? [String: Any]
+      {
+        return payload
+      }
+    }
+
     guard
       let defaults = UserDefaults(suiteName: appGroupIdentifier),
       let raw = defaults.string(forKey: favoriteGroupsKey),

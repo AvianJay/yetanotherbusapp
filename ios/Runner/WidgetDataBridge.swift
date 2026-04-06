@@ -7,6 +7,7 @@ final class WidgetDataBridge {
 
   private static let appGroupIdentifier = "group.tw.avianjay.taiwanbus.flutter"
   private static let favoriteGroupsKey = "favorite_groups_json"
+  private static let favoriteGroupsFileName = "favorite_groups.json"
   private let channelName = "tw.avianjay.taiwanbus.flutter/ios_widgets"
   private var channel: FlutterMethodChannel?
 
@@ -62,11 +63,31 @@ final class WidgetDataBridge {
 
     defaults.set(json, forKey: Self.favoriteGroupsKey)
     defaults.set(Date().timeIntervalSince1970, forKey: "favorite_groups_synced_at")
+    defaults.synchronize()
+    persistFavoriteGroupsJSONToSharedFile(json)
 
     if #available(iOS 14.0, *) {
       WidgetCenter.shared.reloadAllTimelines()
     }
 
     result(nil)
+  }
+
+  private func persistFavoriteGroupsJSONToSharedFile(_ json: String) {
+    guard
+      let containerURL = FileManager.default.containerURL(
+        forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+      ),
+      let data = json.data(using: .utf8)
+    else {
+      return
+    }
+
+    let fileURL = containerURL.appendingPathComponent(Self.favoriteGroupsFileName)
+    do {
+      try data.write(to: fileURL, options: .atomic)
+    } catch {
+      NSLog("WidgetDataBridge failed to persist shared widget payload: %@", error.localizedDescription)
+    }
   }
 }

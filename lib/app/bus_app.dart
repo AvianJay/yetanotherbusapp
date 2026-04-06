@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/app_controller.dart';
 import '../core/app_launch_service.dart';
+import '../core/ios_widget_integration.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
 import '../screens/favorites_screen.dart';
@@ -96,25 +97,36 @@ class _AppHome extends StatefulWidget {
   State<_AppHome> createState() => _AppHomeState();
 }
 
-class _AppHomeState extends State<_AppHome> {
+class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   bool _startupCheckScheduled = false;
+  bool _widgetSyncScheduled = false;
   AppLaunchAction? _pendingLaunchAction;
   StreamSubscription<AppLaunchAction>? _launchSubscription;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pendingLaunchAction = AppLaunchService.instance.takePendingInitialAction();
     _launchSubscription = AppLaunchService.instance.actions.listen((action) {
       _pendingLaunchAction = action;
       _maybeScheduleLaunchAction();
     });
+    _scheduleIOSWidgetSync();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _launchSubscription?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _syncIOSWidgets();
+    }
   }
 
   @override
@@ -140,6 +152,24 @@ class _AppHomeState extends State<_AppHome> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _runStartupCheck();
     });
+  }
+
+  void _scheduleIOSWidgetSync() {
+    if (_widgetSyncScheduled) {
+      return;
+    }
+
+    _widgetSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _widgetSyncScheduled = false;
+      _syncIOSWidgets();
+    });
+  }
+
+  void _syncIOSWidgets() {
+    unawaited(
+      IOSWidgetIntegration.syncFavoriteGroups(widget.controller.favoriteGroups),
+    );
   }
 
   void _maybeScheduleLaunchAction() {

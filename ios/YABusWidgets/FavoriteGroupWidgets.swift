@@ -155,7 +155,19 @@ struct FavoriteGroupEntity: AppEntity {
   }
 }
 
-struct FavoriteGroupQuery: EntityQuery {
+private extension FavoriteWidgetSharedStore {
+  static func loadFavoriteGroupEntities() -> [FavoriteGroupEntity] {
+    loadFavoriteGroupNames().map { name in
+      FavoriteGroupEntity(id: name)
+    }
+  }
+}
+
+struct FavoriteGroupQuery: EntityQuery, EnumerableEntityQuery {
+  func allEntities() async throws -> [FavoriteGroupEntity] {
+    FavoriteWidgetSharedStore.loadFavoriteGroupEntities()
+  }
+
   func entities(
     for identifiers: [FavoriteGroupEntity.ID]
   ) async throws -> [FavoriteGroupEntity] {
@@ -169,15 +181,11 @@ struct FavoriteGroupQuery: EntityQuery {
   }
 
   func suggestedEntities() async throws -> [FavoriteGroupEntity] {
-    FavoriteWidgetSharedStore.loadFavoriteGroupNames().map { name in
-      FavoriteGroupEntity(id: name)
-    }
+    try await allEntities()
   }
 
   func defaultResult() async -> FavoriteGroupEntity? {
-    FavoriteWidgetSharedStore.loadFavoriteGroupNames().first.map { name in
-      FavoriteGroupEntity(id: name)
-    }
+    FavoriteWidgetSharedStore.loadFavoriteGroupEntities().first
   }
 }
 

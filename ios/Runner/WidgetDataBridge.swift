@@ -50,11 +50,23 @@ final class WidgetDataBridge {
     _ json: String,
     result: @escaping FlutterResult
   ) {
+    let groupCount = favoriteGroupCount(from: json)
+    let didPersistSharedFile = persistFavoriteGroupsJSONToSharedFile(json)
+
     guard let defaults = UserDefaults(suiteName: Self.appGroupIdentifier) else {
+      if #available(iOS 14.0, *) {
+        WidgetCenter.shared.reloadAllTimelines()
+      }
+      NSLog(
+        "WidgetDataBridge app group defaults unavailable for %@. groupCount=%d, fallbackFileWritten=%@",
+        Self.appGroupIdentifier,
+        groupCount,
+        didPersistSharedFile ? "true" : "false"
+      )
       result(
         FlutterError(
           code: "app_group_unavailable",
-          message: "Unable to open shared app group defaults.",
+          message: "Unable to open shared app group defaults. Shared file fallback attempted.",
           details: Self.appGroupIdentifier
         )
       )
@@ -64,7 +76,11 @@ final class WidgetDataBridge {
     defaults.set(json, forKey: Self.favoriteGroupsKey)
     defaults.set(Date().timeIntervalSince1970, forKey: "favorite_groups_synced_at")
     defaults.synchronize()
-    persistFavoriteGroupsJSONToSharedFile(json)
+    NSLog(
+      "WidgetDataBridge synced favorite groups. groupCount=%d, fallbackFileWritten=%@",
+      groupCount,
+      didPersistSharedFile ? "true" : "false"
+    )
 
     if #available(iOS 14.0, *) {
       WidgetCenter.shared.reloadAllTimelines()
@@ -73,21 +89,39 @@ final class WidgetDataBridge {
     result(nil)
   }
 
-  private func persistFavoriteGroupsJSONToSharedFile(_ json: String) {
+  private func persistFavoriteGroupsJSONToSharedFile(_ json: String) -> Bool {
     guard
       let containerURL = FileManager.default.containerURL(
         forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
       ),
       let data = json.data(using: .utf8)
     else {
-      return
+      NSLog(
+        "WidgetDataBridge failed to open shared container for %@",
+        Self.appGroupIdentifier
+      )
+      return false
     }
 
     let fileURL = containerURL.appendingPathComponent(Self.favoriteGroupsFileName)
     do {
       try data.write(to: fileURL, options: .atomic)
+      return true
     } catch {
       NSLog("WidgetDataBridge failed to persist shared widget payload: %@", error.localizedDescription)
+      return false
     }
+  }
+
+  private func favoriteGroupCount(from json: String) -> Int {
+    guard
+      let data = json.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      let payload = object as? [String: Any]
+    else {
+      return 0
+    }
+
+    return payload.count
   }
 }

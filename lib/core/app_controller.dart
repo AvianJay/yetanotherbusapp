@@ -83,7 +83,10 @@ class AppController extends ChangeNotifier {
     await AndroidHomeIntegration.updateFavoriteWidgetAutoRefreshMinutes(
       _settings.favoriteWidgetAutoRefreshMinutes,
     );
-    await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
+    await IOSWidgetIntegration.syncFavoriteGroups(
+      _favoriteGroups,
+      waitForBridge: true,
+    );
     await AndroidHomeIntegration.syncSmartRouteNotifications(
       _settings.enableSmartRouteNotifications,
     );

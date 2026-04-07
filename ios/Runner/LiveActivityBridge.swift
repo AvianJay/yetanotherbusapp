@@ -70,6 +70,11 @@ final class LiveActivityBridge {
     let pathId = args["pathId"] as? Int ?? 0
     let displayStopId = args["displayStopId"] as? Int ?? 0
     let displayStopName = args["displayStopName"] as? String ?? ""
+    let previousStopName = args["previousStopName"] as? String
+    let nextStopName = args["nextStopName"] as? String
+    let lineStopNames = args["lineStopNames"] as? [String] ?? []
+    let lineCurrentStopIndex = args["lineCurrentStopIndex"] as? Int
+    let lineHighlightedStopIndex = args["lineHighlightedStopIndex"] as? Int
     let modeLabel = args["modeLabel"] as? String
     let statusText = args["statusText"] as? String
 
@@ -92,6 +97,11 @@ final class LiveActivityBridge {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: displayStopId,
       displayStopName: displayStopName,
+      previousStopName: previousStopName,
+      nextStopName: nextStopName,
+      lineStopNames: lineStopNames,
+      lineCurrentStopIndex: lineCurrentStopIndex,
+      lineHighlightedStopIndex: lineHighlightedStopIndex,
       modeLabel: modeLabel,
       statusText: statusText,
       etaSeconds: etaSeconds,
@@ -134,6 +144,11 @@ final class LiveActivityBridge {
 
     let displayStopId = args["displayStopId"] as? Int ?? 0
     let displayStopName = args["displayStopName"] as? String ?? ""
+    let previousStopName = args["previousStopName"] as? String
+    let nextStopName = args["nextStopName"] as? String
+    let lineStopNames = args["lineStopNames"] as? [String] ?? []
+    let lineCurrentStopIndex = args["lineCurrentStopIndex"] as? Int
+    let lineHighlightedStopIndex = args["lineHighlightedStopIndex"] as? Int
     let modeLabel = args["modeLabel"] as? String
     let statusText = args["statusText"] as? String
     let etaSeconds = args["etaSeconds"] as? Int
@@ -145,6 +160,11 @@ final class LiveActivityBridge {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: displayStopId,
       displayStopName: displayStopName,
+      previousStopName: previousStopName,
+      nextStopName: nextStopName,
+      lineStopNames: lineStopNames,
+      lineCurrentStopIndex: lineCurrentStopIndex,
+      lineHighlightedStopIndex: lineHighlightedStopIndex,
       modeLabel: modeLabel,
       statusText: statusText,
       etaSeconds: etaSeconds,
@@ -210,6 +230,11 @@ final class LiveActivityBridge {
     let finalState = BusArrivalAttributes.ContentState(
       displayStopId: 0,
       displayStopName: "",
+      previousStopName: nil,
+      nextStopName: nil,
+      lineStopNames: [],
+      lineCurrentStopIndex: nil,
+      lineHighlightedStopIndex: nil,
       modeLabel: nil,
       statusText: nil,
       etaSeconds: nil,

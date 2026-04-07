@@ -46,6 +46,11 @@ void main() {
     final state = LiveActivityDisplayState(
       stopId: 101,
       stopName: '西門町',
+      previousStopName: '北門',
+      nextStopName: '小南門',
+      lineStopNames: const ['北門', '西門町', '小南門'],
+      lineCurrentStopIndex: 1,
+      lineHighlightedStopIndex: 2,
       modeLabel: '尚未上車',
       etaSeconds: 300,
       progressValue: 2,
@@ -74,6 +79,11 @@ void main() {
     expect(args['pathId'], 0);
     expect(args['displayStopId'], 101);
     expect(args['displayStopName'], '西門町');
+    expect(args['previousStopName'], '北門');
+    expect(args['nextStopName'], '小南門');
+    expect(args['lineStopNames'], ['北門', '西門町', '小南門']);
+    expect(args['lineCurrentStopIndex'], 1);
+    expect(args['lineHighlightedStopIndex'], 2);
     expect(args['modeLabel'], '尚未上車');
     expect(args['etaSeconds'], 300);
     expect(args['progressValue'], 2);
@@ -97,6 +107,11 @@ void main() {
       const LiveActivityDisplayState(
         stopId: 102,
         stopName: '龍山寺',
+        previousStopName: '西門町',
+        nextStopName: '江子翠',
+        lineStopNames: ['西門町', '龍山寺', '江子翠'],
+        lineCurrentStopIndex: 1,
+        lineHighlightedStopIndex: 2,
         modeLabel: '已上車',
         statusText: '最近站牌 西門町',
         etaMessage: '進站中',
@@ -108,6 +123,11 @@ void main() {
     final args = log.single.arguments as Map<dynamic, dynamic>;
     expect(args['displayStopId'], 102);
     expect(args['displayStopName'], '龍山寺');
+    expect(args['previousStopName'], '西門町');
+    expect(args['nextStopName'], '江子翠');
+    expect(args['lineStopNames'], ['西門町', '龍山寺', '江子翠']);
+    expect(args['lineCurrentStopIndex'], 1);
+    expect(args['lineHighlightedStopIndex'], 2);
     expect(args['modeLabel'], '已上車');
     expect(args['statusText'], '最近站牌 西門町');
     expect(args['etaMessage'], '進站中');

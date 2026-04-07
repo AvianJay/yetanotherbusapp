@@ -31,6 +31,11 @@ class RunnerTests: XCTestCase {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: 100,
       displayStopName: "臺北車站",
+      previousStopName: "善導寺",
+      nextStopName: "西門町",
+      lineStopNames: ["善導寺", "臺北車站", "西門町"],
+      lineCurrentStopIndex: 1,
+      lineHighlightedStopIndex: 2,
       modeLabel: "尚未上車",
       statusText: "往板橋 · 上車站 臺北車站",
       etaSeconds: 125,
@@ -49,6 +54,11 @@ class RunnerTests: XCTestCase {
 
     XCTAssertEqual(decoded.displayStopId, 100)
     XCTAssertEqual(decoded.displayStopName, "臺北車站")
+    XCTAssertEqual(decoded.previousStopName, "善導寺")
+    XCTAssertEqual(decoded.nextStopName, "西門町")
+    XCTAssertEqual(decoded.lineStopNames, ["善導寺", "臺北車站", "西門町"])
+    XCTAssertEqual(decoded.lineCurrentStopIndex, 1)
+    XCTAssertEqual(decoded.lineHighlightedStopIndex, 2)
     XCTAssertEqual(decoded.modeLabel, "尚未上車")
     XCTAssertEqual(decoded.statusText, "往板橋 · 上車站 臺北車站")
     XCTAssertEqual(decoded.etaSeconds, 125)
@@ -63,6 +73,11 @@ class RunnerTests: XCTestCase {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: 101,
       displayStopName: "西門町",
+      previousStopName: "臺北車站",
+      nextStopName: "龍山寺",
+      lineStopNames: ["臺北車站", "西門町", "龍山寺"],
+      lineCurrentStopIndex: 1,
+      lineHighlightedStopIndex: 1,
       modeLabel: nil,
       statusText: "最近站牌 西門町",
       etaSeconds: nil,
@@ -79,6 +94,11 @@ class RunnerTests: XCTestCase {
 
     XCTAssertEqual(decoded.displayStopId, 101)
     XCTAssertEqual(decoded.displayStopName, "西門町")
+    XCTAssertEqual(decoded.previousStopName, "臺北車站")
+    XCTAssertEqual(decoded.nextStopName, "龍山寺")
+    XCTAssertEqual(decoded.lineStopNames, ["臺北車站", "西門町", "龍山寺"])
+    XCTAssertEqual(decoded.lineCurrentStopIndex, 1)
+    XCTAssertEqual(decoded.lineHighlightedStopIndex, 1)
     XCTAssertEqual(decoded.statusText, "最近站牌 西門町")
     XCTAssertNil(decoded.etaSeconds)
     XCTAssertEqual(decoded.etaMessage, "即將進站")
@@ -91,6 +111,11 @@ class RunnerTests: XCTestCase {
     let state1 = BusArrivalAttributes.ContentState(
       displayStopId: 102,
       displayStopName: "龍山寺",
+      previousStopName: "西門町",
+      nextStopName: "江子翠",
+      lineStopNames: ["西門町", "龍山寺", "江子翠"],
+      lineCurrentStopIndex: 1,
+      lineHighlightedStopIndex: 2,
       modeLabel: "已上車",
       statusText: "已上車 · 最近站牌 西門町",
       etaSeconds: 60,
@@ -104,6 +129,11 @@ class RunnerTests: XCTestCase {
     let state2 = BusArrivalAttributes.ContentState(
       displayStopId: 102,
       displayStopName: "龍山寺",
+      previousStopName: "西門町",
+      nextStopName: "江子翠",
+      lineStopNames: ["西門町", "龍山寺", "江子翠"],
+      lineCurrentStopIndex: 1,
+      lineHighlightedStopIndex: 2,
       modeLabel: "已上車",
       statusText: "已上車 · 最近站牌 西門町",
       etaSeconds: 60,
@@ -123,6 +153,11 @@ class RunnerTests: XCTestCase {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: 102,
       displayStopName: "龍山寺",
+      previousStopName: "西門町",
+      nextStopName: "江子翠",
+      lineStopNames: ["西門町", "龍山寺", "江子翠"],
+      lineCurrentStopIndex: 1,
+      lineHighlightedStopIndex: 2,
       modeLabel: "已上車",
       statusText: "已上車 · 最近站牌 西門町",
       etaSeconds: 125,
@@ -145,6 +180,11 @@ class RunnerTests: XCTestCase {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: 101,
       displayStopName: "西門町",
+      previousStopName: "臺北車站",
+      nextStopName: "龍山寺",
+      lineStopNames: ["臺北車站", "西門町", "龍山寺"],
+      lineCurrentStopIndex: 1,
+      lineHighlightedStopIndex: 1,
       modeLabel: nil,
       statusText: "最近站牌 西門町",
       etaSeconds: 45,
@@ -163,6 +203,11 @@ class RunnerTests: XCTestCase {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: 103,
       displayStopName: "板橋公車站",
+      previousStopName: "江子翠",
+      nextStopName: "新埔",
+      lineStopNames: ["江子翠", "板橋公車站", "新埔"],
+      lineCurrentStopIndex: 1,
+      lineHighlightedStopIndex: 2,
       modeLabel: "尚未上車",
       statusText: "公車還有 8 站",
       etaSeconds: 3_900,

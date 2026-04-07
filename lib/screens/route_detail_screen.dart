@@ -1475,6 +1475,55 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return stop.buses.first.id;
   }
 
+  ({String? previousStopName, String? nextStopName}) _adjacentStopNames(
+    List<StopInfo> pathStops,
+    int stopId,
+  ) {
+    final stopIndex = pathStops.indexWhere((stop) => stop.stopId == stopId);
+    if (stopIndex == -1) {
+      return (previousStopName: null, nextStopName: null);
+    }
+
+    return (
+      previousStopName: stopIndex > 0 ? pathStops[stopIndex - 1].stopName : null,
+      nextStopName: stopIndex + 1 < pathStops.length
+          ? pathStops[stopIndex + 1].stopName
+          : null,
+    );
+  }
+
+  ({
+    List<String> stopNames,
+    int currentStopIndex,
+    int? highlightedStopIndex,
+  }) _buildLiveActivityStopLine(
+    List<StopInfo> pathStops, {
+    required int anchorIndex,
+    int? highlightedIndex,
+  }) {
+    final clampedAnchorIndex = anchorIndex.clamp(0, pathStops.length - 1);
+    var startIndex = math.max(0, clampedAnchorIndex - 2);
+    var endIndex = math.min(pathStops.length, startIndex + 5);
+    startIndex = math.max(0, endIndex - 5);
+
+    final stopNames = <String>[
+      for (var index = startIndex; index < endIndex; index++)
+        pathStops[index].stopName,
+    ];
+    final resolvedHighlightedIndex =
+        highlightedIndex != null &&
+            highlightedIndex >= startIndex &&
+            highlightedIndex < endIndex
+        ? highlightedIndex - startIndex
+        : null;
+
+    return (
+      stopNames: stopNames,
+      currentStopIndex: clampedAnchorIndex - startIndex,
+      highlightedStopIndex: resolvedHighlightedIndex,
+    );
+  }
+
   LiveActivityDisplayState? _buildLiveActivityDisplayState(
     RouteDetailData detail,
     PathInfo pathInfo,
@@ -1488,9 +1537,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final nearestIndex = _resolveNearestStopIndex(pathStops);
     if (nearestIndex == null) {
       _resetLiveActivityRideState();
+      final stopLine = _buildLiveActivityStopLine(
+        pathStops,
+        anchorIndex: _findClosestBusIndex(pathStops, pathStops.length - 1) ?? 0,
+      );
       return LiveActivityDisplayState(
         stopId: pathStops.first.stopId,
         stopName: '等待目前位置',
+        lineStopNames: stopLine.stopNames,
+        lineCurrentStopIndex: stopLine.currentStopIndex,
+        lineHighlightedStopIndex: stopLine.highlightedStopIndex,
         modeLabel: '定位中',
         statusText: _pathStatusPrefix(pathInfo.name),
       );
@@ -1507,9 +1563,20 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final busStopsAway = busIndex == null
           ? null
           : math.max(nearestIndex - busIndex, 0);
+      final stopLine = _buildLiveActivityStopLine(
+        pathStops,
+        anchorIndex: busIndex ?? nearestIndex,
+        highlightedIndex: nearestIndex,
+      );
+      final adjacentStops = _adjacentStopNames(pathStops, nearestStop.stopId);
       return LiveActivityDisplayState(
         stopId: nearestStop.stopId,
         stopName: nearestStop.stopName,
+        previousStopName: adjacentStops.previousStopName,
+        nextStopName: adjacentStops.nextStopName,
+        lineStopNames: stopLine.stopNames,
+        lineCurrentStopIndex: stopLine.currentStopIndex,
+        lineHighlightedStopIndex: stopLine.highlightedStopIndex,
         modeLabel: '最近站牌',
         statusText: _buildNearestStatusText(
           pathName: pathInfo.name,
@@ -1547,9 +1614,20 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final boardingProgressValue = busIndex == null
           ? 0
           : math.min(busIndex + 1, boardingIndex + 1);
+      final stopLine = _buildLiveActivityStopLine(
+        pathStops,
+        anchorIndex: busIndex ?? boardingIndex,
+        highlightedIndex: boardingIndex,
+      );
+      final adjacentStops = _adjacentStopNames(pathStops, boardingStop.stopId);
       return LiveActivityDisplayState(
         stopId: boardingStop.stopId,
         stopName: boardingStop.stopName,
+        previousStopName: adjacentStops.previousStopName,
+        nextStopName: adjacentStops.nextStopName,
+        lineStopNames: stopLine.stopNames,
+        lineCurrentStopIndex: stopLine.currentStopIndex,
+        lineHighlightedStopIndex: stopLine.highlightedStopIndex,
         modeLabel: '尚未上車',
         statusText: _buildWaitingBoardingText(
           pathName: pathInfo.name,
@@ -1570,10 +1648,21 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (nearestEtaText != '--') {
       onboardStatusParts.add(nearestEtaText);
     }
+    final stopLine = _buildLiveActivityStopLine(
+      pathStops,
+      anchorIndex: busIndex ?? nearestIndex,
+      highlightedIndex: destinationIndex,
+    );
+    final adjacentStops = _adjacentStopNames(pathStops, destinationStop.stopId);
 
     return LiveActivityDisplayState(
       stopId: destinationStop.stopId,
       stopName: destinationStop.stopName,
+      previousStopName: adjacentStops.previousStopName,
+      nextStopName: adjacentStops.nextStopName,
+      lineStopNames: stopLine.stopNames,
+      lineCurrentStopIndex: stopLine.currentStopIndex,
+      lineHighlightedStopIndex: stopLine.highlightedStopIndex,
       modeLabel: '已上車',
       statusText: onboardStatusParts.join(' · '),
       etaSeconds: destinationStop.sec,

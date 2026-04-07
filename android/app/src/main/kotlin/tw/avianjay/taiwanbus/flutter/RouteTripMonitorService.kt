@@ -291,6 +291,54 @@ class RouteTripMonitorService : Service() {
             }.takeIf { it >= 0 } ?: nearestIndex
             val boardingStop = session.stops[boardingIndex]
             val boardingLiveStop = liveStops[boardingStop.stopId]
+            val hasBoarded = updateRideState(
+                nearestIndex = nearestIndex,
+                boardingIndex = boardingIndex,
+                busStopsUntilBoarding = busIndex?.let { (boardingIndex - it).coerceAtLeast(0) },
+                boardingEtaText = displayEtaText(boardingLiveStop),
+                boardingDistanceMeters = distanceMeters(
+                    location.latitude,
+                    location.longitude,
+                    boardingStop.lat,
+                    boardingStop.lon,
+                ),
+                busIndex = busIndex,
+            )
+            val busStopsAway = busIndex?.let { (nearestIndex - it).coerceAtLeast(0) }
+            return TrackingSnapshot(
+                title = session.routeName,
+                content = "${nearestStop.stopName} 繚 $nearestEtaText",
+                subText = buildNearestStatusText(
+                    session = session,
+                    nearestStop = nearestStop,
+                    nearestEtaText = nearestEtaText,
+                    busStopsAway = busStopsAway,
+                ),
+                progressMax = null,
+                progressValue = null,
+                shortCriticalText = buildShortCriticalText(
+                    busStopsAway,
+                    displayShortEtaText(nearestLiveStop),
+                ),
+                hasBoarded = hasBoarded,
+                boardingName = boardingStop.stopName,
+                boardingEtaText = displayEtaText(boardingLiveStop),
+                boardingStopsAway = busIndex?.let { (boardingIndex - it).coerceAtLeast(0) },
+                boardingDistanceMeters = distanceMeters(
+                    location.latitude,
+                    location.longitude,
+                    boardingStop.lat,
+                    boardingStop.lon,
+                ),
+            )
+        }
+
+        if (false && destinationIndex == null && session.boardingStopId != null) {
+            val boardingIndex = session.stops.indexOfFirst { stop ->
+                stop.stopId == session.boardingStopId
+            }.takeIf { it >= 0 } ?: nearestIndex
+            val boardingStop = session.stops[boardingIndex]
+            val boardingLiveStop = liveStops[boardingStop.stopId]
             val boardingEtaText = displayEtaText(boardingLiveStop)
             val boardingEtaShort = displayShortEtaText(boardingLiveStop)
             val boardingDistanceMeters = distanceMeters(
@@ -580,12 +628,16 @@ class RouteTripMonitorService : Service() {
         val movedForward = previousNearest != null && nearestIndex > previousNearest
         val busNearUser = busIndex != null && abs(nearestIndex - busIndex) <= 1
         val busReachedBoarding = busIndex != null && busIndex >= boardingIndex
-        val userReachedBoarding = nearestIndex >= boardingIndex
+        val userMovedPastBoardingStop = nearestIndex > boardingIndex
+        val userLeftBoardingArea =
+            boardingDistanceMeters >= BOARDING_CONFIRM_DISTANCE_METERS
         val strongBoardingSignal =
             boardingWindowOpen &&
+                movedForward &&
                 busNearUser &&
-                userReachedBoarding &&
-                (busReachedBoarding || movedForward)
+                busReachedBoarding &&
+                userMovedPastBoardingStop &&
+                userLeftBoardingArea
 
         if (!rideConfirmed) {
             rideConfirmationSamples = if (strongBoardingSignal) {
@@ -742,7 +794,6 @@ class RouteTripMonitorService : Service() {
             .setContentText(snapshot.content)
             .setSubText(snapshot.subText)
             .setContentIntent(createOpenRoutePendingIntent(session))
-            .setDeleteIntent(createStopPendingIntent())
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setPublicVersion(buildPublicTrackingNotification(snapshot))
             .setOngoing(true)
@@ -803,7 +854,6 @@ class RouteTripMonitorService : Service() {
             .setContentText(snapshot.content)
             .setSubText(snapshot.subText)
             .setContentIntent(createOpenRoutePendingIntent(session))
-            .setDeleteIntent(createStopPendingIntent())
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setPublicVersion(buildPublicTrackingNotification(snapshot))
             .setOngoing(true)
@@ -878,7 +928,6 @@ class RouteTripMonitorService : Service() {
             .setContentTitle(snapshot.title)
             .setContentText(snapshot.content)
             .setContentIntent(createOpenRoutePendingIntent(currentSession))
-            .setDeleteIntent(createStopPendingIntent())
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
@@ -1504,6 +1553,7 @@ class RouteTripMonitorService : Service() {
         private const val LOCATION_UPDATE_INTERVAL_MS = 12_000L
         private const val LOCATION_MIN_UPDATE_INTERVAL_MS = 6_000L
         private const val BOARDING_STOP_RADIUS_METERS = 180.0
+        private const val BOARDING_CONFIRM_DISTANCE_METERS = 250.0
         private const val REQUIRED_RIDE_CONFIRMATION_SAMPLES = 2
         private const val LIVE_UPDATE_SDK_INT = 36
         private const val PAUSE_REASON_USER = "user"

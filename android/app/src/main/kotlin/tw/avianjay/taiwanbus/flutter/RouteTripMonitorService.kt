@@ -54,6 +54,7 @@ class RouteTripMonitorService : Service() {
     private var lastNearestStopIndex: Int? = null
     private var destinationAlertStage = 0
     private var overshootAlertSent = false
+    private var lastWentBackgroundAtMs = 0L
 
     private val pollingRunnable = object : Runnable {
         override fun run() {
@@ -101,6 +102,11 @@ class RouteTripMonitorService : Service() {
 
             ACTION_SET_APP_FOREGROUND -> {
                 appInForeground = intent.getBooleanExtra(EXTRA_APP_IN_FOREGROUND, true)
+                lastWentBackgroundAtMs = if (appInForeground) {
+                    0L
+                } else {
+                    System.currentTimeMillis()
+                }
                 AppRuntimeStateStore.setAppInForeground(this, appInForeground)
                 refreshNotification()
                 return START_STICKY
@@ -129,6 +135,9 @@ class RouteTripMonitorService : Service() {
                 }
                 session = parsedSession
                 appInForeground = parsedSession.appInForeground
+                if (!appInForeground && lastWentBackgroundAtMs == 0L) {
+                    lastWentBackgroundAtMs = System.currentTimeMillis()
+                }
                 AppRuntimeStateStore.setAppInForeground(this, appInForeground)
                 if (
                     previousDestination != parsedSession.destinationStopId ||
@@ -989,6 +998,13 @@ class RouteTripMonitorService : Service() {
             return
         }
         if (snapshot.hasBoarded && snapshot.destinationName == null) {
+            if (
+                lastWentBackgroundAtMs > 0L &&
+                System.currentTimeMillis() - lastWentBackgroundAtMs <
+                    BACKGROUND_AUTO_PAUSE_GRACE_MS
+            ) {
+                return
+            }
             pauseTracking(PAUSE_REASON_BOARDED_NO_DESTINATION)
             return
         }
@@ -1555,6 +1571,7 @@ class RouteTripMonitorService : Service() {
         private const val BOARDING_STOP_RADIUS_METERS = 180.0
         private const val BOARDING_CONFIRM_DISTANCE_METERS = 250.0
         private const val REQUIRED_RIDE_CONFIRMATION_SAMPLES = 2
+        private const val BACKGROUND_AUTO_PAUSE_GRACE_MS = 90_000L
         private const val LIVE_UPDATE_SDK_INT = 36
         private const val PAUSE_REASON_USER = "user"
         private const val PAUSE_REASON_ARRIVED = "arrived"

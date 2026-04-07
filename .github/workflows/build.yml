@@ -312,7 +312,7 @@ jobs:
           xcodebuild \
             -workspace ios/YABus.xcworkspace \
             -scheme ${{ env.IOS_FLAVOR }} \
-            -configuration Release \
+            -configuration Release-${{ env.IOS_FLAVOR }} \
             -sdk iphoneos \
             -destination generic/platform=iOS \
             -archivePath build/ipa/YABus.xcarchive \

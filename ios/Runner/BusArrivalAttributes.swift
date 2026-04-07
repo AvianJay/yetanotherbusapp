@@ -21,3 +21,27 @@ struct BusArrivalAttributes: ActivityAttributes {
     let updatedAt: Date
   }
 }
+
+extension BusArrivalAttributes.ContentState {
+  var hasEtaMessage: Bool {
+    guard let etaMessage else {
+      return false
+    }
+    return !etaMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  var etaTimerInterval: ClosedRange<Date>? {
+    guard !hasEtaMessage, let etaSeconds, etaSeconds > 0 else {
+      return nil
+    }
+
+    return updatedAt...updatedAt.addingTimeInterval(TimeInterval(etaSeconds))
+  }
+
+  var etaShowsHours: Bool {
+    guard let etaSeconds else {
+      return false
+    }
+    return etaSeconds >= 3600
+  }
+}

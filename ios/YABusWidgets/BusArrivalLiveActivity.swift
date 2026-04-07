@@ -46,11 +46,15 @@ struct BusArrivalLiveActivity: Widget {
   private func compactTrailingView(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    Text(formatETACompact(context.state))
-      .font(.system(size: 14, weight: .bold, design: .rounded))
-      .foregroundStyle(etaColor(context.state))
-      .lineLimit(1)
-      .minimumScaleFactor(0.7)
+    countdownText(
+      context.state,
+      style: .compact,
+      font: .system(size: 14, weight: .bold, design: .rounded)
+    )
+    .foregroundStyle(etaColor(context.state))
+    .lineLimit(1)
+    .minimumScaleFactor(0.7)
+    .monospacedDigit()
   }
 
   @ViewBuilder
@@ -60,10 +64,14 @@ struct BusArrivalLiveActivity: Widget {
     ZStack {
       Circle()
         .fill(etaColor(context.state).opacity(0.25))
-      Text(formatETAMinimal(context.state))
-        .font(.system(size: 11, weight: .heavy, design: .rounded))
-        .foregroundStyle(etaColor(context.state))
-        .minimumScaleFactor(0.5)
+      countdownText(
+        context.state,
+        style: .minimal,
+        font: .system(size: 11, weight: .heavy, design: .rounded)
+      )
+      .foregroundStyle(etaColor(context.state))
+      .minimumScaleFactor(0.5)
+      .monospacedDigit()
     }
   }
 
@@ -107,11 +115,15 @@ struct BusArrivalLiveActivity: Widget {
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
     VStack(alignment: .trailing, spacing: 2) {
-      Text(formatETAExpanded(context.state))
-        .font(.system(size: 28, weight: .bold, design: .rounded))
-        .foregroundStyle(etaColor(context.state))
-        .lineLimit(1)
-        .minimumScaleFactor(0.6)
+      countdownText(
+        context.state,
+        style: .expanded,
+        font: .system(size: 28, weight: .bold, design: .rounded)
+      )
+      .foregroundStyle(etaColor(context.state))
+      .lineLimit(1)
+      .minimumScaleFactor(0.6)
+      .monospacedDigit()
 
       if let vehicleId = trimmedText(context.state.vehicleId) {
         HStack(spacing: 3) {
@@ -188,11 +200,15 @@ struct BusArrivalLiveActivity: Widget {
       Spacer(minLength: 8)
 
       VStack(alignment: .trailing, spacing: 4) {
-        Text(formatETAExpanded(context.state))
-          .font(.system(size: 32, weight: .bold, design: .rounded))
-          .foregroundStyle(etaColor(context.state))
-          .lineLimit(1)
-          .minimumScaleFactor(0.5)
+        countdownText(
+          context.state,
+          style: .expanded,
+          font: .system(size: 32, weight: .bold, design: .rounded)
+        )
+        .foregroundStyle(etaColor(context.state))
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
+        .monospacedDigit()
 
         if let vehicleId = trimmedText(context.state.vehicleId) {
           HStack(spacing: 3) {
@@ -297,60 +313,58 @@ struct BusArrivalLiveActivity: Widget {
     trimmedText(state.displayStopName) ?? "背景乘車提醒"
   }
 
-  private func formatETACompact(_ state: BusArrivalAttributes.ContentState) -> String {
+  @ViewBuilder
+  private func countdownText(
+    _ state: BusArrivalAttributes.ContentState,
+    style: CountdownStyle,
+    font: Font
+  ) -> some View {
+    if let text = etaFallbackText(state, style: style) {
+      Text(text)
+        .font(font)
+    } else if let timerInterval = state.etaTimerInterval {
+      Text(
+        timerInterval: timerInterval,
+        pauseTime: nil,
+        countsDown: true,
+        showsHours: state.etaShowsHours
+      )
+      .font(font)
+    } else {
+      Text("--")
+        .font(font)
+    }
+  }
+
+  private func etaFallbackText(
+    _ state: BusArrivalAttributes.ContentState,
+    style: CountdownStyle
+  ) -> String? {
     if let msg = trimmedText(state.etaMessage) {
-      if msg.count > 4 {
-        return String(msg.prefix(4))
+      switch style {
+      case .minimal:
+        return String(msg.prefix(2))
+      case .compact:
+        return msg.count > 4 ? String(msg.prefix(4)) : msg
+      case .expanded:
+        return msg
       }
-      return msg
     }
     guard let sec = state.etaSeconds else {
-      return "--"
+      return nil
     }
     if sec <= 0 {
-      return "進站"
+      switch style {
+      case .minimal:
+        return "到"
+      case .compact:
+        return "進站"
+      case .expanded:
+        return "進站中"
+      }
     }
-    if sec < 60 {
-      return "\(sec)秒"
-    }
-    return "\(sec / 60)分"
-  }
 
-  private func formatETAMinimal(_ state: BusArrivalAttributes.ContentState) -> String {
-    if let msg = trimmedText(state.etaMessage) {
-      return String(msg.prefix(2))
-    }
-    guard let sec = state.etaSeconds else {
-      return "--"
-    }
-    if sec <= 0 {
-      return "到"
-    }
-    if sec < 60 {
-      return "\(sec)s"
-    }
-    return "\(sec / 60)m"
-  }
-
-  private func formatETAExpanded(_ state: BusArrivalAttributes.ContentState) -> String {
-    if let msg = trimmedText(state.etaMessage) {
-      return msg
-    }
-    guard let sec = state.etaSeconds else {
-      return "--"
-    }
-    if sec <= 0 {
-      return "進站中"
-    }
-    if sec < 60 {
-      return "\(sec)秒"
-    }
-    let minutes = sec / 60
-    let remainder = sec % 60
-    if remainder == 0 {
-      return "\(minutes)分"
-    }
-    return "\(minutes):\(String(format: "%02d", remainder))"
+    return nil
   }
 
   private func etaColor(_ state: BusArrivalAttributes.ContentState) -> Color {
@@ -390,6 +404,12 @@ struct BusArrivalLiveActivity: Widget {
     let maxSeconds: Double = 600
     return min(CGFloat(1.0 - Double(sec) / maxSeconds), 1.0)
   }
+}
+
+private enum CountdownStyle {
+  case compact
+  case minimal
+  case expanded
 }
 
 private enum BusArrivalDeepLink {

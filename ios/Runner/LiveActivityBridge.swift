@@ -103,7 +103,10 @@ final class LiveActivityBridge {
     )
 
     do {
-      let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(120))
+      let content = ActivityContent(
+        state: state,
+        staleDate: resolveStaleDate(for: state)
+      )
       let activity = try Activity.request(
         attributes: attributes,
         content: content,
@@ -164,7 +167,10 @@ final class LiveActivityBridge {
         return
       }
 
-      let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(120))
+      let content = ActivityContent(
+        state: state,
+        staleDate: resolveStaleDate(for: state)
+      )
       await activity.update(content)
       await MainActor.run { result(nil) }
     }
@@ -220,5 +226,18 @@ final class LiveActivityBridge {
       }
     }
     currentActivityId = nil
+  }
+
+  private func resolveStaleDate(
+    for state: BusArrivalAttributes.ContentState
+  ) -> Date {
+    let minimumRefreshWindow: TimeInterval = 120
+    guard let etaSeconds = state.etaSeconds, etaSeconds > 0 else {
+      return Date().addingTimeInterval(minimumRefreshWindow)
+    }
+
+    return Date().addingTimeInterval(
+      max(Double(etaSeconds) + 60, minimumRefreshWindow)
+    )
   }
 }

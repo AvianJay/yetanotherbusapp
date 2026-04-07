@@ -91,6 +91,12 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                "setApplicationInForeground" -> {
+                    val appInForeground = call.argument<Boolean>("appInForeground") ?: false
+                    AppRuntimeStateStore.setAppInForeground(this, appInForeground)
+                    result.success(null)
+                }
+
                 else -> result.notImplemented()
             }
         }
@@ -118,6 +124,31 @@ class MainActivity : FlutterActivity() {
                     val appInForeground = call.argument<Boolean>("appInForeground") ?: true
                     RouteTripMonitorService.setAppInForeground(this, appInForeground)
                     result.success(null)
+                }
+
+                "pauseTripMonitor" -> {
+                    val session = call.argument<Map<String, Any?>>("session")
+                    val reason = call.argument<String>("reason") ?: "user"
+                    RouteTripMonitorService.pause(this, session, reason)
+                    result.success(null)
+                }
+
+                "resumeTripMonitor" -> {
+                    RouteTripMonitorService.resume(this)
+                    result.success(null)
+                }
+
+                "isTripMonitorPaused" -> {
+                    val session = call.argument<Map<String, Any?>>("session")
+                    val parsedSession = session?.let { RouteTripMonitorService.parseSessionPayload(it) }
+                    result.success(
+                        parsedSession?.let { AppRuntimeStateStore.isTripMonitorPausedFor(this, it) }
+                            ?: false,
+                    )
+                }
+
+                "getTripMonitorPauseState" -> {
+                    result.success(AppRuntimeStateStore.loadPausedTripMonitor(this)?.toMap())
                 }
 
                 "stopTripMonitor" -> {

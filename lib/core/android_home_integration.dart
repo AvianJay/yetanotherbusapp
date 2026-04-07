@@ -55,4 +55,13 @@ class AndroidHomeIntegration {
       'enabled': enabled,
     });
   }
+
+  static Future<void> setApplicationInForeground(bool value) async {
+    if (!_isAndroid) {
+      return;
+    }
+    await _channel.invokeMethod<void>('setApplicationInForeground', {
+      'appInForeground': value,
+    });
+  }
 }

@@ -11,6 +11,14 @@ final class LiveActivityBridge {
 
   private init() {}
 
+  func endAllActivitiesFromHost() {
+    guard #available(iOS 16.2, *) else {
+      currentActivityId = nil
+      return
+    }
+    endAllActivities()
+  }
+
   func configure(messenger: FlutterBinaryMessenger) {
     if channel != nil {
       return

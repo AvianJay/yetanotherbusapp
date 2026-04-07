@@ -60,7 +60,8 @@
         <service
             android:name=".RouteTripMonitorService"
             android:exported="false"
-            android:foregroundServiceType="location" />
+            android:foregroundServiceType="location"
+            android:stopWithTask="true" />
         <provider
             android:name=".AppUpdateFileProvider"
             android:authorities="${applicationId}.fileprovider"

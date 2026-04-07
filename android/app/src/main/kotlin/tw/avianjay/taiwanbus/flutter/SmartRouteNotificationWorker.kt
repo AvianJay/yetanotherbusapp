@@ -47,6 +47,9 @@ class SmartRouteNotificationWorker(
             if (!SmartRouteNotificationSupport.canPostNotifications(applicationContext)) {
                 return Result.success()
             }
+            if (AppRuntimeStateStore.isAppInForeground(applicationContext)) {
+                return Result.success()
+            }
 
             val profiles = SmartRouteNotificationSupport
                 .loadProfiles(applicationContext)

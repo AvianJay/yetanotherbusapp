@@ -30,6 +30,11 @@ class SceneDelegate: FlutterSceneDelegate {
     configureBridgesIfNeeded()
   }
 
+  override func sceneDidDisconnect(_ scene: UIScene) {
+    LiveActivityBridge.shared.endAllActivitiesFromHost()
+    super.sceneDidDisconnect(scene)
+  }
+
   private func configureBridgesIfNeeded() {
     guard let flutterViewController = window?.rootViewController as? FlutterViewController else {
       return

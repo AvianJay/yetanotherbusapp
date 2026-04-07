@@ -55,6 +55,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool? _wakelockEnabled;
   bool _backgroundTripMonitorReady = false;
   bool _backgroundTripMonitorPromptInProgress = false;
+  bool _backgroundTripMonitorPaused = false;
   bool _backgroundDataRefreshInFlight = false;
   bool _awaitingBackgroundLocationPermission = false;
   bool _destinationPromptShown = false;
@@ -130,6 +131,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       unawaited(
         _configureBackgroundTripMonitorIfNeeded(forcePermissionCheck: true),
       );
+    }
+    if (state == AppLifecycleState.resumed && _isAndroid) {
+      unawaited(_syncBackgroundTripMonitorPausedState());
     }
     if (!_isAndroid) {
       return;
@@ -292,6 +296,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _destinationStopId = null;
         _destinationStopName = null;
         _resetLiveActivityRideState();
+      }
+      if (_isIOS && _backgroundTripMonitorPaused) {
+        _backgroundTripMonitorPaused = false;
       }
       setState(() {});
       _scrollToInitialStopIfNeeded();
@@ -705,6 +712,126 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
   }
 
+  TripMonitorSession? _buildTripMonitorSession({
+    RouteDetailData? detail,
+    PathInfo? pathInfo,
+    List<StopInfo>? pathStops,
+  }) {
+    final resolvedDetail = detail ?? _detail;
+    final resolvedPathInfo = pathInfo ?? _currentPathInfo;
+    if (resolvedDetail == null || resolvedPathInfo == null) {
+      return null;
+    }
+    final resolvedStops =
+        pathStops ??
+        resolvedDetail.stopsByPath[resolvedPathInfo.pathId] ??
+        const <StopInfo>[];
+    if (resolvedStops.isEmpty) {
+      return null;
+    }
+    final fallbackBoardingStop =
+        _boardingStopId == null ? _currentBoardingCandidateStop() : null;
+    return TripMonitorSession(
+      providerName: widget.provider.name,
+      routeKey: widget.routeKey,
+      routeName: resolvedDetail.route.routeName,
+      pathId: resolvedPathInfo.pathId,
+      pathName: resolvedPathInfo.name,
+      appInForeground: _appIsForeground,
+      boardingStopId: _boardingStopId ?? fallbackBoardingStop?.stopId,
+      boardingStopName: _boardingStopName ?? fallbackBoardingStop?.stopName,
+      destinationStopId: _destinationStopId,
+      destinationStopName: _destinationStopName,
+      initialLatitude: _lastPosition?.latitude,
+      initialLongitude: _lastPosition?.longitude,
+      stops: resolvedStops
+          .map(
+            (stop) => TripMonitorStop(
+              stopId: stop.stopId,
+              stopName: stop.stopName,
+              sequence: stop.sequence,
+              lat: stop.lat,
+              lon: stop.lon,
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  Future<void> _syncBackgroundTripMonitorPausedState({
+    TripMonitorSession? session,
+  }) async {
+    if (!_isAndroid) {
+      return;
+    }
+    final resolvedSession = session ?? _buildTripMonitorSession();
+    if (resolvedSession == null) {
+      if (_backgroundTripMonitorPaused) {
+        setState(() {
+          _backgroundTripMonitorPaused = false;
+        });
+      }
+      return;
+    }
+    final paused = await AndroidTripMonitor.isPausedFor(resolvedSession);
+    if (!mounted) {
+      return;
+    }
+    if (_backgroundTripMonitorPaused != paused) {
+      setState(() {
+        _backgroundTripMonitorPaused = paused;
+      });
+    }
+  }
+
+  Future<void> _setBackgroundTripMonitorPaused(
+    bool paused, {
+    String reason = 'user',
+    bool showFeedback = true,
+  }) async {
+    if (!AppControllerScope.read(context).settings.enableRouteBackgroundMonitor) {
+      return;
+    }
+
+    final session = _buildTripMonitorSession();
+    if (paused) {
+      if (_isAndroid && session != null) {
+        await AndroidTripMonitor.pause(session, reason: reason);
+      }
+      if (_isIOS) {
+        await _stopLiveActivity();
+      }
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _backgroundTripMonitorPaused = true;
+      });
+      if (showFeedback && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已暫時停止背景乘車提醒')),
+        );
+      }
+      return;
+    }
+
+    if (_isAndroid) {
+      await AndroidTripMonitor.resume();
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _backgroundTripMonitorPaused = false;
+    });
+    await _configureBackgroundTripMonitorIfNeeded();
+    if (showFeedback && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已恢復背景乘車提醒')));
+    }
+  }
+
   Future<void> _configureBackgroundTripMonitorIfNeeded({
     bool forcePermissionCheck = false,
   }) async {
@@ -731,6 +858,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (_isIOS) {
         await _stopLiveActivity();
       }
+      return;
+    }
+
+    if (_backgroundTripMonitorPaused && _isIOS) {
+      await _stopLiveActivity();
       return;
     }
 
@@ -828,6 +960,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (pathStops.isEmpty) {
       return;
     }
+    if (_boardingStopId == null) {
+      final boardingStop = _currentBoardingCandidateStop();
+      if (boardingStop != null) {
+        _boardingStopId = boardingStop.stopId;
+        _boardingStopName = boardingStop.stopName;
+      }
+    }
     if (_destinationStopId != null &&
         pathStops.every((stop) => stop.stopId != _destinationStopId)) {
       setState(() {
@@ -839,33 +978,20 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       });
     }
 
-    await AndroidTripMonitor.startOrUpdate(
-      TripMonitorSession(
-        providerName: widget.provider.name,
-        routeKey: widget.routeKey,
-        routeName: detail.route.routeName,
-        pathId: pathInfo.pathId,
-        pathName: pathInfo.name,
-        appInForeground: _appIsForeground,
-        boardingStopId: _boardingStopId,
-        boardingStopName: _boardingStopName,
-        destinationStopId: _destinationStopId,
-        destinationStopName: _destinationStopName,
-        initialLatitude: _lastPosition?.latitude,
-        initialLongitude: _lastPosition?.longitude,
-        stops: pathStops
-            .map(
-              (stop) => TripMonitorStop(
-                stopId: stop.stopId,
-                stopName: stop.stopName,
-                sequence: stop.sequence,
-                lat: stop.lat,
-                lon: stop.lon,
-              ),
-            )
-            .toList(),
-      ),
+    final session = _buildTripMonitorSession(
+      detail: detail,
+      pathInfo: pathInfo,
+      pathStops: pathStops,
     );
+    if (session == null) {
+      return;
+    }
+    await _syncBackgroundTripMonitorPausedState(session: session);
+    if (_backgroundTripMonitorPaused) {
+      return;
+    }
+
+    await AndroidTripMonitor.startOrUpdate(session);
   }
 
   Future<bool?> _showBackgroundLocationExplainer() {
@@ -973,6 +1099,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final boardingStop = _currentBoardingCandidateStop();
     setState(() {
       _resetLiveActivityRideState();
+      if (_isIOS) {
+        _backgroundTripMonitorPaused = false;
+      }
       _boardingStopId = boardingStop?.stopId;
       _boardingStopName = boardingStop?.stopName;
       _destinationStopId = stop.stopId;
@@ -993,6 +1122,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     setState(() {
       _resetLiveActivityRideState();
+      if (_isIOS) {
+        _backgroundTripMonitorPaused = false;
+      }
       _boardingStopId = null;
       _boardingStopName = null;
       _destinationStopId = null;
@@ -2174,6 +2306,22 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               onPressed: () =>
                   unawaited(_scrollToStop(currentPathId, currentNearestStopId)),
               icon: const Icon(Icons.gps_fixed_rounded),
+            ),
+          if (controller.settings.enableRouteBackgroundMonitor &&
+              _currentPathStops.isNotEmpty)
+            IconButton(
+              onPressed: () => unawaited(
+                _setBackgroundTripMonitorPaused(
+                  !_backgroundTripMonitorPaused,
+                  reason: 'user',
+                ),
+              ),
+              tooltip: _backgroundTripMonitorPaused ? '恢復背景乘車提醒' : '暫時停止背景乘車提醒',
+              icon: Icon(
+                _backgroundTripMonitorPaused
+                    ? Icons.play_circle_outline_rounded
+                    : Icons.pause_circle_outline_rounded,
+              ),
             ),
           if (_currentPathStops.isNotEmpty)
             IconButton(

@@ -113,6 +113,36 @@ class AndroidTripMonitor {
     });
   }
 
+  static Future<void> pause(
+    TripMonitorSession session, {
+    String reason = 'user',
+  }) async {
+    if (!_isAndroid) {
+      return;
+    }
+    await _channel.invokeMethod<void>('pauseTripMonitor', {
+      'session': session.toMap(),
+      'reason': reason,
+    });
+  }
+
+  static Future<void> resume() async {
+    if (!_isAndroid) {
+      return;
+    }
+    await _channel.invokeMethod<void>('resumeTripMonitor');
+  }
+
+  static Future<bool> isPausedFor(TripMonitorSession session) async {
+    if (!_isAndroid) {
+      return false;
+    }
+    return await _channel.invokeMethod<bool>('isTripMonitorPaused', {
+          'session': session.toMap(),
+        }) ??
+        false;
+  }
+
   static Future<void> stop() async {
     if (!_isAndroid) {
       return;

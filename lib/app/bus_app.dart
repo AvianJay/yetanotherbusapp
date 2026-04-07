@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/app_controller.dart';
 import '../core/app_launch_service.dart';
+import '../core/android_home_integration.dart';
 import '../core/ios_widget_integration.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
@@ -107,6 +108,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(AndroidHomeIntegration.setApplicationInForeground(true));
     _pendingLaunchAction = AppLaunchService.instance.takePendingInitialAction();
     _launchSubscription = AppLaunchService.instance.actions.listen((action) {
       _pendingLaunchAction = action;
@@ -117,6 +119,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    unawaited(AndroidHomeIntegration.setApplicationInForeground(false));
     WidgetsBinding.instance.removeObserver(this);
     _launchSubscription?.cancel();
     super.dispose();
@@ -124,6 +127,14 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final isForeground = switch (state) {
+      AppLifecycleState.resumed => true,
+      AppLifecycleState.inactive => true,
+      AppLifecycleState.hidden => false,
+      AppLifecycleState.paused => false,
+      AppLifecycleState.detached => false,
+    };
+    unawaited(AndroidHomeIntegration.setApplicationInForeground(isForeground));
     if (state == AppLifecycleState.resumed) {
       _syncIOSWidgets();
     }

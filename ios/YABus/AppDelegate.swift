@@ -28,4 +28,9 @@ import UIKit
     }
     return super.application(app, open: url, options: options)
   }
+
+  override func applicationWillTerminate(_ application: UIApplication) {
+    LiveActivityBridge.shared.endAllActivitiesFromHost()
+    super.applicationWillTerminate(application)
+  }
 }

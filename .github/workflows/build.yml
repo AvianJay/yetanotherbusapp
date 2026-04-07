@@ -305,15 +305,15 @@ jobs:
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=ios-unsigned-ipa
 
-      - name: Archive Runner.app
+      - name: Archive YABus.app
         run: |
           xcodebuild \
-            -workspace ios/Runner.xcworkspace \
-            -scheme Runner \
+            -workspace ios/YABus.xcworkspace \
+            -scheme YABus \
             -configuration Release \
             -sdk iphoneos \
             -destination generic/platform=iOS \
-            -archivePath build/ipa/Runner.xcarchive \
+            -archivePath build/ipa/YABus.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_IDENTITY="" \

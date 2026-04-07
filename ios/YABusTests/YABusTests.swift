@@ -2,12 +2,12 @@ import Flutter
 import UIKit
 import XCTest
 
-@testable import Runner
+@testable import YABus
 
-class RunnerTests: XCTestCase {
+class YABusTests: XCTestCase {
 
   func testExample() {
-    // If you add code to the Runner application, consider adding tests here.
+    // If you add code to the YABus application, consider adding tests here.
     // See https://developer.apple.com/documentation/xctest for more information about using XCTest.
   }
 

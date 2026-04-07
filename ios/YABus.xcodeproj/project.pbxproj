@@ -884,6 +884,56 @@
 			};
 			name = Profile;
 		};
+		EAAAAAAABBBBBBBBCCCCCCCC /* Debug-YABus */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5470018CE8AA54C2A78B8026 /* Pods-YABusTests.debug.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tw.avianjay.taiwanbus.flutter.YABusTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/YABus.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/YABus";
+			};
+			name = "Debug-YABus";
+		};
+		EAAAAAAABBBBBBBBCCCCCCCD /* Release-YABus */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 689B39984E83277DB951E8CB /* Pods-YABusTests.release.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tw.avianjay.taiwanbus.flutter.YABusTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/YABus.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/YABus";
+			};
+			name = "Release-YABus";
+		};
+		EAAAAAAABBBBBBBBCCCCCCCE /* Profile-YABus */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 41B72443613B46C5F9FA4E42 /* Pods-YABusTests.profile.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tw.avianjay.taiwanbus.flutter.YABusTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/YABus.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/YABus";
+			};
+			name = "Profile-YABus";
+		};
 		97C147031CF9000F007C117D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1209,6 +1259,9 @@
 				331C8088294A63A400263BE5 /* Debug */,
 				331C8089294A63A400263BE5 /* Release */,
 				331C808A294A63A400263BE5 /* Profile */,
+				EAAAAAAABBBBBBBBCCCCCCCC /* Debug-YABus */,
+				EAAAAAAABBBBBBBBCCCCCCCD /* Release-YABus */,
+				EAAAAAAABBBBBBBBCCCCCCCE /* Profile-YABus */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

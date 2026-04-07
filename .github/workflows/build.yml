@@ -18,6 +18,7 @@ env:
   APP_WORKFLOW_API_ID: build.yml
   APP_WORKFLOW_NIGHTLY_ID: build
   APP_UPDATE_CHANNEL: nightly
+  IOS_FLAVOR: YABus
 
 jobs:
   verify:
@@ -297,6 +298,7 @@ jobs:
       - name: Generate iOS archive without codesign
         run: >
           flutter build ios --release --no-codesign
+          --flavor=${{ env.IOS_FLAVOR }}
           --dart-define=APP_GIT_SHA=${{ github.sha }}
           --dart-define=APP_UPDATE_CHANNEL=${{ env.APP_UPDATE_CHANNEL }}
           --dart-define=APP_REPO_OWNER=${{ env.APP_REPO_OWNER }}
@@ -309,7 +311,7 @@ jobs:
         run: |
           xcodebuild \
             -workspace ios/YABus.xcworkspace \
-            -scheme YABus \
+            -scheme ${{ env.IOS_FLAVOR }} \
             -configuration Release \
             -sdk iphoneos \
             -destination generic/platform=iOS \

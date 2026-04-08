@@ -316,7 +316,7 @@ class RouteTripMonitorService : Service() {
             val busStopsAway = busIndex?.let { (nearestIndex - it).coerceAtLeast(0) }
             return TrackingSnapshot(
                 title = session.routeName,
-                content = "${nearestStop.stopName} 繚 $nearestEtaText",
+                content = "${nearestStop.stopName} 約 $nearestEtaText",
                 subText = buildNearestStatusText(
                     session = session,
                     nearestStop = nearestStop,

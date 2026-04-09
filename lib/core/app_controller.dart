@@ -22,7 +22,7 @@ class AppController extends ChangeNotifier {
     required this.appUpdateInstaller,
   });
 
-  static const defaultFavoriteGroupName = '我的最愛';
+  static const defaultFavoriteGroupName = 'Favorites';
 
   final BusRepository repository;
   final StorageService storage;
@@ -33,7 +33,6 @@ class AppController extends ChangeNotifier {
   AppSettings _settings = AppSettings.defaults();
   List<SearchHistoryEntry> _history = const [];
   Map<String, List<FavoriteStop>> _favoriteGroups = const {};
-  List<TrackedBus> _trackedBuses = const [];
   List<RouteUsageProfile> _routeUsageProfiles = const [];
   bool _initialized = false;
   bool _databaseReady = false;
@@ -48,7 +47,6 @@ class AppController extends ChangeNotifier {
   Map<String, List<FavoriteStop>> get favoriteGroups =>
       Map.unmodifiable(_favoriteGroups);
   List<String> get favoriteGroupNames => _favoriteGroups.keys.toList();
-  List<TrackedBus> get trackedBuses => List.unmodifiable(_trackedBuses);
   List<RouteUsageProfile> get routeUsageProfiles =>
       List.unmodifiable(_routeUsageProfiles);
   int get recordedRouteSelections => _routeUsageProfiles.fold(
@@ -75,10 +73,10 @@ class AppController extends ChangeNotifier {
   AppUpdateCheckResult? get lastAppUpdateResult => _lastAppUpdateResult;
 
   Future<void> initialize() async {
+    await storage.migrateLegacyApiDataIfNeeded();
     _settings = await storage.loadSettings();
     _history = await storage.loadHistory();
     _favoriteGroups = await storage.loadFavoriteGroups();
-    _trackedBuses = await storage.loadTrackedBuses();
     _routeUsageProfiles = await storage.loadRouteUsageProfiles();
     await AndroidHomeIntegration.updateFavoriteWidgetAutoRefreshMinutes(
       _settings.favoriteWidgetAutoRefreshMinutes,
@@ -235,7 +233,7 @@ class AppController extends ChangeNotifier {
       return _lastAppUpdateResult ??
           const AppUpdateCheckResult(
             status: AppUpdateStatus.unavailable,
-            message: '正在檢查更新中，請稍候。',
+            message: 'An app update check is already in progress.',
           );
     }
 
@@ -620,63 +618,5 @@ class AppController extends ChangeNotifier {
     await storage.saveFavoriteGroups(_favoriteGroups);
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
-  }
-
-  bool isTrackedBus(String vehicleId) {
-    return _trackedBuses.any((entry) => entry.sameVehicle(vehicleId));
-  }
-
-  Future<void> addTrackedBus(TrackedBus trackedBus) async {
-    final normalizedVehicleId = trackedBus.vehicleId.trim().toUpperCase();
-    if (normalizedVehicleId.isEmpty) {
-      return;
-    }
-
-    final next = <TrackedBus>[
-      for (final entry in _trackedBuses)
-        if (!entry.sameVehicle(normalizedVehicleId)) entry,
-    ];
-    next.add(
-      TrackedBus(
-        provider: trackedBus.provider,
-        vehicleId: normalizedVehicleId,
-        routeKey: trackedBus.routeKey,
-        routeName: trackedBus.routeName,
-      ),
-    );
-    next.sort((left, right) => left.vehicleId.compareTo(right.vehicleId));
-    _trackedBuses = next;
-    await storage.saveTrackedBuses(_trackedBuses);
-    notifyListeners();
-  }
-
-  Future<void> removeTrackedBus(String vehicleId) async {
-    final next = _trackedBuses
-        .where((entry) => !entry.sameVehicle(vehicleId))
-        .toList();
-    if (next.length == _trackedBuses.length) {
-      return;
-    }
-    _trackedBuses = next;
-    await storage.saveTrackedBuses(_trackedBuses);
-    notifyListeners();
-  }
-
-  Future<List<TrackedBusSnapshot>> getTrackedBusSnapshots() async {
-    final tracked = _trackedBuses;
-    final snapshots = await Future.wait(
-      tracked.map((entry) async {
-        try {
-          return await repository.getTrackedBusSnapshot(entry);
-        } catch (error) {
-          return TrackedBusSnapshot(
-            trackedBus: entry,
-            state: TrackedBusState.error,
-            message: '$error',
-          );
-        }
-      }),
-    );
-    return snapshots;
   }
 }

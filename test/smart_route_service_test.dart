@@ -5,7 +5,7 @@ import 'package:taiwanbus_flutter/core/smart_route_service.dart';
 void main() {
   test('recordOpen increments total and hourly counters', () {
     const profile = RouteUsageProfile(
-      provider: BusProvider.twn,
+      provider: BusProvider.nwt,
       routeKey: 12,
       routeName: '307',
       totalOpens: 2,
@@ -25,7 +25,7 @@ void main() {
 
   test('recordSelection increments selection counters', () {
     const profile = RouteUsageProfile(
-      provider: BusProvider.twn,
+      provider: BusProvider.nwt,
       routeKey: 12,
       routeName: '307',
       totalOpens: 0,
@@ -44,7 +44,7 @@ void main() {
 
   test('chooseProfileForTime prefers the route used in this time window', () {
     const morningRoute = RouteUsageProfile(
-      provider: BusProvider.twn,
+      provider: BusProvider.nwt,
       routeKey: 101,
       routeName: '307',
       totalOpens: 8,
@@ -52,7 +52,7 @@ void main() {
       hourlyOpens: <int, int>{7: 5, 8: 2},
     );
     const nightRoute = RouteUsageProfile(
-      provider: BusProvider.twn,
+      provider: BusProvider.nwt,
       routeKey: 102,
       routeName: '300',
       totalOpens: 20,
@@ -70,7 +70,7 @@ void main() {
 
   test('chooseProfileForTime returns null outside learned hours', () {
     const morningRoute = RouteUsageProfile(
-      provider: BusProvider.twn,
+      provider: BusProvider.nwt,
       routeKey: 101,
       routeName: '307',
       totalOpens: 8,
@@ -87,7 +87,7 @@ void main() {
 
   test('chooseProfileForTime also uses selection history', () {
     const selectedRoute = RouteUsageProfile(
-      provider: BusProvider.twn,
+      provider: BusProvider.nwt,
       routeKey: 202,
       routeName: '綠3',
       totalOpens: 3,
@@ -98,7 +98,7 @@ void main() {
       hourlySelections: <int, int>{18: 4},
     );
     const weakerRoute = RouteUsageProfile(
-      provider: BusProvider.twn,
+      provider: BusProvider.nwt,
       routeKey: 303,
       routeName: '綠5',
       totalOpens: 3,
@@ -116,7 +116,7 @@ void main() {
 
   test('chooseProfileForTime requires enough actual opens', () {
     const notLearnedEnough = RouteUsageProfile(
-      provider: BusProvider.twn,
+      provider: BusProvider.nwt,
       routeKey: 88,
       routeName: '11',
       totalOpens: 1,

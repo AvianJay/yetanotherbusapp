@@ -13,12 +13,15 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  static const _stepCount = 4;
+  static const _stepCount = 3;
 
   final PageController _pageController = PageController();
   int _stepIndex = 0;
   bool _requestingPermission = false;
+  bool _resolvingLocation = false;
+  bool _manualProviderSelection = false;
   String? _permissionMessage;
+  BusProvider? _suggestedProvider;
 
   @override
   void dispose() {
@@ -43,55 +46,107 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     await _goToStep(_stepIndex + 1);
   }
 
-  Future<void> _requestLocationPermission() async {
+  Future<void> _applySuggestedProvider(
+    AppController controller,
+    Position position,
+  ) async {
+    final suggested = nearestBusProvider(
+      latitude: position.latitude,
+      longitude: position.longitude,
+    );
+    _suggestedProvider = suggested;
+    if (_manualProviderSelection || controller.settings.provider == suggested) {
+      return;
+    }
+    await controller.updateProvider(suggested);
+  }
+
+  Future<Position?> _resolveCurrentPosition() async {
+    try {
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      try {
+        return await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.medium,
+            timeLimit: Duration(seconds: 6),
+          ),
+        );
+      } catch (_) {
+        return lastKnown;
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _requestLocationPermissionAndContinue() async {
+    final controller = AppControllerScope.read(context);
     setState(() {
       _requestingPermission = true;
+      _resolvingLocation = false;
       _permissionMessage = null;
     });
 
     try {
-      var shouldAdvance = false;
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        setState(() {
-          _permissionMessage = '定位服務尚未開啟，但你之後仍可先繼續使用 app。';
-        });
-        return;
-      }
-
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
 
-      setState(() {
-        _permissionMessage = switch (permission) {
-          LocationPermission.always ||
-          LocationPermission.whileInUse => '定位權限已授權。',
-          LocationPermission.denied => '定位權限被拒絕，你之後仍可在設定重開。',
-          LocationPermission.deniedForever => '定位權限被永久拒絕，可稍後到系統設定開啟。',
-          LocationPermission.unableToDetermine => '目前無法判斷定位權限狀態。',
-        };
-      });
-      shouldAdvance = permission == LocationPermission.always ||
-          permission == LocationPermission.whileInUse;
-
-      if (shouldAdvance) {
-        await Future<void>.delayed(const Duration(milliseconds: 450));
-        if (mounted && _stepIndex == 2) {
-          await _nextStep();
+      if (!serviceEnabled) {
+        setState(() {
+          _permissionMessage =
+              'Location services are turned off. You can still choose a database manually.';
+        });
+      } else if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever ||
+          permission == LocationPermission.unableToDetermine) {
+        setState(() {
+          _permissionMessage =
+              'Location permission was not granted. Choose a database manually.';
+        });
+      } else {
+        setState(() {
+          _resolvingLocation = true;
+        });
+        final position = await _resolveCurrentPosition();
+        if (!mounted) {
+          return;
+        }
+        if (position == null) {
+          setState(() {
+            _permissionMessage =
+                'Location was allowed, but no position was available. Choose a database manually.';
+          });
+        } else {
+          await _applySuggestedProvider(controller, position);
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _permissionMessage =
+                'Nearest database selected: ${controller.settings.provider.label}.';
+          });
         }
       }
     } catch (error) {
       setState(() {
-        _permissionMessage = '定位權限請求失敗：$error';
+        _permissionMessage =
+            'Location setup failed ($error). Choose a database manually.';
       });
     } finally {
       if (mounted) {
         setState(() {
           _requestingPermission = false;
+          _resolvingLocation = false;
         });
       }
+    }
+
+    if (mounted && _stepIndex == 1) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await _nextStep();
     }
   }
 
@@ -140,21 +195,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   },
                   children: [
                     _IntroStep(onNext: _nextStep),
-                    _ProviderStep(
-                      provider: controller.settings.provider,
-                      databaseReady: controller.databaseReady,
-                      onProviderChanged: controller.updateProvider,
-                      onNext: _nextStep,
-                    ),
                     _PermissionStep(
                       requestingPermission: _requestingPermission,
+                      resolvingLocation: _resolvingLocation,
                       permissionMessage: _permissionMessage,
-                      onRequestPermission: _requestLocationPermission,
-                      onNext: _nextStep,
+                      onRequestPermission:
+                          _requestLocationPermissionAndContinue,
+                      onSkip: _nextStep,
                       onBack: () => _goToStep(_stepIndex - 1),
                     ),
                     _DatabaseStep(
                       controller: controller,
+                      suggestedProvider: _suggestedProvider,
+                      onProviderChanged: (provider) async {
+                        _manualProviderSelection = true;
+                        await controller.updateProvider(provider);
+                      },
                       onBack: () => _goToStep(_stepIndex - 1),
                       onFinish: _nextStep,
                     ),
@@ -195,94 +251,34 @@ class _IntroStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 24),
-        Text('歡迎來到 YABus', style: Theme.of(context).textTheme.headlineMedium),
+        Text(
+          'Welcome to YABus',
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
         const SizedBox(height: 24),
         const _OnboardingFeature(
           icon: Icons.search_rounded,
-          title: '搜尋路線',
-          subtitle: '輸入公車名稱或號碼，直接打開即時站牌頁。',
+          title: 'Route search',
+          subtitle:
+              'Search routes locally after downloading the selected database.',
         ),
         const SizedBox(height: 12),
         const _OnboardingFeature(
           icon: Icons.favorite_outline_rounded,
-          title: '收藏站牌',
-          subtitle: '把常搭的站牌分群保存，下次一鍵回來。',
+          title: 'Favorites',
+          subtitle: 'Save stops and route groups for quick access later.',
         ),
         const SizedBox(height: 12),
         const _OnboardingFeature(
           icon: Icons.near_me_outlined,
-          title: '附近站牌',
-          subtitle: '配合定位權限快速找周邊站點。',
+          title: 'Nearby stops',
+          subtitle:
+              'Use location to jump into the closest routes once a database is ready.',
         ),
         const Spacer(),
         SizedBox(
           width: double.infinity,
-          child: FilledButton(onPressed: onNext, child: const Text('開始設定')),
-        ),
-      ],
-    );
-  }
-}
-
-class _ProviderStep extends StatelessWidget {
-  const _ProviderStep({
-    required this.provider,
-    required this.databaseReady,
-    required this.onProviderChanged,
-    required this.onNext,
-  });
-
-  final BusProvider provider;
-  final bool databaseReady;
-  final ValueChanged<BusProvider> onProviderChanged;
-  final Future<void> Function() onNext;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 12),
-        Text('先選資料來源', style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 10),
-        Text(
-          '這會決定目前使用哪一份 sqlite 路線資料。之後在設定頁隨時都可以切換。',
-          style: Theme.of(context).textTheme.bodyLarge,
-        ),
-        const SizedBox(height: 24),
-        SegmentedButton<BusProvider>(
-          multiSelectionEnabled: false,
-          showSelectedIcon: false,
-          segments: BusProvider.values
-              .map(
-                (item) => ButtonSegment<BusProvider>(
-                  value: item,
-                  label: Text(item.label),
-                ),
-              )
-              .toList(),
-          selected: {provider},
-          onSelectionChanged: (selection) {
-            if (selection.isNotEmpty) {
-              onProviderChanged(selection.first);
-            }
-          },
-        ),
-        const SizedBox(height: 20),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              databaseReady
-                  ? '這個來源的資料庫已經準備好了。'
-                  : '目前還沒下載 ${provider.label} 資料庫，下一步會幫你處理。',
-            ),
-          ),
-        ),
-        const Spacer(),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton(onPressed: onNext, child: const Text('繼續')),
+          child: FilledButton(onPressed: onNext, child: const Text('Continue')),
         ),
       ],
     );
@@ -292,28 +288,34 @@ class _ProviderStep extends StatelessWidget {
 class _PermissionStep extends StatelessWidget {
   const _PermissionStep({
     required this.requestingPermission,
+    required this.resolvingLocation,
     required this.permissionMessage,
     required this.onRequestPermission,
-    required this.onNext,
+    required this.onSkip,
     required this.onBack,
   });
 
   final bool requestingPermission;
+  final bool resolvingLocation;
   final String? permissionMessage;
   final Future<void> Function() onRequestPermission;
-  final Future<void> Function() onNext;
+  final Future<void> Function() onSkip;
   final Future<void> Function() onBack;
 
   @override
   Widget build(BuildContext context) {
+    final busy = requestingPermission || resolvingLocation;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 12),
-        Text('定位權限', style: Theme.of(context).textTheme.headlineSmall),
+        Text(
+          'Location permission',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
         const SizedBox(height: 10),
         Text(
-          '如果你想用「附近站牌」，這裡可以先授權。就算先跳過，之後一樣能在系統設定補開。',
+          'Allow location access now to preselect the nearest city or county database. If location is unavailable, you can still choose one manually.',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         const SizedBox(height: 24),
@@ -323,7 +325,7 @@ class _PermissionStep extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('建議：授權「使用 App 時允許」。'),
+                const Text('This step only helps with database preselection.'),
                 if (permissionMessage != null) ...[
                   const SizedBox(height: 12),
                   Text(permissionMessage!),
@@ -336,13 +338,16 @@ class _PermissionStep extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: OutlinedButton(onPressed: onBack, child: const Text('返回')),
+              child: OutlinedButton(
+                onPressed: onBack,
+                child: const Text('Back'),
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: FilledButton(
-                onPressed: requestingPermission ? null : onRequestPermission,
-                child: Text(requestingPermission ? '請求中...' : '請求權限'),
+                onPressed: busy ? null : onRequestPermission,
+                child: Text(busy ? 'Checking...' : 'Allow and continue'),
               ),
             ),
           ],
@@ -350,7 +355,10 @@ class _PermissionStep extends StatelessWidget {
         const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
-          child: TextButton(onPressed: onNext, child: const Text('先跳過，繼續')),
+          child: TextButton(
+            onPressed: busy ? null : onSkip,
+            child: const Text('Choose manually'),
+          ),
         ),
       ],
     );
@@ -360,11 +368,15 @@ class _PermissionStep extends StatelessWidget {
 class _DatabaseStep extends StatelessWidget {
   const _DatabaseStep({
     required this.controller,
+    required this.suggestedProvider,
+    required this.onProviderChanged,
     required this.onBack,
     required this.onFinish,
   });
 
   final AppController controller;
+  final BusProvider? suggestedProvider;
+  final Future<void> Function(BusProvider provider) onProviderChanged;
   final Future<void> Function() onBack;
   final Future<void> Function() onFinish;
 
@@ -376,22 +388,52 @@ class _DatabaseStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 12),
-        Text('下載初始資料庫', style: Theme.of(context).textTheme.headlineSmall),
+        Text(
+          'Download database',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
         const SizedBox(height: 10),
         Text(
-          '先把 ${provider.label} 路線資料同步到本機，搜尋和即時站牌就能直接用了。',
+          'Select the city or county database you want to use on this device. The app stays usable even if you skip the download for now.',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         const SizedBox(height: 24),
+        DropdownButtonFormField<BusProvider>(
+          initialValue: provider,
+          decoration: const InputDecoration(labelText: 'Database'),
+          items: BusProvider.values
+              .map(
+                (item) =>
+                    DropdownMenuItem(value: item, child: Text(item.label)),
+              )
+              .toList(),
+          onChanged: (value) {
+            if (value != null) {
+              onProviderChanged(value);
+            }
+          },
+        ),
+        if (suggestedProvider != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            'Nearest suggestion: ${suggestedProvider!.label}',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ],
+        const SizedBox(height: 16),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('目前 provider：${provider.label}'),
+                Text('Selected: ${provider.label}'),
                 const SizedBox(height: 8),
-                Text(controller.databaseReady ? '狀態：已就緒' : '狀態：尚未下載'),
+                Text(
+                  controller.databaseReady
+                      ? 'This database is already downloaded.'
+                      : 'This database has not been downloaded yet.',
+                ),
               ],
             ),
           ),
@@ -400,7 +442,10 @@ class _DatabaseStep extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: OutlinedButton(onPressed: onBack, child: const Text('返回')),
+              child: OutlinedButton(
+                onPressed: onBack,
+                child: const Text('Back'),
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -415,19 +460,25 @@ class _DatabaseStep extends StatelessWidget {
                             return;
                           }
                           messenger.showSnackBar(
-                            const SnackBar(content: Text('資料庫下載完成。')),
+                            SnackBar(
+                              content: Text(
+                                '${controller.settings.provider.label} downloaded successfully.',
+                              ),
+                            ),
                           );
                         } catch (error) {
                           if (!context.mounted) {
                             return;
                           }
                           messenger.showSnackBar(
-                            SnackBar(content: Text('下載失敗：$error')),
+                            SnackBar(content: Text('Download failed: $error')),
                           );
                         }
                       },
                 child: Text(
-                  controller.downloadingDatabase ? '下載中...' : '下載資料庫',
+                  controller.downloadingDatabase
+                      ? 'Downloading...'
+                      : 'Download',
                 ),
               ),
             ),
@@ -438,7 +489,11 @@ class _DatabaseStep extends StatelessWidget {
           width: double.infinity,
           child: FilledButton.tonal(
             onPressed: onFinish,
-            child: Text(controller.databaseReady ? '完成並進入首頁' : '稍後再說，先進首頁'),
+            child: Text(
+              controller.databaseReady
+                  ? 'Finish setup'
+                  : 'Finish without download',
+            ),
           ),
         ),
       ],

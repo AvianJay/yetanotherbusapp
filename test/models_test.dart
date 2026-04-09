@@ -7,7 +7,7 @@ void main() {
       routeKey: 1,
       pathId: 0,
       stopId: 10,
-      stopName: '測試站',
+      stopName: 'Main Station',
       sequence: 1,
       lon: 121.5,
       lat: 25.0,
@@ -16,7 +16,7 @@ void main() {
 
     final eta = buildEtaPresentation(stop, alwaysShowSeconds: true);
 
-    expect(eta.text, '2分\n5秒');
+    expect(eta.text, '2m\n5s');
   });
 
   test('distance formatter switches to km over one kilometer', () {

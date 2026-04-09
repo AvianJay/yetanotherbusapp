@@ -5,11 +5,27 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'models.dart';
 
 class StorageService {
+  static const _schemaVersionKey = 'storage_schema_version';
+  static const _currentSchemaVersion = 2;
   static const _settingsKey = 'app_settings';
   static const _historyKey = 'search_history';
   static const _favoritesKey = 'favorite_groups';
-  static const _trackedBusesKey = 'tracked_buses';
   static const _routeUsageProfilesKey = 'route_usage_profiles';
+
+  Future<void> migrateLegacyApiDataIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentVersion = prefs.getInt(_schemaVersionKey) ?? 0;
+    if (currentVersion >= _currentSchemaVersion) {
+      return;
+    }
+
+    await prefs.remove(_settingsKey);
+    await prefs.remove(_historyKey);
+    await prefs.remove(_favoritesKey);
+    await prefs.remove('tracked_buses');
+    await prefs.remove(_routeUsageProfilesKey);
+    await prefs.setInt(_schemaVersionKey, _currentSchemaVersion);
+  }
 
   Future<AppSettings> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -47,6 +63,7 @@ class StorageService {
               entry.map((key, value) => MapEntry(key.toString(), value)),
             ),
           )
+          .where((entry) => entry.routeKey > 0)
           .toList();
     } catch (_) {
       return const [];
@@ -83,6 +100,7 @@ class StorageService {
                   ),
                 ),
               )
+              .where((item) => item.routeKey > 0 && item.stopId > 0)
               .toList(),
         ),
       );
@@ -100,37 +118,6 @@ class StorageService {
           MapEntry(key, value.map((item) => item.toJson()).toList()),
     );
     await prefs.setString(_favoritesKey, jsonEncode(payload));
-  }
-
-  Future<List<TrackedBus>> loadTrackedBuses() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_trackedBusesKey);
-    if (raw == null || raw.isEmpty) {
-      return const [];
-    }
-
-    try {
-      final decoded = jsonDecode(raw) as List<dynamic>;
-      return decoded
-          .whereType<Map>()
-          .map(
-            (entry) => TrackedBus.fromJson(
-              entry.map((key, value) => MapEntry(key.toString(), value)),
-            ),
-          )
-          .where((entry) => entry.vehicleId.isNotEmpty)
-          .toList();
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  Future<void> saveTrackedBuses(List<TrackedBus> trackedBuses) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _trackedBusesKey,
-      jsonEncode(trackedBuses.map((entry) => entry.toJson()).toList()),
-    );
   }
 
   Future<List<RouteUsageProfile>> loadRouteUsageProfiles() async {
@@ -156,9 +143,7 @@ class StorageService {
     }
   }
 
-  Future<void> saveRouteUsageProfiles(
-    List<RouteUsageProfile> profiles,
-  ) async {
+  Future<void> saveRouteUsageProfiles(List<RouteUsageProfile> profiles) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _routeUsageProfilesKey,

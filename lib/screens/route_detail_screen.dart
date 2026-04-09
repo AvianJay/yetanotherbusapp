@@ -729,8 +729,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (resolvedStops.isEmpty) {
       return null;
     }
-    final fallbackBoardingStop =
-        _boardingStopId == null ? _currentBoardingCandidateStop() : null;
+    final fallbackBoardingStop = _boardingStopId == null
+        ? _currentBoardingCandidateStop()
+        : null;
     return TripMonitorSession(
       providerName: widget.provider.name,
       routeKey: widget.routeKey,
@@ -789,7 +790,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     String reason = 'user',
     bool showFeedback = true,
   }) async {
-    if (!AppControllerScope.read(context).settings.enableRouteBackgroundMonitor) {
+    if (!AppControllerScope.read(
+      context,
+    ).settings.enableRouteBackgroundMonitor) {
       return;
     }
 
@@ -808,9 +811,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _backgroundTripMonitorPaused = true;
       });
       if (showFeedback && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已暫時停止背景乘車提醒')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已暫時停止背景乘車提醒')));
       }
       return;
     }
@@ -1617,18 +1620,17 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     return (
-      previousStopName: stopIndex > 0 ? pathStops[stopIndex - 1].stopName : null,
+      previousStopName: stopIndex > 0
+          ? pathStops[stopIndex - 1].stopName
+          : null,
       nextStopName: stopIndex + 1 < pathStops.length
           ? pathStops[stopIndex + 1].stopName
           : null,
     );
   }
 
-  ({
-    List<String> stopNames,
-    int currentStopIndex,
-    int? highlightedStopIndex,
-  }) _buildLiveActivityStopLine(
+  ({List<String> stopNames, int currentStopIndex, int? highlightedStopIndex})
+  _buildLiveActivityStopLine(
     List<StopInfo> pathStops, {
     required int anchorIndex,
     int? highlightedIndex,
@@ -2104,40 +2106,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     ).showSnackBar(const SnackBar(content: Text('無法開啟 TWBusforum。')));
   }
 
-  Future<void> _toggleTrackedVehicle(BusVehicle vehicle) async {
-    final controller = AppControllerScope.read(context);
-    final isTracked = controller.isTrackedBus(vehicle.id);
-    if (isTracked) {
-      await controller.removeTrackedBus(vehicle.id);
-    } else {
-      await controller.addTrackedBus(
-        TrackedBus(
-          provider: widget.provider,
-          vehicleId: vehicle.id,
-          routeKey: widget.routeKey,
-          routeName: _detail?.route.routeName,
-        ),
-      );
-    }
-    if (!mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isTracked ? '已移除 ${vehicle.id} 的追蹤。' : '已開始追蹤 ${vehicle.id}。',
-        ),
-      ),
-    );
-  }
-
   Future<void> _handleVehicleAction(
     BusVehicle vehicle,
     _VehicleAction action,
   ) async {
     switch (action) {
-      case _VehicleAction.toggleTracking:
-        await _toggleTrackedVehicle(vehicle);
       case _VehicleAction.twBusForum:
         await _openVehicleForum(vehicle.id);
     }
@@ -2160,7 +2133,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     if (stop.buses.isNotEmpty) {
-      final controller = AppControllerScope.read(context);
       final vehicle = stop.buses.first;
       final backgroundColor = isNearest
           ? Colors.cyan.shade400
@@ -2170,7 +2142,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final foregroundColor = backgroundColor.computeLuminance() > 0.6
           ? Colors.black87
           : Colors.white;
-      final isTracked = controller.isTrackedBus(vehicle.id);
 
       return PopupMenuButton<_VehicleAction>(
         padding: EdgeInsets.zero,
@@ -2179,10 +2150,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             unawaited(_handleVehicleAction(vehicle, action)),
         itemBuilder: (context) {
           return [
-            PopupMenuItem<_VehicleAction>(
-              value: _VehicleAction.toggleTracking,
-              child: Text(isTracked ? '移除追蹤公車' : '加入追蹤公車'),
-            ),
             const PopupMenuItem<_VehicleAction>(
               value: _VehicleAction.twBusForum,
               child: Text('搜尋 TWBusforum'),
@@ -2502,4 +2469,4 @@ class _RouteStatusPill extends StatelessWidget {
 
 enum _StopAction { favorite, destination, shortcut }
 
-enum _VehicleAction { toggleTracking, twBusForum }
+enum _VehicleAction { twBusForum }

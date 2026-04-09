@@ -34,10 +34,6 @@ class _NearbyScreenState extends State<NearbyScreen> {
     });
 
     try {
-      if (controller.settings.provider == BusProvider.twn) {
-        throw UnsupportedError('全台 provider 沒有站點座標索引，附近站牌請切換到雙北或台中。');
-      }
-
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         throw StateError('定位服務尚未開啟。');

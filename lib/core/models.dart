@@ -1,32 +1,86 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 enum BusProvider {
-  twn,
-  tcc,
-  tpe;
+  kee('KEE', 'Keelung', 25.1283, 121.7419),
+  tpe('TPE', 'Taipei', 25.0330, 121.5654),
+  nwt('NWT', 'New Taipei', 25.0119, 121.4638),
+  tao('TAO', 'Taoyuan', 24.9937, 121.3010),
+  hsz('HSZ', 'Hsinchu City', 24.8042, 120.9717),
+  hsq('HSQ', 'Hsinchu County', 24.8396, 121.0047),
+  mia('MIA', 'Miaoli', 24.5602, 120.8214),
+  txg('TXG', 'Taichung', 24.1477, 120.6736),
+  cha('CHA', 'Changhua', 24.0817, 120.5380),
+  nan('NAN', 'Nantou', 23.9157, 120.6639),
+  yun('YUN', 'Yunlin', 23.7092, 120.4313),
+  cyi('CYI', 'Chiayi City', 23.4801, 120.4491),
+  cyq('CYQ', 'Chiayi County', 23.4586, 120.3326),
+  tnn('TNN', 'Tainan', 22.9999, 120.2269),
+  khh('KHH', 'Kaohsiung', 22.6273, 120.3014),
+  pif('PIF', 'Pingtung', 22.5519, 120.5487),
+  ila('ILA', 'Yilan', 24.7570, 121.7532),
+  hua('HUA', 'Hualien', 23.9872, 121.6015),
+  ttt('TTT', 'Taitung', 22.7583, 121.1444),
+  pen('PEN', 'Penghu', 23.5655, 119.5865),
+  kin('KIN', 'Kinmen', 24.4326, 118.3171),
+  lie('LIE', 'Lienchiang', 26.1600, 119.9510);
 
-  String get label => switch (this) {
-    BusProvider.twn => '全台',
-    BusProvider.tcc => '台中',
-    BusProvider.tpe => '雙北',
-  };
+  const BusProvider(
+    this.prefix,
+    this.label,
+    this.centerLatitude,
+    this.centerLongitude,
+  );
 
-  String get databaseFileName => 'bus_$name.sqlite';
+  final String prefix;
+  final String label;
+  final double centerLatitude;
+  final double centerLongitude;
 
-  String get dataUrlTextFile => switch (this) {
-    BusProvider.twn => 'dataurl.txt',
-    BusProvider.tcc => 'dataurl_tcc.txt',
-    BusProvider.tpe => 'dataurl_tpe.txt',
-  };
-
-  String get archiveFileName => 'dat_${name}_zh.gz';
+  String get databaseFileName => 'bus_${name}_v2.sqlite';
 }
 
 BusProvider busProviderFromString(String value) {
+  final normalized = value.trim().toLowerCase();
+  switch (normalized) {
+    case 'tpe':
+      return BusProvider.tpe;
+    case 'tcc':
+      return BusProvider.txg;
+    case 'twn':
+      return BusProvider.nwt;
+  }
+
   return BusProvider.values.firstWhere(
-    (provider) => provider.name == value,
-    orElse: () => BusProvider.twn,
+    (provider) =>
+        provider.name == normalized ||
+        provider.prefix.toLowerCase() == normalized,
+    orElse: () => BusProvider.tpe,
   );
+}
+
+BusProvider nearestBusProvider({
+  required double latitude,
+  required double longitude,
+}) {
+  BusProvider best = BusProvider.tpe;
+  var bestDistance = double.infinity;
+
+  for (final provider in BusProvider.values) {
+    final distance = _distanceMeters(
+      latitude,
+      longitude,
+      provider.centerLatitude,
+      provider.centerLongitude,
+    );
+    if (distance < bestDistance) {
+      best = provider;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
 }
 
 ThemeMode themeModeFromString(String value) {
@@ -42,15 +96,15 @@ enum AppUpdateChannel {
   release;
 
   String get label => switch (this) {
-    AppUpdateChannel.developer => '開發版',
+    AppUpdateChannel.developer => 'Developer',
     AppUpdateChannel.nightly => 'Nightly',
     AppUpdateChannel.release => 'Release',
   };
 
   String get description => switch (this) {
-    AppUpdateChannel.developer => '不檢查 app 更新',
-    AppUpdateChannel.nightly => '比對最新成功建置的 commit',
-    AppUpdateChannel.release => '比對 GitHub 最新發行版',
+    AppUpdateChannel.developer => 'Use developer builds from the app host.',
+    AppUpdateChannel.nightly => 'Track the latest nightly commit build.',
+    AppUpdateChannel.release => 'Track tagged GitHub releases.',
   };
 }
 
@@ -81,15 +135,15 @@ enum AppUpdateCheckMode {
   popup;
 
   String get label => switch (this) {
-    AppUpdateCheckMode.off => '關閉',
-    AppUpdateCheckMode.notify => '通知',
-    AppUpdateCheckMode.popup => '跳窗',
+    AppUpdateCheckMode.off => 'Off',
+    AppUpdateCheckMode.notify => 'Notify',
+    AppUpdateCheckMode.popup => 'Popup',
   };
 
   String get description => switch (this) {
-    AppUpdateCheckMode.off => '只在手動檢查時顯示',
-    AppUpdateCheckMode.notify => '啟動後用通知提示',
-    AppUpdateCheckMode.popup => '啟動後直接跳出更新視窗',
+    AppUpdateCheckMode.off => 'Do not check for app updates automatically.',
+    AppUpdateCheckMode.notify => 'Check on launch and show a snack bar.',
+    AppUpdateCheckMode.popup => 'Check on launch and show the update dialog.',
   };
 }
 
@@ -128,7 +182,7 @@ class AppSettings {
 
   factory AppSettings.defaults() {
     return AppSettings(
-      provider: BusProvider.twn,
+      provider: BusProvider.tpe,
       themeMode: ThemeMode.system,
       alwaysShowSeconds: false,
       enableSmartRecommendations: true,
@@ -155,7 +209,7 @@ class AppSettings {
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
-      provider: busProviderFromString(json['provider'] as String? ?? 'twn'),
+      provider: busProviderFromString(json['provider'] as String? ?? 'tpe'),
       themeMode: themeModeFromString(json['themeMode'] as String? ?? 'system'),
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
       enableSmartRecommendations:
@@ -287,10 +341,10 @@ class SearchHistoryEntry {
 
   factory SearchHistoryEntry.fromJson(Map<String, dynamic> json) {
     return SearchHistoryEntry(
-      provider: busProviderFromString(json['provider'] as String? ?? 'twn'),
-      routeKey: json['routeKey'] as int? ?? 0,
+      provider: busProviderFromString(json['provider'] as String? ?? 'tpe'),
+      routeKey: (json['routeKey'] as num?)?.toInt() ?? 0,
       routeName: json['routeName'] as String? ?? '',
-      timestampMs: json['timestampMs'] as int? ?? 0,
+      timestampMs: (json['timestampMs'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -321,10 +375,10 @@ class FavoriteStop {
 
   factory FavoriteStop.fromJson(Map<String, dynamic> json) {
     return FavoriteStop(
-      provider: busProviderFromString(json['provider'] as String? ?? 'twn'),
-      routeKey: json['routeKey'] as int? ?? 0,
-      pathId: json['pathId'] as int? ?? 0,
-      stopId: json['stopId'] as int? ?? 0,
+      provider: busProviderFromString(json['provider'] as String? ?? 'tpe'),
+      routeKey: (json['routeKey'] as num?)?.toInt() ?? 0,
+      pathId: (json['pathId'] as num?)?.toInt() ?? 0,
+      stopId: (json['stopId'] as num?)?.toInt() ?? 0,
       routeName: json['routeName'] as String?,
       stopName: json['stopName'] as String?,
     );
@@ -353,99 +407,6 @@ class FavoriteStop {
         routeKey == other.routeKey &&
         pathId == other.pathId &&
         stopId == other.stopId;
-  }
-}
-
-class TrackedBus {
-  const TrackedBus({
-    required this.provider,
-    required this.vehicleId,
-    this.routeKey,
-    this.routeName,
-  });
-
-  factory TrackedBus.fromJson(Map<String, dynamic> json) {
-    return TrackedBus(
-      provider: busProviderFromString(json['provider'] as String? ?? 'twn'),
-      vehicleId: (json['vehicleId'] as String? ?? '').trim().toUpperCase(),
-      routeKey: (json['routeKey'] as num?)?.toInt(),
-      routeName: json['routeName'] as String?,
-    );
-  }
-
-  final BusProvider provider;
-  final String vehicleId;
-  final int? routeKey;
-  final String? routeName;
-
-  Map<String, dynamic> toJson() {
-    return {
-      'provider': provider.name,
-      'vehicleId': vehicleId,
-      if (routeKey != null) 'routeKey': routeKey,
-      if (routeName != null) 'routeName': routeName,
-    };
-  }
-
-  bool sameVehicle(String otherVehicleId) {
-    return vehicleId.toUpperCase() == otherVehicleId.trim().toUpperCase();
-  }
-}
-
-enum TrackedBusState {
-  online,
-  offline,
-  error;
-
-  String get label => switch (this) {
-    TrackedBusState.online => '在線上',
-    TrackedBusState.offline => '離線',
-    TrackedBusState.error => '更新失敗',
-  };
-}
-
-class TrackedBusSnapshot {
-  const TrackedBusSnapshot({
-    required this.trackedBus,
-    required this.state,
-    this.currentRouteKey,
-    this.currentRouteName,
-    this.currentPathId,
-    this.currentPathName,
-    this.currentStopId,
-    this.currentStopName,
-    this.longitude,
-    this.latitude,
-    this.carOnStop = false,
-    this.message,
-  });
-
-  final TrackedBus trackedBus;
-  final TrackedBusState state;
-  final int? currentRouteKey;
-  final String? currentRouteName;
-  final int? currentPathId;
-  final String? currentPathName;
-  final int? currentStopId;
-  final String? currentStopName;
-  final double? longitude;
-  final double? latitude;
-  final bool carOnStop;
-  final String? message;
-
-  bool get isOnline => state == TrackedBusState.online;
-  int? get effectiveRouteKey => currentRouteKey ?? trackedBus.routeKey;
-
-  String get displayRouteName {
-    final onlineName = currentRouteName?.trim();
-    if (onlineName != null && onlineName.isNotEmpty) {
-      return onlineName;
-    }
-    final savedName = trackedBus.routeName?.trim();
-    if (savedName != null && savedName.isNotEmpty) {
-      return savedName;
-    }
-    return '未知路線';
   }
 }
 
@@ -480,7 +441,7 @@ class RouteUsageProfile {
     }
 
     return RouteUsageProfile(
-      provider: busProviderFromString(json['provider'] as String? ?? 'twn'),
+      provider: busProviderFromString(json['provider'] as String? ?? 'tpe'),
       routeKey: (json['routeKey'] as num?)?.toInt() ?? 0,
       routeName: json['routeName'] as String? ?? '',
       totalOpens: (json['totalOpens'] as num?)?.toInt() ?? 0,
@@ -649,7 +610,7 @@ class RouteSummary {
       sourceProvider: map['provider'] as String? ?? '',
       hashMd5: map['hash_md5'] as String? ?? '',
       routeKey: (map['route_key'] as num?)?.toInt() ?? 0,
-      routeId: (map['route_id'] as num?)?.toInt() ?? 0,
+      routeId: map['route_id']?.toString() ?? '',
       routeName: map['route_name'] as String? ?? '',
       officialRouteName: map['official_route_name'] as String? ?? '',
       description: map['description'] as String? ?? '',
@@ -662,7 +623,7 @@ class RouteSummary {
   final String sourceProvider;
   final String hashMd5;
   final int routeKey;
-  final int routeId;
+  final String routeId;
   final String routeName;
   final String officialRouteName;
   final String description;
@@ -827,11 +788,7 @@ EtaPresentation buildEtaPresentation(
   final message = stop.msg?.trim() ?? '';
   if (message.isNotEmpty) {
     return EtaPresentation(
-      text: message == '即將進站'
-          ? '即將\n進站'
-          : message == '末班駛離'
-          ? '末班\n駛離'
-          : message,
+      text: message,
       backgroundColor: isDark ? const Color(0xFF16383D) : Colors.teal.shade50,
       foregroundColor: isDark ? const Color(0xFFBEECEF) : Colors.teal.shade900,
     );
@@ -848,7 +805,7 @@ EtaPresentation buildEtaPresentation(
 
   if (seconds <= 0) {
     return EtaPresentation(
-      text: '進站中',
+      text: 'Now',
       backgroundColor: Colors.red.shade800,
       foregroundColor: Colors.white,
     );
@@ -856,7 +813,7 @@ EtaPresentation buildEtaPresentation(
 
   if (seconds < 60) {
     return EtaPresentation(
-      text: '$seconds秒',
+      text: '${seconds}s',
       backgroundColor: Colors.red.shade600,
       foregroundColor: Colors.white,
     );
@@ -867,7 +824,9 @@ EtaPresentation buildEtaPresentation(
   final urgent = minutes < 3;
 
   return EtaPresentation(
-    text: alwaysShowSeconds ? '$minutes分\n$leftoverSeconds秒' : '$minutes分',
+    text: alwaysShowSeconds
+        ? '${minutes}m\n${leftoverSeconds}s'
+        : '${minutes}m',
     backgroundColor: urgent
         ? Colors.orange.shade700
         : (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1)),
@@ -891,3 +850,19 @@ String formatDistance(double meters) {
 
   return '${(meters / 1000).toStringAsFixed(1)}km';
 }
+
+double _distanceMeters(double lat1, double lon1, double lat2, double lon2) {
+  const earthRadiusKm = 6378.137;
+  final dLat = _degreesToRadians(lat2 - lat1);
+  final dLon = _degreesToRadians(lon2 - lon1);
+  final a =
+      math.sin(dLat / 2) * math.sin(dLat / 2) +
+      math.cos(_degreesToRadians(lat1)) *
+          math.cos(_degreesToRadians(lat2)) *
+          math.sin(dLon / 2) *
+          math.sin(dLon / 2);
+  final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  return earthRadiusKm * c * 1000;
+}
+
+double _degreesToRadians(double degree) => degree * math.pi / 180;

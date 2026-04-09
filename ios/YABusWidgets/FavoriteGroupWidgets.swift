@@ -45,6 +45,7 @@ enum FavoriteWidgetSharedStore {
           routeKey: routeKey,
           pathId: pathId,
           stopId: stopId,
+          routeId: (stopMap["routeId"] as? String)?.nilIfBlank,
           routeName: (stopMap["routeName"] as? String)?.nilIfBlank,
           stopName: (stopMap["stopName"] as? String)?.nilIfBlank
         )

@@ -3,28 +3,28 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 enum BusProvider {
-  kee('KEE', 'Keelung', 25.1283, 121.7419),
-  tpe('TPE', 'Taipei', 25.0330, 121.5654),
-  nwt('NWT', 'New Taipei', 25.0119, 121.4638),
-  tao('TAO', 'Taoyuan', 24.9937, 121.3010),
-  hsz('HSZ', 'Hsinchu City', 24.8042, 120.9717),
-  hsq('HSQ', 'Hsinchu County', 24.8396, 121.0047),
-  mia('MIA', 'Miaoli', 24.5602, 120.8214),
-  txg('TXG', 'Taichung', 24.1477, 120.6736),
-  cha('CHA', 'Changhua', 24.0817, 120.5380),
-  nan('NAN', 'Nantou', 23.9157, 120.6639),
-  yun('YUN', 'Yunlin', 23.7092, 120.4313),
-  cyi('CYI', 'Chiayi City', 23.4801, 120.4491),
-  cyq('CYQ', 'Chiayi County', 23.4586, 120.3326),
-  tnn('TNN', 'Tainan', 22.9999, 120.2269),
-  khh('KHH', 'Kaohsiung', 22.6273, 120.3014),
-  pif('PIF', 'Pingtung', 22.5519, 120.5487),
-  ila('ILA', 'Yilan', 24.7570, 121.7532),
-  hua('HUA', 'Hualien', 23.9872, 121.6015),
-  ttt('TTT', 'Taitung', 22.7583, 121.1444),
-  pen('PEN', 'Penghu', 23.5655, 119.5865),
-  kin('KIN', 'Kinmen', 24.4326, 118.3171),
-  lie('LIE', 'Lienchiang', 26.1600, 119.9510);
+  kee('KEE', '基隆市', 25.1283, 121.7419),
+  tpe('TPE', '台北市', 25.0330, 121.5654),
+  nwt('NWT', '新北市', 25.0119, 121.4638),
+  tao('TAO', '桃園市', 24.9937, 121.3010),
+  hsz('HSZ', '新竹市', 24.8042, 120.9717),
+  hsq('HSQ', '新竹縣', 24.8396, 121.0047),
+  mia('MIA', '苗栗縣', 24.5602, 120.8214),
+  txg('TXG', '台中市', 24.1477, 120.6736),
+  cha('CHA', '彰化縣', 24.0817, 120.5380),
+  nan('NAN', '南投縣', 23.9157, 120.6639),
+  yun('YUN', '雲林縣', 23.7092, 120.4313),
+  cyi('CYI', '嘉義市', 23.4801, 120.4491),
+  cyq('CYQ', '嘉義縣', 23.4586, 120.3326),
+  tnn('TNN', '台南市', 22.9999, 120.2269),
+  khh('KHH', '高雄市', 22.6273, 120.3014),
+  pif('PIF', '屏東縣', 22.5519, 120.5487),
+  ila('ILA', '宜蘭縣', 24.7570, 121.7532),
+  hua('HUA', '花蓮縣', 23.9872, 121.6015),
+  ttt('TTT', '台東縣', 22.7583, 121.1444),
+  pen('PEN', '澎湖縣', 23.5655, 119.5865),
+  kin('KIN', '金門縣', 24.4326, 118.3171),
+  lie('LIE', '連江縣', 26.1600, 119.9510);
 
   const BusProvider(
     this.prefix,
@@ -96,15 +96,15 @@ enum AppUpdateChannel {
   release;
 
   String get label => switch (this) {
-    AppUpdateChannel.developer => 'Developer',
+    AppUpdateChannel.developer => '開發版',
     AppUpdateChannel.nightly => 'Nightly',
     AppUpdateChannel.release => 'Release',
   };
 
   String get description => switch (this) {
-    AppUpdateChannel.developer => 'Use developer builds from the app host.',
-    AppUpdateChannel.nightly => 'Track the latest nightly commit build.',
-    AppUpdateChannel.release => 'Track tagged GitHub releases.',
+    AppUpdateChannel.developer => '不檢查 app 更新',
+    AppUpdateChannel.nightly => '比對最新成功建置的 commit',
+    AppUpdateChannel.release => '比對 GitHub 最新發行版',
   };
 }
 
@@ -135,15 +135,15 @@ enum AppUpdateCheckMode {
   popup;
 
   String get label => switch (this) {
-    AppUpdateCheckMode.off => 'Off',
-    AppUpdateCheckMode.notify => 'Notify',
-    AppUpdateCheckMode.popup => 'Popup',
+    AppUpdateCheckMode.off => '關閉',
+    AppUpdateCheckMode.notify => '通知',
+    AppUpdateCheckMode.popup => '跳窗',
   };
 
   String get description => switch (this) {
-    AppUpdateCheckMode.off => 'Do not check for app updates automatically.',
-    AppUpdateCheckMode.notify => 'Check on launch and show a snack bar.',
-    AppUpdateCheckMode.popup => 'Check on launch and show the update dialog.',
+    AppUpdateCheckMode.off => '只在手動檢查時顯示',
+    AppUpdateCheckMode.notify => '啟動後用通知提示',
+    AppUpdateCheckMode.popup => '啟動後直接跳出更新視窗',
   };
 }
 
@@ -788,7 +788,11 @@ EtaPresentation buildEtaPresentation(
   final message = stop.msg?.trim() ?? '';
   if (message.isNotEmpty) {
     return EtaPresentation(
-      text: message,
+      text: message == '即將進站'
+          ? '即將\n進站'
+          : message == '末班駛離'
+          ? '末班\n駛離'
+          : message,
       backgroundColor: isDark ? const Color(0xFF16383D) : Colors.teal.shade50,
       foregroundColor: isDark ? const Color(0xFFBEECEF) : Colors.teal.shade900,
     );
@@ -805,7 +809,7 @@ EtaPresentation buildEtaPresentation(
 
   if (seconds <= 0) {
     return EtaPresentation(
-      text: 'Now',
+      text: '進站中',
       backgroundColor: Colors.red.shade800,
       foregroundColor: Colors.white,
     );
@@ -813,7 +817,7 @@ EtaPresentation buildEtaPresentation(
 
   if (seconds < 60) {
     return EtaPresentation(
-      text: '${seconds}s',
+      text: '$seconds秒',
       backgroundColor: Colors.red.shade600,
       foregroundColor: Colors.white,
     );
@@ -824,9 +828,7 @@ EtaPresentation buildEtaPresentation(
   final urgent = minutes < 3;
 
   return EtaPresentation(
-    text: alwaysShowSeconds
-        ? '${minutes}m\n${leftoverSeconds}s'
-        : '${minutes}m',
+    text: alwaysShowSeconds ? '$minutes分\n$leftoverSeconds秒' : '$minutes分',
     backgroundColor: urgent
         ? Colors.orange.shade700
         : (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1)),

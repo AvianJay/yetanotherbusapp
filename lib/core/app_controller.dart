@@ -22,7 +22,7 @@ class AppController extends ChangeNotifier {
     required this.appUpdateInstaller,
   });
 
-  static const defaultFavoriteGroupName = 'Favorites';
+  static const defaultFavoriteGroupName = '我的最愛';
 
   final BusRepository repository;
   final StorageService storage;
@@ -233,7 +233,7 @@ class AppController extends ChangeNotifier {
       return _lastAppUpdateResult ??
           const AppUpdateCheckResult(
             status: AppUpdateStatus.unavailable,
-            message: 'An app update check is already in progress.',
+            message: '正在檢查更新中，請稍候。',
           );
     }
 

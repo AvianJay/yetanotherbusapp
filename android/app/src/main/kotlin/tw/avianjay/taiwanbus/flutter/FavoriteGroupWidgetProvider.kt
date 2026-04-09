@@ -171,7 +171,7 @@ object FavoriteGroupWidgetSupport {
                 WidgetRenderResult(
                     views = buildBaseRemoteViews(context, appWidgetId, "YABus").apply {
                         setViewVisibility(R.id.favorite_widget_empty, View.VISIBLE)
-                        setTextViewText(R.id.favorite_widget_empty, "Tap to configure this widget.")
+                        setTextViewText(R.id.favorite_widget_empty, "點一下設定這個小工具。")
                     },
                     updateTimestamp = false,
                 )
@@ -185,7 +185,7 @@ object FavoriteGroupWidgetSupport {
                             setViewVisibility(R.id.favorite_widget_empty, View.VISIBLE)
                             setTextViewText(
                                 R.id.favorite_widget_empty,
-                                "This favorite group no longer exists.",
+                                "這個最愛群組已不存在。",
                             )
                         },
                         updateTimestamp = false,
@@ -201,7 +201,7 @@ object FavoriteGroupWidgetSupport {
         val title = loadConfiguredGroup(context, appWidgetId) ?: "YABus"
         return buildBaseRemoteViews(context, appWidgetId, title).apply {
             setViewVisibility(R.id.favorite_widget_empty, View.VISIBLE)
-            setTextViewText(R.id.favorite_widget_empty, "Updating...")
+            setTextViewText(R.id.favorite_widget_empty, "更新中...")
         }
     }
 
@@ -214,7 +214,7 @@ object FavoriteGroupWidgetSupport {
         val views = buildBaseRemoteViews(context, appWidgetId, groupName)
         if (items.isEmpty()) {
             views.setViewVisibility(R.id.favorite_widget_empty, View.VISIBLE)
-            views.setTextViewText(R.id.favorite_widget_empty, "No favorite stops in this group.")
+            views.setTextViewText(R.id.favorite_widget_empty, "這個群組目前還沒有儲存站牌。")
             return WidgetRenderResult(views, updateTimestamp = true)
         }
 
@@ -238,11 +238,11 @@ object FavoriteGroupWidgetSupport {
             )
             itemViews.setTextViewText(
                 R.id.favorite_widget_item_route,
-                item.routeName.ifBlank { "Route ${item.routeKey}" },
+                item.routeName.ifBlank { "路線 ${item.routeKey}" },
             )
             itemViews.setTextViewText(
                 R.id.favorite_widget_item_stop,
-                item.stopName.ifBlank { "Stop ${item.stopId}" },
+                item.stopName.ifBlank { "站牌 ${item.stopId}" },
             )
             itemViews.setTextViewText(
                 R.id.favorite_widget_item_note,

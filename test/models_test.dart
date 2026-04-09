@@ -16,7 +16,7 @@ void main() {
 
     final eta = buildEtaPresentation(stop, alwaysShowSeconds: true);
 
-    expect(eta.text, '2m\n5s');
+    expect(eta.text, '2分\n5秒');
   });
 
   test('distance formatter switches to km over one kilometer', () {

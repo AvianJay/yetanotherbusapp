@@ -96,15 +96,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
       if (!serviceEnabled) {
         setState(() {
-          _permissionMessage =
-              'Location services are turned off. You can still choose a database manually.';
+          _permissionMessage = '定位服務尚未開啟。你仍可手動選擇資料庫。';
         });
       } else if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever ||
           permission == LocationPermission.unableToDetermine) {
         setState(() {
-          _permissionMessage =
-              'Location permission was not granted. Choose a database manually.';
+          _permissionMessage = '沒有取得定位權限。請改為手動選擇資料庫。';
         });
       } else {
         setState(() {
@@ -116,8 +114,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         }
         if (position == null) {
           setState(() {
-            _permissionMessage =
-                'Location was allowed, but no position was available. Choose a database manually.';
+            _permissionMessage = '定位權限已授權，但暫時無法取得位置。請改為手動選擇資料庫。';
           });
         } else {
           await _applySuggestedProvider(controller, position);
@@ -126,14 +123,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           }
           setState(() {
             _permissionMessage =
-                'Nearest database selected: ${controller.settings.provider.label}.';
+                '已自動選擇最近的資料庫：${controller.settings.provider.label}。';
           });
         }
       }
     } catch (error) {
       setState(() {
-        _permissionMessage =
-            'Location setup failed ($error). Choose a database manually.';
+        _permissionMessage = '定位設定失敗（$error）。請改為手動選擇資料庫。';
       });
     } finally {
       if (mounted) {
@@ -251,34 +247,29 @@ class _IntroStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 24),
-        Text(
-          'Welcome to YABus',
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
+        Text('歡迎來到 YABus', style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 24),
         const _OnboardingFeature(
           icon: Icons.search_rounded,
-          title: 'Route search',
-          subtitle:
-              'Search routes locally after downloading the selected database.',
+          title: '搜尋路線',
+          subtitle: '輸入公車名稱或號碼，直接打開即時站牌頁。',
         ),
         const SizedBox(height: 12),
         const _OnboardingFeature(
           icon: Icons.favorite_outline_rounded,
-          title: 'Favorites',
-          subtitle: 'Save stops and route groups for quick access later.',
+          title: '收藏站牌',
+          subtitle: '把常搭的站牌分群保存，下次一鍵回來。',
         ),
         const SizedBox(height: 12),
         const _OnboardingFeature(
           icon: Icons.near_me_outlined,
-          title: 'Nearby stops',
-          subtitle:
-              'Use location to jump into the closest routes once a database is ready.',
+          title: '附近站牌',
+          subtitle: '配合定位權限快速找周邊站點。',
         ),
         const Spacer(),
         SizedBox(
           width: double.infinity,
-          child: FilledButton(onPressed: onNext, child: const Text('Continue')),
+          child: FilledButton(onPressed: onNext, child: const Text('開始設定')),
         ),
       ],
     );
@@ -309,13 +300,10 @@ class _PermissionStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 12),
-        Text(
-          'Location permission',
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
+        Text('定位權限', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 10),
         Text(
-          'Allow location access now to preselect the nearest city or county database. If location is unavailable, you can still choose one manually.',
+          '如果你願意開啟定位，系統會先幫你選擇最近的縣市資料庫；就算跳過，也能手動選擇。',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         const SizedBox(height: 24),
@@ -325,7 +313,7 @@ class _PermissionStep extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('This step only helps with database preselection.'),
+                const Text('這一步只用來預先挑選資料庫，不會影響其他功能。'),
                 if (permissionMessage != null) ...[
                   const SizedBox(height: 12),
                   Text(permissionMessage!),
@@ -338,16 +326,13 @@ class _PermissionStep extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: OutlinedButton(
-                onPressed: onBack,
-                child: const Text('Back'),
-              ),
+              child: OutlinedButton(onPressed: onBack, child: const Text('返回')),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: FilledButton(
                 onPressed: busy ? null : onRequestPermission,
-                child: Text(busy ? 'Checking...' : 'Allow and continue'),
+                child: Text(busy ? '處理中...' : '授權並繼續'),
               ),
             ),
           ],
@@ -357,7 +342,7 @@ class _PermissionStep extends StatelessWidget {
           width: double.infinity,
           child: TextButton(
             onPressed: busy ? null : onSkip,
-            child: const Text('Choose manually'),
+            child: const Text('手動選擇資料庫'),
           ),
         ),
       ],
@@ -388,19 +373,16 @@ class _DatabaseStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 12),
-        Text(
-          'Download database',
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
+        Text('下載資料庫', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 10),
         Text(
-          'Select the city or county database you want to use on this device. The app stays usable even if you skip the download for now.',
+          '選擇要在這台裝置使用的縣市資料庫。即使先不下載，仍可先進入首頁。',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         const SizedBox(height: 24),
         DropdownButtonFormField<BusProvider>(
           initialValue: provider,
-          decoration: const InputDecoration(labelText: 'Database'),
+          decoration: const InputDecoration(labelText: '資料庫'),
           items: BusProvider.values
               .map(
                 (item) =>
@@ -416,7 +398,7 @@ class _DatabaseStep extends StatelessWidget {
         if (suggestedProvider != null) ...[
           const SizedBox(height: 12),
           Text(
-            'Nearest suggestion: ${suggestedProvider!.label}',
+            '最近建議：${suggestedProvider!.label}',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
@@ -427,13 +409,9 @@ class _DatabaseStep extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Selected: ${provider.label}'),
+                Text('目前選擇：${provider.label}'),
                 const SizedBox(height: 8),
-                Text(
-                  controller.databaseReady
-                      ? 'This database is already downloaded.'
-                      : 'This database has not been downloaded yet.',
-                ),
+                Text(controller.databaseReady ? '這份資料庫已下載。' : '這份資料庫尚未下載。'),
               ],
             ),
           ),
@@ -442,10 +420,7 @@ class _DatabaseStep extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: OutlinedButton(
-                onPressed: onBack,
-                child: const Text('Back'),
-              ),
+              child: OutlinedButton(onPressed: onBack, child: const Text('返回')),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -462,7 +437,7 @@ class _DatabaseStep extends StatelessWidget {
                           messenger.showSnackBar(
                             SnackBar(
                               content: Text(
-                                '${controller.settings.provider.label} downloaded successfully.',
+                                '${controller.settings.provider.label} 資料庫下載完成。',
                               ),
                             ),
                           );
@@ -471,14 +446,12 @@ class _DatabaseStep extends StatelessWidget {
                             return;
                           }
                           messenger.showSnackBar(
-                            SnackBar(content: Text('Download failed: $error')),
+                            SnackBar(content: Text('下載失敗：$error')),
                           );
                         }
                       },
                 child: Text(
-                  controller.downloadingDatabase
-                      ? 'Downloading...'
-                      : 'Download',
+                  controller.downloadingDatabase ? '下載中...' : '下載資料庫',
                 ),
               ),
             ),
@@ -489,11 +462,7 @@ class _DatabaseStep extends StatelessWidget {
           width: double.infinity,
           child: FilledButton.tonal(
             onPressed: onFinish,
-            child: Text(
-              controller.databaseReady
-                  ? 'Finish setup'
-                  : 'Finish without download',
-            ),
+            child: Text(controller.databaseReady ? '完成並進入首頁' : '稍後再說，先進首頁'),
           ),
         ),
       ],

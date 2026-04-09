@@ -26,27 +26,27 @@ class HomeScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Database',
+                  '資料庫',
                   style: Theme.of(sheetContext).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 8),
-                Text('Selected region: ${controller.settings.provider.label}'),
+                Text('目前資料來源：${controller.settings.provider.label}'),
                 const SizedBox(height: 4),
                 FutureBuilder<int?>(
                   future: controller.currentProviderLocalVersion(),
                   builder: (context, snapshot) {
                     final version = snapshot.data;
                     final text = version == null || version == 0
-                        ? 'No local database downloaded yet.'
-                        : 'Local version: $version';
+                        ? '本機尚未下載資料庫'
+                        : '本機資料庫版本：$version';
                     return Text(text);
                   },
                 ),
                 const SizedBox(height: 12),
                 Text(
                   controller.databaseReady
-                      ? 'The selected database is ready to use.'
-                      : 'Download the selected database to enable route search, favorites refresh, and nearby stops.',
+                      ? '本機資料庫已可用。你可以在這裡重新下載，或先檢查是否有更新版本。'
+                      : '第一次使用需要先下載 ${controller.settings.provider.label} 的 sqlite 資料庫，之後搜尋、路線詳情與智慧推薦才會完整可用。',
                   style: Theme.of(sheetContext).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 16),
@@ -69,7 +69,7 @@ class HomeScreen extends StatelessWidget {
                                 messenger.showSnackBar(
                                   SnackBar(
                                     content: Text(
-                                      '${controller.settings.provider.label} downloaded successfully.',
+                                      '${controller.settings.provider.label} 資料庫下載完成。',
                                     ),
                                   ),
                                 );
@@ -78,9 +78,7 @@ class HomeScreen extends StatelessWidget {
                                   return;
                                 }
                                 messenger.showSnackBar(
-                                  SnackBar(
-                                    content: Text('Download failed: $error'),
-                                  ),
+                                  SnackBar(content: Text('資料庫下載失敗：$error')),
                                 );
                               }
                             },
@@ -96,10 +94,8 @@ class HomeScreen extends StatelessWidget {
                             ),
                       label: Text(
                         controller.downloadingDatabase
-                            ? 'Downloading...'
-                            : (controller.databaseReady
-                                  ? 'Redownload'
-                                  : 'Download'),
+                            ? '下載中...'
+                            : (controller.databaseReady ? '重新下載' : '下載資料庫'),
                       ),
                     ),
                     OutlinedButton.icon(
@@ -115,8 +111,8 @@ class HomeScreen extends StatelessWidget {
                           final lines = updates.entries
                               .map(
                                 (entry) => entry.value == null
-                                    ? '${entry.key.label}: up to date'
-                                    : '${entry.key.label}: update ${entry.value} available',
+                                    ? '${entry.key.label}：已是最新版本'
+                                    : '${entry.key.label}：可更新到 ${entry.value}',
                               )
                               .join('\n');
                           messenger.showSnackBar(
@@ -127,14 +123,12 @@ class HomeScreen extends StatelessWidget {
                             return;
                           }
                           messenger.showSnackBar(
-                            SnackBar(
-                              content: Text('Update check failed: $error'),
-                            ),
+                            SnackBar(content: Text('檢查資料庫更新失敗：$error')),
                           );
                         }
                       },
                       icon: const Icon(Icons.cloud_sync_outlined),
-                      label: const Text('Check updates'),
+                      label: const Text('檢查更新'),
                     ),
                   ],
                 ),
@@ -156,7 +150,7 @@ class HomeScreen extends StatelessWidget {
         title: const Text('YABus'),
         actions: [
           IconButton(
-            tooltip: 'Database',
+            tooltip: '資料庫',
             onPressed: () => _showDatabaseSheet(context, controller),
             icon: controller.downloadingDatabase
                 ? const SizedBox.square(
@@ -207,8 +201,8 @@ class HomeScreen extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       controller.databaseReady
-                          ? 'Database ready.'
-                          : 'No database downloaded yet. You can still browse the app and download it later.',
+                          ? '資料庫已就緒。'
+                          : '尚未下載資料庫。你仍可先瀏覽功能，稍後再下載。',
                     ),
                   ],
                 ),
@@ -217,9 +211,8 @@ class HomeScreen extends StatelessWidget {
             const SizedBox(height: 16),
             _FeatureCard(
               icon: Icons.search_rounded,
-              title: 'Search routes',
-              subtitle:
-                  'Search the currently selected database and open live ETAs.',
+              title: '搜尋路線',
+              subtitle: '輸入公車號碼或名稱，直接看即時到站資訊。',
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(builder: (_) => const SearchScreen()),
@@ -229,9 +222,8 @@ class HomeScreen extends StatelessWidget {
             const SizedBox(height: 12),
             _FeatureCard(
               icon: Icons.favorite_outline_rounded,
-              title: 'Favorites',
-              subtitle:
-                  'Refresh saved stops and route groups from the selected database.',
+              title: '我的最愛',
+              subtitle: '整理常用站牌與群組，快速跳回指定站點。',
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
@@ -243,9 +235,8 @@ class HomeScreen extends StatelessWidget {
             const SizedBox(height: 12),
             _FeatureCard(
               icon: Icons.near_me_outlined,
-              title: 'Nearby stops',
-              subtitle:
-                  'Use your location to find nearby stops inside the selected database.',
+              title: '附近站牌',
+              subtitle: '依照你目前位置找附近的公車站牌。',
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(builder: (_) => const NearbyScreen()),

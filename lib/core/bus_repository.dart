@@ -25,7 +25,7 @@ class BusRepository {
   static const _apiBaseUrl = 'https://bus.avianjay.sbs';
   static const _userAgent = 'Mozilla/5.0 (YABus Flutter)';
   static const _webLocalDatabaseUnsupportedMessage =
-      'Web does not support the local SQLite database used by this app.';
+      'Web 版目前不支援本 app 使用的本機 SQLite 資料庫。';
 
   final http.Client _client;
 
@@ -163,7 +163,7 @@ class BusRepository {
   }) async {
     final route = await getRoute(routeKey, provider: provider);
     if (route == null) {
-      throw StateError('Route $routeKey was not found.');
+      throw StateError('找不到路線 $routeKey');
     }
 
     final paths = await getPaths(routeKey, provider: provider);
@@ -363,9 +363,7 @@ class BusRepository {
     );
 
     if (response.statusCode != 200 && response.statusCode != 206) {
-      throw HttpException(
-        'Failed to check remote database version (${response.statusCode}).',
-      );
+      throw HttpException('無法檢查遠端資料庫版本 (${response.statusCode})。');
     }
 
     return _buildVersionFromHeaders(response.headers);
@@ -377,9 +375,7 @@ class BusRepository {
       headers: const {'User-Agent': _userAgent},
     );
     if (response.statusCode != 200) {
-      throw HttpException(
-        'Failed to download the master database (${response.statusCode}).',
-      );
+      throw HttpException('無法下載主資料庫 (${response.statusCode})。');
     }
 
     await targetFile.parent.create(recursive: true);
@@ -411,7 +407,7 @@ class BusRepository {
         orderBy: 'routeid ASC',
       );
       if (routeRows.isEmpty) {
-        throw StateError('No routes were found for ${provider.label}.');
+        throw StateError('找不到 ${provider.label} 的路線資料。');
       }
 
       final pathRows = await masterDatabase.query(
@@ -578,9 +574,7 @@ class BusRepository {
       headers: const {'Accept': 'application/json', 'User-Agent': _userAgent},
     );
     if (response.statusCode != 200) {
-      throw HttpException(
-        'Failed to fetch stops for $routeId (${response.statusCode}).',
-      );
+      throw HttpException('無法取得 $routeId 的路線站牌 (${response.statusCode})。');
     }
 
     final decoded =
@@ -621,9 +615,7 @@ class BusRepository {
       headers: const {'Accept': 'application/json', 'User-Agent': _userAgent},
     );
     if (response.statusCode != 200) {
-      throw HttpException(
-        'Failed to fetch live route data for $routeId (${response.statusCode}).',
-      );
+      throw HttpException('即時資料暫時無法取得：$routeId (${response.statusCode})。');
     }
 
     final decoded =
@@ -678,9 +670,7 @@ class BusRepository {
     _ensureLocalDatabaseSupported();
     final file = await _databaseFile(provider);
     if (!await file.exists()) {
-      throw DatabaseNotReadyException(
-        'The ${provider.label} database has not been downloaded yet.',
-      );
+      throw DatabaseNotReadyException('尚未下載 ${provider.label} 資料庫。');
     }
 
     return openDatabase(file.path, readOnly: true, singleInstance: false);

@@ -735,6 +735,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return TripMonitorSession(
       providerName: widget.provider.name,
       routeKey: widget.routeKey,
+      routeId: resolvedDetail.route.routeId,
       routeName: resolvedDetail.route.routeName,
       pathId: resolvedPathInfo.pathId,
       pathName: resolvedPathInfo.name,
@@ -1952,6 +1953,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         routeKey: widget.routeKey,
         pathId: stop.pathId,
         stopId: stop.stopId,
+        routeId: _detail?.route.routeId,
         routeName: _detail?.route.routeName,
         stopName: stop.stopName,
       ),
@@ -1972,6 +1974,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         routeKey: widget.routeKey,
         pathId: stop.pathId,
         stopId: stop.stopId,
+        routeId: _detail?.route.routeId,
         routeName: _detail?.route.routeName,
         stopName: stop.stopName,
       ),

@@ -1,5 +1,4 @@
 import AppIntents
-import Compression
 import Foundation
 import SwiftUI
 import WidgetKit
@@ -114,6 +113,7 @@ struct FavoriteWidgetStop: Decodable, Hashable {
   let routeKey: Int
   let pathId: Int
   let stopId: Int
+  let routeId: String?
   let routeName: String?
   let stopName: String?
 }
@@ -325,7 +325,7 @@ private enum FavoriteWidgetRouteFetcher {
     await withTaskGroup(of: (String, [Int: FavoriteWidgetLiveStop], Bool).self) { group in
       for (requestKey, favorite) in uniqueRoutes {
         group.addTask {
-          let result = await fetchLiveStops(routeKey: favorite.routeKey)
+          let result = await fetchLiveStops(favorite: favorite)
           return (requestKey, result.liveStops, result.success)
         }
       }
@@ -359,15 +359,24 @@ private enum FavoriteWidgetRouteFetcher {
   }
 
   private static func fetchLiveStops(
-    routeKey: Int
+    favorite: FavoriteWidgetStop
   ) async -> (success: Bool, liveStops: [Int: FavoriteWidgetLiveStop]) {
-    guard let url = URL(string: "https://busserver.bus.yahoo.com/api/route/\(routeKey)") else {
+    guard let routeID = favorite.routeId?.nilIfBlank else {
+      return (false, [:])
+    }
+
+    guard
+      let encodedRouteID = routeID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+      let url = URL(string: "https://bus.avianjay.sbs/api/v1/routes/\(encodedRouteID)/realtime")
+    else {
       return (false, [:])
     }
 
     var request = URLRequest(url: url)
     request.timeoutInterval = 10
     request.cachePolicy = .reloadIgnoringLocalCacheData
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.setValue("Mozilla/5.0 (YABus iOS Widget)", forHTTPHeaderField: "User-Agent")
 
     do {
       let (data, response) = try await URLSession.shared.data(for: request)
@@ -378,111 +387,122 @@ private enum FavoriteWidgetRouteFetcher {
         return (false, [:])
       }
 
-      guard let xmlData = decodeXMLData(data) else {
+      guard
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let liveStops = parseLiveStops(
+          from: object,
+          preferredPathID: favorite.pathId
+        )
+      else {
         return (false, [:])
       }
 
-      return (true, RouteLiveStopXMLParser.parse(xmlData))
+      return (true, liveStops)
     } catch {
       return (false, [:])
     }
   }
 
-  private static func decodeXMLData(_ data: Data) -> Data? {
-    if looksLikeXML(data) {
-      return data
+  private static func parseLiveStops(
+    from root: [String: Any],
+    preferredPathID: Int
+  ) -> [Int: FavoriteWidgetLiveStop]? {
+    guard let rawPaths = root["paths"] as? [Any] else {
+      return nil
+    }
+    let pathObjects = rawPaths.compactMap { $0 as? [String: Any] }
+    var result = [Int: FavoriteWidgetLiveStop]()
+
+    func appendPath(_ pathObject: [String: Any]) {
+      guard let rawStops = pathObject["stops"] as? [Any] else {
+        return
+      }
+      for rawStop in rawStops {
+        guard let stopObject = rawStop as? [String: Any] else {
+          continue
+        }
+        let stopID = parseStopID(stopObject["stopid"])
+        guard stopID > 0 else {
+          continue
+        }
+        let message = (stopObject["message"] as? String)?.nilIfBlank
+        let sec = intValue(from: stopObject["eta"])
+        let vehicleID = firstVehicleID(from: stopObject["buses"] as? [Any])
+        result[stopID] = FavoriteWidgetLiveStop(
+          sec: sec,
+          msg: message,
+          vehicleId: vehicleID
+        )
+      }
     }
 
-    if let inflated = decompressZlib(data), looksLikeXML(inflated) {
-      return inflated
+    var matchedPath = false
+    for pathObject in pathObjects {
+      if intValue(from: pathObject["pathid"]) == preferredPathID {
+        matchedPath = true
+        appendPath(pathObject)
+      }
     }
 
-    if
-      let text = String(data: data, encoding: .utf8),
-      text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<")
-    {
-      return Data(text.utf8)
+    if !matchedPath {
+      for pathObject in pathObjects {
+        appendPath(pathObject)
+      }
     }
 
+    return result
+  }
+
+  private static func parseStopID(_ value: Any?) -> Int {
+    if let number = value as? NSNumber {
+      return number.intValue
+    }
+    if let number = value as? Int {
+      return number
+    }
+    let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if let parsed = Int(text) {
+      return parsed
+    }
+    var hash = 17
+    for scalar in text.unicodeScalars {
+      hash = (hash * 31 + Int(scalar.value)) & 0x7fffffff
+    }
+    return hash
+  }
+
+  private static func intValue(from value: Any?) -> Int? {
+    if let number = value as? NSNumber {
+      return number.intValue
+    }
+    if let number = value as? Int {
+      return number
+    }
+    if let text = value as? String {
+      return Int(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
     return nil
   }
 
-  private static func looksLikeXML(_ data: Data) -> Bool {
-    guard let text = String(data: Data(data.prefix(32)), encoding: .utf8) else {
-      return false
+  private static func firstVehicleID(from buses: [Any]?) -> String? {
+    guard let buses else {
+      return nil
     }
-    return text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<")
-  }
-
-  private static func decompressZlib(_ data: Data) -> Data? {
-    if data.isEmpty {
-      return data
-    }
-
-    let bufferSize = 64 * 1024
-    var output = Data()
-    var dummyDestinationByte: UInt8 = 0
-    var dummySourceByte: UInt8 = 0
-
-    return withUnsafeMutablePointer(to: &dummyDestinationByte) { dummyDstPtr in
-      withUnsafePointer(to: &dummySourceByte) { dummySrcPtr in
-        var stream = compression_stream(
-          dst_ptr: dummyDstPtr,
-          dst_size: 0,
-          src_ptr: dummySrcPtr,
-          src_size: 0,
-          state: nil
-        )
-        let status = compression_stream_init(
-          &stream,
-          COMPRESSION_STREAM_DECODE,
-          COMPRESSION_ZLIB
-        )
-        guard status != COMPRESSION_STATUS_ERROR else {
-          return nil
-        }
-        defer {
-          compression_stream_destroy(&stream)
-        }
-
-        return data.withUnsafeBytes { sourceBuffer -> Data? in
-          guard let sourceBaseAddress = sourceBuffer.bindMemory(to: UInt8.self).baseAddress else {
-            return nil
-          }
-
-          let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-          defer {
-            destinationBuffer.deallocate()
-          }
-
-          stream.src_ptr = sourceBaseAddress
-          stream.src_size = data.count
-
-          while true {
-            stream.dst_ptr = destinationBuffer
-            stream.dst_size = bufferSize
-
-            let processStatus = compression_stream_process(
-              &stream,
-              Int32(COMPRESSION_STREAM_FINALIZE.rawValue)
-            )
-            let writtenBytes = bufferSize - stream.dst_size
-            if writtenBytes > 0 {
-              output.append(destinationBuffer, count: writtenBytes)
-            }
-
-            switch processStatus {
-            case COMPRESSION_STATUS_OK:
-              continue
-            case COMPRESSION_STATUS_END:
-              return output
-            default:
-              return nil
-            }
-          }
-        }
+    for rawBus in buses {
+      guard let bus = rawBus as? [String: Any] else {
+        continue
+      }
+      if let id = (bus["id"] as? String)?.nilIfBlank {
+        return id
+      }
+      if let id = (bus["vehicle_id"] as? String)?.nilIfBlank {
+        return id
+      }
+      if let id = (bus["plate"] as? String)?.nilIfBlank {
+        return id
       }
     }
+    return nil
   }
 
   private static func routeRequestKey(for favorite: FavoriteWidgetStop) -> String {
@@ -508,64 +528,6 @@ private enum FavoriteWidgetRouteFetcher {
       return "1分內"
     }
     return "\(seconds / 60)分"
-  }
-}
-
-private final class RouteLiveStopXMLParser: NSObject, XMLParserDelegate {
-  private var currentStopID: Int?
-  private var liveStops = [Int: FavoriteWidgetLiveStop]()
-
-  static func parse(_ data: Data) -> [Int: FavoriteWidgetLiveStop] {
-    let delegate = RouteLiveStopXMLParser()
-    let parser = XMLParser(data: data)
-    parser.delegate = delegate
-    parser.parse()
-    return delegate.liveStops
-  }
-
-  func parser(
-    _ parser: XMLParser,
-    didStartElement elementName: String,
-    namespaceURI: String?,
-    qualifiedName qName: String?,
-    attributes attributeDict: [String: String] = [:]
-  ) {
-    if elementName == "e" {
-      guard let stopID = Int(attributeDict["id"] ?? "") else {
-        currentStopID = nil
-        return
-      }
-
-      currentStopID = stopID
-      liveStops[stopID] = FavoriteWidgetLiveStop(
-        sec: Int(attributeDict["sec"] ?? ""),
-        msg: attributeDict["msg"]?.nilIfBlank,
-        vehicleId: nil
-      )
-      return
-    }
-
-    if elementName == "b", let currentStopID {
-      let vehicleID = attributeDict["id"]?.nilIfBlank
-      if let existing = liveStops[currentStopID] {
-        liveStops[currentStopID] = FavoriteWidgetLiveStop(
-          sec: existing.sec,
-          msg: existing.msg,
-          vehicleId: existing.vehicleId ?? vehicleID
-        )
-      }
-    }
-  }
-
-  func parser(
-    _ parser: XMLParser,
-    didEndElement elementName: String,
-    namespaceURI: String?,
-    qualifiedName qName: String?
-  ) {
-    if elementName == "e" {
-      currentStopID = nil
-    }
   }
 }
 

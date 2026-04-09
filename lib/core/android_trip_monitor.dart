@@ -31,6 +31,7 @@ class TripMonitorSession {
   const TripMonitorSession({
     required this.providerName,
     required this.routeKey,
+    this.routeId,
     required this.routeName,
     required this.pathId,
     required this.pathName,
@@ -46,6 +47,7 @@ class TripMonitorSession {
 
   final String providerName;
   final int routeKey;
+  final String? routeId;
   final String routeName;
   final int pathId;
   final String pathName;
@@ -62,6 +64,7 @@ class TripMonitorSession {
     return {
       'provider': providerName,
       'routeKey': routeKey,
+      'routeId': routeId,
       'routeName': routeName,
       'pathId': pathId,
       'pathName': pathName,

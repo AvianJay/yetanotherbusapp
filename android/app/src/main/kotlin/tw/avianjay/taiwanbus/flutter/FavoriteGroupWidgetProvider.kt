@@ -8,21 +8,19 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
 import android.text.format.DateFormat
 import android.view.View
 import android.widget.RemoteViews
-import java.io.ByteArrayInputStream
-import java.io.InputStream
+import java.io.File
 import java.net.HttpURLConnection
+import java.net.URLEncoder
 import java.net.URL
 import java.util.Date
 import java.util.concurrent.Executors
-import java.util.zip.InflaterInputStream
-import javax.xml.parsers.DocumentBuilderFactory
 import org.json.JSONArray
 import org.json.JSONObject
-import org.w3c.dom.Element
 
 class FavoriteGroupWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(
@@ -77,6 +75,7 @@ object FavoriteGroupWidgetSupport {
     private const val FAVORITE_GROUPS_KEY = "flutter.favorite_groups"
     private const val FAVORITE_GROUPS_FALLBACK_KEY = "favorite_groups"
     private const val MAX_WIDGET_ITEMS = 6
+    private const val API_BASE_URL = "https://bus.avianjay.sbs"
 
     private val executor = Executors.newSingleThreadExecutor()
 
@@ -221,7 +220,7 @@ object FavoriteGroupWidgetSupport {
         val liveStopsByRoute = linkedMapOf<String, Map<Int, WidgetLiveStop>>()
         var successfulRouteFetches = 0
         items.associateBy(::routeRequestKey).forEach { (requestKey, item) ->
-            val fetchResult = fetchLiveStopMap(item.routeKey)
+            val fetchResult = fetchLiveStopMap(context, item)
             if (fetchResult.success) {
                 successfulRouteFetches += 1
             }
@@ -372,6 +371,9 @@ object FavoriteGroupWidgetSupport {
                     routeKey = routeKey,
                     pathId = item.optInt("pathId", 0),
                     stopId = stopId,
+                    routeId = item.optString("routeId", "")
+                        .trim()
+                        .takeIf { it.isNotEmpty() },
                     routeName = item.optString("routeName", ""),
                     stopName = item.optString("stopName", ""),
                 )
@@ -381,12 +383,20 @@ object FavoriteGroupWidgetSupport {
         return result
     }
 
-    private fun fetchLiveStopMap(routeKey: Int): WidgetRouteFetchResult {
-        val connection = URL("https://busserver.bus.yahoo.com/api/route/$routeKey")
+    private fun fetchLiveStopMap(
+        context: Context,
+        item: FavoriteWidgetItem,
+    ): WidgetRouteFetchResult {
+        val routeId = resolveRouteId(context, item)
+            ?: return WidgetRouteFetchResult(success = false, liveStops = emptyMap())
+        val encodedRouteId = URLEncoder.encode(routeId, Charsets.UTF_8.name())
+        val connection = URL("$API_BASE_URL/api/v1/routes/$encodedRouteId/realtime")
             .openConnection() as HttpURLConnection
         connection.connectTimeout = 10_000
         connection.readTimeout = 10_000
         connection.requestMethod = "GET"
+        connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (YABus Android Widget)")
         connection.doInput = true
         connection.useCaches = false
 
@@ -394,10 +404,12 @@ object FavoriteGroupWidgetSupport {
             if (connection.responseCode !in 200..299) {
                 return WidgetRouteFetchResult(success = false, liveStops = emptyMap())
             }
-            val xmlText = decodeZlib(connection.inputStream)
+            val jsonText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                reader.readText()
+            }
             WidgetRouteFetchResult(
                 success = true,
-                liveStops = parseLiveStopMap(xmlText),
+                liveStops = parseLiveStopMap(jsonText, item.pathId),
             )
         } catch (_: Exception) {
             WidgetRouteFetchResult(success = false, liveStops = emptyMap())
@@ -406,36 +418,159 @@ object FavoriteGroupWidgetSupport {
         }
     }
 
-    private fun decodeZlib(inputStream: InputStream): String {
-        val bytes = inputStream.readBytes()
-        return InflaterInputStream(ByteArrayInputStream(bytes))
-            .bufferedReader(Charsets.UTF_8)
-            .use { reader ->
-                reader.readText()
-            }
+    private fun resolveRouteId(
+        context: Context,
+        item: FavoriteWidgetItem,
+    ): String? {
+        val explicitRouteId = item.routeId?.trim()
+        if (!explicitRouteId.isNullOrEmpty()) {
+            return explicitRouteId
+        }
+        return queryRouteIdFromDatabase(context, item.provider, item.routeKey)
     }
 
-    private fun parseLiveStopMap(xmlText: String): Map<Int, WidgetLiveStop> {
-        val builder = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-        val document = builder.parse(xmlText.byteInputStream(Charsets.UTF_8))
-        val elements = document.getElementsByTagName("e")
-        val result = mutableMapOf<Int, WidgetLiveStop>()
-        for (index in 0 until elements.length) {
-            val element = elements.item(index) as? Element ?: continue
-            val stopId = element.getAttribute("id").toIntOrNull() ?: continue
-            val busElements = element.getElementsByTagName("b")
-            val vehicleId = if (busElements.length > 0) {
-                (busElements.item(0) as? Element)?.getAttribute("id")
-            } else {
-                null
-            }
-            result[stopId] = WidgetLiveStop(
-                sec = element.getAttribute("sec").toIntOrNull(),
-                msg = element.getAttribute("msg").takeIf { it.isNotBlank() },
-                vehicleId = vehicleId?.takeIf { it.isNotBlank() },
-            )
+    private fun queryRouteIdFromDatabase(
+        context: Context,
+        provider: String,
+        routeKey: Int,
+    ): String? {
+        val databaseFile = resolveDatabaseFile(context, provider) ?: return null
+        if (!databaseFile.exists()) {
+            return null
         }
+
+        val database = try {
+            SQLiteDatabase.openDatabase(
+                databaseFile.path,
+                null,
+                SQLiteDatabase.OPEN_READONLY,
+            )
+        } catch (_: Exception) {
+            return null
+        }
+
+        return try {
+            database.rawQuery(
+                "SELECT route_id FROM routes WHERE route_key = ? LIMIT 1",
+                arrayOf(routeKey.toString()),
+            ).use { cursor ->
+                if (!cursor.moveToFirst()) {
+                    null
+                } else {
+                    cursor.getString(0)
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                }
+            }
+        } finally {
+            database.close()
+        }
+    }
+
+    private fun resolveDatabaseFile(context: Context, provider: String): File? {
+        val filesParent = context.filesDir.parentFile ?: return null
+        val candidates = listOf(
+            File(filesParent, "app_flutter/.yabus_backend/bus_${provider}_v2.sqlite"),
+            File(context.filesDir, ".yabus_backend/bus_${provider}_v2.sqlite"),
+            File(filesParent, "app_flutter/.taiwanbus/bus_${provider}.sqlite"),
+            File(context.filesDir, ".taiwanbus/bus_${provider}.sqlite"),
+        )
+        return candidates.firstOrNull { it.exists() } ?: candidates.first()
+    }
+
+    private fun parseLiveStopMap(
+        jsonText: String,
+        preferredPathId: Int,
+    ): Map<Int, WidgetLiveStop> {
+        val root = JSONObject(jsonText)
+        val paths = root.optJSONArray("paths") ?: return emptyMap()
+        val result = mutableMapOf<Int, WidgetLiveStop>()
+
+        fun appendPath(pathObject: JSONObject) {
+            val stops = pathObject.optJSONArray("stops") ?: return
+            for (stopIndex in 0 until stops.length()) {
+                val stopObject = stops.optJSONObject(stopIndex) ?: continue
+                val stopId = parseStopId(stopObject.opt("stopid"))
+                if (stopId <= 0) {
+                    continue
+                }
+                val message = stopObject.opt("message")
+                    ?.toString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+                result[stopId] = WidgetLiveStop(
+                    sec = toIntOrNull(stopObject.opt("eta")),
+                    msg = message,
+                    vehicleId = firstVehicleId(stopObject.optJSONArray("buses")),
+                )
+            }
+        }
+
+        var matchedPath = false
+        for (index in 0 until paths.length()) {
+            val pathObject = paths.optJSONObject(index) ?: continue
+            if (toIntOrNull(pathObject.opt("pathid")) == preferredPathId) {
+                matchedPath = true
+                appendPath(pathObject)
+            }
+        }
+
+        if (!matchedPath) {
+            for (index in 0 until paths.length()) {
+                val pathObject = paths.optJSONObject(index) ?: continue
+                appendPath(pathObject)
+            }
+        }
+
         return result
+    }
+
+    private fun parseStopId(raw: Any?): Int {
+        if (raw is Number) {
+            return raw.toInt()
+        }
+        val text = raw?.toString()?.trim().orEmpty()
+        val parsed = text.toIntOrNull()
+        if (parsed != null) {
+            return parsed
+        }
+        var hash = 17
+        for (char in text) {
+            hash = (hash * 31 + char.code) and 0x7fffffff
+        }
+        return hash
+    }
+
+    private fun toIntOrNull(raw: Any?): Int? {
+        return when (raw) {
+            is Number -> raw.toInt()
+            else -> raw?.toString()?.trim()?.toIntOrNull()
+        }
+    }
+
+    private fun firstVehicleId(buses: JSONArray?): String? {
+        if (buses == null) {
+            return null
+        }
+        for (index in 0 until buses.length()) {
+            val busObject = buses.optJSONObject(index) ?: continue
+            val vehicleId = busObject.opt("id")
+                ?.toString()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: busObject.opt("vehicle_id")
+                    ?.toString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                ?: busObject.opt("plate")
+                    ?.toString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+            if (vehicleId != null) {
+                return vehicleId
+            }
+        }
+        return null
     }
 
     private fun formatEtaText(liveStop: WidgetLiveStop?): String {
@@ -466,7 +601,8 @@ object FavoriteGroupWidgetSupport {
     }
 
     private fun routeRequestKey(item: FavoriteWidgetItem): String {
-        return "${item.provider}:${item.routeKey}"
+        return item.routeId?.takeIf { it.isNotBlank() }
+            ?: "${item.provider}:${item.routeKey}"
     }
 
     private fun saveLastUpdated(context: Context, appWidgetId: Int, timestamp: Long) {
@@ -502,6 +638,7 @@ data class FavoriteWidgetItem(
     val routeKey: Int,
     val pathId: Int,
     val stopId: Int,
+    val routeId: String?,
     val routeName: String,
     val stopName: String,
 )

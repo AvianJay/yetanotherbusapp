@@ -369,6 +369,7 @@ class FavoriteStop {
     required this.routeKey,
     required this.pathId,
     required this.stopId,
+    this.routeId,
     this.routeName,
     this.stopName,
   });
@@ -379,6 +380,9 @@ class FavoriteStop {
       routeKey: (json['routeKey'] as num?)?.toInt() ?? 0,
       pathId: (json['pathId'] as num?)?.toInt() ?? 0,
       stopId: (json['stopId'] as num?)?.toInt() ?? 0,
+      routeId: (json['routeId'] as String?)?.trim().isNotEmpty == true
+          ? (json['routeId'] as String).trim()
+          : null,
       routeName: json['routeName'] as String?,
       stopName: json['stopName'] as String?,
     );
@@ -388,6 +392,7 @@ class FavoriteStop {
   final int routeKey;
   final int pathId;
   final int stopId;
+  final String? routeId;
   final String? routeName;
   final String? stopName;
 
@@ -397,6 +402,7 @@ class FavoriteStop {
       'routeKey': routeKey,
       'pathId': pathId,
       'stopId': stopId,
+      if (routeId != null) 'routeId': routeId,
       if (routeName != null) 'routeName': routeName,
       if (stopName != null) 'stopName': stopName,
     };

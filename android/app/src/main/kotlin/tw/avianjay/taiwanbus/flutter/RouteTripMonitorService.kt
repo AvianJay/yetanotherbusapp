@@ -25,17 +25,13 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import java.io.ByteArrayInputStream
-import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.URLEncoder
 import java.net.URL
 import java.util.concurrent.Executors
-import java.util.zip.InflaterInputStream
-import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.abs
 import org.json.JSONArray
 import org.json.JSONObject
-import org.w3c.dom.Element
 
 class RouteTripMonitorService : Service() {
     private val ioExecutor = Executors.newSingleThreadExecutor()
@@ -253,7 +249,7 @@ class RouteTripMonitorService : Service() {
         session: TrackingSession,
         location: Location?,
     ): TrackingSnapshot {
-        val liveStops = fetchLiveStopMap(session.routeKey)
+        val liveStops = fetchLiveStopMap(session)
         if (location == null) {
             return TrackingSnapshot(
                 title = session.routeName,
@@ -512,7 +508,7 @@ class RouteTripMonitorService : Service() {
         session: TrackingSession,
         location: Location?,
     ): TrackingSnapshot {
-        val liveStops = fetchLiveStopMap(session.routeKey)
+        val liveStops = fetchLiveStopMap(session)
         if (location == null) {
             return TrackingSnapshot(
                 title = session.routeName,
@@ -637,16 +633,19 @@ class RouteTripMonitorService : Service() {
         val movedForward = previousNearest != null && nearestIndex > previousNearest
         val busNearUser = busIndex != null && abs(nearestIndex - busIndex) <= 1
         val busReachedBoarding = busIndex != null && busIndex >= boardingIndex
+        val userReachedBoarding = nearestIndex >= boardingIndex
         val userMovedPastBoardingStop = nearestIndex > boardingIndex
         val userLeftBoardingArea =
             boardingDistanceMeters >= BOARDING_CONFIRM_DISTANCE_METERS
         val strongBoardingSignal =
             boardingWindowOpen &&
-                movedForward &&
                 busNearUser &&
-                busReachedBoarding &&
-                userMovedPastBoardingStop &&
-                userLeftBoardingArea
+                userReachedBoarding &&
+                (
+                    (busReachedBoarding && movedForward) ||
+                        userMovedPastBoardingStop ||
+                        userLeftBoardingArea
+                )
 
         if (!rideConfirmed) {
             rideConfirmationSamples = if (strongBoardingSignal) {
@@ -1273,12 +1272,29 @@ class RouteTripMonitorService : Service() {
         stopSelf()
     }
 
-    private fun fetchLiveStopMap(routeKey: Int): Map<Int, LiveStopState> {
-        val connection = URL("https://busserver.bus.yahoo.com/api/route/$routeKey")
+    private fun fetchLiveStopMap(session: TrackingSession): Map<Int, LiveStopState> {
+        val routeId = session.routeId?.trim().orEmpty()
+        if (routeId.isEmpty()) {
+            return emptyMap()
+        }
+        return fetchLiveStopMapFromBackend(
+            routeId = routeId,
+            pathId = session.pathId,
+        )
+    }
+
+    private fun fetchLiveStopMapFromBackend(
+        routeId: String,
+        pathId: Int,
+    ): Map<Int, LiveStopState> {
+        val encodedRouteId = URLEncoder.encode(routeId, Charsets.UTF_8.name())
+        val connection = URL("https://bus.avianjay.sbs/api/v1/routes/$encodedRouteId/realtime")
             .openConnection() as HttpURLConnection
         connection.connectTimeout = 10_000
         connection.readTimeout = 10_000
         connection.requestMethod = "GET"
+        connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (YABus Android)")
         connection.doInput = true
         connection.useCaches = false
 
@@ -1286,8 +1302,10 @@ class RouteTripMonitorService : Service() {
             if (connection.responseCode !in 200..299) {
                 return emptyMap()
             }
-            val xmlText = decodeZlib(connection.inputStream)
-            parseLiveStopMap(xmlText)
+            val jsonText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                reader.readText()
+            }
+            parseBackendLiveStopMap(jsonText, pathId)
         } catch (_: Exception) {
             emptyMap()
         } finally {
@@ -1295,83 +1313,100 @@ class RouteTripMonitorService : Service() {
         }
     }
 
-    private fun decodeZlib(inputStream: InputStream): String {
-        val bytes = inputStream.readBytes()
-        return InflaterInputStream(ByteArrayInputStream(bytes))
-            .bufferedReader(Charsets.UTF_8)
-            .use { reader ->
-                reader.readText()
-            }
-    }
-
-    private fun parseLiveStopMap(xmlText: String): Map<Int, LiveStopState> {
-        val builder = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-        val document = builder.parse(xmlText.byteInputStream(Charsets.UTF_8))
-        val elements = document.getElementsByTagName("e")
+    private fun parseBackendLiveStopMap(
+        jsonText: String,
+        pathId: Int,
+    ): Map<Int, LiveStopState> {
+        val root = JSONObject(jsonText)
+        val paths = root.optJSONArray("paths") ?: return emptyMap()
         val result = mutableMapOf<Int, LiveStopState>()
-        for (index in 0 until elements.length) {
-            val element = elements.item(index) as? Element ?: continue
-            val stopId = element.getAttribute("id").toIntOrNull() ?: continue
-            val vehicleIds = mutableListOf<String>()
-            val buses = element.getElementsByTagName("b")
-            for (busIndex in 0 until buses.length) {
-                val busElement = buses.item(busIndex) as? Element ?: continue
-                val vehicleId = busElement.getAttribute("id")
-                if (vehicleId.isNotBlank()) {
-                    vehicleIds += vehicleId
+
+        fun appendPath(pathObject: JSONObject) {
+            val stops = pathObject.optJSONArray("stops") ?: return
+            for (stopIndex in 0 until stops.length()) {
+                val stopObject = stops.optJSONObject(stopIndex) ?: continue
+                val stopId = parseStopId(stopObject.opt("stopid"))
+                if (stopId <= 0) {
+                    continue
                 }
+                val message = stopObject.opt("message")
+                    ?.toString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+                result[stopId] = LiveStopState(
+                    seconds = toIntOrNull(stopObject.opt("eta")),
+                    message = message,
+                    vehicleIds = extractVehicleIds(stopObject.optJSONArray("buses")),
+                )
             }
-            result[stopId] = LiveStopState(
-                seconds = element.getAttribute("sec").toIntOrNull(),
-                message = element.getAttribute("msg").takeIf { it.isNotBlank() },
-                vehicleIds = vehicleIds,
-            )
         }
+
+        var matchedPath = false
+        for (index in 0 until paths.length()) {
+            val pathObject = paths.optJSONObject(index) ?: continue
+            if (toIntOrNull(pathObject.opt("pathid")) == pathId) {
+                matchedPath = true
+                appendPath(pathObject)
+            }
+        }
+
+        if (!matchedPath) {
+            for (index in 0 until paths.length()) {
+                val pathObject = paths.optJSONObject(index) ?: continue
+                appendPath(pathObject)
+            }
+        }
+
         return result
     }
 
-    private fun parseSession(sessionJson: String): TrackingSession? {
-        return try {
-            val root = JSONObject(sessionJson)
-            val stopsJson = root.optJSONArray("stops") ?: JSONArray()
-            val stops = mutableListOf<TrackingStop>()
-            for (index in 0 until stopsJson.length()) {
-                val stop = stopsJson.optJSONObject(index) ?: continue
-                stops += TrackingStop(
-                    stopId = stop.optInt("stopId", 0),
-                    stopName = stop.optString("stopName", ""),
-                    sequence = stop.optInt("sequence", index),
-                    lat = stop.optDouble("lat", 0.0),
-                    lon = stop.optDouble("lon", 0.0),
-                )
-            }
-            if (stops.isEmpty()) {
-                return null
-            }
-            TrackingSession(
-                provider = root.optString("provider", "twn"),
-                routeKey = root.optInt("routeKey", 0),
-                routeName = root.optString("routeName", "YABus"),
-                pathId = root.optInt("pathId", 0),
-                pathName = root.optString("pathName", ""),
-                appInForeground = root.optBoolean("appInForeground", true),
-                initialLatitude = root.optDouble("initialLatitude", Double.NaN)
-                    .takeUnless { it.isNaN() },
-                initialLongitude = root.optDouble("initialLongitude", Double.NaN)
-                    .takeUnless { it.isNaN() },
-                boardingStopId = root.optInt("boardingStopId", -1)
-                    .takeIf { it > 0 },
-                boardingStopName = root.optString("boardingStopName", "")
-                    .takeIf { it.isNotBlank() },
-                destinationStopId = root.optInt("destinationStopId", -1)
-                    .takeIf { it > 0 },
-                destinationStopName = root.optString("destinationStopName", "")
-                    .takeIf { it.isNotBlank() },
-                stops = stops.sortedBy { stop -> stop.sequence },
-            )
-        } catch (_: Exception) {
-            null
+    private fun parseStopId(raw: Any?): Int {
+        if (raw is Number) {
+            return raw.toInt()
         }
+        val text = raw?.toString()?.trim().orEmpty()
+        val parsed = text.toIntOrNull()
+        if (parsed != null) {
+            return parsed
+        }
+        var hash = 17
+        for (char in text) {
+            hash = (hash * 31 + char.code) and 0x7fffffff
+        }
+        return hash
+    }
+
+    private fun toIntOrNull(raw: Any?): Int? {
+        return when (raw) {
+            is Number -> raw.toInt()
+            else -> raw?.toString()?.trim()?.toIntOrNull()
+        }
+    }
+
+    private fun extractVehicleIds(buses: JSONArray?): List<String> {
+        if (buses == null) {
+            return emptyList()
+        }
+        val result = mutableListOf<String>()
+        for (index in 0 until buses.length()) {
+            val busObject = buses.optJSONObject(index) ?: continue
+            val vehicleId = busObject.opt("id")
+                ?.toString()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: busObject.opt("vehicle_id")
+                    ?.toString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                ?: busObject.opt("plate")
+                    ?.toString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+            if (vehicleId != null) {
+                result += vehicleId
+            }
+        }
+        return result
     }
 
     private fun formatEtaText(liveStopState: LiveStopState?): String {
@@ -1599,6 +1634,9 @@ class RouteTripMonitorService : Service() {
                 TrackingSession(
                     provider = root.optString("provider", "twn"),
                     routeKey = root.optInt("routeKey", 0),
+                    routeId = root.optString("routeId", "")
+                        .trim()
+                        .takeIf { it.isNotEmpty() },
                     routeName = root.optString("routeName", "YABus"),
                     pathId = root.optInt("pathId", 0),
                     pathName = root.optString("pathName", ""),
@@ -1675,6 +1713,7 @@ class RouteTripMonitorService : Service() {
 data class TrackingSession(
     val provider: String,
     val routeKey: Int,
+    val routeId: String?,
     val routeName: String,
     val pathId: Int,
     val pathName: String,

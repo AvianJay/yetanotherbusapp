@@ -593,9 +593,15 @@ class AppController extends ChangeNotifier {
       final nextStopName = favorite.stopName?.trim().isNotEmpty == true
           ? favorite.stopName
           : resolved.stop.stopName;
+      final nextRouteId = favorite.routeId?.trim().isNotEmpty == true
+          ? favorite.routeId
+          : (resolved.route.routeId.trim().isNotEmpty
+                ? resolved.route.routeId
+                : null);
 
       if (nextRouteName == favorite.routeName &&
-          nextStopName == favorite.stopName) {
+          nextStopName == favorite.stopName &&
+          nextRouteId == favorite.routeId) {
         return favorite;
       }
 
@@ -605,6 +611,7 @@ class AppController extends ChangeNotifier {
         routeKey: favorite.routeKey,
         pathId: favorite.pathId,
         stopId: favorite.stopId,
+        routeId: nextRouteId,
         routeName: nextRouteName,
         stopName: nextStopName,
       );

@@ -19,17 +19,13 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.gms.tasks.Tasks
-import java.io.ByteArrayInputStream
 import java.io.File
-import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.URLEncoder
 import java.net.URL
 import java.util.concurrent.TimeUnit
-import java.util.zip.InflaterInputStream
-import javax.xml.parsers.DocumentBuilderFactory
 import org.json.JSONArray
 import org.json.JSONObject
-import org.w3c.dom.Element
 
 class SmartRouteNotificationWorker(
     appContext: Context,
@@ -77,7 +73,8 @@ class SmartRouteNotificationWorker(
                 routeData = routeData,
             ) ?: return Result.success()
             val liveStop = SmartRouteNotificationSupport.fetchLiveStop(
-                routeKey = candidate.routeKey,
+                routeId = routeData.routeId,
+                preferredPathId = nearestStop.pathId,
                 stopId = nearestStop.stopId,
             ) ?: return Result.success()
             if (!SmartRouteNotificationSupport.shouldNotify(liveStop)) {
@@ -126,6 +123,7 @@ private object SmartRouteNotificationSupport {
     private const val CHANNEL_DESCRIPTION =
         "在你常查看某條路線的時間點附近，依最近站牌到站時間主動提醒。"
     private const val ROUTE_REQUEST_TIMEOUT_MS = 10_000
+    private const val API_BASE_URL = "https://bus.avianjay.sbs"
     private const val NOTIFICATION_COOLDOWN_MS = 75 * 60 * 1000L
     private const val RECENT_INTERACTION_SUPPRESSION_MS = 30 * 60 * 1000L
 
@@ -300,12 +298,16 @@ private object SmartRouteNotificationSupport {
             SQLiteDatabase.OPEN_READONLY,
         )
         return try {
+            var routeId: String? = null
             val routeName = database.rawQuery(
-                "SELECT route_name FROM routes WHERE route_key = ? LIMIT 1",
+                "SELECT route_id, route_name FROM routes WHERE route_key = ? LIMIT 1",
                 arrayOf(routeKey.toString()),
             ).use { cursor ->
                 if (cursor.moveToFirst()) {
-                    cursor.getString(0).orEmpty()
+                    routeId = cursor.getString(0)
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                    cursor.getString(1).orEmpty()
                 } else {
                     fallbackRouteName
                 }
@@ -321,17 +323,14 @@ private object SmartRouteNotificationSupport {
                 }
             }
 
-            val stops = if (provider == "twn") {
-                fetchRouteStopsFromXml(routeKey)
-            } else {
-                loadStopsFromDatabase(database, routeKey)
-            }
-            if (stops.isEmpty()) {
+            val stops = loadStopsFromDatabase(database, routeKey)
+            if (stops.isEmpty() || routeId.isNullOrEmpty()) {
                 null
             } else {
                 SmartRouteData(
                     provider = provider,
                     routeKey = routeKey,
+                    routeId = routeId!!,
                     routeName = routeName.ifBlank { fallbackRouteName },
                     pathNames = pathNames,
                     stops = stops.sortedWith(compareBy({ it.pathId }, { it.sequence })),
@@ -372,12 +371,19 @@ private object SmartRouteNotificationSupport {
         return bestStop
     }
 
-    fun fetchLiveStop(routeKey: Int, stopId: Int): SmartLiveStop? {
-        val connection = URL("https://busserver.bus.yahoo.com/api/route/$routeKey")
+    fun fetchLiveStop(
+        routeId: String,
+        preferredPathId: Int,
+        stopId: Int,
+    ): SmartLiveStop? {
+        val encodedRouteId = URLEncoder.encode(routeId, Charsets.UTF_8.name())
+        val connection = URL("$API_BASE_URL/api/v1/routes/$encodedRouteId/realtime")
             .openConnection() as HttpURLConnection
         connection.connectTimeout = ROUTE_REQUEST_TIMEOUT_MS
         connection.readTimeout = ROUTE_REQUEST_TIMEOUT_MS
         connection.requestMethod = "GET"
+        connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (YABus Android Smart Route)")
         connection.doInput = true
         connection.useCaches = false
 
@@ -385,8 +391,13 @@ private object SmartRouteNotificationSupport {
             if (connection.responseCode !in 200..299) {
                 null
             } else {
-                parseLiveStopMap(decodeBusServerPayload(connection.inputStream.readBytes()))[stopId]
+                val jsonText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                    reader.readText()
+                }
+                parseLiveStopMap(jsonText, preferredPathId)[stopId]
             }
+        } catch (_: Exception) {
+            null
         } finally {
             connection.disconnect()
         }
@@ -576,12 +587,13 @@ private object SmartRouteNotificationSupport {
 
     private fun resolveDatabaseFile(context: Context, provider: String): File? {
         val filesParent = context.filesDir.parentFile ?: return null
-        val primary = File(filesParent, "app_flutter/.taiwanbus/bus_${provider}.sqlite")
-        if (primary.exists()) {
-            return primary
-        }
-        val fallback = File(context.filesDir, ".taiwanbus/bus_${provider}.sqlite")
-        return if (fallback.exists()) fallback else primary
+        val candidates = listOf(
+            File(filesParent, "app_flutter/.yabus_backend/bus_${provider}_v2.sqlite"),
+            File(context.filesDir, ".yabus_backend/bus_${provider}_v2.sqlite"),
+            File(filesParent, "app_flutter/.taiwanbus/bus_${provider}.sqlite"),
+            File(context.filesDir, ".taiwanbus/bus_${provider}.sqlite"),
+        )
+        return candidates.firstOrNull { it.exists() } ?: candidates.first()
     }
 
     private fun loadStopsFromDatabase(
@@ -612,88 +624,72 @@ private object SmartRouteNotificationSupport {
         return result
     }
 
-    private fun fetchRouteStopsFromXml(routeKey: Int): List<SmartRouteStop> {
-        val connection = URL("https://files.bus.yahoo.com/bustracker/routes/${routeKey}_zh.dat")
-            .openConnection() as HttpURLConnection
-        connection.connectTimeout = ROUTE_REQUEST_TIMEOUT_MS
-        connection.readTimeout = ROUTE_REQUEST_TIMEOUT_MS
-        connection.requestMethod = "GET"
-        connection.doInput = true
-        connection.useCaches = false
-
-        return try {
-            if (connection.responseCode !in 200..299) {
-                emptyList()
-            } else {
-                val xmlText = decodeZlib(connection.inputStream)
-                val builder = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-                val document = builder.parse(xmlText.byteInputStream(Charsets.UTF_8))
-                val routes = document.getElementsByTagName("r")
-                val stops = mutableListOf<SmartRouteStop>()
-                for (routeIndex in 0 until routes.length) {
-                    val routeElement = routes.item(routeIndex) as? Element ?: continue
-                    val pathElements = routeElement.getElementsByTagName("p")
-                    for (pathIndex in 0 until pathElements.length) {
-                        val pathElement = pathElements.item(pathIndex) as? Element ?: continue
-                        val pathId = pathElement.getAttribute("id").toIntOrNull() ?: 0
-                        val stopElements = pathElement.getElementsByTagName("s")
-                        for (stopIndex in 0 until stopElements.length) {
-                            val stopElement = stopElements.item(stopIndex) as? Element ?: continue
-                            stops += SmartRouteStop(
-                                pathId = pathId,
-                                stopId = stopElement.getAttribute("id").toIntOrNull() ?: 0,
-                                stopName = stopElement.getAttribute("nm"),
-                                sequence = stopElement.getAttribute("seq").toIntOrNull() ?: 0,
-                                lon = stopElement.getAttribute("lon").toDoubleOrNull() ?: 0.0,
-                                lat = stopElement.getAttribute("lat").toDoubleOrNull() ?: 0.0,
-                            )
-                        }
-                    }
-                }
-                stops
-            }
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun parseLiveStopMap(xmlText: String): Map<Int, SmartLiveStop> {
-        val builder = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-        val document = builder.parse(xmlText.byteInputStream(Charsets.UTF_8))
-        val elements = document.getElementsByTagName("e")
+    private fun parseLiveStopMap(
+        jsonText: String,
+        preferredPathId: Int,
+    ): Map<Int, SmartLiveStop> {
+        val root = JSONObject(jsonText)
+        val paths = root.optJSONArray("paths") ?: return emptyMap()
         val result = mutableMapOf<Int, SmartLiveStop>()
-        for (index in 0 until elements.length) {
-            val element = elements.item(index) as? Element ?: continue
-            val stopId = element.getAttribute("id").toIntOrNull() ?: continue
-            result[stopId] = SmartLiveStop(
-                sec = element.getAttribute("sec").toIntOrNull(),
-                msg = element.getAttribute("msg").takeIf { it.isNotBlank() },
-            )
+
+        fun appendPath(pathObject: JSONObject) {
+            val stops = pathObject.optJSONArray("stops") ?: return
+            for (index in 0 until stops.length()) {
+                val stop = stops.optJSONObject(index) ?: continue
+                val stopId = parseStopId(stop.opt("stopid"))
+                if (stopId <= 0) {
+                    continue
+                }
+                result[stopId] = SmartLiveStop(
+                    sec = toIntOrNull(stop.opt("eta")),
+                    msg = stop.opt("message")
+                        ?.toString()
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) },
+                )
+            }
         }
+
+        var matchedPath = false
+        for (index in 0 until paths.length()) {
+            val pathObject = paths.optJSONObject(index) ?: continue
+            if (toIntOrNull(pathObject.opt("pathid")) == preferredPathId) {
+                matchedPath = true
+                appendPath(pathObject)
+            }
+        }
+
+        if (!matchedPath) {
+            for (index in 0 until paths.length()) {
+                val pathObject = paths.optJSONObject(index) ?: continue
+                appendPath(pathObject)
+            }
+        }
+
         return result
     }
 
-    private fun decodeBusServerPayload(bytes: ByteArray): String {
-        val plainText = bytes.toString(Charsets.UTF_8).trim()
-        if (plainText.startsWith("<?xml") ||
-            plainText.startsWith("<r") ||
-            plainText.startsWith("<e") ||
-            plainText.equals("offline", ignoreCase = true)
-        ) {
-            return plainText
+    private fun parseStopId(raw: Any?): Int {
+        if (raw is Number) {
+            return raw.toInt()
         }
-
-        return try {
-            decodeZlib(ByteArrayInputStream(bytes))
-        } catch (_: Exception) {
-            plainText
+        val text = raw?.toString()?.trim().orEmpty()
+        val parsed = text.toIntOrNull()
+        if (parsed != null) {
+            return parsed
         }
+        var hash = 17
+        for (char in text) {
+            hash = (hash * 31 + char.code) and 0x7fffffff
+        }
+        return hash
     }
 
-    private fun decodeZlib(inputStream: InputStream): String {
-        return InflaterInputStream(inputStream)
-            .bufferedReader(Charsets.UTF_8)
-            .use { reader -> reader.readText() }
+    private fun toIntOrNull(raw: Any?): Int? {
+        return when (raw) {
+            is Number -> raw.toInt()
+            else -> raw?.toString()?.trim()?.toIntOrNull()
+        }
     }
 
     private fun formatEtaText(liveStop: SmartLiveStop): String {
@@ -787,6 +783,7 @@ private data class SmartRouteProfile(
 private data class SmartRouteData(
     val provider: String,
     val routeKey: Int,
+    val routeId: String,
     val routeName: String,
     val pathNames: Map<Int, String>,
     val stops: List<SmartRouteStop>,

@@ -28,6 +28,21 @@ class BusRepository {
       'Web 版目前不支援本 app 使用的本機 SQLite 資料庫。';
 
   final http.Client _client;
+  static const _routeDetailCacheTtl = Duration(seconds: 2);
+  static const _searchApiCacheTtl = Duration(seconds: 2);
+  static const _realtimeCacheTtl = Duration(seconds: 2);
+  final Map<String, _TimedValue<RouteDetailData>> _routeDetailCache =
+      <String, _TimedValue<RouteDetailData>>{};
+  final Map<String, Future<RouteDetailData>> _routeDetailInFlight =
+      <String, Future<RouteDetailData>>{};
+  final Map<String, _TimedValue<List<RouteSummary>>> _searchRoutesApiCache =
+      <String, _TimedValue<List<RouteSummary>>>{};
+  final Map<String, Future<List<RouteSummary>>> _searchRoutesApiInFlight =
+      <String, Future<List<RouteSummary>>>{};
+  final Map<String, _TimedValue<Map<String, _LiveStopPayload>>> _realtimeCache =
+      <String, _TimedValue<Map<String, _LiveStopPayload>>>{};
+  final Map<String, Future<Map<String, _LiveStopPayload>>> _realtimeInFlight =
+      <String, Future<Map<String, _LiveStopPayload>>>{};
 
   Future<bool> databaseExists(BusProvider provider) async {
     if (!_supportsLocalDatabase) {
@@ -220,6 +235,46 @@ class BusRepository {
     required BusProvider provider,
     int limit = 80,
   }) async {
+    final normalizedQuery = query.trim();
+    final cacheKey = '${provider.name}:${normalizedQuery.toLowerCase()}:$limit';
+    final cached = _readFreshCache(
+      _searchRoutesApiCache,
+      cacheKey,
+      _searchApiCacheTtl,
+    );
+    if (cached != null) {
+      return cached;
+    }
+
+    final inFlight = _searchRoutesApiInFlight[cacheKey];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _loadSearchRoutesFromApi(
+      normalizedQuery,
+      provider: provider,
+      limit: limit,
+    );
+    _searchRoutesApiInFlight[cacheKey] = future;
+    try {
+      final summaries = await future;
+      _searchRoutesApiCache[cacheKey] = _TimedValue<List<RouteSummary>>(
+        summaries,
+      );
+      return summaries;
+    } finally {
+      if (identical(_searchRoutesApiInFlight[cacheKey], future)) {
+        _searchRoutesApiInFlight.remove(cacheKey);
+      }
+    }
+  }
+
+  Future<List<RouteSummary>> _loadSearchRoutesFromApi(
+    String query, {
+    required BusProvider provider,
+    required int limit,
+  }) async {
     final city = _providerDatabaseName(provider);
     final uri = Uri.parse(
       '$_apiBaseUrl/api/v1/cities/${Uri.encodeComponent(city)}/routes'
@@ -389,6 +444,44 @@ class BusRepository {
       throw StateError('找不到路線 $routeKey');
     }
 
+    final cacheKey = '${provider.name}:$routeId';
+    final cached = _readFreshCache(
+      _routeDetailCache,
+      cacheKey,
+      _routeDetailCacheTtl,
+    );
+    if (cached != null) {
+      return _applyRouteNameHint(cached, routeNameHint);
+    }
+
+    final inFlight = _routeDetailInFlight[cacheKey];
+    if (inFlight != null) {
+      final detail = await inFlight;
+      return _applyRouteNameHint(detail, routeNameHint);
+    }
+
+    final future = _loadCompleteBusInfo(
+      provider: provider,
+      routeId: routeId,
+      routeNameHint: routeNameHint,
+    );
+    _routeDetailInFlight[cacheKey] = future;
+    try {
+      final detail = await future;
+      _routeDetailCache[cacheKey] = _TimedValue<RouteDetailData>(detail);
+      return detail;
+    } finally {
+      if (identical(_routeDetailInFlight[cacheKey], future)) {
+        _routeDetailInFlight.remove(cacheKey);
+      }
+    }
+  }
+
+  Future<RouteDetailData> _loadCompleteBusInfo({
+    required BusProvider provider,
+    required String routeId,
+    String? routeNameHint,
+  }) async {
     try {
       final database = await _openDatabase(provider);
       try {
@@ -829,6 +922,35 @@ class BusRepository {
   }
 
   Future<Map<String, _LiveStopPayload>> _getLiveStopMap(String routeId) async {
+    final cached = _readFreshCache(
+      _realtimeCache,
+      routeId,
+      _realtimeCacheTtl,
+    );
+    if (cached != null) {
+      return cached;
+    }
+
+    final inFlight = _realtimeInFlight[routeId];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _loadLiveStopMap(routeId);
+    _realtimeInFlight[routeId] = future;
+    try {
+      final result = await future;
+      _realtimeCache[routeId] =
+          _TimedValue<Map<String, _LiveStopPayload>>(result);
+      return result;
+    } finally {
+      if (identical(_realtimeInFlight[routeId], future)) {
+        _realtimeInFlight.remove(routeId);
+      }
+    }
+  }
+
+  Future<Map<String, _LiveStopPayload>> _loadLiveStopMap(String routeId) async {
     final response = await _client.get(
       Uri.parse(
         '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/realtime',
@@ -885,6 +1007,50 @@ class BusRepository {
       full: fullValue == true || fullValue?.toString() == '1',
       carOnStop: carOnStopValue == true || carOnStopValue?.toString() == '1',
     );
+  }
+
+  RouteDetailData _applyRouteNameHint(
+    RouteDetailData detail,
+    String? routeNameHint,
+  ) {
+    final normalizedHint = routeNameHint?.trim() ?? '';
+    if (normalizedHint.isEmpty || normalizedHint == detail.route.routeName) {
+      return detail;
+    }
+
+    return RouteDetailData(
+      route: RouteSummary(
+        sourceProvider: detail.route.sourceProvider,
+        hashMd5: detail.route.hashMd5,
+        routeKey: detail.route.routeKey,
+        routeId: detail.route.routeId,
+        routeName: normalizedHint,
+        officialRouteName: detail.route.officialRouteName,
+        description: detail.route.description,
+        category: detail.route.category,
+        sequence: detail.route.sequence,
+        rtrip: detail.route.rtrip,
+      ),
+      paths: detail.paths,
+      stopsByPath: detail.stopsByPath,
+      hasLiveData: detail.hasLiveData,
+    );
+  }
+
+  T? _readFreshCache<T>(
+    Map<String, _TimedValue<T>> cache,
+    String key,
+    Duration ttl,
+  ) {
+    final cached = cache[key];
+    if (cached == null) {
+      return null;
+    }
+    if (DateTime.now().difference(cached.createdAt) > ttl) {
+      cache.remove(key);
+      return null;
+    }
+    return cached.value;
   }
 
   Future<Database> _openDatabase(BusProvider provider) async {
@@ -1057,4 +1223,11 @@ class _LiveStopPayload {
   final String? msg;
   final String? t;
   final List<BusVehicle> buses;
+}
+
+class _TimedValue<T> {
+  _TimedValue(this.value) : createdAt = DateTime.now();
+
+  final T value;
+  final DateTime createdAt;
 }

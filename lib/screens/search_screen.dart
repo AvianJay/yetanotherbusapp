@@ -307,11 +307,17 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: Card(
                   child: ListTile(
                     leading: CircleAvatar(
-                      child: Text(route.routeName.characters.first),
+                      child: Text(
+                        route.routeName.trim().isEmpty
+                            ? '?'
+                            : route.routeName.characters.first,
+                      ),
                     ),
                     title: Text(route.routeName),
                     subtitle: Text(
-                      '${busProviderFromString(route.sourceProvider).label} · ${route.routeId}',
+                      route.description.trim().isEmpty
+                          ? busProviderFromString(route.sourceProvider).label
+                          : route.description,
                     ),
                     onTap: () async {
                       final routeProvider = busProviderFromString(

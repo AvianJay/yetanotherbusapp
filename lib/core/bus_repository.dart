@@ -107,24 +107,95 @@ class BusRepository {
     final database = await _openDatabase(provider);
     try {
       final normalized = query.trim();
-      final rows = await database.rawQuery(
-        '''
-        SELECT
-          routes.routeid AS route_id,
-          routes.name AS route_name,
-          routes.name_en AS route_name_en,
-          paths.pathid AS path_id,
-          paths.name AS path_name
-        FROM routes
-        JOIN paths ON paths.routeid = routes.routeid
-        WHERE routes.name LIKE ?
-          OR routes.routeid LIKE ?
-          OR paths.name LIKE ?
-        ORDER BY routes.routeid ASC, paths.pathid ASC
-        LIMIT ?
-        ''',
-        ['%$normalized%', '%$normalized%', '%$normalized%', limit],
-      );
+      List<Map<String, Object?>> rows;
+      try {
+        rows = await database.rawQuery(
+          '''
+          SELECT
+            routes.routeid AS route_id,
+            routes.name AS route_name,
+            routes.name_en AS route_name_en,
+            routes.path_name AS path_name,
+            COALESCE(
+              (
+                SELECT p.pathid
+                FROM paths p
+                WHERE p.routeid = routes.routeid
+                ORDER BY p.pathid ASC
+                LIMIT 1
+              ),
+              0
+            ) AS path_id,
+            routes.path_name_en AS path_name_en
+          FROM routes
+          WHERE routes.name LIKE ?
+            OR routes.routeid LIKE ?
+            OR routes.path_name LIKE ?
+            OR EXISTS (
+              SELECT 1
+              FROM paths p
+              WHERE p.routeid = routes.routeid
+                AND p.name LIKE ?
+            )
+          ORDER BY routes.routeid ASC
+          LIMIT ?
+          ''',
+          [
+            '%$normalized%',
+            '%$normalized%',
+            '%$normalized%',
+            '%$normalized%',
+            limit,
+          ],
+        );
+      } on DatabaseException catch (error) {
+        // Backward compatibility for old city DB files without routes.path_name.
+        final message = error.toString().toLowerCase();
+        if (!message.contains('no such column') ||
+            !message.contains('path_name')) {
+          rethrow;
+        }
+        rows = await database.rawQuery(
+          '''
+          SELECT
+            routes.routeid AS route_id,
+            routes.name AS route_name,
+            routes.name_en AS route_name_en,
+            COALESCE(
+              (
+                SELECT p.pathid
+                FROM paths p
+                WHERE p.routeid = routes.routeid
+                ORDER BY p.pathid ASC
+                LIMIT 1
+              ),
+              0
+            ) AS path_id,
+            COALESCE(
+              (
+                SELECT p.name
+                FROM paths p
+                WHERE p.routeid = routes.routeid
+                ORDER BY p.pathid ASC
+                LIMIT 1
+              ),
+              ''
+            ) AS path_name
+          FROM routes
+          WHERE routes.name LIKE ?
+            OR routes.routeid LIKE ?
+            OR EXISTS (
+              SELECT 1
+              FROM paths p
+              WHERE p.routeid = routes.routeid
+                AND p.name LIKE ?
+            )
+          ORDER BY routes.routeid ASC
+          LIMIT ?
+          ''',
+          ['%$normalized%', '%$normalized%', '%$normalized%', limit],
+        );
+      }
 
       return rows
           .map(
@@ -166,7 +237,7 @@ class BusRepository {
 
     final decoded =
         jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
-    return decoded
+    final summaries = decoded
         .whereType<Map>()
         .map((row) {
           return _routeSummaryFromPathRow(
@@ -180,6 +251,7 @@ class BusRepository {
         })
         .where((summary) => summary.routeId.isNotEmpty)
         .toList();
+    return _dedupeRouteSummaries(summaries);
   }
 
   Future<RouteSummary?> getRoute(
@@ -682,10 +754,10 @@ class BusRepository {
     required int pathId,
     required String pathName,
   }) {
-    final normalizedPathName = pathName.trim();
-    final displayRouteName = normalizedPathName.isEmpty
-        ? '$routeId ${routeName.trim()}'.trim()
-        : '$routeId $normalizedPathName';
+    final displayRouteName = routeName.trim().isEmpty
+        ? routeId
+        : routeName.trim();
+    final displayPathName = pathName.trim();
 
     return RouteSummary(
       sourceProvider: provider.name,
@@ -694,11 +766,19 @@ class BusRepository {
       routeId: routeId,
       routeName: displayRouteName,
       officialRouteName: routeNameEn,
-      description: provider.label,
+      description: displayPathName,
       category: provider.label,
       sequence: pathId,
       rtrip: pathId,
     );
+  }
+
+  List<RouteSummary> _dedupeRouteSummaries(List<RouteSummary> items) {
+    final deduped = <String, RouteSummary>{};
+    for (final item in items) {
+      deduped.putIfAbsent(item.routeId, () => item);
+    }
+    return deduped.values.toList();
   }
 
   Future<int> _fetchRemoteDatabaseVersion(BusProvider provider) async {

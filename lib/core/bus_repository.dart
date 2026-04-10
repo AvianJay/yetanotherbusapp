@@ -626,7 +626,7 @@ class BusRepository {
         sequence INTEGER NOT NULL,
         lon REAL NOT NULL,
         lat REAL NOT NULL,
-        PRIMARY KEY (route_key, path_id, stop_id)
+        PRIMARY KEY (route_key, path_id, sequence, stop_id)
       )
     ''');
     await db.execute('CREATE INDEX idx_stops_route_key ON stops(route_key)');

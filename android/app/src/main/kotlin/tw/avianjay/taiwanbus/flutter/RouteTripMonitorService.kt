@@ -48,6 +48,7 @@ class RouteTripMonitorService : Service() {
     private var rideConfirmed = false
     private var rideConfirmationSamples = 0
     private var lastNearestStopIndex: Int? = null
+    private var trackedBusId: String? = null
     private var destinationAlertStage = 0
     private var overshootAlertSent = false
     private var lastWentBackgroundAtMs = 0L
@@ -123,6 +124,7 @@ class RouteTripMonitorService : Service() {
 
                 val previousDestination = session?.destinationStopId
                 val previousBoarding = session?.boardingStopId
+                val previousRouteId = session?.routeId
                 if (AppRuntimeStateStore.isTripMonitorPausedFor(this, parsedSession)) {
                     session = parsedSession
                     appInForeground = parsedSession.appInForeground
@@ -137,13 +139,15 @@ class RouteTripMonitorService : Service() {
                 AppRuntimeStateStore.setAppInForeground(this, appInForeground)
                 if (
                     previousDestination != parsedSession.destinationStopId ||
-                    previousBoarding != parsedSession.boardingStopId
+                    previousBoarding != parsedSession.boardingStopId ||
+                    previousRouteId != parsedSession.routeId
                 ) {
                     boardingAlertSent = false
                     boardingWindowOpen = false
                     rideConfirmed = false
                     rideConfirmationSamples = 0
                     lastNearestStopIndex = null
+                    trackedBusId = null
                     destinationAlertStage = 0
                     overshootAlertSent = false
                 }
@@ -309,6 +313,16 @@ class RouteTripMonitorService : Service() {
                 ),
                 busIndex = busIndex,
             )
+            trackedBusId = if (hasBoarded) {
+                selectTrackedBusId(
+                    currentTrackedBusId = trackedBusId,
+                    nearestLiveStop = nearestLiveStop,
+                    boardingLiveStop = boardingLiveStop,
+                    destinationLiveStop = null,
+                )
+            } else {
+                null
+            }
             val busStopsAway = busIndex?.let { (nearestIndex - it).coerceAtLeast(0) }
             return TrackingSnapshot(
                 title = session.routeName,
@@ -402,6 +416,7 @@ class RouteTripMonitorService : Service() {
         }
 
         if (destinationIndex == null) {
+            trackedBusId = null
             val busStopsAway = busIndex?.let { (nearestIndex - it).coerceAtLeast(0) }
             return TrackingSnapshot(
                 title = session.routeName,
@@ -444,6 +459,7 @@ class RouteTripMonitorService : Service() {
         )
 
         if (!hasBoarded) {
+            trackedBusId = null
             val boardingProgressValue = busIndex?.plus(1)?.coerceAtMost(boardingIndex + 1) ?: 0
             return TrackingSnapshot(
                 title = "${session.routeName} · ${boardingStop.stopName}",
@@ -472,8 +488,14 @@ class RouteTripMonitorService : Service() {
         val destinationLive = liveStops[destinationStop.stopId]
         val rawRemainingStops = destinationIndex - nearestIndex
         val remainingStops = rawRemainingStops.coerceAtLeast(0)
-        val destinationEtaText = displayEtaText(destinationLive)
-        val destinationEtaShort = displayShortEtaText(destinationLive)
+        trackedBusId = selectTrackedBusId(
+            currentTrackedBusId = trackedBusId,
+            nearestLiveStop = nearestLiveStop,
+            boardingLiveStop = boardingLiveStop,
+            destinationLiveStop = destinationLive,
+        )
+        val destinationEtaText = displayEtaText(destinationLive, trackedBusId)
+        val destinationEtaShort = displayShortEtaText(destinationLive, trackedBusId)
         val destinationDistanceMeters = distanceMeters(
             location.latitude,
             location.longitude,
@@ -704,50 +726,139 @@ class RouteTripMonitorService : Service() {
         }
     }
 
-    private fun displayEtaText(liveStopState: LiveStopState?): String {
-        liveStopState ?: return "--"
-        val message = liveStopState.message?.trim().orEmpty()
-        if (message.isNotEmpty()) {
-            return when {
-                message.contains("進站") || message.contains("到站") -> "進站中"
-                message.contains("即將") -> "即將進站"
-                message.contains("未發車") -> "未發車"
-                message.contains("末班") -> "末班已過"
-                else -> message
-            }
-        }
-
-        val seconds = liveStopState.seconds ?: return "--"
-        if (seconds <= 0) {
-            return "進站中"
-        }
-        if (seconds < 60) {
-            return "即將進站"
-        }
-        return "${seconds / 60} 分"
+    private fun displayEtaText(
+        liveStopState: LiveStopState?,
+        preferredVehicleId: String? = null,
+    ): String {
+        val selectedEta = findEtaForVehicle(liveStopState, preferredVehicleId)
+        return composeEtaText(
+            seconds = selectedEta?.seconds ?: liveStopState?.seconds,
+            message = selectedEta?.message ?: liveStopState?.message,
+        )
     }
 
-    private fun displayShortEtaText(liveStopState: LiveStopState?): String {
-        liveStopState ?: return "--"
-        val message = liveStopState.message?.trim().orEmpty()
-        if (message.isNotEmpty()) {
+    private fun displayShortEtaText(
+        liveStopState: LiveStopState?,
+        preferredVehicleId: String? = null,
+    ): String {
+        val selectedEta = findEtaForVehicle(liveStopState, preferredVehicleId)
+        return composeShortEtaText(
+            seconds = selectedEta?.seconds ?: liveStopState?.seconds,
+            message = selectedEta?.message ?: liveStopState?.message,
+        )
+    }
+
+    private fun selectTrackedBusId(
+        currentTrackedBusId: String?,
+        nearestLiveStop: LiveStopState?,
+        boardingLiveStop: LiveStopState?,
+        destinationLiveStop: LiveStopState?,
+    ): String? {
+        val normalizedCurrent = normalizeVehicleId(currentTrackedBusId)
+        if (
+            normalizedCurrent != null &&
+            (
+                isVehicleSeenAtStop(nearestLiveStop, normalizedCurrent) ||
+                    isVehicleSeenAtStop(boardingLiveStop, normalizedCurrent) ||
+                    isVehicleSeenAtStop(destinationLiveStop, normalizedCurrent)
+            )
+        ) {
+            return normalizedCurrent
+        }
+
+        listOf(nearestLiveStop, boardingLiveStop, destinationLiveStop).forEach { stopState ->
+            firstKnownVehicleId(stopState)?.let { return it }
+        }
+
+        return normalizedCurrent
+    }
+
+    private fun firstKnownVehicleId(stopState: LiveStopState?): String? {
+        stopState ?: return null
+        stopState.etaEntries.firstNotNullOfOrNull { entry ->
+            normalizeVehicleId(entry.vehicleId)
+        }?.let { return it }
+        return stopState.vehicleIds.firstNotNullOfOrNull { vehicleId ->
+            normalizeVehicleId(vehicleId)
+        }
+    }
+
+    private fun isVehicleSeenAtStop(
+        stopState: LiveStopState?,
+        normalizedVehicleId: String,
+    ): Boolean {
+        stopState ?: return false
+        if (stopState.vehicleIds.any { normalizeVehicleId(it) == normalizedVehicleId }) {
+            return true
+        }
+        return stopState.etaEntries.any { etaEntry ->
+            normalizeVehicleId(etaEntry.vehicleId) == normalizedVehicleId
+        }
+    }
+
+    private fun findEtaForVehicle(
+        stopState: LiveStopState?,
+        preferredVehicleId: String?,
+    ): LiveEtaEntry? {
+        val normalizedVehicleId = normalizeVehicleId(preferredVehicleId) ?: return null
+        return stopState?.etaEntries?.firstOrNull { etaEntry ->
+            normalizeVehicleId(etaEntry.vehicleId) == normalizedVehicleId
+        }
+    }
+
+    private fun normalizeVehicleId(vehicleId: String?): String? {
+        val cleaned = vehicleId
+            ?.trim()
+            ?.replace(" ", "")
+            .orEmpty()
+        if (cleaned.isEmpty()) {
+            return null
+        }
+        return cleaned.uppercase()
+    }
+
+    private fun composeEtaText(seconds: Int?, message: String?): String {
+        val trimmedMessage = message?.trim().orEmpty()
+        if (trimmedMessage.isNotEmpty()) {
             return when {
-                message.contains("進站") || message.contains("到站") -> "進站"
-                message.contains("即將") -> "即將"
-                message.contains("未發車") -> "未發"
-                message.contains("末班") -> "末班"
-                else -> message.take(4)
+                trimmedMessage.contains("進站") || trimmedMessage.contains("到站") -> "進站中"
+                trimmedMessage.contains("即將") -> "即將進站"
+                trimmedMessage.contains("未發車") -> "未發車"
+                trimmedMessage.contains("末班") -> "末班已過"
+                else -> trimmedMessage
             }
         }
 
-        val seconds = liveStopState.seconds ?: return "--"
-        if (seconds <= 0) {
+        val etaSeconds = seconds ?: return "--"
+        if (etaSeconds <= 0) {
+            return "進站中"
+        }
+        if (etaSeconds < 60) {
+            return "即將進站"
+        }
+        return "${etaSeconds / 60} 分"
+    }
+
+    private fun composeShortEtaText(seconds: Int?, message: String?): String {
+        val trimmedMessage = message?.trim().orEmpty()
+        if (trimmedMessage.isNotEmpty()) {
+            return when {
+                trimmedMessage.contains("進站") || trimmedMessage.contains("到站") -> "進站"
+                trimmedMessage.contains("即將") -> "即將"
+                trimmedMessage.contains("未發車") -> "未發"
+                trimmedMessage.contains("末班") -> "末班"
+                else -> trimmedMessage.take(4)
+            }
+        }
+
+        val etaSeconds = seconds ?: return "--"
+        if (etaSeconds <= 0) {
             return "進站"
         }
-        if (seconds < 60) {
+        if (etaSeconds < 60) {
             return "<1分"
         }
-        return "${seconds / 60}分"
+        return "${etaSeconds / 60}分"
     }
 
     private fun isImmediateEtaText(etaText: String?): Boolean {
@@ -1253,6 +1364,7 @@ class RouteTripMonitorService : Service() {
         rideConfirmed = false
         rideConfirmationSamples = 0
         lastNearestStopIndex = null
+        trackedBusId = null
         destinationAlertStage = 0
         overshootAlertSent = false
         mainHandler.removeCallbacksAndMessages(null)
@@ -1333,10 +1445,15 @@ class RouteTripMonitorService : Service() {
                     ?.toString()
                     ?.trim()
                     ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+                val etaEntries = extractEtaEntries(stopObject.optJSONArray("etas"))
                 result[stopId] = LiveStopState(
                     seconds = toIntOrNull(stopObject.opt("eta")),
                     message = message,
-                    vehicleIds = extractVehicleIds(stopObject.optJSONArray("buses")),
+                    vehicleIds = extractVehicleIds(
+                        buses = stopObject.optJSONArray("buses"),
+                        etaEntries = etaEntries,
+                    ),
+                    etaEntries = etaEntries,
                 )
             }
         }
@@ -1383,30 +1500,75 @@ class RouteTripMonitorService : Service() {
         }
     }
 
-    private fun extractVehicleIds(buses: JSONArray?): List<String> {
-        if (buses == null) {
+    private fun extractEtaEntries(rawEtas: JSONArray?): List<LiveEtaEntry> {
+        if (rawEtas == null) {
             return emptyList()
         }
-        val result = mutableListOf<String>()
-        for (index in 0 until buses.length()) {
-            val busObject = buses.optJSONObject(index) ?: continue
-            val vehicleId = busObject.opt("id")
+        val result = mutableListOf<LiveEtaEntry>()
+        for (index in 0 until rawEtas.length()) {
+            val etaObject = rawEtas.optJSONObject(index) ?: continue
+            val message = etaObject.opt("message")
                 ?.toString()
                 ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-                ?: busObject.opt("vehicle_id")
+                ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+            val vehicleId = normalizeVehicleId(
+                etaObject.opt("plate")
                     ?.toString()
                     ?.trim()
                     ?.takeIf { it.isNotEmpty() }
-                ?: busObject.opt("plate")
-                    ?.toString()
-                    ?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-            if (vehicleId != null) {
-                result += vehicleId
+                    ?: etaObject.opt("vehicle_id")
+                        ?.toString()
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                    ?: etaObject.opt("id")
+                        ?.toString()
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() },
+            )
+            val entry = LiveEtaEntry(
+                seconds = toIntOrNull(etaObject.opt("eta")),
+                message = message,
+                vehicleId = vehicleId,
+            )
+            if (entry.seconds == null && entry.message == null && entry.vehicleId == null) {
+                continue
             }
+            result += entry
         }
         return result
+    }
+
+    private fun extractVehicleIds(
+        buses: JSONArray?,
+        etaEntries: List<LiveEtaEntry> = emptyList(),
+    ): List<String> {
+        val result = linkedSetOf<String>()
+        if (buses != null) {
+            for (index in 0 until buses.length()) {
+                val busObject = buses.optJSONObject(index) ?: continue
+                val vehicleId = normalizeVehicleId(
+                    busObject.opt("id")
+                        ?.toString()
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?: busObject.opt("vehicle_id")
+                            ?.toString()
+                            ?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                        ?: busObject.opt("plate")
+                            ?.toString()
+                            ?.trim()
+                            ?.takeIf { it.isNotEmpty() },
+                )
+                if (vehicleId != null) {
+                    result += vehicleId
+                }
+            }
+        }
+        etaEntries.mapNotNullTo(result) { entry ->
+            normalizeVehicleId(entry.vehicleId)
+        }
+        return result.toList()
     }
 
     private fun formatEtaText(liveStopState: LiveStopState?): String {
@@ -1739,6 +1901,13 @@ data class LiveStopState(
     val seconds: Int?,
     val message: String?,
     val vehicleIds: List<String>,
+    val etaEntries: List<LiveEtaEntry> = emptyList(),
+)
+
+data class LiveEtaEntry(
+    val seconds: Int?,
+    val message: String?,
+    val vehicleId: String?,
 )
 
 data class TrackingSnapshot(

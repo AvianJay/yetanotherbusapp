@@ -38,15 +38,19 @@ class BusRepository {
   }
 
   Future<Map<BusProvider, int?>> checkForUpdates() async {
-    final remoteVersion = await _fetchRemoteDatabaseVersion();
+    final remoteVersions = <BusProvider, int>{};
+    for (final provider in BusProvider.values) {
+      remoteVersions[provider] = await _fetchRemoteDatabaseVersion(provider);
+    }
     final localVersions = _supportsLocalDatabase
         ? await _readVersionMap()
         : {for (final provider in BusProvider.values) provider.name: 0};
 
     return {
       for (final provider in BusProvider.values)
-        provider: remoteVersion > (localVersions[provider.name] ?? 0)
-            ? remoteVersion
+        provider: (remoteVersions[provider] ?? 0) >
+                (localVersions[provider.name] ?? 0)
+            ? remoteVersions[provider]
             : null,
     };
   }
@@ -61,18 +65,25 @@ class BusRepository {
 
   Future<void> downloadDatabase(BusProvider provider) async {
     _ensureLocalDatabaseSupported();
-    final remoteVersion = await _fetchRemoteDatabaseVersion();
+    final remoteVersion = await _fetchRemoteDatabaseVersion(provider);
     final masterFile = await _masterDatabaseFile();
+    final cityFile = await _cityDatabaseCacheFile(provider);
     final localVersions = await _readVersionMap();
     final localVersion = localVersions[provider.name] ?? 0;
 
-    if (!await masterFile.exists() || localVersion < remoteVersion) {
+    if (
+      !await masterFile.exists() ||
+      !await cityFile.exists() ||
+      localVersion < remoteVersion
+    ) {
       await _downloadMasterDatabase(masterFile);
+      await _downloadCityDatabase(provider, cityFile);
     }
 
     await _buildRegionalDatabase(
       provider: provider,
       masterFile: masterFile,
+      cityFile: cityFile,
       version: remoteVersion,
     );
 
@@ -356,7 +367,49 @@ class BusRepository {
     return earthRadiusKm * c * 1000;
   }
 
-  Future<int> _fetchRemoteDatabaseVersion() async {
+  Future<int> _fetchRemoteDatabaseVersion(BusProvider provider) async {
+    final providerVersion = await _fetchDatabaseVersionByName(
+      _providerDatabaseName(provider),
+    );
+    if (providerVersion != null) {
+      return providerVersion;
+    }
+
+    final downloadVersion = await _fetchDatabaseVersionByName('download');
+    if (downloadVersion != null) {
+      return downloadVersion;
+    }
+
+    return _fetchRemoteDatabaseVersionByHeaders();
+  }
+
+  Future<int?> _fetchDatabaseVersionByName(String name) async {
+    final response = await _client.get(
+      Uri.parse('$_apiBaseUrl/api/v1/database/${Uri.encodeComponent(name)}/version'),
+      headers: const {'Accept': 'application/json', 'User-Agent': _userAgent},
+    );
+    if (response.statusCode != 200) {
+      return null;
+    }
+
+    try {
+      final decoded =
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final version = decoded['version'];
+      if (version is num) {
+        return version.toInt();
+      }
+      if (version is String) {
+        return int.tryParse(version);
+      }
+    } catch (_) {
+      return null;
+    }
+
+    return null;
+  }
+
+  Future<int> _fetchRemoteDatabaseVersionByHeaders() async {
     final response = await _client.get(
       Uri.parse('$_apiBaseUrl/downloads/bus.db'),
       headers: const {'Range': 'bytes=0-0', 'User-Agent': _userAgent},
@@ -382,9 +435,27 @@ class BusRepository {
     await targetFile.writeAsBytes(response.bodyBytes, flush: true);
   }
 
+  Future<void> _downloadCityDatabase(
+    BusProvider provider,
+    File targetFile,
+  ) async {
+    final cityName = _providerDatabaseName(provider);
+    final response = await _client.get(
+      Uri.parse('$_apiBaseUrl/downloads/${Uri.encodeComponent(cityName)}.db'),
+      headers: const {'User-Agent': _userAgent},
+    );
+    if (response.statusCode != 200) {
+      throw HttpException('無法下載 ${provider.label} 縣市資料庫 (${response.statusCode})。');
+    }
+
+    await targetFile.parent.create(recursive: true);
+    await targetFile.writeAsBytes(response.bodyBytes, flush: true);
+  }
+
   Future<void> _buildRegionalDatabase({
     required BusProvider provider,
     required File masterFile,
+    required File cityFile,
     required int version,
   }) async {
     final tempPath = p.join(
@@ -395,6 +466,11 @@ class BusRepository {
 
     final masterDatabase = await openDatabase(
       masterFile.path,
+      readOnly: true,
+      singleInstance: false,
+    );
+    final cityDatabase = await openDatabase(
+      cityFile.path,
       readOnly: true,
       singleInstance: false,
     );
@@ -473,45 +549,36 @@ class BusRepository {
         }
         await routeBatch.commit(noResult: true);
 
-        final stopResponses = <_RouteStopsResponse>[];
-        for (final chunk in _chunk(routeEntries, 10)) {
-          final fetched = await Future.wait(
-            chunk.map((entry) => _fetchRouteStops(entry.routeId)),
-          );
-          stopResponses.addAll(fetched);
-        }
+        final stopRows = await cityDatabase.query(
+          'stops',
+          where: 'SUBSTR(routeid, 1, 3) = ?',
+          whereArgs: [provider.prefix],
+          orderBy: 'routeid ASC, pathid ASC, seq ASC',
+        );
 
         final stopBatch = database.batch();
-        for (final response in stopResponses) {
-          final routeKey = routeKeys[response.routeId];
+        for (final row in stopRows) {
+          final routeId = row['routeid'] as String? ?? '';
+          final routeKey = routeKeys[routeId];
           if (routeKey == null) {
             continue;
           }
-          for (final path in response.paths) {
-            stopBatch.update(
-              'paths',
-              {'path_name': path.name},
-              where: 'route_key = ? AND path_id = ?',
-              whereArgs: [routeKey, path.pathId],
-            );
-            for (final stop in path.stops) {
-              stopBatch.insert('stops', {
-                'route_key': routeKey,
-                'path_id': path.pathId,
-                'stop_id': stop.stopId,
-                'stop_name': stop.stopName,
-                'sequence': stop.sequence,
-                'lon': stop.lon,
-                'lat': stop.lat,
-              });
-            }
-          }
+          stopBatch.insert('stops', {
+            'route_key': routeKey,
+            'path_id': (row['pathid'] as num?)?.toInt() ?? 0,
+            'stop_id': _parseStopId(row['stopid']),
+            'stop_name': row['name'] as String? ?? '',
+            'sequence': (row['seq'] as num?)?.toInt() ?? 0,
+            'lon': (row['lon'] as num?)?.toDouble() ?? 0,
+            'lat': (row['lat'] as num?)?.toDouble() ?? 0,
+          });
         }
         await stopBatch.commit(noResult: true);
       } finally {
         await database.close();
       }
     } finally {
+      await cityDatabase.close();
       await masterDatabase.close();
     }
 
@@ -564,47 +631,6 @@ class BusRepository {
     ''');
     await db.execute('CREATE INDEX idx_stops_route_key ON stops(route_key)');
     await db.execute('CREATE INDEX idx_stops_location ON stops(lat, lon)');
-  }
-
-  Future<_RouteStopsResponse> _fetchRouteStops(String routeId) async {
-    final response = await _client.get(
-      Uri.parse(
-        '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/stops',
-      ),
-      headers: const {'Accept': 'application/json', 'User-Agent': _userAgent},
-    );
-    if (response.statusCode != 200) {
-      throw HttpException('無法取得 $routeId 的路線站牌 (${response.statusCode})。');
-    }
-
-    final decoded =
-        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    final pathPayloads = (decoded['paths'] as List<dynamic>? ?? const [])
-        .whereType<Map>()
-        .map(
-          (path) => _RoutePathStopsPayload(
-            pathId: _toInt(path['pathid']),
-            name: path['name']?.toString() ?? '',
-            stops: (path['stops'] as List<dynamic>? ?? const [])
-                .whereType<Map>()
-                .map(
-                  (stop) => _RouteStopPayload(
-                    stopId: _parseStopId(stop['stopid']),
-                    stopName: stop['name']?.toString() ?? '',
-                    sequence: _toInt(stop['seq']),
-                    lat: _toDouble(stop['lat']),
-                    lon: _toDouble(stop['lon']),
-                  ),
-                )
-                .toList(),
-          ),
-        )
-        .toList();
-
-    return _RouteStopsResponse(
-      routeId: decoded['routeid']?.toString() ?? routeId,
-      paths: pathPayloads,
-    );
   }
 
   Future<Map<String, _LiveStopPayload>> _getLiveStopMap(String routeId) async {
@@ -684,6 +710,11 @@ class BusRepository {
   Future<File> _masterDatabaseFile() async {
     final directory = await _databaseDirectory();
     return File(p.join(directory.path, 'master_bus.db'));
+  }
+
+  Future<File> _cityDatabaseCacheFile(BusProvider provider) async {
+    final directory = await _databaseDirectory();
+    return File(p.join(directory.path, '${_providerDatabaseName(provider)}.db'));
   }
 
   Future<Directory> _databaseDirectory() async {
@@ -777,22 +808,35 @@ class BusRepository {
     return int.tryParse(value?.toString() ?? '');
   }
 
-  double _toDouble(Object? value) {
-    if (value is num) {
-      return value.toDouble();
-    }
-    return double.tryParse(value?.toString() ?? '') ?? 0;
-  }
-
   double _degreesToRadians(double degree) => degree * math.pi / 180;
 
   String _stopCompositeKey(int pathId, int stopId) => '$pathId:$stopId';
 
-  Iterable<List<T>> _chunk<T>(List<T> items, int size) sync* {
-    for (var index = 0; index < items.length; index += size) {
-      final end = math.min(index + size, items.length);
-      yield items.sublist(index, end);
-    }
+  String _providerDatabaseName(BusProvider provider) {
+    return switch (provider) {
+      BusProvider.kee => 'Keelung',
+      BusProvider.tpe => 'Taipei',
+      BusProvider.nwt => 'NewTaipei',
+      BusProvider.tao => 'Taoyuan',
+      BusProvider.hsz => 'Hsinchu',
+      BusProvider.hsq => 'HsinchuCounty',
+      BusProvider.mia => 'MiaoliCounty',
+      BusProvider.txg => 'Taichung',
+      BusProvider.cha => 'ChanghuaCounty',
+      BusProvider.nan => 'NantouCounty',
+      BusProvider.yun => 'YunlinCounty',
+      BusProvider.cyi => 'Chiayi',
+      BusProvider.cyq => 'ChiayiCounty',
+      BusProvider.tnn => 'Tainan',
+      BusProvider.khh => 'Kaohsiung',
+      BusProvider.pif => 'PingtungCounty',
+      BusProvider.ila => 'YilanCounty',
+      BusProvider.hua => 'HualienCounty',
+      BusProvider.ttt => 'TaitungCounty',
+      BusProvider.pen => 'PenghuCounty',
+      BusProvider.kin => 'KinmenCounty',
+      BusProvider.lie => 'LienchiangCounty',
+    };
   }
 
   T? _firstWhereOrNull<T>(Iterable<T> items, bool Function(T item) test) {
@@ -815,41 +859,6 @@ class _RouteEntry {
   final String routeId;
   final String name;
   final String nameEn;
-}
-
-class _RouteStopsResponse {
-  const _RouteStopsResponse({required this.routeId, required this.paths});
-
-  final String routeId;
-  final List<_RoutePathStopsPayload> paths;
-}
-
-class _RoutePathStopsPayload {
-  const _RoutePathStopsPayload({
-    required this.pathId,
-    required this.name,
-    required this.stops,
-  });
-
-  final int pathId;
-  final String name;
-  final List<_RouteStopPayload> stops;
-}
-
-class _RouteStopPayload {
-  const _RouteStopPayload({
-    required this.stopId,
-    required this.stopName,
-    required this.sequence,
-    required this.lon,
-    required this.lat,
-  });
-
-  final int stopId;
-  final String stopName;
-  final int sequence;
-  final double lon;
-  final double lat;
 }
 
 class _LiveStopPayload {

@@ -392,7 +392,7 @@ class BusRepository {
     try {
       final database = await _openDatabase(provider);
       try {
-        return _buildRouteDetailFromLocalDatabase(
+        return await _buildRouteDetailFromLocalDatabase(
           database: database,
           provider: provider,
           routeId: routeId,

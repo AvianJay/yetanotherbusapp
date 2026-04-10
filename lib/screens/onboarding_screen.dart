@@ -380,60 +380,86 @@ class _DatabaseStep extends StatelessWidget {
     final downloadedCount = selectedProviders
         .where(controller.isDatabaseReady)
         .length;
+    final theme = Theme.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 12),
-        Text('下載資料庫', style: Theme.of(context).textTheme.headlineSmall),
+        Text('下載資料庫', style: theme.textTheme.headlineSmall),
         const SizedBox(height: 10),
         Text(
           '可複選要在這台裝置使用的縣市資料庫。即使先不下載，仍可先進入首頁。',
-          style: Theme.of(context).textTheme.bodyLarge,
+          style: theme.textTheme.bodyLarge,
         ),
-        const SizedBox(height: 24),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: BusProvider.values.map((item) {
-            return FilterChip(
-              label: Text(item.label),
-              selected: selectedProviders.contains(item),
-              onSelected: (selected) {
-                onProviderToggled(item, selected);
-              },
-              avatar: controller.isDatabaseReady(item)
-                  ? const Icon(Icons.download_done_rounded, size: 18)
-                  : const Icon(Icons.cloud_outlined, size: 18),
-            );
-          }).toList(),
-        ),
-        if (suggestedProvider != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            '最近建議：${suggestedProvider!.label}',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ],
         const SizedBox(height: 16),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('預設資料來源：${provider.label}'),
-                const SizedBox(height: 8),
-                Text(
-                  '已選資料庫：${selectedProviders.map((item) => item.label).join('、')}',
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('縣市清單', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Expanded(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: theme.colorScheme.outlineVariant),
+                  ),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(12),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: BusProvider.values.map((item) {
+                        return FilterChip(
+                          label: Text(item.label),
+                          selected: selectedProviders.contains(item),
+                          onSelected: (selected) {
+                            onProviderToggled(item, selected);
+                          },
+                          avatar: controller.isDatabaseReady(item)
+                              ? const Icon(
+                                  Icons.download_done_rounded,
+                                  size: 18,
+                                )
+                              : const Icon(Icons.cloud_outlined, size: 18),
+                        );
+                      }).toList(),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 8),
-                Text('已下載 $downloadedCount / ${selectedProviders.length} 份資料庫'),
+              ),
+              if (suggestedProvider != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  '最近建議：${suggestedProvider!.label}',
+                  style: theme.textTheme.bodyMedium,
+                ),
               ],
-            ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('預設資料來源：${provider.label}'),
+                      const SizedBox(height: 8),
+                      Text(
+                        '已選資料庫：${selectedProviders.map((item) => item.label).join('、')}',
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '已下載 $downloadedCount / ${selectedProviders.length} 份資料庫',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        const Spacer(),
+        const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
@@ -445,26 +471,24 @@ class _DatabaseStep extends StatelessWidget {
                 onPressed: controller.downloadingDatabase
                     ? null
                     : () async {
-                        final messenger = ScaffoldMessenger.of(context);
                         try {
                           await controller.downloadSelectedProviderDatabases();
                           if (!context.mounted) {
                             return;
                           }
-                          messenger.showSnackBar(
-                            const SnackBar(content: Text('已選資料庫下載完成。')),
-                          );
+                          await onFinish();
                         } catch (error) {
                           if (!context.mounted) {
                             return;
                           }
+                          final messenger = ScaffoldMessenger.of(context);
                           messenger.showSnackBar(
                             SnackBar(content: Text('下載失敗：$error')),
                           );
                         }
                       },
                 child: Text(
-                  controller.downloadingDatabase ? '下載中...' : '下載已選資料庫',
+                  controller.downloadingDatabase ? '下載中...' : '下載並進入首頁',
                 ),
               ),
             ),

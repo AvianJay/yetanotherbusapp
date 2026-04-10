@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
+import '../core/app_controller.dart';
 import '../core/models.dart';
 import 'route_detail_screen.dart';
 
@@ -16,6 +17,7 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _controller = TextEditingController();
   Timer? _debounce;
+  final Set<BusProvider> _apiAllowedThisSession = <BusProvider>{};
   bool _isLoading = false;
   String? _error;
   List<RouteSummary> _results = const [];
@@ -43,6 +45,85 @@ class _SearchScreenState extends State<SearchScreen> {
     });
   }
 
+  Future<bool> _ensureProvidersReadyForSearch(
+    AppController busController,
+  ) async {
+    for (final provider in busController.selectedProviders) {
+      if (busController.isDatabaseReady(provider)) {
+        continue;
+      }
+      if (!busController.shouldAskDownloadPrompt(provider) ||
+          _apiAllowedThisSession.contains(provider)) {
+        continue;
+      }
+
+      final action = await _showMissingDatabaseDialog(provider);
+      if (!mounted) {
+        return false;
+      }
+
+      switch (action) {
+        case _MissingDatabaseAction.download:
+          await busController.downloadProviderDatabase(provider);
+          if (!mounted) {
+            return false;
+          }
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('${provider.label} 資料庫下載完成。')));
+          break;
+        case _MissingDatabaseAction.apiOnce:
+          _apiAllowedThisSession.add(provider);
+          break;
+        case _MissingDatabaseAction.apiAlways:
+          _apiAllowedThisSession.add(provider);
+          await busController.setSkipDownloadPrompt(provider, true);
+          break;
+        case _MissingDatabaseAction.cancel:
+          return false;
+      }
+    }
+
+    return true;
+  }
+
+  Future<_MissingDatabaseAction> _showMissingDatabaseDialog(
+    BusProvider provider,
+  ) async {
+    final action = await showDialog<_MissingDatabaseAction>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('${provider.label} 尚未下載'),
+          content: const Text('要先下載資料庫，或改為直接使用 API 查詢？'),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(_MissingDatabaseAction.cancel),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(_MissingDatabaseAction.apiOnce),
+              child: const Text('這次用 API'),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(_MissingDatabaseAction.apiAlways),
+              child: const Text('改用 API 且不再詢問'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(_MissingDatabaseAction.download),
+              child: const Text('下載資料庫'),
+            ),
+          ],
+        );
+      },
+    );
+    return action ?? _MissingDatabaseAction.cancel;
+  }
+
   Future<void> _search(String query) async {
     final busController = AppControllerScope.read(context);
     setState(() {
@@ -51,7 +132,40 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      final results = await busController.searchRoutes(query);
+      final shouldContinue = await _ensureProvidersReadyForSearch(
+        busController,
+      );
+      if (!shouldContinue) {
+        return;
+      }
+
+      final results = <RouteSummary>[];
+      for (final provider in busController.selectedProviders) {
+        if (busController.isDatabaseReady(provider)) {
+          results.addAll(
+            await busController.searchRoutes(query, provider: provider),
+          );
+        } else if (!busController.shouldAskDownloadPrompt(provider) ||
+            _apiAllowedThisSession.contains(provider)) {
+          results.addAll(
+            await busController.searchRoutesViaApi(query, provider: provider),
+          );
+        }
+      }
+
+      results.sort((left, right) {
+        final leftDownloaded = busController.isDatabaseReady(
+          busProviderFromString(left.sourceProvider),
+        );
+        final rightDownloaded = busController.isDatabaseReady(
+          busProviderFromString(right.sourceProvider),
+        );
+        if (leftDownloaded != rightDownloaded) {
+          return leftDownloaded ? -1 : 1;
+        }
+        return left.routeName.compareTo(right.routeName);
+      });
+
       if (!mounted) {
         return;
       }
@@ -78,6 +192,8 @@ class _SearchScreenState extends State<SearchScreen> {
     required BusProvider provider,
     required int routeKey,
     required String routeName,
+    String? routeIdHint,
+    int? initialPathId,
     RouteSummary? route,
     bool saveHistory = false,
   }) async {
@@ -95,8 +211,13 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) =>
-            RouteDetailScreen(routeKey: routeKey, provider: provider),
+        builder: (_) => RouteDetailScreen(
+          routeKey: routeKey,
+          provider: provider,
+          routeIdHint: routeIdHint,
+          routeNameHint: routeName,
+          initialPathId: initialPathId,
+        ),
       ),
     );
   }
@@ -104,7 +225,10 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final busController = AppControllerScope.of(context);
-    final provider = busController.settings.provider;
+    final selectedProviders = busController.selectedProviders;
+    final missingProviders = selectedProviders
+        .where((provider) => !busController.isDatabaseReady(provider))
+        .toList();
 
     return Scaffold(
       appBar: AppBar(title: const Text('搜尋路線')),
@@ -124,6 +248,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   : IconButton(
                       onPressed: () {
                         _controller.clear();
+                        setState(() {});
                         _onQueryChanged('');
                       },
                       icon: const Icon(Icons.close_rounded),
@@ -131,14 +256,17 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          if (!busController.databaseReady)
+          if (missingProviders.isNotEmpty)
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text('目前還沒有 ${provider.label} 資料庫。請先回首頁下載，再進行搜尋。'),
+                child: Text(
+                  '尚未下載：${missingProviders.map((provider) => provider.label).join('、')}。\n'
+                  '搜尋時會先用已下載資料庫；未下載縣市可選擇下載或改走 API。',
+                ),
               ),
-            )
-          else if (_controller.text.trim().isEmpty)
+            ),
+          if (_controller.text.trim().isEmpty)
             _HistorySection(
               history: busController.history,
               onClear: busController.clearHistory,
@@ -148,6 +276,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     provider: entry.provider,
                     routeKey: entry.routeKey,
                     routeName: entry.routeName,
+                    routeIdHint: entry.routeId,
                   ),
                 );
               },
@@ -182,15 +311,18 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                     title: Text(route.routeName),
                     subtitle: Text(
-                      route.description.isEmpty
-                          ? 'routeKey: ${route.routeKey}'
-                          : route.description,
+                      '${busProviderFromString(route.sourceProvider).label} · ${route.routeId}',
                     ),
                     onTap: () async {
+                      final routeProvider = busProviderFromString(
+                        route.sourceProvider,
+                      );
                       await _openRoute(
-                        provider: provider,
+                        provider: routeProvider,
                         routeKey: route.routeKey,
                         routeName: route.routeName,
+                        routeIdHint: route.routeId,
+                        initialPathId: route.rtrip,
                         route: route,
                         saveHistory: true,
                       );
@@ -204,6 +336,8 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 }
+
+enum _MissingDatabaseAction { download, apiOnce, apiAlways, cancel }
 
 class _HistorySection extends StatelessWidget {
   const _HistorySection({

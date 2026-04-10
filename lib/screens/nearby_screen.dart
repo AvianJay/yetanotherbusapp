@@ -154,12 +154,15 @@ class _NearbyScreenState extends State<NearbyScreen> {
                     subtitle: Padding(
                       padding: const EdgeInsets.only(top: 6),
                       child: Text(
-                        '${controller.settings.provider.label} · ${item.route.routeName}',
+                        '${busProviderFromString(item.route.sourceProvider).label} · ${item.route.routeName}',
                       ),
                     ),
                     onTap: () async {
+                      final routeProvider = busProviderFromString(
+                        item.route.sourceProvider,
+                      );
                       await controller.recordRouteSelection(
-                        provider: controller.settings.provider,
+                        provider: routeProvider,
                         routeKey: item.route.routeKey,
                         routeName: item.route.routeName,
                       );
@@ -170,7 +173,9 @@ class _NearbyScreenState extends State<NearbyScreen> {
                         MaterialPageRoute<void>(
                           builder: (_) => RouteDetailScreen(
                             routeKey: item.route.routeKey,
-                            provider: controller.settings.provider,
+                            provider: routeProvider,
+                            routeIdHint: item.route.routeId,
+                            routeNameHint: item.route.routeName,
                             initialPathId: item.stop.pathId,
                             initialStopId: item.stop.stopId,
                           ),

@@ -37,22 +37,46 @@ class BusRepository {
     return file.exists();
   }
 
-  Future<Map<BusProvider, int?>> checkForUpdates() async {
-    final remoteVersions = <BusProvider, int>{};
-    for (final provider in BusProvider.values) {
-      remoteVersions[provider] = await _fetchRemoteDatabaseVersion(provider);
+  Future<List<BusProvider>> listDownloadedProviders() async {
+    if (!_supportsLocalDatabase) {
+      return const [];
     }
+    final result = <BusProvider>[];
+    for (final provider in BusProvider.values) {
+      if (await databaseExists(provider)) {
+        result.add(provider);
+      }
+    }
+    return result;
+  }
+
+  Future<void> deleteProviderDatabase(BusProvider provider) async {
+    _ensureLocalDatabaseSupported();
+    final file = await _databaseFile(provider);
+    if (await file.exists()) {
+      await file.delete();
+    }
+
+    final versions = await _readVersionMap();
+    versions.remove(provider.name);
+    await _writeVersionMap(versions);
+  }
+
+  Future<Map<BusProvider, int?>> checkForUpdates({
+    Iterable<BusProvider>? providers,
+  }) async {
+    final targetProviders = (providers ?? BusProvider.values).toList();
     final localVersions = _supportsLocalDatabase
         ? await _readVersionMap()
         : {for (final provider in BusProvider.values) provider.name: 0};
 
-    return {
-      for (final provider in BusProvider.values)
-        provider: (remoteVersions[provider] ?? 0) >
-                (localVersions[provider.name] ?? 0)
-            ? remoteVersions[provider]
-            : null,
-    };
+    final updates = <BusProvider, int?>{};
+    for (final provider in targetProviders) {
+      final remoteVersion = await _fetchRemoteDatabaseVersion(provider);
+      final localVersion = localVersions[provider.name] ?? 0;
+      updates[provider] = remoteVersion > localVersion ? remoteVersion : null;
+    }
+    return updates;
   }
 
   Future<int?> getLocalVersion(BusProvider provider) async {
@@ -66,29 +90,13 @@ class BusRepository {
   Future<void> downloadDatabase(BusProvider provider) async {
     _ensureLocalDatabaseSupported();
     final remoteVersion = await _fetchRemoteDatabaseVersion(provider);
-    final masterFile = await _masterDatabaseFile();
-    final cityFile = await _cityDatabaseCacheFile(provider);
-    final localVersions = await _readVersionMap();
-    final localVersion = localVersions[provider.name] ?? 0;
+    final file = await _databaseFile(provider);
 
-    if (
-      !await masterFile.exists() ||
-      !await cityFile.exists() ||
-      localVersion < remoteVersion
-    ) {
-      await _downloadMasterDatabase(masterFile);
-      await _downloadCityDatabase(provider, cityFile);
-    }
+    await _downloadCityDatabase(provider, file);
 
-    await _buildRegionalDatabase(
-      provider: provider,
-      masterFile: masterFile,
-      cityFile: cityFile,
-      version: remoteVersion,
-    );
-
-    localVersions[provider.name] = remoteVersion;
-    await _writeVersionMap(localVersions);
+    final versions = await _readVersionMap();
+    versions[provider.name] = remoteVersion;
+    await _writeVersionMap(versions);
   }
 
   Future<List<RouteSummary>> searchRoutes(
@@ -98,35 +106,130 @@ class BusRepository {
   }) async {
     final database = await _openDatabase(provider);
     try {
-      final rows = await database.query(
-        'routes',
-        where: 'route_name LIKE ?',
-        whereArgs: ['%$query%'],
-        orderBy: 'sequence ASC, route_name ASC',
-        limit: limit,
+      final normalized = query.trim();
+      final rows = await database.rawQuery(
+        '''
+        SELECT
+          routes.routeid AS route_id,
+          routes.name AS route_name,
+          routes.name_en AS route_name_en,
+          paths.pathid AS path_id,
+          paths.name AS path_name
+        FROM routes
+        JOIN paths ON paths.routeid = routes.routeid
+        WHERE routes.name LIKE ?
+          OR routes.routeid LIKE ?
+          OR paths.name LIKE ?
+        ORDER BY routes.routeid ASC, paths.pathid ASC
+        LIMIT ?
+        ''',
+        ['%$normalized%', '%$normalized%', '%$normalized%', limit],
       );
-      return rows.map(RouteSummary.fromMap).toList();
+
+      return rows
+          .map(
+            (row) => _routeSummaryFromPathRow(
+              provider: provider,
+              routeId: row['route_id']?.toString() ?? '',
+              routeName: row['route_name']?.toString() ?? '',
+              routeNameEn: row['route_name_en']?.toString() ?? '',
+              pathId: (row['path_id'] as num?)?.toInt() ?? 0,
+              pathName: row['path_name']?.toString() ?? '',
+            ),
+          )
+          .where((summary) => summary.routeId.isNotEmpty)
+          .toList();
     } finally {
       await database.close();
     }
   }
 
+  Future<List<RouteSummary>> searchRoutesFromApi(
+    String query, {
+    required BusProvider provider,
+    int limit = 80,
+  }) async {
+    final city = _providerDatabaseName(provider);
+    final uri = Uri.parse(
+      '$_apiBaseUrl/api/v1/cities/${Uri.encodeComponent(city)}/routes'
+      '?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+    );
+    final response = await _client.get(
+      uri,
+      headers: const {'Accept': 'application/json', 'User-Agent': _userAgent},
+    );
+    if (response.statusCode != 200) {
+      throw HttpException(
+        '無法查詢 ${provider.label} 路線 (${response.statusCode})。',
+      );
+    }
+
+    final decoded =
+        jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
+    return decoded
+        .whereType<Map>()
+        .map((row) {
+          return _routeSummaryFromPathRow(
+            provider: provider,
+            routeId: row['routeid']?.toString() ?? '',
+            routeName: row['route_name']?.toString() ?? '',
+            routeNameEn: row['route_name_en']?.toString() ?? '',
+            pathId: _nullableInt(row['pathid']) ?? 0,
+            pathName: row['path_name']?.toString() ?? '',
+          );
+        })
+        .where((summary) => summary.routeId.isNotEmpty)
+        .toList();
+  }
+
   Future<RouteSummary?> getRoute(
     int routeKey, {
     required BusProvider provider,
+    String? routeIdHint,
+    int? preferredPathId,
   }) async {
+    final routeId =
+        routeIdHint ?? await _resolveRouteIdByRouteKey(provider, routeKey);
+    if (routeId == null || routeId.isEmpty) {
+      return null;
+    }
+
     final database = await _openDatabase(provider);
     try {
-      final rows = await database.query(
+      final routeRows = await database.query(
         'routes',
-        where: 'route_key = ?',
-        whereArgs: [routeKey],
+        where: 'routeid = ?',
+        whereArgs: [routeId],
         limit: 1,
       );
-      if (rows.isEmpty) {
+      if (routeRows.isEmpty) {
         return null;
       }
-      return RouteSummary.fromMap(rows.first);
+
+      final routeRow = routeRows.first;
+      final pathRows = await database.query(
+        'paths',
+        where: 'routeid = ?',
+        whereArgs: [routeId],
+        orderBy: 'pathid ASC',
+      );
+      final pickedPath = preferredPathId == null
+          ? pathRows.firstOrNull
+          : pathRows.firstWhere(
+              (row) => (row['pathid'] as num?)?.toInt() == preferredPathId,
+              orElse: () => pathRows.firstOrNull ?? const <String, Object?>{},
+            );
+      final pathId = (pickedPath?['pathid'] as num?)?.toInt() ?? 0;
+      final pathName = pickedPath?['name']?.toString() ?? '';
+
+      return _routeSummaryFromPathRow(
+        provider: provider,
+        routeId: routeRow['routeid']?.toString() ?? '',
+        routeName: routeRow['name']?.toString() ?? '',
+        routeNameEn: routeRow['name_en']?.toString() ?? '',
+        pathId: pathId,
+        pathName: pathName,
+      );
     } finally {
       await database.close();
     }
@@ -135,16 +238,31 @@ class BusRepository {
   Future<List<PathInfo>> getPaths(
     int routeKey, {
     required BusProvider provider,
+    String? routeIdHint,
   }) async {
+    final routeId =
+        routeIdHint ?? await _resolveRouteIdByRouteKey(provider, routeKey);
+    if (routeId == null || routeId.isEmpty) {
+      return const [];
+    }
+
     final database = await _openDatabase(provider);
     try {
       final rows = await database.query(
         'paths',
-        where: 'route_key = ?',
-        whereArgs: [routeKey],
-        orderBy: 'path_id ASC',
+        where: 'routeid = ?',
+        whereArgs: [routeId],
+        orderBy: 'pathid ASC',
       );
-      return rows.map(PathInfo.fromMap).toList();
+      return rows
+          .map(
+            (row) => PathInfo(
+              routeKey: routeKey,
+              pathId: (row['pathid'] as num?)?.toInt() ?? 0,
+              name: row['name']?.toString() ?? '',
+            ),
+          )
+          .toList();
     } finally {
       await database.close();
     }
@@ -153,16 +271,35 @@ class BusRepository {
   Future<List<StopInfo>> getStopsByRoute(
     int routeKey, {
     required BusProvider provider,
+    String? routeIdHint,
   }) async {
+    final routeId =
+        routeIdHint ?? await _resolveRouteIdByRouteKey(provider, routeKey);
+    if (routeId == null || routeId.isEmpty) {
+      return const [];
+    }
+
     final database = await _openDatabase(provider);
     try {
       final rows = await database.query(
         'stops',
-        where: 'route_key = ?',
-        whereArgs: [routeKey],
-        orderBy: 'path_id ASC, sequence ASC',
+        where: 'routeid = ?',
+        whereArgs: [routeId],
+        orderBy: 'pathid ASC, seq ASC',
       );
-      return rows.map(StopInfo.fromMap).toList();
+      return rows
+          .map(
+            (row) => StopInfo(
+              routeKey: routeKey,
+              pathId: (row['pathid'] as num?)?.toInt() ?? 0,
+              stopId: _parseStopId(row['stopid']),
+              stopName: row['name']?.toString() ?? '',
+              sequence: (row['seq'] as num?)?.toInt() ?? 0,
+              lon: (row['lon'] as num?)?.toDouble() ?? 0,
+              lat: (row['lat'] as num?)?.toDouble() ?? 0,
+            ),
+          )
+          .toList();
     } finally {
       await database.close();
     }
@@ -171,53 +308,34 @@ class BusRepository {
   Future<RouteDetailData> getCompleteBusInfo(
     int routeKey, {
     required BusProvider provider,
+    String? routeIdHint,
+    String? routeNameHint,
   }) async {
-    final route = await getRoute(routeKey, provider: provider);
-    if (route == null) {
+    final routeId =
+        routeIdHint ?? await _resolveRouteIdByRouteKey(provider, routeKey);
+    if (routeId == null || routeId.isEmpty) {
       throw StateError('找不到路線 $routeKey');
     }
 
-    final paths = await getPaths(routeKey, provider: provider);
-    final stops = await getStopsByRoute(routeKey, provider: provider);
-    var hasLiveData = true;
-    Map<String, _LiveStopPayload> liveMap;
-
     try {
-      liveMap = await _getLiveStopMap(route.routeId);
-    } catch (_) {
-      hasLiveData = false;
-      liveMap = const <String, _LiveStopPayload>{};
-    }
-
-    final stopsByPath = <int, List<StopInfo>>{
-      for (final path in paths) path.pathId: <StopInfo>[],
-    };
-
-    for (final stop in stops) {
-      final livePayload = liveMap[_stopCompositeKey(stop.pathId, stop.stopId)];
-      final enriched = livePayload == null
-          ? stop
-          : stop.copyWith(
-              sec: livePayload.sec,
-              msg: livePayload.msg,
-              t: livePayload.t,
-              buses: livePayload.buses,
-            );
-      stopsByPath.putIfAbsent(stop.pathId, () => <StopInfo>[]).add(enriched);
-    }
-
-    for (final entry in stopsByPath.entries) {
-      entry.value.sort(
-        (left, right) => left.sequence.compareTo(right.sequence),
+      final database = await _openDatabase(provider);
+      try {
+        return _buildRouteDetailFromLocalDatabase(
+          database: database,
+          provider: provider,
+          routeId: routeId,
+          routeNameHint: routeNameHint,
+        );
+      } finally {
+        await database.close();
+      }
+    } on DatabaseNotReadyException {
+      return _buildRouteDetailFromApi(
+        provider: provider,
+        routeId: routeId,
+        routeNameHint: routeNameHint,
       );
     }
-
-    return RouteDetailData(
-      route: route,
-      paths: paths,
-      stopsByPath: stopsByPath,
-      hasLiveData: hasLiveData,
-    );
   }
 
   Future<List<NearbyStopResult>> fetchNearbyStops({
@@ -230,30 +348,26 @@ class BusRepository {
     final latDelta = radiusMeters / 111320;
     final lonDelta =
         radiusMeters / (111320 * math.cos(latitude * math.pi / 180)).abs();
+
     final database = await _openDatabase(provider);
 
     try {
       final rows = await database.rawQuery(
         '''
         SELECT
-          stops.route_key,
-          stops.path_id,
-          stops.stop_id,
-          stops.stop_name,
-          stops.sequence,
+          stops.routeid,
+          stops.pathid,
+          stops.stopid,
+          stops.name AS stop_name,
+          stops.seq,
           stops.lon,
           stops.lat,
-          routes.provider,
-          routes.hash_md5,
-          routes.route_id,
-          routes.route_name,
-          routes.official_route_name,
-          routes.description,
-          routes.category,
-          routes.sequence AS route_sequence,
-          routes.rtrip
+          routes.name AS route_name,
+          routes.name_en AS route_name_en,
+          paths.name AS path_name
         FROM stops
-        INNER JOIN routes ON routes.route_key = stops.route_key
+        JOIN routes ON routes.routeid = stops.routeid
+        JOIN paths ON paths.routeid = stops.routeid AND paths.pathid = stops.pathid
         WHERE ABS(stops.lat - ?) <= ?
           AND ABS(stops.lon - ?) <= ?
         LIMIT 500
@@ -265,15 +379,19 @@ class BusRepository {
       final seen = <String>{};
 
       for (final row in rows) {
+        final routeId = row['routeid']?.toString() ?? '';
+        final pathId = (row['pathid'] as num?)?.toInt() ?? 0;
+        final stopId = _parseStopId(row['stopid']);
         final stop = StopInfo(
-          routeKey: (row['route_key'] as num?)?.toInt() ?? 0,
-          pathId: (row['path_id'] as num?)?.toInt() ?? 0,
-          stopId: (row['stop_id'] as num?)?.toInt() ?? 0,
-          stopName: row['stop_name'] as String? ?? '',
-          sequence: (row['sequence'] as num?)?.toInt() ?? 0,
+          routeKey: _routeKeyForRouteId(routeId),
+          pathId: pathId,
+          stopId: stopId,
+          stopName: row['stop_name']?.toString() ?? '',
+          sequence: (row['seq'] as num?)?.toInt() ?? 0,
           lon: (row['lon'] as num?)?.toDouble() ?? 0,
           lat: (row['lat'] as num?)?.toDouble() ?? 0,
         );
+
         final distance = calculateDistanceMeters(
           latitude,
           longitude,
@@ -284,22 +402,18 @@ class BusRepository {
           continue;
         }
 
-        final dedupeKey = '${stop.routeKey}-${stop.pathId}-${stop.stopId}';
+        final dedupeKey = '$routeId:$pathId:${stop.stopId}';
         if (!seen.add(dedupeKey)) {
           continue;
         }
 
-        final route = RouteSummary(
-          sourceProvider: row['provider'] as String? ?? '',
-          hashMd5: row['hash_md5'] as String? ?? '',
-          routeKey: (row['route_key'] as num?)?.toInt() ?? 0,
-          routeId: row['route_id']?.toString() ?? '',
-          routeName: row['route_name'] as String? ?? '',
-          officialRouteName: row['official_route_name'] as String? ?? '',
-          description: row['description'] as String? ?? '',
-          category: row['category'] as String? ?? '',
-          sequence: (row['route_sequence'] as num?)?.toInt() ?? 0,
-          rtrip: (row['rtrip'] as num?)?.toInt() ?? 0,
+        final route = _routeSummaryFromPathRow(
+          provider: provider,
+          routeId: routeId,
+          routeName: row['route_name']?.toString() ?? '',
+          routeNameEn: row['route_name_en']?.toString() ?? '',
+          pathId: pathId,
+          pathName: row['path_name']?.toString() ?? '',
         );
 
         results.add(
@@ -320,6 +434,8 @@ class BusRepository {
     final route = await getRoute(
       reference.routeKey,
       provider: reference.provider,
+      routeIdHint: reference.routeId,
+      preferredPathId: reference.pathId,
     );
     if (route == null) {
       return null;
@@ -328,6 +444,7 @@ class BusRepository {
     final stops = await getStopsByRoute(
       reference.routeKey,
       provider: reference.provider,
+      routeIdHint: reference.routeId ?? route.routeId,
     );
     final stop = _firstWhereOrNull(
       stops,
@@ -367,72 +484,249 @@ class BusRepository {
     return earthRadiusKm * c * 1000;
   }
 
-  Future<int> _fetchRemoteDatabaseVersion(BusProvider provider) async {
-    final providerVersion = await _fetchDatabaseVersionByName(
-      _providerDatabaseName(provider),
+  Future<RouteDetailData> _buildRouteDetailFromLocalDatabase({
+    required Database database,
+    required BusProvider provider,
+    required String routeId,
+    String? routeNameHint,
+  }) async {
+    final routeRows = await database.query(
+      'routes',
+      where: 'routeid = ?',
+      whereArgs: [routeId],
+      limit: 1,
     );
-    if (providerVersion != null) {
-      return providerVersion;
+    if (routeRows.isEmpty) {
+      throw StateError('找不到路線 $routeId');
+    }
+    final routeRow = routeRows.first;
+
+    final pathRows = await database.query(
+      'paths',
+      where: 'routeid = ?',
+      whereArgs: [routeId],
+      orderBy: 'pathid ASC',
+    );
+
+    final stopRows = await database.query(
+      'stops',
+      where: 'routeid = ?',
+      whereArgs: [routeId],
+      orderBy: 'pathid ASC, seq ASC',
+    );
+
+    var hasLiveData = true;
+    Map<String, _LiveStopPayload> liveMap;
+    try {
+      liveMap = await _getLiveStopMap(routeId);
+    } catch (_) {
+      hasLiveData = false;
+      liveMap = const <String, _LiveStopPayload>{};
     }
 
-    final downloadVersion = await _fetchDatabaseVersionByName('download');
-    if (downloadVersion != null) {
-      return downloadVersion;
+    final routeKey = _routeKeyForRouteId(routeId);
+    final paths = pathRows
+        .map(
+          (row) => PathInfo(
+            routeKey: routeKey,
+            pathId: (row['pathid'] as num?)?.toInt() ?? 0,
+            name: row['name']?.toString() ?? '',
+          ),
+        )
+        .toList();
+
+    final stopsByPath = <int, List<StopInfo>>{
+      for (final path in paths) path.pathId: <StopInfo>[],
+    };
+
+    for (final row in stopRows) {
+      final pathId = (row['pathid'] as num?)?.toInt() ?? 0;
+      final stopId = _parseStopId(row['stopid']);
+      final livePayload = liveMap[_stopCompositeKey(pathId, stopId)];
+      final stop = StopInfo(
+        routeKey: routeKey,
+        pathId: pathId,
+        stopId: stopId,
+        stopName: row['name']?.toString() ?? '',
+        sequence: (row['seq'] as num?)?.toInt() ?? 0,
+        lon: (row['lon'] as num?)?.toDouble() ?? 0,
+        lat: (row['lat'] as num?)?.toDouble() ?? 0,
+        sec: livePayload?.sec,
+        msg: livePayload?.msg,
+        t: livePayload?.t,
+        buses: livePayload?.buses ?? const [],
+      );
+      stopsByPath.putIfAbsent(pathId, () => <StopInfo>[]).add(stop);
     }
 
-    return _fetchRemoteDatabaseVersionByHeaders();
+    final firstPath = pathRows.firstOrNull;
+    final route = _routeSummaryFromPathRow(
+      provider: provider,
+      routeId: routeId,
+      routeName: routeNameHint?.trim().isNotEmpty == true
+          ? routeNameHint!.trim()
+          : routeRow['name']?.toString() ?? routeId,
+      routeNameEn: routeRow['name_en']?.toString() ?? '',
+      pathId: (firstPath?['pathid'] as num?)?.toInt() ?? 0,
+      pathName: firstPath?['name']?.toString() ?? '',
+    );
+
+    return RouteDetailData(
+      route: route,
+      paths: paths,
+      stopsByPath: stopsByPath,
+      hasLiveData: hasLiveData,
+    );
   }
 
-  Future<int?> _fetchDatabaseVersionByName(String name) async {
+  Future<RouteDetailData> _buildRouteDetailFromApi({
+    required BusProvider provider,
+    required String routeId,
+    String? routeNameHint,
+  }) async {
     final response = await _client.get(
-      Uri.parse('$_apiBaseUrl/api/v1/database/${Uri.encodeComponent(name)}/version'),
+      Uri.parse(
+        '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/stops',
+      ),
       headers: const {'Accept': 'application/json', 'User-Agent': _userAgent},
     );
     if (response.statusCode != 200) {
-      return null;
+      throw HttpException('無法取得 $routeId 的路線站牌 (${response.statusCode})。');
     }
 
+    final decoded =
+        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final routeKey = _routeKeyForRouteId(routeId);
+
+    final rawPaths = decoded['paths'] as List<dynamic>? ?? const [];
+    final paths = <PathInfo>[];
+    final stopsByPath = <int, List<StopInfo>>{};
+
+    for (final rawPath in rawPaths) {
+      if (rawPath is! Map) {
+        continue;
+      }
+      final pathId = _toInt(rawPath['pathid']);
+      final pathName = rawPath['name']?.toString() ?? '';
+      paths.add(PathInfo(routeKey: routeKey, pathId: pathId, name: pathName));
+      final stops = (rawPath['stops'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map(
+            (stop) => StopInfo(
+              routeKey: routeKey,
+              pathId: pathId,
+              stopId: _parseStopId(stop['stopid']),
+              stopName: stop['name']?.toString() ?? '',
+              sequence: _toInt(stop['seq']),
+              lon: _toDouble(stop['lon']),
+              lat: _toDouble(stop['lat']),
+            ),
+          )
+          .toList();
+      stopsByPath[pathId] = stops;
+    }
+
+    var hasLiveData = true;
+    Map<String, _LiveStopPayload> liveMap;
     try {
-      final decoded =
-          jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-      final version = decoded['version'];
-      if (version is num) {
-        return version.toInt();
-      }
-      if (version is String) {
-        return int.tryParse(version);
-      }
+      liveMap = await _getLiveStopMap(routeId);
     } catch (_) {
-      return null;
+      hasLiveData = false;
+      liveMap = const <String, _LiveStopPayload>{};
     }
 
-    return null;
-  }
-
-  Future<int> _fetchRemoteDatabaseVersionByHeaders() async {
-    final response = await _client.get(
-      Uri.parse('$_apiBaseUrl/downloads/bus.db'),
-      headers: const {'Range': 'bytes=0-0', 'User-Agent': _userAgent},
-    );
-
-    if (response.statusCode != 200 && response.statusCode != 206) {
-      throw HttpException('無法檢查遠端資料庫版本 (${response.statusCode})。');
+    if (hasLiveData) {
+      for (final entry in stopsByPath.entries) {
+        entry.value.replaceRange(
+          0,
+          entry.value.length,
+          entry.value.map((stop) {
+            final payload =
+                liveMap[_stopCompositeKey(stop.pathId, stop.stopId)];
+            return stop.copyWith(
+              sec: payload?.sec,
+              msg: payload?.msg,
+              t: payload?.t,
+              buses: payload?.buses ?? const [],
+            );
+          }),
+        );
+      }
     }
 
-    return _buildVersionFromHeaders(response.headers);
+    final firstPath = paths.firstOrNull;
+    final route = _routeSummaryFromPathRow(
+      provider: provider,
+      routeId: routeId,
+      routeName: routeNameHint?.trim().isNotEmpty == true
+          ? routeNameHint!.trim()
+          : decoded['name']?.toString() ?? routeId,
+      routeNameEn: '',
+      pathId: firstPath?.pathId ?? 0,
+      pathName: firstPath?.name ?? '',
+    );
+
+    return RouteDetailData(
+      route: route,
+      paths: paths,
+      stopsByPath: stopsByPath,
+      hasLiveData: hasLiveData,
+    );
   }
 
-  Future<void> _downloadMasterDatabase(File targetFile) async {
-    final response = await _client.get(
-      Uri.parse('$_apiBaseUrl/downloads/bus.db'),
-      headers: const {'User-Agent': _userAgent},
+  RouteSummary _routeSummaryFromPathRow({
+    required BusProvider provider,
+    required String routeId,
+    required String routeName,
+    required String routeNameEn,
+    required int pathId,
+    required String pathName,
+  }) {
+    final normalizedPathName = pathName.trim();
+    final displayRouteName = normalizedPathName.isEmpty
+        ? '$routeId ${routeName.trim()}'.trim()
+        : '$routeId $normalizedPathName';
+
+    return RouteSummary(
+      sourceProvider: provider.name,
+      hashMd5: '',
+      routeKey: _routeKeyForRouteId(routeId),
+      routeId: routeId,
+      routeName: displayRouteName,
+      officialRouteName: routeNameEn,
+      description: provider.label,
+      category: provider.label,
+      sequence: pathId,
+      rtrip: pathId,
     );
+  }
+
+  Future<int> _fetchRemoteDatabaseVersion(BusProvider provider) async {
+    final name = _providerDatabaseName(provider);
+    final response = await _client.get(
+      Uri.parse(
+        '$_apiBaseUrl/api/v1/database/${Uri.encodeComponent(name)}/version',
+      ),
+      headers: const {'Accept': 'application/json', 'User-Agent': _userAgent},
+    );
+
     if (response.statusCode != 200) {
-      throw HttpException('無法下載主資料庫 (${response.statusCode})。');
+      throw HttpException(
+        '無法檢查 ${provider.label} 遠端資料庫版本 (${response.statusCode})。',
+      );
     }
 
-    await targetFile.parent.create(recursive: true);
-    await targetFile.writeAsBytes(response.bodyBytes, flush: true);
+    final decoded =
+        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final version = decoded['version'];
+    if (version is num) {
+      return version.toInt();
+    }
+    final parsed = int.tryParse(version?.toString() ?? '');
+    if (parsed == null) {
+      throw const FormatException('資料庫版本格式錯誤。');
+    }
+    return parsed;
   }
 
   Future<void> _downloadCityDatabase(
@@ -445,192 +739,13 @@ class BusRepository {
       headers: const {'User-Agent': _userAgent},
     );
     if (response.statusCode != 200) {
-      throw HttpException('無法下載 ${provider.label} 縣市資料庫 (${response.statusCode})。');
+      throw HttpException(
+        '無法下載 ${provider.label} 資料庫 (${response.statusCode})。',
+      );
     }
 
     await targetFile.parent.create(recursive: true);
     await targetFile.writeAsBytes(response.bodyBytes, flush: true);
-  }
-
-  Future<void> _buildRegionalDatabase({
-    required BusProvider provider,
-    required File masterFile,
-    required File cityFile,
-    required int version,
-  }) async {
-    final tempPath = p.join(
-      (await _databaseDirectory()).path,
-      'tmp_${provider.name}_${DateTime.now().millisecondsSinceEpoch}.sqlite',
-    );
-    await deleteDatabase(tempPath);
-
-    final masterDatabase = await openDatabase(
-      masterFile.path,
-      readOnly: true,
-      singleInstance: false,
-    );
-    final cityDatabase = await openDatabase(
-      cityFile.path,
-      readOnly: true,
-      singleInstance: false,
-    );
-
-    try {
-      final routeRows = await masterDatabase.query(
-        'routes',
-        where: 'SUBSTR(routeid, 1, 3) = ?',
-        whereArgs: [provider.prefix],
-        orderBy: 'routeid ASC',
-      );
-      if (routeRows.isEmpty) {
-        throw StateError('找不到 ${provider.label} 的路線資料。');
-      }
-
-      final pathRows = await masterDatabase.query(
-        'paths',
-        where: 'SUBSTR(routeid, 1, 3) = ?',
-        whereArgs: [provider.prefix],
-        orderBy: 'routeid ASC, pathid ASC',
-      );
-
-      final routeEntries = routeRows
-          .map(
-            (row) => _RouteEntry(
-              routeId: row['routeid'] as String? ?? '',
-              name: row['name'] as String? ?? '',
-              nameEn: row['name_en'] as String? ?? '',
-            ),
-          )
-          .where((entry) => entry.routeId.isNotEmpty)
-          .toList();
-
-      final routeKeys = {
-        for (final entry in routeEntries)
-          entry.routeId: _routeKeyForRouteId(entry.routeId),
-      };
-
-      final database = await openDatabase(
-        tempPath,
-        version: 1,
-        onCreate: (db, version) async {
-          await _createRegionalSchema(db);
-        },
-      );
-
-      try {
-        final routeBatch = database.batch();
-        for (var index = 0; index < routeEntries.length; index++) {
-          final entry = routeEntries[index];
-          routeBatch.insert('routes', {
-            'provider': provider.name,
-            'hash_md5': version.toString(),
-            'route_key': routeKeys[entry.routeId],
-            'route_id': entry.routeId,
-            'route_name': entry.name,
-            'official_route_name': entry.nameEn,
-            'description': provider.label,
-            'category': provider.label,
-            'sequence': index + 1,
-            'rtrip': 0,
-          });
-        }
-
-        for (final row in pathRows) {
-          final routeId = row['routeid'] as String? ?? '';
-          final routeKey = routeKeys[routeId];
-          if (routeKey == null) {
-            continue;
-          }
-          routeBatch.insert('paths', {
-            'route_key': routeKey,
-            'path_id': (row['pathid'] as num?)?.toInt() ?? 0,
-            'path_name': row['name'] as String? ?? '',
-          });
-        }
-        await routeBatch.commit(noResult: true);
-
-        final stopRows = await cityDatabase.query(
-          'stops',
-          where: 'SUBSTR(routeid, 1, 3) = ?',
-          whereArgs: [provider.prefix],
-          orderBy: 'routeid ASC, pathid ASC, seq ASC',
-        );
-
-        final stopBatch = database.batch();
-        for (final row in stopRows) {
-          final routeId = row['routeid'] as String? ?? '';
-          final routeKey = routeKeys[routeId];
-          if (routeKey == null) {
-            continue;
-          }
-          stopBatch.insert('stops', {
-            'route_key': routeKey,
-            'path_id': (row['pathid'] as num?)?.toInt() ?? 0,
-            'stop_id': _parseStopId(row['stopid']),
-            'stop_name': row['name'] as String? ?? '',
-            'sequence': (row['seq'] as num?)?.toInt() ?? 0,
-            'lon': (row['lon'] as num?)?.toDouble() ?? 0,
-            'lat': (row['lat'] as num?)?.toDouble() ?? 0,
-          });
-        }
-        await stopBatch.commit(noResult: true);
-      } finally {
-        await database.close();
-      }
-    } finally {
-      await cityDatabase.close();
-      await masterDatabase.close();
-    }
-
-    final databaseFile = await _databaseFile(provider);
-    await databaseFile.parent.create(recursive: true);
-    if (await databaseFile.exists()) {
-      await databaseFile.delete();
-    }
-    await File(tempPath).rename(databaseFile.path);
-  }
-
-  Future<void> _createRegionalSchema(Database db) async {
-    await db.execute('''
-      CREATE TABLE routes (
-        provider TEXT NOT NULL,
-        hash_md5 TEXT NOT NULL,
-        route_key INTEGER PRIMARY KEY,
-        route_id TEXT NOT NULL UNIQUE,
-        route_name TEXT NOT NULL,
-        official_route_name TEXT NOT NULL,
-        description TEXT NOT NULL,
-        category TEXT NOT NULL,
-        sequence INTEGER NOT NULL,
-        rtrip INTEGER NOT NULL
-      )
-    ''');
-    await db.execute('CREATE INDEX idx_routes_name ON routes(route_name)');
-
-    await db.execute('''
-      CREATE TABLE paths (
-        route_key INTEGER NOT NULL,
-        path_id INTEGER NOT NULL,
-        path_name TEXT NOT NULL,
-        PRIMARY KEY (route_key, path_id)
-      )
-    ''');
-    await db.execute('CREATE INDEX idx_paths_route_key ON paths(route_key)');
-
-    await db.execute('''
-      CREATE TABLE stops (
-        route_key INTEGER NOT NULL,
-        path_id INTEGER NOT NULL,
-        stop_id INTEGER NOT NULL,
-        stop_name TEXT NOT NULL,
-        sequence INTEGER NOT NULL,
-        lon REAL NOT NULL,
-        lat REAL NOT NULL,
-        PRIMARY KEY (route_key, path_id, sequence, stop_id)
-      )
-    ''');
-    await db.execute('CREATE INDEX idx_stops_route_key ON stops(route_key)');
-    await db.execute('CREATE INDEX idx_stops_location ON stops(lat, lon)');
   }
 
   Future<Map<String, _LiveStopPayload>> _getLiveStopMap(String routeId) async {
@@ -707,16 +822,6 @@ class BusRepository {
     return File(p.join(directory.path, provider.databaseFileName));
   }
 
-  Future<File> _masterDatabaseFile() async {
-    final directory = await _databaseDirectory();
-    return File(p.join(directory.path, 'master_bus.db'));
-  }
-
-  Future<File> _cityDatabaseCacheFile(BusProvider provider) async {
-    final directory = await _databaseDirectory();
-    return File(p.join(directory.path, '${_providerDatabaseName(provider)}.db'));
-  }
-
   Future<Directory> _databaseDirectory() async {
     final root = await getApplicationDocumentsDirectory();
     final directory = Directory(p.join(root.path, '.yabus_backend'));
@@ -757,19 +862,23 @@ class BusRepository {
     }
   }
 
-  int _buildVersionFromHeaders(Map<String, String> headers) {
-    final lastModified = headers['last-modified'];
-    if (lastModified != null && lastModified.isNotEmpty) {
-      final parsed = HttpDate.parse(lastModified).toUtc();
-      return parsed.year * 100000000 +
-          parsed.month * 1000000 +
-          parsed.day * 10000 +
-          parsed.hour * 100 +
-          parsed.minute;
+  Future<String?> _resolveRouteIdByRouteKey(
+    BusProvider provider,
+    int routeKey,
+  ) async {
+    final database = await _openDatabase(provider);
+    try {
+      final rows = await database.query('routes', columns: ['routeid']);
+      for (final row in rows) {
+        final routeId = row['routeid']?.toString() ?? '';
+        if (routeId.isNotEmpty && _routeKeyForRouteId(routeId) == routeKey) {
+          return routeId;
+        }
+      }
+      return null;
+    } finally {
+      await database.close();
     }
-
-    final contentLength = int.tryParse(headers['content-length'] ?? '');
-    return contentLength ?? 0;
   }
 
   int _routeKeyForRouteId(String routeId) {
@@ -808,9 +917,25 @@ class BusRepository {
     return int.tryParse(value?.toString() ?? '');
   }
 
+  double _toDouble(Object? value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
   double _degreesToRadians(double degree) => degree * math.pi / 180;
 
   String _stopCompositeKey(int pathId, int stopId) => '$pathId:$stopId';
+
+  T? _firstWhereOrNull<T>(Iterable<T> items, bool Function(T item) test) {
+    for (final item in items) {
+      if (test(item)) {
+        return item;
+      }
+    }
+    return null;
+  }
 
   String _providerDatabaseName(BusProvider provider) {
     return switch (provider) {
@@ -838,27 +963,6 @@ class BusRepository {
       BusProvider.lie => 'LienchiangCounty',
     };
   }
-
-  T? _firstWhereOrNull<T>(Iterable<T> items, bool Function(T item) test) {
-    for (final item in items) {
-      if (test(item)) {
-        return item;
-      }
-    }
-    return null;
-  }
-}
-
-class _RouteEntry {
-  const _RouteEntry({
-    required this.routeId,
-    required this.name,
-    required this.nameEn,
-  });
-
-  final String routeId;
-  final String name;
-  final String nameEn;
 }
 
 class _LiveStopPayload {

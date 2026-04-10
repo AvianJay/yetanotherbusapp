@@ -124,7 +124,7 @@ class SettingsScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   DropdownButtonFormField<BusProvider>(
                     initialValue: controller.settings.provider,
-                    decoration: const InputDecoration(labelText: '資料來源'),
+                    decoration: const InputDecoration(labelText: '預設資料來源'),
                     items: BusProvider.values
                         .map(
                           (provider) => DropdownMenuItem(
@@ -140,17 +140,164 @@ class SettingsScreen extends StatelessWidget {
                     },
                   ),
                   const SizedBox(height: 12),
-                  FutureBuilder<int?>(
-                    future: controller.currentProviderLocalVersion(),
-                    builder: (context, snapshot) {
-                      final version = snapshot.data;
-                      final text = version == null || version == 0
-                          ? '本機尚未下載資料庫'
-                          : '本機資料庫版本：$version';
-                      return Text(text);
-                    },
-                  ),
+                  Text('可複選要使用的縣市。搜尋時會優先使用已下載資料庫；未下載縣市可選擇改走 API。'),
                   const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: BusProvider.values.map((provider) {
+                      return FilterChip(
+                        label: Text(provider.label),
+                        selected: controller.selectedProviders.contains(
+                          provider,
+                        ),
+                        onSelected: (value) {
+                          controller.toggleSelectedProvider(provider, value);
+                        },
+                        avatar: controller.isDatabaseReady(provider)
+                            ? const Icon(Icons.download_done_rounded, size: 18)
+                            : const Icon(Icons.cloud_outlined, size: 18),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 14),
+                  ...controller.selectedProviders.map(
+                    (provider) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(child: Text(provider.label)),
+                                Text(
+                                  controller.isDatabaseReady(provider)
+                                      ? '已下載'
+                                      : '未下載',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            FutureBuilder<int?>(
+                              future: controller.localVersionForProvider(
+                                provider,
+                              ),
+                              builder: (context, snapshot) {
+                                final version = snapshot.data;
+                                return Text(
+                                  version == null || version == 0
+                                      ? '本機版本：--'
+                                      : '本機版本：$version',
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                FilledButton.tonalIcon(
+                                  onPressed: controller.downloadingDatabase
+                                      ? null
+                                      : () async {
+                                          final messenger =
+                                              ScaffoldMessenger.of(context);
+                                          try {
+                                            await controller
+                                                .downloadProviderDatabase(
+                                                  provider,
+                                                );
+                                            if (!context.mounted) {
+                                              return;
+                                            }
+                                            messenger.showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  '${provider.label} 資料庫下載完成。',
+                                                ),
+                                              ),
+                                            );
+                                          } catch (error) {
+                                            if (!context.mounted) {
+                                              return;
+                                            }
+                                            messenger.showSnackBar(
+                                              SnackBar(
+                                                content: Text('下載失敗：$error'),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                  icon: const Icon(Icons.download_rounded),
+                                  label: const Text('下載/重抓'),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: controller.downloadingDatabase
+                                      ? null
+                                      : () async {
+                                          final messenger =
+                                              ScaffoldMessenger.of(context);
+                                          try {
+                                            await controller
+                                                .deleteProviderDatabase(
+                                                  provider,
+                                                );
+                                            if (!context.mounted) {
+                                              return;
+                                            }
+                                            messenger.showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  '${provider.label} 資料庫已刪除。',
+                                                ),
+                                              ),
+                                            );
+                                          } catch (error) {
+                                            if (!context.mounted) {
+                                              return;
+                                            }
+                                            messenger.showSnackBar(
+                                              SnackBar(
+                                                content: Text('刪除失敗：$error'),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                  icon: const Icon(
+                                    Icons.delete_outline_rounded,
+                                  ),
+                                  label: const Text('刪除'),
+                                ),
+                              ],
+                            ),
+                            CheckboxListTile(
+                              value: !controller.shouldAskDownloadPrompt(
+                                provider,
+                              ),
+                              onChanged: (value) {
+                                controller.setSkipDownloadPrompt(
+                                  provider,
+                                  value ?? false,
+                                );
+                              },
+                              contentPadding: EdgeInsets.zero,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              title: const Text('未下載時不再詢問，直接 API'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,
@@ -162,12 +309,12 @@ class SettingsScreen extends StatelessWidget {
                                 final messenger = ScaffoldMessenger.of(context);
                                 try {
                                   await controller
-                                      .downloadCurrentProviderDatabase();
+                                      .downloadSelectedProviderDatabases();
                                   if (!context.mounted) {
                                     return;
                                   }
                                   messenger.showSnackBar(
-                                    const SnackBar(content: Text('資料庫下載完成。')),
+                                    const SnackBar(content: Text('已選資料庫下載完成。')),
                                   );
                                 } catch (error) {
                                   if (!context.mounted) {
@@ -187,8 +334,36 @@ class SettingsScreen extends StatelessWidget {
                               )
                             : const Icon(Icons.download_rounded),
                         label: Text(
-                          controller.downloadingDatabase ? '下載中...' : '下載最新資料庫',
+                          controller.downloadingDatabase ? '下載中...' : '下載已選資料庫',
                         ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: controller.downloadingDatabase
+                            ? null
+                            : () async {
+                                final messenger = ScaffoldMessenger.of(context);
+                                try {
+                                  await controller
+                                      .updateSelectedProviderDatabasesIfNeeded();
+                                  if (!context.mounted) {
+                                    return;
+                                  }
+                                  messenger.showSnackBar(
+                                    const SnackBar(
+                                      content: Text('已更新有新版的已選資料庫。'),
+                                    ),
+                                  );
+                                } catch (error) {
+                                  if (!context.mounted) {
+                                    return;
+                                  }
+                                  messenger.showSnackBar(
+                                    SnackBar(content: Text('更新失敗：$error')),
+                                  );
+                                }
+                              },
+                        icon: const Icon(Icons.sync_rounded),
+                        label: const Text('更新有新版者'),
                       ),
                       OutlinedButton.icon(
                         onPressed: () async {
@@ -219,7 +394,7 @@ class SettingsScreen extends StatelessWidget {
                           }
                         },
                         icon: const Icon(Icons.cloud_outlined),
-                        label: const Text('檢查資料庫更新'),
+                        label: const Text('檢查已選更新'),
                       ),
                     ],
                   ),

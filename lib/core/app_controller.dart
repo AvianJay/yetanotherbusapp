@@ -35,7 +35,9 @@ class AppController extends ChangeNotifier {
   Map<String, List<FavoriteStop>> _favoriteGroups = const {};
   List<RouteUsageProfile> _routeUsageProfiles = const [];
   bool _initialized = false;
-  bool _databaseReady = false;
+  Map<BusProvider, bool> _databaseReadyByProvider = {
+    for (final provider in BusProvider.values) provider: false,
+  };
   bool _checkingDatabase = false;
   bool _downloadingDatabase = false;
   bool _checkingAppUpdate = false;
@@ -65,12 +67,25 @@ class AppController extends ChangeNotifier {
       )
       .join('|');
   bool get initialized => _initialized;
-  bool get databaseReady => _databaseReady;
+  bool get databaseReady => isDatabaseReady(_settings.provider);
+  List<BusProvider> get selectedProviders =>
+      List.unmodifiable(_settings.selectedProviders);
+  List<BusProvider> get downloadedProviders => BusProvider.values
+      .where((provider) => _databaseReadyByProvider[provider] ?? false)
+      .toList();
   bool get checkingDatabase => _checkingDatabase;
   bool get downloadingDatabase => _downloadingDatabase;
   bool get needsOnboarding => !_settings.hasCompletedOnboarding;
   bool get checkingAppUpdate => _checkingAppUpdate;
   AppUpdateCheckResult? get lastAppUpdateResult => _lastAppUpdateResult;
+
+  bool isDatabaseReady(BusProvider provider) {
+    return _databaseReadyByProvider[provider] ?? false;
+  }
+
+  bool shouldAskDownloadPrompt(BusProvider provider) {
+    return !_settings.skipDownloadPromptProviders.contains(provider);
+  }
 
   Future<void> initialize() async {
     await storage.migrateLegacyApiDataIfNeeded();
@@ -97,7 +112,11 @@ class AppController extends ChangeNotifier {
     _checkingDatabase = true;
     notifyListeners();
     try {
-      _databaseReady = await repository.databaseExists(_settings.provider);
+      final next = <BusProvider, bool>{};
+      for (final provider in BusProvider.values) {
+        next[provider] = await repository.databaseExists(provider);
+      }
+      _databaseReadyByProvider = next;
     } finally {
       _checkingDatabase = false;
       notifyListeners();
@@ -105,10 +124,62 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> updateProvider(BusProvider provider) async {
-    _settings = _settings.copyWith(provider: provider);
+    final selected = _settings.selectedProviders.toSet();
+    selected.add(provider);
+    _settings = _settings.copyWith(
+      provider: provider,
+      selectedProviders: selected.toList(),
+    );
     await storage.saveSettings(_settings);
     notifyListeners();
     await refreshDatabaseState();
+  }
+
+  Future<void> updateSelectedProviders(List<BusProvider> providers) async {
+    final normalized = providers.toSet().toList();
+    if (normalized.isEmpty) {
+      normalized.add(_settings.provider);
+    }
+
+    var provider = _settings.provider;
+    if (!normalized.contains(provider)) {
+      provider = normalized.first;
+    }
+
+    _settings = _settings.copyWith(
+      provider: provider,
+      selectedProviders: normalized,
+    );
+    await storage.saveSettings(_settings);
+    notifyListeners();
+    await refreshDatabaseState();
+  }
+
+  Future<void> toggleSelectedProvider(BusProvider provider, bool value) async {
+    final next = _settings.selectedProviders.toSet();
+    if (value) {
+      next.add(provider);
+    } else {
+      next.remove(provider);
+    }
+
+    if (next.isEmpty) {
+      next.add(_settings.provider);
+    }
+
+    await updateSelectedProviders(next.toList());
+  }
+
+  Future<void> setSkipDownloadPrompt(BusProvider provider, bool skip) async {
+    final next = _settings.skipDownloadPromptProviders.toSet();
+    if (skip) {
+      next.add(provider);
+    } else {
+      next.remove(provider);
+    }
+    _settings = _settings.copyWith(skipDownloadPromptProviders: next.toList());
+    await storage.saveSettings(_settings);
+    notifyListeners();
   }
 
   Future<void> updateThemeMode(ThemeMode themeMode) async {
@@ -211,19 +282,48 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> downloadCurrentProviderDatabase() async {
+    return downloadProviderDatabase(_settings.provider);
+  }
+
+  Future<void> downloadProviderDatabase(BusProvider provider) async {
     _downloadingDatabase = true;
     notifyListeners();
     try {
-      await repository.downloadDatabase(_settings.provider);
-      _databaseReady = true;
+      await repository.downloadDatabase(provider);
+      _databaseReadyByProvider = {..._databaseReadyByProvider, provider: true};
     } finally {
       _downloadingDatabase = false;
       notifyListeners();
     }
   }
 
+  Future<void> deleteProviderDatabase(BusProvider provider) async {
+    await repository.deleteProviderDatabase(provider);
+    _databaseReadyByProvider = {..._databaseReadyByProvider, provider: false};
+
+    final selected = _settings.selectedProviders.toSet();
+    selected.remove(provider);
+    if (selected.isEmpty) {
+      selected.add(
+        _settings.provider == provider ? BusProvider.tpe : _settings.provider,
+      );
+    }
+
+    var active = _settings.provider;
+    if (active == provider || !selected.contains(active)) {
+      active = selected.first;
+    }
+
+    _settings = _settings.copyWith(
+      provider: active,
+      selectedProviders: selected.toList(),
+    );
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
   Future<Map<BusProvider, int?>> checkDatabaseUpdates() {
-    return repository.checkForUpdates();
+    return repository.checkForUpdates(providers: _settings.selectedProviders);
   }
 
   Future<AppUpdateCheckResult> checkForAppUpdate({
@@ -271,23 +371,111 @@ class AppController extends ChangeNotifier {
     return repository.getLocalVersion(_settings.provider);
   }
 
+  Future<int?> localVersionForProvider(BusProvider provider) {
+    return repository.getLocalVersion(provider);
+  }
+
+  Future<void> downloadSelectedProviderDatabases() async {
+    _downloadingDatabase = true;
+    notifyListeners();
+    try {
+      for (final provider in _settings.selectedProviders) {
+        await repository.downloadDatabase(provider);
+        _databaseReadyByProvider = {
+          ..._databaseReadyByProvider,
+          provider: true,
+        };
+      }
+    } finally {
+      _downloadingDatabase = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateSelectedProviderDatabasesIfNeeded() async {
+    _downloadingDatabase = true;
+    notifyListeners();
+    try {
+      final updates = await repository.checkForUpdates(
+        providers: _settings.selectedProviders,
+      );
+      for (final entry in updates.entries) {
+        if (entry.value != null) {
+          await repository.downloadDatabase(entry.key);
+          _databaseReadyByProvider = {
+            ..._databaseReadyByProvider,
+            entry.key: true,
+          };
+        }
+      }
+    } finally {
+      _downloadingDatabase = false;
+      notifyListeners();
+    }
+  }
+
   Future<List<RouteSummary>> searchRoutes(
     String query, {
     BusProvider? provider,
+  }) async {
+    final targetProvider = provider ?? _settings.provider;
+    if (isDatabaseReady(targetProvider)) {
+      return repository.searchRoutes(query, provider: targetProvider);
+    }
+    if (shouldAskDownloadPrompt(targetProvider)) {
+      throw DatabaseNotReadyException('尚未下載 ${targetProvider.label} 資料庫。');
+    }
+    return repository.searchRoutesFromApi(query, provider: targetProvider);
+  }
+
+  Future<List<RouteSummary>> searchRoutesAcrossSelected(String query) async {
+    final results = <RouteSummary>[];
+    for (final provider in _settings.selectedProviders) {
+      if (isDatabaseReady(provider)) {
+        results.addAll(
+          await repository.searchRoutes(query, provider: provider),
+        );
+      } else if (!shouldAskDownloadPrompt(provider)) {
+        results.addAll(
+          await repository.searchRoutesFromApi(query, provider: provider),
+        );
+      }
+    }
+
+    results.sort((left, right) {
+      final leftDownloaded = isDatabaseReady(
+        busProviderFromString(left.sourceProvider),
+      );
+      final rightDownloaded = isDatabaseReady(
+        busProviderFromString(right.sourceProvider),
+      );
+      if (leftDownloaded != rightDownloaded) {
+        return leftDownloaded ? -1 : 1;
+      }
+      return left.routeName.compareTo(right.routeName);
+    });
+
+    return results;
+  }
+
+  Future<List<RouteSummary>> searchRoutesViaApi(
+    String query, {
+    required BusProvider provider,
   }) {
-    return repository.searchRoutes(
-      query,
-      provider: provider ?? _settings.provider,
-    );
+    return repository.searchRoutesFromApi(query, provider: provider);
   }
 
   Future<RouteDetailData> getRouteDetail(
     int routeKey, {
     BusProvider? provider,
+    String? routeIdHint,
+    String? routeNameHint,
   }) {
     return repository.getCompleteBusInfo(
       routeKey,
       provider: provider ?? _settings.provider,
+      routeIdHint: routeIdHint,
+      routeNameHint: routeNameHint,
     );
   }
 
@@ -295,9 +483,15 @@ class AppController extends ChangeNotifier {
     required double latitude,
     required double longitude,
     BusProvider? provider,
-  }) {
+  }) async {
+    final targetProvider =
+        provider ??
+        nearestBusProvider(latitude: latitude, longitude: longitude);
+    if (!isDatabaseReady(targetProvider)) {
+      throw StateError('目前定位為 ${targetProvider.label}，尚未下載該縣市資料庫。');
+    }
     return repository.fetchNearbyStops(
-      provider: provider ?? _settings.provider,
+      provider: targetProvider,
       latitude: latitude,
       longitude: longitude,
     );
@@ -319,6 +513,7 @@ class AppController extends ChangeNotifier {
         provider: provider,
         routeKey: route.routeKey,
         routeName: route.routeName,
+        routeId: route.routeId,
         timestampMs: DateTime.now().millisecondsSinceEpoch,
       ),
     );
@@ -460,7 +655,7 @@ class AppController extends ChangeNotifier {
     Position? position,
   }) async {
     if (!_settings.enableSmartRecommendations ||
-        !_databaseReady ||
+        !isDatabaseReady(_settings.provider) ||
         _routeUsageProfiles.isEmpty) {
       return null;
     }

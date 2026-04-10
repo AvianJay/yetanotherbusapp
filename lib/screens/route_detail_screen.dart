@@ -20,6 +20,8 @@ class RouteDetailScreen extends StatefulWidget {
   const RouteDetailScreen({
     required this.routeKey,
     required this.provider,
+    this.routeIdHint,
+    this.routeNameHint,
     this.initialPathId,
     this.initialStopId,
     super.key,
@@ -27,6 +29,8 @@ class RouteDetailScreen extends StatefulWidget {
 
   final int routeKey;
   final BusProvider provider;
+  final String? routeIdHint;
+  final String? routeNameHint;
   final int? initialPathId;
   final int? initialStopId;
 
@@ -168,6 +172,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final fetchedDetail = await controller.getRouteDetail(
         widget.routeKey,
         provider: widget.provider,
+        routeIdHint: widget.routeIdHint,
+        routeNameHint: widget.routeNameHint,
       );
       if (!mounted) {
         return;
@@ -1872,6 +1878,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final fetchedDetail = await controller.getRouteDetail(
         widget.routeKey,
         provider: widget.provider,
+        routeIdHint: widget.routeIdHint,
+        routeNameHint: widget.routeNameHint,
       );
       if (!mounted) {
         return;

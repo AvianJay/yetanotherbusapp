@@ -164,6 +164,8 @@ AppUpdateCheckMode appUpdateCheckModeFromString(String value) {
 class AppSettings {
   const AppSettings({
     required this.provider,
+    required this.selectedProviders,
+    required this.skipDownloadPromptProviders,
     required this.themeMode,
     required this.alwaysShowSeconds,
     required this.enableSmartRecommendations,
@@ -183,6 +185,8 @@ class AppSettings {
   factory AppSettings.defaults() {
     return AppSettings(
       provider: BusProvider.tpe,
+      selectedProviders: const [BusProvider.tpe],
+      skipDownloadPromptProviders: const [],
       themeMode: ThemeMode.system,
       alwaysShowSeconds: false,
       enableSmartRecommendations: true,
@@ -208,8 +212,32 @@ class AppSettings {
   }
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
+    final provider = busProviderFromString(
+      json['provider'] as String? ?? 'tpe',
+    );
+    final selectedProvidersRaw = json['selectedProviders'];
+    final selectedProviders = selectedProvidersRaw is List
+        ? selectedProvidersRaw
+              .map((item) => busProviderFromString(item.toString()))
+              .toSet()
+              .toList()
+        : <BusProvider>[provider];
+    if (!selectedProviders.contains(provider)) {
+      selectedProviders.insert(0, provider);
+    }
+
+    final skipPromptRaw = json['skipDownloadPromptProviders'];
+    final skipPromptProviders = skipPromptRaw is List
+        ? skipPromptRaw
+              .map((item) => busProviderFromString(item.toString()))
+              .toSet()
+              .toList()
+        : <BusProvider>[];
+
     return AppSettings(
-      provider: busProviderFromString(json['provider'] as String? ?? 'tpe'),
+      provider: provider,
+      selectedProviders: selectedProviders,
+      skipDownloadPromptProviders: skipPromptProviders,
       themeMode: themeModeFromString(json['themeMode'] as String? ?? 'system'),
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
       enableSmartRecommendations:
@@ -249,6 +277,8 @@ class AppSettings {
   }
 
   final BusProvider provider;
+  final List<BusProvider> selectedProviders;
+  final List<BusProvider> skipDownloadPromptProviders;
   final ThemeMode themeMode;
   final bool alwaysShowSeconds;
   final bool enableSmartRecommendations;
@@ -266,6 +296,8 @@ class AppSettings {
 
   AppSettings copyWith({
     BusProvider? provider,
+    List<BusProvider>? selectedProviders,
+    List<BusProvider>? skipDownloadPromptProviders,
     ThemeMode? themeMode,
     bool? alwaysShowSeconds,
     bool? enableSmartRecommendations,
@@ -283,6 +315,9 @@ class AppSettings {
   }) {
     return AppSettings(
       provider: provider ?? this.provider,
+      selectedProviders: selectedProviders ?? this.selectedProviders,
+      skipDownloadPromptProviders:
+          skipDownloadPromptProviders ?? this.skipDownloadPromptProviders,
       themeMode: themeMode ?? this.themeMode,
       alwaysShowSeconds: alwaysShowSeconds ?? this.alwaysShowSeconds,
       enableSmartRecommendations:
@@ -312,6 +347,10 @@ class AppSettings {
   Map<String, dynamic> toJson() {
     return {
       'provider': provider.name,
+      'selectedProviders': selectedProviders.map((item) => item.name).toList(),
+      'skipDownloadPromptProviders': skipDownloadPromptProviders
+          .map((item) => item.name)
+          .toList(),
       'themeMode': themeMode.name,
       'alwaysShowSeconds': alwaysShowSeconds,
       'enableSmartRecommendations': enableSmartRecommendations,
@@ -336,6 +375,7 @@ class SearchHistoryEntry {
     required this.provider,
     required this.routeKey,
     required this.routeName,
+    this.routeId,
     required this.timestampMs,
   });
 
@@ -344,6 +384,9 @@ class SearchHistoryEntry {
       provider: busProviderFromString(json['provider'] as String? ?? 'tpe'),
       routeKey: (json['routeKey'] as num?)?.toInt() ?? 0,
       routeName: json['routeName'] as String? ?? '',
+      routeId: (json['routeId'] as String?)?.trim().isNotEmpty == true
+          ? (json['routeId'] as String).trim()
+          : null,
       timestampMs: (json['timestampMs'] as num?)?.toInt() ?? 0,
     );
   }
@@ -351,6 +394,7 @@ class SearchHistoryEntry {
   final BusProvider provider;
   final int routeKey;
   final String routeName;
+  final String? routeId;
   final int timestampMs;
 
   Map<String, dynamic> toJson() {
@@ -358,6 +402,7 @@ class SearchHistoryEntry {
       'provider': provider.name,
       'routeKey': routeKey,
       'routeName': routeName,
+      if (routeId != null) 'routeId': routeId,
       'timestampMs': timestampMs,
     };
   }

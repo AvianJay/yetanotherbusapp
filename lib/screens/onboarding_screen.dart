@@ -203,9 +203,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     _DatabaseStep(
                       controller: controller,
                       suggestedProvider: _suggestedProvider,
-                      onProviderChanged: (provider) async {
+                      onProviderToggled: (provider, selected) async {
                         _manualProviderSelection = true;
-                        await controller.updateProvider(provider);
+                        if (selected) {
+                          await controller.updateProvider(provider);
+                        } else {
+                          await controller.toggleSelectedProvider(
+                            provider,
+                            false,
+                          );
+                        }
                       },
                       onBack: () => _goToStep(_stepIndex - 1),
                       onFinish: _nextStep,
@@ -354,20 +361,25 @@ class _DatabaseStep extends StatelessWidget {
   const _DatabaseStep({
     required this.controller,
     required this.suggestedProvider,
-    required this.onProviderChanged,
+    required this.onProviderToggled,
     required this.onBack,
     required this.onFinish,
   });
 
   final AppController controller;
   final BusProvider? suggestedProvider;
-  final Future<void> Function(BusProvider provider) onProviderChanged;
+  final Future<void> Function(BusProvider provider, bool selected)
+  onProviderToggled;
   final Future<void> Function() onBack;
   final Future<void> Function() onFinish;
 
   @override
   Widget build(BuildContext context) {
     final provider = controller.settings.provider;
+    final selectedProviders = controller.selectedProviders;
+    final downloadedCount = selectedProviders
+        .where(controller.isDatabaseReady)
+        .length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -376,24 +388,25 @@ class _DatabaseStep extends StatelessWidget {
         Text('下載資料庫', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 10),
         Text(
-          '選擇要在這台裝置使用的縣市資料庫。即使先不下載，仍可先進入首頁。',
+          '可複選要在這台裝置使用的縣市資料庫。即使先不下載，仍可先進入首頁。',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         const SizedBox(height: 24),
-        DropdownButtonFormField<BusProvider>(
-          initialValue: provider,
-          decoration: const InputDecoration(labelText: '資料庫'),
-          items: BusProvider.values
-              .map(
-                (item) =>
-                    DropdownMenuItem(value: item, child: Text(item.label)),
-              )
-              .toList(),
-          onChanged: (value) {
-            if (value != null) {
-              onProviderChanged(value);
-            }
-          },
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: BusProvider.values.map((item) {
+            return FilterChip(
+              label: Text(item.label),
+              selected: selectedProviders.contains(item),
+              onSelected: (selected) {
+                onProviderToggled(item, selected);
+              },
+              avatar: controller.isDatabaseReady(item)
+                  ? const Icon(Icons.download_done_rounded, size: 18)
+                  : const Icon(Icons.cloud_outlined, size: 18),
+            );
+          }).toList(),
         ),
         if (suggestedProvider != null) ...[
           const SizedBox(height: 12),
@@ -409,9 +422,13 @@ class _DatabaseStep extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('目前選擇：${provider.label}'),
+                Text('預設資料來源：${provider.label}'),
                 const SizedBox(height: 8),
-                Text(controller.databaseReady ? '這份資料庫已下載。' : '這份資料庫尚未下載。'),
+                Text(
+                  '已選資料庫：${selectedProviders.map((item) => item.label).join('、')}',
+                ),
+                const SizedBox(height: 8),
+                Text('已下載 $downloadedCount / ${selectedProviders.length} 份資料庫'),
               ],
             ),
           ),
@@ -430,16 +447,12 @@ class _DatabaseStep extends StatelessWidget {
                     : () async {
                         final messenger = ScaffoldMessenger.of(context);
                         try {
-                          await controller.downloadCurrentProviderDatabase();
+                          await controller.downloadSelectedProviderDatabases();
                           if (!context.mounted) {
                             return;
                           }
                           messenger.showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                '${controller.settings.provider.label} 資料庫下載完成。',
-                              ),
-                            ),
+                            const SnackBar(content: Text('已選資料庫下載完成。')),
                           );
                         } catch (error) {
                           if (!context.mounted) {
@@ -451,7 +464,7 @@ class _DatabaseStep extends StatelessWidget {
                         }
                       },
                 child: Text(
-                  controller.downloadingDatabase ? '下載中...' : '下載資料庫',
+                  controller.downloadingDatabase ? '下載中...' : '下載已選資料庫',
                 ),
               ),
             ),

@@ -86,7 +86,7 @@ class AppUpdateService {
     final uri = Uri.https(
       'api.github.com',
       '/repos/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/actions/workflows/${AppBuildInfo.workflowIdForApi}/runs',
-      {'branch': 'main', 'status': 'success', 'per_page': '1'},
+      {'branch': 'main', 'event': 'push', 'status': 'success', 'per_page': '1'},
     );
     final payload = await _getJson(uri) as Map<String, dynamic>;
     final workflowRuns = payload['workflow_runs'] as List<dynamic>? ?? const [];

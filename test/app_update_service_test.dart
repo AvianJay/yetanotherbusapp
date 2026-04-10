@@ -20,6 +20,8 @@ void main() {
         ),
         client: MockClient((request) async {
           expect(request.url.path, contains('/actions/workflows/'));
+          expect(request.url.queryParameters['branch'], 'main');
+          expect(request.url.queryParameters['event'], 'push');
           return http.Response(
             jsonEncode({
               'workflow_runs': [
@@ -51,6 +53,8 @@ void main() {
         defaultUpdateChannel: AppUpdateChannel.nightly,
       ),
       client: MockClient((request) async {
+        expect(request.url.queryParameters['branch'], 'main');
+        expect(request.url.queryParameters['event'], 'push');
         return http.Response(
           jsonEncode({
             'workflow_runs': [

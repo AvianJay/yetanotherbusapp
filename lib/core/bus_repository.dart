@@ -24,6 +24,8 @@ class BusRepository {
 
   static const _apiBaseUrl = 'https://bus.avianjay.sbs';
   static const _userAgent = 'Mozilla/5.0 (YABus Flutter)';
+  static const _databaseDirectoryName = '.yabus_backend';
+  static const _legacyDatabaseDirectoryNames = <String>['.taiwanbus'];
   static const _webLocalDatabaseUnsupportedMessage =
       'Web 版目前不支援本 app 使用的本機 SQLite 資料庫。';
 
@@ -1070,9 +1072,53 @@ class BusRepository {
 
   Future<Directory> _databaseDirectory() async {
     final root = await getApplicationDocumentsDirectory();
-    final directory = Directory(p.join(root.path, '.yabus_backend'));
+    final directory = Directory(p.join(root.path, _databaseDirectoryName));
+    await _migrateLegacyDatabaseDirectoryIfNeeded(root, directory);
     await directory.create(recursive: true);
     return directory;
+  }
+
+  Future<void> _migrateLegacyDatabaseDirectoryIfNeeded(
+    Directory root,
+    Directory targetDirectory,
+  ) async {
+    if (await targetDirectory.exists()) {
+      return;
+    }
+
+    for (final legacyName in _legacyDatabaseDirectoryNames) {
+      final legacyDirectory = Directory(p.join(root.path, legacyName));
+      if (!await legacyDirectory.exists()) {
+        continue;
+      }
+
+      await targetDirectory.create(recursive: true);
+      await _copyDirectoryContents(legacyDirectory, targetDirectory);
+      return;
+    }
+  }
+
+  Future<void> _copyDirectoryContents(
+    Directory source,
+    Directory destination,
+  ) async {
+    await for (final entity in source.list(recursive: false)) {
+      final name = p.basename(entity.path);
+      final targetPath = p.join(destination.path, name);
+      if (entity is File) {
+        final targetFile = File(targetPath);
+        if (!await targetFile.exists()) {
+          await entity.copy(targetPath);
+        }
+        continue;
+      }
+
+      if (entity is Directory) {
+        final targetDirectory = Directory(targetPath);
+        await targetDirectory.create(recursive: true);
+        await _copyDirectoryContents(entity, targetDirectory);
+      }
+    }
   }
 
   Future<Map<String, int>> _readVersionMap() async {

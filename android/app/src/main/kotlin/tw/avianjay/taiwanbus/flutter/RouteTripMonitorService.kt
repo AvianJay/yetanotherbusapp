@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -38,6 +39,7 @@ class RouteTripMonitorService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var notificationManager: NotificationManagerCompat
+    private val refreshLock = Any()
 
     private var session: TrackingSession? = null
     private var appInForeground = true
@@ -52,10 +54,17 @@ class RouteTripMonitorService : Service() {
     private var destinationAlertStage = 0
     private var overshootAlertSent = false
     private var lastWentBackgroundAtMs = 0L
+    private var refreshInFlight = false
+    private var refreshPending = false
+    private var lastRefreshStartedAtMs = 0L
+    private var cachedLiveRouteId: String? = null
+    private var cachedLivePathId: Int? = null
+    private var cachedLiveFetchedAtMs = 0L
+    private var cachedLiveStops: Map<Int, LiveStopState> = emptyMap()
 
     private val pollingRunnable = object : Runnable {
         override fun run() {
-            if (!foregroundStarted) {
+            if (!foregroundStarted || appInForeground) {
                 return
             }
             refreshNotification()
@@ -66,7 +75,9 @@ class RouteTripMonitorService : Service() {
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(locationResult: LocationResult) {
             latestLocation = locationResult.lastLocation
-            refreshNotification()
+            if (!appInForeground) {
+                refreshNotification()
+            }
         }
     }
 
@@ -105,7 +116,12 @@ class RouteTripMonitorService : Service() {
                     System.currentTimeMillis()
                 }
                 AppRuntimeStateStore.setAppInForeground(this, appInForeground)
-                refreshNotification()
+                if (appInForeground) {
+                    stopPolling()
+                } else {
+                    refreshNotification(force = true)
+                    startPolling()
+                }
                 return START_STICKY
             }
 
@@ -162,8 +178,12 @@ class RouteTripMonitorService : Service() {
 
                 ensureForegroundStarted(parsedSession)
                 requestLocationUpdates()
-                refreshNotification()
-                startPolling()
+                if (!appInForeground) {
+                    refreshNotification(force = true)
+                    startPolling()
+                } else {
+                    stopPolling()
+                }
             }
         }
         return START_STICKY
@@ -228,7 +248,9 @@ class RouteTripMonitorService : Service() {
             fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                 if (location != null) {
                     latestLocation = location
-                    refreshNotification()
+                    if (!appInForeground) {
+                        refreshNotification()
+                    }
                 }
             }
         }
@@ -236,16 +258,60 @@ class RouteTripMonitorService : Service() {
 
     private fun startPolling() {
         mainHandler.removeCallbacks(pollingRunnable)
-        mainHandler.post(pollingRunnable)
+        if (!foregroundStarted || appInForeground) {
+            return
+        }
+        mainHandler.postDelayed(pollingRunnable, POLL_INTERVAL_MS)
     }
 
-    private fun refreshNotification() {
+    private fun stopPolling() {
+        mainHandler.removeCallbacks(pollingRunnable)
+    }
+
+    private fun refreshNotification(force: Boolean = false) {
         val currentSession = session ?: return
+        if (appInForeground && !force) {
+            return
+        }
+        synchronized(refreshLock) {
+            val now = SystemClock.elapsedRealtime()
+            if (refreshInFlight) {
+                refreshPending = true
+                return
+            }
+            if (
+                lastRefreshStartedAtMs != 0L &&
+                now - lastRefreshStartedAtMs < MIN_REFRESH_INTERVAL_MS
+            ) {
+                return
+            }
+            refreshInFlight = true
+            lastRefreshStartedAtMs = now
+        }
         ioExecutor.execute {
-            val trackingSnapshot = buildSnapshot(currentSession, latestLocation)
-            val notification = buildTrackingNotification(trackingSnapshot)
-            notificationManager.notify(TRACKING_NOTIFICATION_ID, notification)
-            maybeSendTripAlerts(currentSession, trackingSnapshot)
+            try {
+                val trackingSnapshot = buildSnapshot(currentSession, latestLocation)
+                val notification = buildTrackingNotification(trackingSnapshot)
+                notificationManager.notify(TRACKING_NOTIFICATION_ID, notification)
+                maybeSendTripAlerts(currentSession, trackingSnapshot)
+            } finally {
+                var shouldRefreshAgain = false
+                synchronized(refreshLock) {
+                    refreshInFlight = false
+                    if (refreshPending && !appInForeground) {
+                        refreshPending = false
+                        shouldRefreshAgain = true
+                    } else {
+                        refreshPending = false
+                    }
+                }
+                if (shouldRefreshAgain) {
+                    mainHandler.postDelayed(
+                        { refreshNotification() },
+                        MIN_REFRESH_INTERVAL_MS,
+                    )
+                }
+            }
         }
     }
 
@@ -1367,6 +1433,13 @@ class RouteTripMonitorService : Service() {
         trackedBusId = null
         destinationAlertStage = 0
         overshootAlertSent = false
+        refreshInFlight = false
+        refreshPending = false
+        lastRefreshStartedAtMs = 0L
+        cachedLiveRouteId = null
+        cachedLivePathId = null
+        cachedLiveFetchedAtMs = 0L
+        cachedLiveStops = emptyMap()
         mainHandler.removeCallbacksAndMessages(null)
         runCatching {
             fusedLocationClient.removeLocationUpdates(locationCallback)
@@ -1389,10 +1462,28 @@ class RouteTripMonitorService : Service() {
         if (routeId.isEmpty()) {
             return emptyMap()
         }
-        return fetchLiveStopMapFromBackend(
+        val now = SystemClock.elapsedRealtime()
+        synchronized(refreshLock) {
+            if (
+                cachedLiveRouteId == routeId &&
+                cachedLivePathId == session.pathId &&
+                cachedLiveFetchedAtMs != 0L &&
+                now - cachedLiveFetchedAtMs < LIVE_STOP_CACHE_TTL_MS
+            ) {
+                return cachedLiveStops
+            }
+        }
+        val liveStops = fetchLiveStopMapFromBackend(
             routeId = routeId,
             pathId = session.pathId,
         )
+        synchronized(refreshLock) {
+            cachedLiveRouteId = routeId
+            cachedLivePathId = session.pathId
+            cachedLiveFetchedAtMs = now
+            cachedLiveStops = liveStops
+        }
+        return liveStops
     }
 
     private fun fetchLiveStopMapFromBackend(
@@ -1763,6 +1854,8 @@ class RouteTripMonitorService : Service() {
         private const val ALERT_NOTIFICATION_ID = 6022
 
         private const val POLL_INTERVAL_MS = 15_000L
+        private const val MIN_REFRESH_INTERVAL_MS = 2_000L
+        private const val LIVE_STOP_CACHE_TTL_MS = 2_000L
         private const val LOCATION_UPDATE_INTERVAL_MS = 12_000L
         private const val LOCATION_MIN_UPDATE_INTERVAL_MS = 6_000L
         private const val BOARDING_STOP_RADIUS_METERS = 180.0

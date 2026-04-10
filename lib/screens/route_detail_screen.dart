@@ -128,6 +128,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final wasForeground = _appIsForeground;
     _appLifecycleState = state;
     if (state == AppLifecycleState.resumed &&
         _awaitingBackgroundLocationPermission) {
@@ -142,9 +143,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (!_isAndroid) {
       return;
     }
-    if (!AppControllerScope.read(
-          context,
-        ).settings.enableRouteBackgroundMonitor ||
+    final controller = AppControllerScope.read(context);
+    if (!controller.settings.enableRouteBackgroundMonitor ||
         !_backgroundTripMonitorReady) {
       return;
     }
@@ -155,10 +155,28 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       AppLifecycleState.paused => false,
       AppLifecycleState.detached => false,
     };
-    unawaited(AndroidTripMonitor.setAppInForeground(isForeground));
+    if (isForeground == wasForeground) {
+      if (!isForeground) {
+        _pauseForegroundRefreshLoop();
+      }
+      return;
+    }
+    if (isForeground) {
+      unawaited(AndroidTripMonitor.setAppInForeground(true));
+      unawaited(AndroidTripMonitor.stop());
+      if (!wasForeground && _detail != null) {
+        unawaited(_refresh());
+      }
+    } else {
+      _pauseForegroundRefreshLoop();
+    }
+    unawaited(_configureBackgroundTripMonitorIfNeeded());
   }
 
   Future<void> _refresh() async {
+    if (_shouldSuspendForegroundRefreshes) {
+      return;
+    }
     final controller = AppControllerScope.read(context);
     final previousDetail = _detail;
 
@@ -365,6 +383,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_shouldSuspendForegroundRefreshes) {
         timer.cancel();
         return;
       }
@@ -639,6 +661,17 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool get _appIsForeground =>
       _appLifecycleState == AppLifecycleState.resumed ||
       _appLifecycleState == AppLifecycleState.inactive;
+
+  bool get _shouldSuspendForegroundRefreshes =>
+      _isAndroid &&
+      !_appIsForeground &&
+      _backgroundTripMonitorReady &&
+      AppControllerScope.read(context).settings.enableRouteBackgroundMonitor;
+
+  void _pauseForegroundRefreshLoop() {
+    _countdownTimer?.cancel();
+    _countdownProgressController.stop();
+  }
 
   PathInfo? get _currentPathInfo {
     final detail = _detail;
@@ -964,6 +997,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       }
       await AndroidTripMonitor.requestNotificationPermission();
       _backgroundTripMonitorReady = true;
+    }
+
+    if (_appIsForeground) {
+      await AndroidTripMonitor.stop();
+      return;
     }
 
     final pathStops = detail.stopsByPath[pathInfo.pathId] ?? const <StopInfo>[];
@@ -1456,7 +1494,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return '進站中';
     }
     if (seconds < 60) {
-      return '即將進站';
+      return '$seconds 秒';
     }
     return '${seconds ~/ 60} 分';
   }

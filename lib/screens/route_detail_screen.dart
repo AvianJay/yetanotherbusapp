@@ -69,6 +69,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int? _liveActivityPathId;
   bool _liveActivityBoardingWindowOpen = false;
   bool _liveActivityRideConfirmed = false;
+  DateTime? _liveActivityBoardingWindowOpenedAt;
+  bool _iosBoardingCheckPromptSent = false;
   bool _locationTrackingConfiguredForBackground = false;
   bool _backgroundLocationAlwaysGranted = false;
   int? _liveActivityLastNearestStopIndex;
@@ -123,6 +125,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (_wakelockEnabled == true) {
       unawaited(_setWakelock(false));
     }
+    unawaited(TripMonitorNotifications.cancelBoardingCheckPrompt());
     unawaited(AndroidTripMonitor.stop());
     unawaited(LiveActivityService.endLiveActivity());
     super.dispose();
@@ -141,6 +144,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     if (state == AppLifecycleState.resumed && _isAndroid) {
       unawaited(_syncBackgroundTripMonitorPausedState());
+    }
+    if (state == AppLifecycleState.resumed && _isIOS) {
+      unawaited(TripMonitorNotifications.cancelBoardingCheckPrompt());
     }
     if (!_isAndroid) {
       return;
@@ -1384,6 +1390,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   void _resetLiveActivityRideState() {
     _liveActivityBoardingWindowOpen = false;
     _liveActivityRideConfirmed = false;
+    _liveActivityBoardingWindowOpenedAt = null;
+    _iosBoardingCheckPromptSent = false;
     _liveActivityLastNearestStopIndex = null;
   }
 
@@ -1420,6 +1428,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   Future<void> _stopLiveActivity() async {
+    await TripMonitorNotifications.cancelBoardingCheckPrompt();
     await LiveActivityService.endLiveActivity();
     if (!mounted) {
       return;
@@ -1580,6 +1589,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         (busStopsUntilBoarding != null && busStopsUntilBoarding <= 1) ||
         _isImmediateEtaText(boardingEtaText);
     if (userNearBoardingStop && busNearBoardingStop) {
+      _liveActivityBoardingWindowOpenedAt ??= DateTime.now();
       _liveActivityBoardingWindowOpen = true;
     }
 
@@ -1596,6 +1606,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         nearestIndex >= boardingIndex &&
         busNearUser) {
       _liveActivityRideConfirmed = true;
+      unawaited(TripMonitorNotifications.cancelBoardingCheckPrompt());
     }
 
     return _liveActivityRideConfirmed;
@@ -1885,6 +1896,38 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _liveActivityStopId = displayState.stopId;
       });
     }
+    await _maybeSendIOSBoardingCheckPrompt();
+  }
+
+  Future<void> _maybeSendIOSBoardingCheckPrompt() async {
+    if (!_isIOS || _appIsForeground || !_backgroundTripMonitorReady) {
+      await TripMonitorNotifications.cancelBoardingCheckPrompt();
+      return;
+    }
+    if (_liveActivityRideConfirmed) {
+      await TripMonitorNotifications.cancelBoardingCheckPrompt();
+      return;
+    }
+    if (!_liveActivityBoardingWindowOpen || _iosBoardingCheckPromptSent) {
+      return;
+    }
+    final openedAt = _liveActivityBoardingWindowOpenedAt;
+    if (openedAt == null ||
+        DateTime.now().difference(openedAt) <
+            const Duration(seconds: 45)) {
+      return;
+    }
+    final boardingStopName =
+        _boardingStopName ?? _currentBoardingCandidateStop()?.stopName;
+    if (boardingStopName == null || boardingStopName.trim().isEmpty) {
+      return;
+    }
+    await TripMonitorNotifications.showBoardingCheckPrompt(
+      routeName: _detail?.route.routeName ?? widget.routeNameHint ?? 'YABus',
+      boardingStopName: boardingStopName,
+      destinationStopName: _destinationStopName,
+    );
+    _iosBoardingCheckPromptSent = true;
   }
 
   Future<void> _maybeRefreshBackgroundTripMonitor() async {

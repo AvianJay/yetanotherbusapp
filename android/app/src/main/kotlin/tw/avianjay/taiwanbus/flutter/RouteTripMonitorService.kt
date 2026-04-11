@@ -46,7 +46,10 @@ class RouteTripMonitorService : Service() {
     private var foregroundStarted = false
     private var latestLocation: Location? = null
     private var boardingAlertSent = false
+    private var boardingCheckPromptSent = false
     private var boardingWindowOpen = false
+    private var boardingWindowOpenedAtMs = 0L
+    private var boardingCheckSnoozeUntilMs = 0L
     private var rideConfirmed = false
     private var rideConfirmationSamples = 0
     private var lastNearestStopIndex: Int? = null
@@ -130,6 +133,23 @@ class RouteTripMonitorService : Service() {
                 return START_NOT_STICKY
             }
 
+            ACTION_MARK_BOARDED -> {
+                rideConfirmed = true
+                boardingWindowOpen = true
+                boardingCheckPromptSent = true
+                notificationManager.cancel(ALERT_NOTIFICATION_ID)
+                refreshNotification(force = true)
+                return START_STICKY
+            }
+
+            ACTION_NOT_BOARDED -> {
+                boardingCheckPromptSent = false
+                boardingCheckSnoozeUntilMs =
+                    System.currentTimeMillis() + BOARDING_CHECK_SNOOZE_MS
+                notificationManager.cancel(ALERT_NOTIFICATION_ID)
+                return START_STICKY
+            }
+
             ACTION_START_OR_UPDATE -> {
                 val sessionJson = intent.getStringExtra(EXTRA_SESSION_JSON)
                 val parsedSession = sessionJson?.let(::parseSessionJson)
@@ -159,7 +179,10 @@ class RouteTripMonitorService : Service() {
                     previousRouteId != parsedSession.routeId
                 ) {
                     boardingAlertSent = false
+                    boardingCheckPromptSent = false
                     boardingWindowOpen = false
+                    boardingWindowOpenedAtMs = 0L
+                    boardingCheckSnoozeUntilMs = 0L
                     rideConfirmed = false
                     rideConfirmationSamples = 0
                     lastNearestStopIndex = null
@@ -744,6 +767,9 @@ class RouteTripMonitorService : Service() {
             (busStopsUntilBoarding != null && busStopsUntilBoarding <= 1) ||
                 isImmediateEtaText(boardingEtaText)
         if (userNearBoardingStop && busNearBoardingStop) {
+            if (!boardingWindowOpen) {
+                boardingWindowOpenedAtMs = System.currentTimeMillis()
+            }
             boardingWindowOpen = true
         }
 
@@ -774,6 +800,7 @@ class RouteTripMonitorService : Service() {
             }
             if (rideConfirmationSamples >= REQUIRED_RIDE_CONFIRMATION_SAMPLES) {
                 rideConfirmed = true
+                boardingCheckPromptSent = true
             }
         }
 
@@ -1225,6 +1252,7 @@ class RouteTripMonitorService : Service() {
         }
         if (!snapshot.hasBoarded) {
             maybeSendBoardingAlert(session, snapshot)
+            maybeSendBoardingCheckPrompt(session, snapshot)
             return
         }
         maybeSendDestinationAlert(session, snapshot)
@@ -1272,6 +1300,63 @@ class RouteTripMonitorService : Service() {
                 .setCategory(NotificationCompat.CATEGORY_REMINDER)
                 .setAutoCancel(true)
                 .setContentIntent(createOpenRoutePendingIntent(session))
+                .build(),
+        )
+    }
+
+    private fun maybeSendBoardingCheckPrompt(
+        session: TrackingSession,
+        snapshot: TrackingSnapshot,
+    ) {
+        if (!session.backgroundLocationAlwaysGranted || snapshot.hasBoarded) {
+            return
+        }
+        if (!boardingWindowOpen || boardingCheckPromptSent) {
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (boardingWindowOpenedAtMs == 0L || now < boardingCheckSnoozeUntilMs) {
+            return
+        }
+        if (now - boardingWindowOpenedAtMs < BOARDING_CHECK_PROMPT_DELAY_MS) {
+            return
+        }
+        val boardingName = snapshot.boardingName ?: return
+        val busArrived = hasBusReachedBoardingStop(
+            busStopsUntilBoarding = snapshot.boardingStopsAway,
+            boardingEtaText = snapshot.boardingEtaText.orEmpty(),
+        )
+        if (!busArrived) {
+            return
+        }
+
+        boardingCheckPromptSent = true
+        notificationManager.notify(
+            ALERT_NOTIFICATION_ID,
+            NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_status_bus)
+                .setContentTitle("你有上車嗎？")
+                .setContentText("$boardingName 的公車看起來已經到了。")
+                .setSubText(session.pathName)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .setAutoCancel(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setContentIntent(createOpenRoutePendingIntent(session))
+                .addAction(
+                    NotificationCompat.Action.Builder(
+                        0,
+                        "我已上車",
+                        createMarkBoardedPendingIntent(),
+                    ).build(),
+                )
+                .addAction(
+                    NotificationCompat.Action.Builder(
+                        0,
+                        "還沒上車",
+                        createNotBoardedPendingIntent(),
+                    ).build(),
+                )
                 .build(),
         )
     }
@@ -1442,6 +1527,30 @@ class RouteTripMonitorService : Service() {
         )
     }
 
+    private fun createMarkBoardedPendingIntent(): PendingIntent {
+        val intent = Intent(this, RouteTripMonitorService::class.java).apply {
+            action = ACTION_MARK_BOARDED
+        }
+        return PendingIntent.getService(
+            this,
+            405,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun createNotBoardedPendingIntent(): PendingIntent {
+        val intent = Intent(this, RouteTripMonitorService::class.java).apply {
+            action = ACTION_NOT_BOARDED
+        }
+        return PendingIntent.getService(
+            this,
+            406,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         AppRuntimeStateStore.setAppInForeground(this, false)
         stopTracking()
@@ -1465,7 +1574,10 @@ class RouteTripMonitorService : Service() {
         session = null
         latestLocation = null
         boardingAlertSent = false
+        boardingCheckPromptSent = false
         boardingWindowOpen = false
+        boardingWindowOpenedAtMs = 0L
+        boardingCheckSnoozeUntilMs = 0L
         rideConfirmed = false
         rideConfirmationSamples = 0
         lastNearestStopIndex = null
@@ -1878,6 +1990,10 @@ class RouteTripMonitorService : Service() {
             "tw.avianjay.taiwanbus.flutter.action.SET_TRIP_MONITOR_APP_FOREGROUND"
         private const val ACTION_PAUSE =
             "tw.avianjay.taiwanbus.flutter.action.PAUSE_TRIP_MONITOR"
+        private const val ACTION_MARK_BOARDED =
+            "tw.avianjay.taiwanbus.flutter.action.MARK_BOARDED"
+        private const val ACTION_NOT_BOARDED =
+            "tw.avianjay.taiwanbus.flutter.action.NOT_BOARDED"
         private const val ACTION_RESUME =
             "tw.avianjay.taiwanbus.flutter.action.RESUME_TRIP_MONITOR"
         private const val ACTION_STOP =
@@ -1901,6 +2017,8 @@ class RouteTripMonitorService : Service() {
         private const val BOARDING_CONFIRM_DISTANCE_METERS = 250.0
         private const val REQUIRED_RIDE_CONFIRMATION_SAMPLES = 2
         private const val BACKGROUND_AUTO_PAUSE_GRACE_MS = 90_000L
+        private const val BOARDING_CHECK_PROMPT_DELAY_MS = 45_000L
+        private const val BOARDING_CHECK_SNOOZE_MS = 180_000L
         private const val LIVE_UPDATE_SDK_INT = 36
         private const val PAUSE_REASON_USER = "user"
         private const val PAUSE_REASON_ARRIVED = "arrived"

@@ -1067,27 +1067,27 @@ class BusRepository {
 
   Future<File> _databaseFile(BusProvider provider) async {
     final directory = await _databaseDirectory();
-    return File(p.join(directory.path, provider.databaseFileName));
+    final file = File(p.join(directory.path, provider.databaseFileName));
+    await _migrateLegacyDatabaseFileIfNeeded(file);
+    return file;
   }
 
   Future<Directory> _databaseDirectory() async {
-    final root = await getApplicationDocumentsDirectory();
-    final directory = Directory(p.join(root.path, _databaseDirectoryName));
-    await _migrateLegacyDatabaseDirectoryIfNeeded(root, directory);
+    final rootPath = await getDatabasesPath();
+    final directory = Directory(p.join(rootPath, _databaseDirectoryName));
+    await _migrateLegacyDatabaseDirectoryIfNeeded(directory);
     await directory.create(recursive: true);
     return directory;
   }
 
   Future<void> _migrateLegacyDatabaseDirectoryIfNeeded(
-    Directory root,
     Directory targetDirectory,
   ) async {
     if (await targetDirectory.exists()) {
       return;
     }
 
-    for (final legacyName in _legacyDatabaseDirectoryNames) {
-      final legacyDirectory = Directory(p.join(root.path, legacyName));
+    for (final legacyDirectory in await _legacyDatabaseDirectories()) {
       if (!await legacyDirectory.exists()) {
         continue;
       }
@@ -1118,6 +1118,60 @@ class BusRepository {
         await targetDirectory.create(recursive: true);
         await _copyDirectoryContents(entity, targetDirectory);
       }
+    }
+  }
+
+  Future<List<Directory>> _legacyDatabaseDirectories() async {
+    final directories = <Directory>[];
+
+    final documentsRoot = await getApplicationDocumentsDirectory();
+    directories.add(Directory(p.join(documentsRoot.path, _databaseDirectoryName)));
+    for (final legacyName in _legacyDatabaseDirectoryNames) {
+      directories.add(Directory(p.join(documentsRoot.path, legacyName)));
+    }
+
+    final supportRoot = await getApplicationSupportDirectory();
+    directories.add(Directory(p.join(supportRoot.path, _databaseDirectoryName)));
+    for (final legacyName in _legacyDatabaseDirectoryNames) {
+      directories.add(Directory(p.join(supportRoot.path, legacyName)));
+    }
+
+    final databaseRoot = Directory(await getDatabasesPath());
+    for (final legacyName in _legacyDatabaseDirectoryNames) {
+      directories.add(Directory(p.join(databaseRoot.path, legacyName)));
+    }
+
+    final deduped = <String, Directory>{};
+    for (final directory in directories) {
+      deduped.putIfAbsent(directory.path, () => directory);
+    }
+    return deduped.values.toList();
+  }
+
+  Future<void> _migrateLegacyDatabaseFileIfNeeded(File targetFile) async {
+    if (await targetFile.exists()) {
+      return;
+    }
+
+    for (final legacyDirectory in await _legacyDatabaseDirectories()) {
+      final legacyFile = File(
+        p.join(legacyDirectory.path, p.basename(targetFile.path)),
+      );
+      if (!await legacyFile.exists()) {
+        continue;
+      }
+
+      await targetFile.parent.create(recursive: true);
+      await legacyFile.copy(targetFile.path);
+
+      final targetVersionFile = File(p.join(targetFile.parent.path, 'version.json'));
+      if (!await targetVersionFile.exists()) {
+        final legacyVersionFile = File(p.join(legacyDirectory.path, 'version.json'));
+        if (await legacyVersionFile.exists()) {
+          await legacyVersionFile.copy(targetVersionFile.path);
+        }
+      }
+      return;
     }
   }
 

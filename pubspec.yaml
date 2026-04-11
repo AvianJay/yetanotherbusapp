@@ -40,6 +40,7 @@ dependencies:
   shared_preferences: ^2.5.5
   geolocator: ^14.0.2
   sqflite_common_ffi: ^2.4.0+2
+  sqlite3: ^3.2.0
   path: ^1.9.1
   wakelock_plus: ^1.5.1
   package_info_plus: ^9.0.0

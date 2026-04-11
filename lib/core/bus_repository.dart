@@ -51,7 +51,30 @@ class BusRepository {
       return false;
     }
     final file = await _databaseFile(provider);
-    return file.exists();
+    if (!await file.exists()) {
+      return false;
+    }
+    if (!await _looksLikeSqliteFile(file)) {
+      await _markDatabaseInvalid(provider, file);
+      return false;
+    }
+
+    try {
+      final database = await openDatabase(
+        file.path,
+        readOnly: true,
+        singleInstance: false,
+      );
+      try {
+        await _validateDatabaseSchema(database);
+      } finally {
+        await database.close();
+      }
+      return true;
+    } catch (_) {
+      await _markDatabaseInvalid(provider, file);
+      return false;
+    }
   }
 
   Future<List<BusProvider>> listDownloadedProviders() async {
@@ -110,6 +133,7 @@ class BusRepository {
     final file = await _databaseFile(provider);
 
     await _downloadCityDatabase(provider, file);
+    await _ensureDownloadedDatabaseUsable(provider, file);
 
     final versions = await _readVersionMap();
     versions[provider.name] = remoteVersion;
@@ -1062,7 +1086,23 @@ class BusRepository {
       throw DatabaseNotReadyException('尚未下載 ${provider.label} 資料庫。');
     }
 
-    return openDatabase(file.path, readOnly: true, singleInstance: false);
+    if (!await _looksLikeSqliteFile(file)) {
+      await _markDatabaseInvalid(provider, file);
+      throw DatabaseNotReadyException('${provider.label} 資料庫已損壞，請重新下載。');
+    }
+
+    try {
+      final database = await openDatabase(
+        file.path,
+        readOnly: true,
+        singleInstance: false,
+      );
+      await _validateDatabaseSchema(database);
+      return database;
+    } catch (_) {
+      await _markDatabaseInvalid(provider, file);
+      throw DatabaseNotReadyException('${provider.label} 資料庫無法開啟，請重新下載。');
+    }
   }
 
   Future<File> _databaseFile(BusProvider provider) async {
@@ -1172,6 +1212,83 @@ class BusRepository {
         }
       }
       return;
+    }
+  }
+
+  Future<bool> _looksLikeSqliteFile(File file) async {
+    try {
+      final length = await file.length();
+      if (length < 16) {
+        return false;
+      }
+      final bytes = await file.openRead(0, 16).first;
+      return ascii.decode(bytes, allowInvalid: true) == 'SQLite format 3\u0000';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _validateDatabaseSchema(Database database) async {
+    final rows = await database.rawQuery(
+      '''
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table'
+        AND name IN ('routes', 'paths', 'stops')
+      ''',
+    );
+    final tableNames = rows
+        .map((row) => row['name']?.toString() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toSet();
+    if (!tableNames.containsAll(const {'routes', 'paths', 'stops'})) {
+      throw const FormatException('Invalid city database schema.');
+    }
+  }
+
+  Future<void> _markDatabaseInvalid(BusProvider provider, File file) async {
+    for (final candidatePath in <String>[
+      file.path,
+      '${file.path}-wal',
+      '${file.path}-shm',
+      '${file.path}-journal',
+    ]) {
+      final candidate = File(candidatePath);
+      if (await candidate.exists()) {
+        await candidate.delete();
+      }
+    }
+
+    final versions = await _readVersionMap();
+    if (versions[provider.name] != null && versions[provider.name] != 0) {
+      versions[provider.name] = 0;
+      await _writeVersionMap(versions);
+    }
+  }
+
+  Future<void> _ensureDownloadedDatabaseUsable(
+    BusProvider provider,
+    File file,
+  ) async {
+    if (!await _looksLikeSqliteFile(file)) {
+      await _markDatabaseInvalid(provider, file);
+      throw DatabaseNotReadyException('${provider.label} 資料庫下載失敗，請稍後再試。');
+    }
+
+    try {
+      final database = await openDatabase(
+        file.path,
+        readOnly: true,
+        singleInstance: false,
+      );
+      try {
+        await _validateDatabaseSchema(database);
+      } finally {
+        await database.close();
+      }
+    } catch (_) {
+      await _markDatabaseInvalid(provider, file);
+      throw DatabaseNotReadyException('${provider.label} 資料庫下載失敗，請稍後再試。');
     }
   }
 

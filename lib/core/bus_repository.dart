@@ -26,6 +26,7 @@ class BusRepository {
   static const _userAgent = 'Mozilla/5.0 (YABus Flutter)';
   static const _databaseDirectoryName = '.yabus_backend';
   static const _legacyDatabaseDirectoryNames = <String>['.taiwanbus'];
+  static const _routeMetadataDatabaseFileName = 'routes_metadata_v1.sqlite';
   static const _webLocalDatabaseUnsupportedMessage =
       'Web 版目前不支援本 app 使用的本機 SQLite 資料庫。';
 
@@ -50,29 +51,50 @@ class BusRepository {
     if (!_supportsLocalDatabase) {
       return false;
     }
-    final file = await _databaseFile(provider);
-    if (!await file.exists()) {
+    final metadataFile = await _routeMetadataDatabaseFile();
+    final cityFile = await _cityDatabaseFile(provider);
+    if (!await metadataFile.exists() || !await cityFile.exists()) {
       return false;
     }
-    if (!await _looksLikeSqliteFile(file)) {
-      await _markDatabaseInvalid(provider, file);
+    if (!await _looksLikeSqliteFile(metadataFile)) {
+      await _deleteDatabaseArtifacts(metadataFile);
+      return false;
+    }
+    if (!await _looksLikeSqliteFile(cityFile)) {
+      await _markDatabaseInvalid(provider, cityFile);
       return false;
     }
 
     try {
-      final database = await openDatabase(
-        file.path,
+      final metadataDatabase = await openDatabase(
+        metadataFile.path,
         readOnly: true,
         singleInstance: false,
       );
       try {
-        await _validateDatabaseSchema(database);
+        await _validateMetadataDatabaseSchema(metadataDatabase);
       } finally {
-        await database.close();
+        await metadataDatabase.close();
+      }
+    } catch (_) {
+      await _deleteDatabaseArtifacts(metadataFile);
+      return false;
+    }
+
+    try {
+      final cityDatabase = await openDatabase(
+        cityFile.path,
+        readOnly: true,
+        singleInstance: false,
+      );
+      try {
+        await _validateCityDatabaseSchema(cityDatabase);
+      } finally {
+        await cityDatabase.close();
       }
       return true;
     } catch (_) {
-      await _markDatabaseInvalid(provider, file);
+      await _markDatabaseInvalid(provider, cityFile);
       return false;
     }
   }
@@ -92,7 +114,7 @@ class BusRepository {
 
   Future<void> deleteProviderDatabase(BusProvider provider) async {
     _ensureLocalDatabaseSupported();
-    final file = await _databaseFile(provider);
+    final file = await _cityDatabaseFile(provider);
     if (await file.exists()) {
       await file.delete();
     }
@@ -130,10 +152,34 @@ class BusRepository {
   Future<void> downloadDatabase(BusProvider provider) async {
     _ensureLocalDatabaseSupported();
     final remoteVersion = await _fetchRemoteDatabaseVersion(provider);
-    final file = await _databaseFile(provider);
+    final metadataFile = await _routeMetadataDatabaseFile();
+    final cityFile = await _cityDatabaseFile(provider);
+    final tempDirectory = Directory(
+      p.join(cityFile.parent.path, '.download_tmp_${provider.name}'),
+    );
+    final tempMetadataFile = File(p.join(tempDirectory.path, 'routes.db'));
+    final tempCityFile = File(p.join(tempDirectory.path, 'city.db'));
 
-    await _downloadCityDatabase(provider, file);
-    await _ensureDownloadedDatabaseUsable(provider, file);
+    await tempDirectory.create(recursive: true);
+    try {
+      await _downloadRouteMetadataDatabase(tempMetadataFile);
+      await _ensureDownloadedMetadataDatabaseUsable(tempMetadataFile);
+      await _downloadCityDatabase(provider, tempCityFile);
+      await _ensureDownloadedCityDatabaseUsable(provider, tempCityFile);
+      await metadataFile.parent.create(recursive: true);
+      if (await metadataFile.exists()) {
+        await metadataFile.delete();
+      }
+      await tempMetadataFile.rename(metadataFile.path);
+      if (await cityFile.exists()) {
+        await cityFile.delete();
+      }
+      await tempCityFile.rename(cityFile.path);
+    } finally {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    }
 
     final versions = await _readVersionMap();
     versions[provider.name] = remoteVersion;
@@ -145,108 +191,24 @@ class BusRepository {
     required BusProvider provider,
     int limit = 80,
   }) async {
-    final database = await _openDatabase(provider);
+    final database = await _openMetadataDatabase();
     try {
-      final normalized = query.trim();
-      List<Map<String, Object?>> rows;
-      try {
-        rows = await database.rawQuery(
-          '''
-          SELECT
-            routes.routeid AS route_id,
-            routes.name AS route_name,
-            routes.name_en AS route_name_en,
-            routes.path_name AS path_name,
-            COALESCE(
-              (
-                SELECT p.pathid
-                FROM paths p
-                WHERE p.routeid = routes.routeid
-                ORDER BY p.pathid ASC
-                LIMIT 1
-              ),
-              0
-            ) AS path_id,
-            routes.path_name_en AS path_name_en
-          FROM routes
-          WHERE routes.name LIKE ?
-            OR routes.routeid LIKE ?
-            OR routes.path_name LIKE ?
-            OR EXISTS (
-              SELECT 1
-              FROM paths p
-              WHERE p.routeid = routes.routeid
-                AND p.name LIKE ?
-            )
-          ORDER BY routes.routeid ASC
-          LIMIT ?
-          ''',
-          [
-            '%$normalized%',
-            '%$normalized%',
-            '%$normalized%',
-            '%$normalized%',
-            limit,
-          ],
-        );
-      } on DatabaseException catch (error) {
-        // Backward compatibility for old city DB files without routes.path_name.
-        final message = error.toString().toLowerCase();
-        if (!message.contains('no such column') ||
-            !message.contains('path_name')) {
-          rethrow;
-        }
-        rows = await database.rawQuery(
-          '''
-          SELECT
-            routes.routeid AS route_id,
-            routes.name AS route_name,
-            routes.name_en AS route_name_en,
-            COALESCE(
-              (
-                SELECT p.pathid
-                FROM paths p
-                WHERE p.routeid = routes.routeid
-                ORDER BY p.pathid ASC
-                LIMIT 1
-              ),
-              0
-            ) AS path_id,
-            COALESCE(
-              (
-                SELECT p.name
-                FROM paths p
-                WHERE p.routeid = routes.routeid
-                ORDER BY p.pathid ASC
-                LIMIT 1
-              ),
-              ''
-            ) AS path_name
-          FROM routes
-          WHERE routes.name LIKE ?
-            OR routes.routeid LIKE ?
-            OR EXISTS (
-              SELECT 1
-              FROM paths p
-              WHERE p.routeid = routes.routeid
-                AND p.name LIKE ?
-            )
-          ORDER BY routes.routeid ASC
-          LIMIT ?
-          ''',
-          ['%$normalized%', '%$normalized%', '%$normalized%', limit],
-        );
-      }
+      final rows = await _queryMetadataPathRows(
+        database,
+        provider: provider,
+        searchQuery: query,
+        limit: limit,
+      );
 
       return rows
           .map(
             (row) => _routeSummaryFromPathRow(
               provider: provider,
-              routeId: row['route_id']?.toString() ?? '',
-              routeName: row['route_name']?.toString() ?? '',
-              routeNameEn: row['route_name_en']?.toString() ?? '',
-              pathId: (row['path_id'] as num?)?.toInt() ?? 0,
-              pathName: row['path_name']?.toString() ?? '',
+              routeId: row.routeId,
+              routeName: row.routeName,
+              routeNameEn: row.routeNameEn,
+              pathId: row.pathId,
+              pathName: row.pathName,
             ),
           )
           .where((summary) => summary.routeId.isNotEmpty)
@@ -347,41 +309,41 @@ class BusRepository {
       return null;
     }
 
-    final database = await _openDatabase(provider);
+    final database = await _openMetadataDatabase();
     try {
-      final routeRows = await database.query(
-        'routes',
-        where: 'routeid = ?',
-        whereArgs: [routeId],
-        limit: 1,
+      final routeRows = await _queryMetadataPathRows(
+        database,
+        provider: provider,
+        routeId: routeId,
       );
       if (routeRows.isEmpty) {
         return null;
       }
 
-      final routeRow = routeRows.first;
-      final pathRows = await database.query(
-        'paths',
-        where: 'routeid = ?',
-        whereArgs: [routeId],
-        orderBy: 'pathid ASC',
-      );
       final pickedPath = preferredPathId == null
-          ? pathRows.firstOrNull
-          : pathRows.firstWhere(
-              (row) => (row['pathid'] as num?)?.toInt() == preferredPathId,
-              orElse: () => pathRows.firstOrNull ?? const <String, Object?>{},
+          ? routeRows.firstOrNull
+          : routeRows.firstWhere(
+              (row) => row.pathId == preferredPathId,
+              orElse: () =>
+                  routeRows.firstOrNull ??
+                  const _MetadataPathRow(
+                    routeId: '',
+                    routeName: '',
+                    routeNameEn: '',
+                    pathId: 0,
+                    pathName: '',
+                    pathNameEn: '',
+                  ),
             );
-      final pathId = (pickedPath?['pathid'] as num?)?.toInt() ?? 0;
-      final pathName = pickedPath?['name']?.toString() ?? '';
+      final routeRow = pickedPath ?? routeRows.first;
 
       return _routeSummaryFromPathRow(
         provider: provider,
-        routeId: routeRow['routeid']?.toString() ?? '',
-        routeName: routeRow['name']?.toString() ?? '',
-        routeNameEn: routeRow['name_en']?.toString() ?? '',
-        pathId: pathId,
-        pathName: pathName,
+        routeId: routeRow.routeId,
+        routeName: routeRow.routeName,
+        routeNameEn: routeRow.routeNameEn,
+        pathId: routeRow.pathId,
+        pathName: routeRow.pathName,
       );
     } finally {
       await database.close();
@@ -399,20 +361,19 @@ class BusRepository {
       return const [];
     }
 
-    final database = await _openDatabase(provider);
+    final database = await _openMetadataDatabase();
     try {
-      final rows = await database.query(
-        'paths',
-        where: 'routeid = ?',
-        whereArgs: [routeId],
-        orderBy: 'pathid ASC',
+      final rows = await _queryMetadataPathRows(
+        database,
+        provider: provider,
+        routeId: routeId,
       );
       return rows
           .map(
             (row) => PathInfo(
               routeKey: routeKey,
-              pathId: (row['pathid'] as num?)?.toInt() ?? 0,
-              name: row['name']?.toString() ?? '',
+              pathId: row.pathId,
+              name: row.pathName,
             ),
           )
           .toList();
@@ -432,7 +393,7 @@ class BusRepository {
       return const [];
     }
 
-    final database = await _openDatabase(provider);
+    final database = await _openCityDatabase(provider);
     try {
       final rows = await database.query(
         'stops',
@@ -509,16 +470,19 @@ class BusRepository {
     String? routeNameHint,
   }) async {
     try {
-      final database = await _openDatabase(provider);
+      final metadataDatabase = await _openMetadataDatabase();
+      final cityDatabase = await _openCityDatabase(provider);
       try {
         return await _buildRouteDetailFromLocalDatabase(
-          database: database,
+          metadataDatabase: metadataDatabase,
+          cityDatabase: cityDatabase,
           provider: provider,
           routeId: routeId,
           routeNameHint: routeNameHint,
         );
       } finally {
-        await database.close();
+        await cityDatabase.close();
+        await metadataDatabase.close();
       }
     } on DatabaseNotReadyException {
       return _buildRouteDetailFromApi(
@@ -540,10 +504,11 @@ class BusRepository {
     final lonDelta =
         radiusMeters / (111320 * math.cos(latitude * math.pi / 180)).abs();
 
-    final database = await _openDatabase(provider);
+    final cityDatabase = await _openCityDatabase(provider);
+    final metadataDatabase = await _openMetadataDatabase();
 
     try {
-      final rows = await database.rawQuery(
+      final rows = await cityDatabase.rawQuery(
         '''
         SELECT
           stops.routeid,
@@ -552,13 +517,8 @@ class BusRepository {
           stops.name AS stop_name,
           stops.seq,
           stops.lon,
-          stops.lat,
-          routes.name AS route_name,
-          routes.name_en AS route_name_en,
-          paths.name AS path_name
+          stops.lat
         FROM stops
-        JOIN routes ON routes.routeid = stops.routeid
-        JOIN paths ON paths.routeid = stops.routeid AND paths.pathid = stops.pathid
         WHERE ABS(stops.lat - ?) <= ?
           AND ABS(stops.lon - ?) <= ?
         LIMIT 500
@@ -568,6 +528,14 @@ class BusRepository {
 
       final results = <NearbyStopResult>[];
       final seen = <String>{};
+      final routeMetadata = await _loadRouteMetadataMap(
+        metadataDatabase,
+        provider: provider,
+        routeIds: rows
+            .map((row) => row['routeid']?.toString() ?? '')
+            .where((routeId) => routeId.isNotEmpty)
+            .toSet(),
+      );
 
       for (final row in rows) {
         final routeId = row['routeid']?.toString() ?? '';
@@ -598,13 +566,17 @@ class BusRepository {
           continue;
         }
 
+        final routeMetadataEntry = routeMetadata['$routeId:$pathId'];
+        if (routeMetadataEntry == null) {
+          continue;
+        }
         final route = _routeSummaryFromPathRow(
           provider: provider,
           routeId: routeId,
-          routeName: row['route_name']?.toString() ?? '',
-          routeNameEn: row['route_name_en']?.toString() ?? '',
+          routeName: routeMetadataEntry.routeName,
+          routeNameEn: routeMetadataEntry.routeNameEn,
           pathId: pathId,
-          pathName: row['path_name']?.toString() ?? '',
+          pathName: routeMetadataEntry.pathName,
         );
 
         results.add(
@@ -617,7 +589,8 @@ class BusRepository {
       );
       return results.take(limit).toList();
     } finally {
-      await database.close();
+      await metadataDatabase.close();
+      await cityDatabase.close();
     }
   }
 
@@ -676,30 +649,23 @@ class BusRepository {
   }
 
   Future<RouteDetailData> _buildRouteDetailFromLocalDatabase({
-    required Database database,
+    required Database metadataDatabase,
+    required Database cityDatabase,
     required BusProvider provider,
     required String routeId,
     String? routeNameHint,
   }) async {
-    final routeRows = await database.query(
-      'routes',
-      where: 'routeid = ?',
-      whereArgs: [routeId],
-      limit: 1,
+    final routeRows = await _queryMetadataPathRows(
+      metadataDatabase,
+      provider: provider,
+      routeId: routeId,
     );
     if (routeRows.isEmpty) {
       throw StateError('找不到路線 $routeId');
     }
     final routeRow = routeRows.first;
 
-    final pathRows = await database.query(
-      'paths',
-      where: 'routeid = ?',
-      whereArgs: [routeId],
-      orderBy: 'pathid ASC',
-    );
-
-    final stopRows = await database.query(
+    final stopRows = await cityDatabase.query(
       'stops',
       where: 'routeid = ?',
       whereArgs: [routeId],
@@ -716,12 +682,12 @@ class BusRepository {
     }
 
     final routeKey = _routeKeyForRouteId(routeId);
-    final paths = pathRows
+    final paths = routeRows
         .map(
           (row) => PathInfo(
             routeKey: routeKey,
-            pathId: (row['pathid'] as num?)?.toInt() ?? 0,
-            name: row['name']?.toString() ?? '',
+            pathId: row.pathId,
+            name: row.pathName,
           ),
         )
         .toList();
@@ -750,16 +716,16 @@ class BusRepository {
       stopsByPath.putIfAbsent(pathId, () => <StopInfo>[]).add(stop);
     }
 
-    final firstPath = pathRows.firstOrNull;
+    final firstPath = routeRows.firstOrNull;
     final route = _routeSummaryFromPathRow(
       provider: provider,
       routeId: routeId,
       routeName: routeNameHint?.trim().isNotEmpty == true
           ? routeNameHint!.trim()
-          : routeRow['name']?.toString() ?? routeId,
-      routeNameEn: routeRow['name_en']?.toString() ?? '',
-      pathId: (firstPath?['pathid'] as num?)?.toInt() ?? 0,
-      pathName: firstPath?['name']?.toString() ?? '',
+          : routeRow.routeName,
+      routeNameEn: routeRow.routeNameEn,
+      pathId: firstPath?.pathId ?? 0,
+      pathName: firstPath?.pathName ?? '',
     );
 
     return RouteDetailData(
@@ -947,6 +913,48 @@ class BusRepository {
     await targetFile.writeAsBytes(response.bodyBytes, flush: true);
   }
 
+  Future<void> _downloadRouteMetadataDatabase(File targetFile) async {
+    final response = await _client.get(
+      Uri.parse('$_apiBaseUrl/downloads/bus.db'),
+      headers: const {'User-Agent': _userAgent},
+    );
+    if (response.statusCode != 200) {
+      throw HttpException('Download failed (/downloads/bus.db, ${response.statusCode})');
+    }
+
+    await targetFile.parent.create(recursive: true);
+    await targetFile.writeAsBytes(response.bodyBytes, flush: true);
+  }
+
+  Future<Map<String, _RouteMetadataRow>> _loadRouteMetadataMap(
+    Database database, {
+    required BusProvider provider,
+    required Set<String> routeIds,
+  }) async {
+    if (routeIds.isEmpty) {
+      return const <String, _RouteMetadataRow>{};
+    }
+
+    final rows = await _queryMetadataPathRows(
+      database,
+      provider: provider,
+      routeIds: routeIds,
+    );
+
+    final metadata = <String, _RouteMetadataRow>{};
+    for (final row in rows) {
+      if (row.routeId.isEmpty) {
+        continue;
+      }
+      metadata['${row.routeId}:${row.pathId}'] = _RouteMetadataRow(
+        routeName: row.routeName,
+        routeNameEn: row.routeNameEn,
+        pathName: row.pathName,
+      );
+    }
+    return metadata;
+  }
+
   Future<Map<String, _LiveStopPayload>> _getLiveStopMap(String routeId) async {
     final cached = _readFreshCache(
       _realtimeCache,
@@ -1079,9 +1087,9 @@ class BusRepository {
     return cached.value;
   }
 
-  Future<Database> _openDatabase(BusProvider provider) async {
+  Future<Database> _openCityDatabase(BusProvider provider) async {
     _ensureLocalDatabaseSupported();
-    final file = await _databaseFile(provider);
+    final file = await _cityDatabaseFile(provider);
     if (!await file.exists()) {
       throw DatabaseNotReadyException('尚未下載 ${provider.label} 資料庫。');
     }
@@ -1097,7 +1105,7 @@ class BusRepository {
         readOnly: true,
         singleInstance: false,
       );
-      await _validateDatabaseSchema(database);
+      await _validateCityDatabaseSchema(database);
       return database;
     } catch (_) {
       await _markDatabaseInvalid(provider, file);
@@ -1105,11 +1113,42 @@ class BusRepository {
     }
   }
 
-  Future<File> _databaseFile(BusProvider provider) async {
+  Future<Database> _openMetadataDatabase() async {
+    _ensureLocalDatabaseSupported();
+    final file = await _routeMetadataDatabaseFile();
+    if (!await file.exists()) {
+      throw DatabaseNotReadyException('尚未下載路線資料庫。');
+    }
+
+    if (!await _looksLikeSqliteFile(file)) {
+      await _deleteDatabaseArtifacts(file);
+      throw DatabaseNotReadyException('路線資料庫已損壞，請重新下載。');
+    }
+
+    try {
+      final database = await openDatabase(
+        file.path,
+        readOnly: true,
+        singleInstance: false,
+      );
+      await _validateMetadataDatabaseSchema(database);
+      return database;
+    } catch (_) {
+      await _deleteDatabaseArtifacts(file);
+      throw DatabaseNotReadyException('路線資料庫無法開啟，請重新下載。');
+    }
+  }
+
+  Future<File> _cityDatabaseFile(BusProvider provider) async {
     final directory = await _databaseDirectory();
     final file = File(p.join(directory.path, provider.databaseFileName));
     await _migrateLegacyDatabaseFileIfNeeded(file);
     return file;
+  }
+
+  Future<File> _routeMetadataDatabaseFile() async {
+    final directory = await _databaseDirectory();
+    return File(p.join(directory.path, _routeMetadataDatabaseFileName));
   }
 
   Future<Directory> _databaseDirectory() async {
@@ -1266,6 +1305,7 @@ class BusRepository {
     }
   }
 
+  // ignore: unused_element
   Future<void> _ensureDownloadedDatabaseUsable(
     BusProvider provider,
     File file,
@@ -1289,6 +1329,230 @@ class BusRepository {
     } catch (_) {
       await _markDatabaseInvalid(provider, file);
       throw DatabaseNotReadyException('${provider.label} 資料庫下載失敗，請稍後再試。');
+    }
+  }
+
+  Future<void> _validateMetadataDatabaseSchema(Database database) async {
+    await _detectMetadataLayout(database);
+  }
+
+  Future<void> _validateCityDatabaseSchema(Database database) async {
+    final tableNames = await _loadTableNames(database);
+    if (!tableNames.contains('stops')) {
+      throw const FormatException('Invalid city database schema.');
+    }
+
+    final stopColumns = await _loadColumnNames(database, 'stops');
+    if (!stopColumns.containsAll(
+      const {'routeid', 'pathid', 'seq', 'stopid', 'name', 'lat', 'lon'},
+    )) {
+      throw const FormatException('Invalid city database schema.');
+    }
+  }
+
+  Future<_MetadataLayout> _detectMetadataLayout(Database database) async {
+    final tableNames = await _loadTableNames(database);
+    if (!tableNames.contains('routes')) {
+      throw const FormatException('Invalid route metadata database schema.');
+    }
+
+    final routeColumns = await _loadColumnNames(database, 'routes');
+    if (!routeColumns.containsAll(const {'routeid', 'name'})) {
+      throw const FormatException('Invalid route metadata database schema.');
+    }
+
+    if (routeColumns.containsAll(const {'pathid', 'path_name'})) {
+      return _MetadataLayout.flattenedRoutes;
+    }
+
+    if (!tableNames.contains('paths')) {
+      throw const FormatException('Invalid route metadata database schema.');
+    }
+
+    final pathColumns = await _loadColumnNames(database, 'paths');
+    if (!pathColumns.containsAll(const {'routeid', 'pathid', 'name'})) {
+      throw const FormatException('Invalid route metadata database schema.');
+    }
+
+    return _MetadataLayout.routesAndPaths;
+  }
+
+  Future<Set<String>> _loadTableNames(Database database) async {
+    final rows = await database.rawQuery(
+      '''
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table'
+      ''',
+    );
+    return rows
+        .map((row) => row['name']?.toString() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toSet();
+  }
+
+  Future<Set<String>> _loadColumnNames(
+    Database database,
+    String tableName,
+  ) async {
+    final rows = await database.rawQuery('PRAGMA table_info($tableName)');
+    return rows
+        .map((row) => row['name']?.toString() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toSet();
+  }
+
+  Future<List<_MetadataPathRow>> _queryMetadataPathRows(
+    Database database, {
+    required BusProvider provider,
+    String? routeId,
+    Set<String>? routeIds,
+    String? searchQuery,
+    int? limit,
+  }) async {
+    final layout = await _detectMetadataLayout(database);
+    final parameters = <Object?>['${provider.prefix}%'];
+    final whereClauses = <String>['routes.routeid LIKE ?'];
+    final pathIdColumn = switch (layout) {
+      _MetadataLayout.flattenedRoutes => 'routes.pathid',
+      _MetadataLayout.routesAndPaths => 'paths.pathid',
+    };
+    final pathNameColumn = switch (layout) {
+      _MetadataLayout.flattenedRoutes => 'routes.path_name',
+      _MetadataLayout.routesAndPaths => 'paths.name',
+    };
+    final pathNameEnColumn = switch (layout) {
+      _MetadataLayout.flattenedRoutes => 'routes.path_name_en',
+      _MetadataLayout.routesAndPaths => 'paths.name_en',
+    };
+    final fromClause = switch (layout) {
+      _MetadataLayout.flattenedRoutes => 'FROM routes',
+      _MetadataLayout.routesAndPaths =>
+        'FROM routes JOIN paths ON paths.routeid = routes.routeid',
+    };
+
+    if (routeId != null && routeId.isNotEmpty) {
+      whereClauses.add('routes.routeid = ?');
+      parameters.add(routeId);
+    }
+
+    if (routeIds != null && routeIds.isNotEmpty) {
+      final placeholders = List.filled(routeIds.length, '?').join(', ');
+      whereClauses.add('routes.routeid IN ($placeholders)');
+      parameters.addAll(routeIds);
+    }
+
+    final normalizedQuery = searchQuery?.trim() ?? '';
+    if (normalizedQuery.isNotEmpty) {
+      whereClauses.add(
+        '(routes.name LIKE ? OR routes.routeid LIKE ? OR $pathNameColumn LIKE ?)',
+      );
+      parameters.addAll(
+        <Object?>[
+          '%$normalizedQuery%',
+          '%$normalizedQuery%',
+          '%$normalizedQuery%',
+        ],
+      );
+    }
+
+    final limitClause = limit == null ? '' : 'LIMIT ?';
+    if (limit != null) {
+      parameters.add(limit);
+    }
+
+    final rows = await database.rawQuery(
+      '''
+      SELECT
+        routes.routeid AS route_id,
+        routes.name AS route_name,
+        routes.name_en AS route_name_en,
+        $pathIdColumn AS path_id,
+        $pathNameColumn AS path_name,
+        $pathNameEnColumn AS path_name_en
+      $fromClause
+      WHERE ${whereClauses.join(' AND ')}
+      ORDER BY routes.routeid ASC, path_id ASC
+      $limitClause
+      ''',
+      parameters,
+    );
+
+    return rows
+        .map(
+          (row) => _MetadataPathRow(
+            routeId: row['route_id']?.toString() ?? '',
+            routeName: row['route_name']?.toString() ?? '',
+            routeNameEn: row['route_name_en']?.toString() ?? '',
+            pathId: (row['path_id'] as num?)?.toInt() ?? 0,
+            pathName: row['path_name']?.toString() ?? '',
+            pathNameEn: row['path_name_en']?.toString() ?? '',
+          ),
+        )
+        .where((row) => row.routeId.isNotEmpty)
+        .toList();
+  }
+
+  Future<void> _deleteDatabaseArtifacts(File file) async {
+    for (final candidatePath in <String>[
+      file.path,
+      '${file.path}-wal',
+      '${file.path}-shm',
+      '${file.path}-journal',
+    ]) {
+      final candidate = File(candidatePath);
+      if (await candidate.exists()) {
+        await candidate.delete();
+      }
+    }
+  }
+
+  Future<void> _ensureDownloadedMetadataDatabaseUsable(File file) async {
+    if (!await _looksLikeSqliteFile(file)) {
+      await _deleteDatabaseArtifacts(file);
+      throw DatabaseNotReadyException('Route metadata database is invalid.');
+    }
+
+    try {
+      final database = await openDatabase(
+        file.path,
+        readOnly: true,
+        singleInstance: false,
+      );
+      try {
+        await _validateMetadataDatabaseSchema(database);
+      } finally {
+        await database.close();
+      }
+    } catch (_) {
+      await _deleteDatabaseArtifacts(file);
+      throw DatabaseNotReadyException('Route metadata database is invalid.');
+    }
+  }
+
+  Future<void> _ensureDownloadedCityDatabaseUsable(
+    BusProvider provider,
+    File file,
+  ) async {
+    if (!await _looksLikeSqliteFile(file)) {
+      await _markDatabaseInvalid(provider, file);
+      throw DatabaseNotReadyException('${provider.label} city database is invalid.');
+    }
+
+    try {
+      final database = await openDatabase(
+        file.path,
+        readOnly: true,
+        singleInstance: false,
+      );
+      try {
+        await _validateCityDatabaseSchema(database);
+      } finally {
+        await database.close();
+      }
+    } catch (_) {
+      await _markDatabaseInvalid(provider, file);
+      throw DatabaseNotReadyException('${provider.label} city database is invalid.');
     }
   }
 
@@ -1329,9 +1593,17 @@ class BusRepository {
     BusProvider provider,
     int routeKey,
   ) async {
-    final database = await _openDatabase(provider);
+    final database = await _openMetadataDatabase();
     try {
-      final rows = await database.query('routes', columns: ['routeid']);
+      final rows = await database.rawQuery(
+        '''
+        SELECT DISTINCT routeid
+        FROM routes
+        WHERE routeid LIKE ?
+        ORDER BY routeid ASC
+        ''',
+        ['${provider.prefix}%'],
+      );
       for (final row in rows) {
         final routeId = row['routeid']?.toString() ?? '';
         if (routeId.isNotEmpty && _routeKeyForRouteId(routeId) == routeKey) {
@@ -1440,6 +1712,38 @@ class _LiveStopPayload {
   final String? msg;
   final String? t;
   final List<BusVehicle> buses;
+}
+
+enum _MetadataLayout { flattenedRoutes, routesAndPaths }
+
+class _MetadataPathRow {
+  const _MetadataPathRow({
+    required this.routeId,
+    required this.routeName,
+    required this.routeNameEn,
+    required this.pathId,
+    required this.pathName,
+    required this.pathNameEn,
+  });
+
+  final String routeId;
+  final String routeName;
+  final String routeNameEn;
+  final int pathId;
+  final String pathName;
+  final String pathNameEn;
+}
+
+class _RouteMetadataRow {
+  const _RouteMetadataRow({
+    required this.routeName,
+    required this.routeNameEn,
+    required this.pathName,
+  });
+
+  final String routeName;
+  final String routeNameEn;
+  final String pathName;
 }
 
 class _TimedValue<T> {

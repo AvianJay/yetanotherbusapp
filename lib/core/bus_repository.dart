@@ -1542,6 +1542,10 @@ class BusRepository {
       throw DatabaseNotReadyException('${provider.label} city database is invalid.');
     }
 
+    if (Platform.isIOS) {
+      return;
+    }
+
     try {
       final database = await openDatabase(
         file.path,

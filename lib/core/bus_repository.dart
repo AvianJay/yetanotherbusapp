@@ -7,9 +7,9 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:sqlite3/sqlite3.dart' as sqlite3_pkg;
 
 import 'models.dart';
+import 'native_sqlite_bridge.dart';
 
 class DatabaseNotReadyException implements Exception {
   DatabaseNotReadyException(this.message);
@@ -1672,7 +1672,7 @@ class BusRepository {
   }
 
   List<_MetadataPathRow> _queryMetadataPathRowsSqlite(
-    sqlite3_pkg.Database database, {
+    NativeSqliteDatabase database, {
     required BusProvider provider,
     String? routeId,
     Set<String>? routeIds,
@@ -1827,7 +1827,7 @@ class BusRepository {
   }
 
   List<_CityStopRow> _queryCityStopRowsSqlite(
-    sqlite3_pkg.Database database, {
+    NativeSqliteDatabase database, {
     String? routeId,
     double? latitude,
     double? longitude,
@@ -1891,12 +1891,12 @@ class BusRepository {
   }
 
   void _validateMetadataDatabaseSchemaSqlite(
-    sqlite3_pkg.Database database,
+    NativeSqliteDatabase database,
   ) {
     _detectMetadataLayoutSqlite(database);
   }
 
-  void _validateCityDatabaseSchemaSqlite(sqlite3_pkg.Database database) {
+  void _validateCityDatabaseSchemaSqlite(NativeSqliteDatabase database) {
     final tableNames = _loadTableNamesSqlite(database);
     if (!tableNames.contains('stops')) {
       throw const FormatException('Invalid city database schema.');
@@ -1911,7 +1911,7 @@ class BusRepository {
   }
 
   _MetadataLayout _detectMetadataLayoutSqlite(
-    sqlite3_pkg.Database database,
+    NativeSqliteDatabase database,
   ) {
     final tableNames = _loadTableNamesSqlite(database);
     if (!tableNames.contains('routes')) {
@@ -1939,7 +1939,7 @@ class BusRepository {
     return _MetadataLayout.routesAndPaths;
   }
 
-  Set<String> _loadTableNamesSqlite(sqlite3_pkg.Database database) {
+  Set<String> _loadTableNamesSqlite(NativeSqliteDatabase database) {
     final rows = database.select(
       '''
       SELECT name
@@ -1954,7 +1954,7 @@ class BusRepository {
   }
 
   Set<String> _loadColumnNamesSqlite(
-    sqlite3_pkg.Database database,
+    NativeSqliteDatabase database,
     String tableName,
   ) {
     final rows = database.select('PRAGMA table_info($tableName)');
@@ -1966,12 +1966,10 @@ class BusRepository {
 
   T _withSqlite3Database<T>(
     File file,
-    T Function(sqlite3_pkg.Database database) action,
+    T Function(NativeSqliteDatabase database) action,
   ) {
-    final database = sqlite3_pkg.sqlite3.open(
-      file.path,
-      mode: sqlite3_pkg.OpenMode.readOnly,
-    );
+    final database = openReadOnlySqliteDatabase(
+      file.path);
     try {
       return action(database);
     } finally {

@@ -13,6 +13,7 @@ import '../core/app_launch_service.dart';
 import '../core/live_activity_service.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
+import '../core/trip_monitor_notifications.dart';
 import '../core/twbusforum.dart';
 import '../widgets/eta_badge.dart';
 
@@ -701,9 +702,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   Future<void> _maybePromptForBackgroundTripMonitor() async {
-    if (!_isAndroid ||
-        _detail == null ||
-        _backgroundTripMonitorPromptInProgress) {
+    if (_detail == null || _backgroundTripMonitorPromptInProgress) {
       return;
     }
     final controller = AppControllerScope.read(context);
@@ -741,6 +740,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         markPromptSeen: true,
       );
       if (enable) {
+        final notificationGranted =
+            await TripMonitorNotifications.requestPermission();
+        if (mounted && !notificationGranted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('背景乘車提醒需要通知權限，否則提醒可能不會跳出。')),
+          );
+        }
         await _configureBackgroundTripMonitorIfNeeded(
           forcePermissionCheck: true,
         );

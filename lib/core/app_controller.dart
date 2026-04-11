@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'android_home_integration.dart';
@@ -42,7 +43,9 @@ class AppController extends ChangeNotifier {
   bool _downloadingDatabase = false;
   bool _checkingAppUpdate = false;
   bool _startupAppUpdateChecked = false;
+  bool _startupDatabaseUpdateChecked = false;
   AppUpdateCheckResult? _lastAppUpdateResult;
+  Map<BusProvider, int> _pendingDatabaseUpdates = const {};
 
   AppSettings get settings => _settings;
   List<SearchHistoryEntry> get history => List.unmodifiable(_history);
@@ -78,6 +81,9 @@ class AppController extends ChangeNotifier {
   bool get needsOnboarding => !_settings.hasCompletedOnboarding;
   bool get checkingAppUpdate => _checkingAppUpdate;
   AppUpdateCheckResult? get lastAppUpdateResult => _lastAppUpdateResult;
+  Map<BusProvider, int> get pendingDatabaseUpdates =>
+      Map.unmodifiable(_pendingDatabaseUpdates);
+  bool get hasPendingDatabaseUpdates => _pendingDatabaseUpdates.isNotEmpty;
 
   bool isDatabaseReady(BusProvider provider) {
     return _databaseReadyByProvider[provider] ?? false;
@@ -269,6 +275,12 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateDatabaseAutoUpdateMode(DatabaseAutoUpdateMode value) async {
+    _settings = _settings.copyWith(databaseAutoUpdateMode: value);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
   Future<void> completeOnboarding() async {
     _settings = _settings.copyWith(hasCompletedOnboarding: true);
     await storage.saveSettings(_settings);
@@ -286,20 +298,16 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> downloadProviderDatabase(BusProvider provider) async {
-    _downloadingDatabase = true;
-    notifyListeners();
-    try {
-      await repository.downloadDatabase(provider);
-      _databaseReadyByProvider = {..._databaseReadyByProvider, provider: true};
-    } finally {
-      _downloadingDatabase = false;
-      notifyListeners();
-    }
+    await downloadProviderDatabases([provider]);
   }
 
   Future<void> deleteProviderDatabase(BusProvider provider) async {
     await repository.deleteProviderDatabase(provider);
     _databaseReadyByProvider = {..._databaseReadyByProvider, provider: false};
+    _pendingDatabaseUpdates = {
+      for (final entry in _pendingDatabaseUpdates.entries)
+        if (entry.key != provider) entry.key: entry.value,
+    };
 
     final selected = _settings.selectedProviders.toSet();
     selected.remove(provider);
@@ -322,8 +330,23 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<Map<BusProvider, int?>> checkDatabaseUpdates() {
-    return repository.checkForUpdates(providers: _settings.selectedProviders);
+  Future<Map<BusProvider, int?>> checkDatabaseUpdates({
+    Iterable<BusProvider>? providers,
+  }) async {
+    final targetProviders = (providers ?? _settings.selectedProviders).toList();
+    final updates = await repository.checkForUpdates(providers: targetProviders);
+    final nextPending = {..._pendingDatabaseUpdates};
+    for (final provider in targetProviders) {
+      final version = updates[provider];
+      if (version == null) {
+        nextPending.remove(provider);
+      } else {
+        nextPending[provider] = version;
+      }
+    }
+    _pendingDatabaseUpdates = nextPending;
+    notifyListeners();
+    return updates;
   }
 
   Future<AppUpdateCheckResult> checkForAppUpdate({
@@ -360,6 +383,29 @@ class AppController extends ChangeNotifier {
     return checkForAppUpdate();
   }
 
+  Future<DatabaseStartupCheckResult?> maybeCheckForDatabaseUpdatesOnLaunch() async {
+    if (_startupDatabaseUpdateChecked) {
+      return null;
+    }
+    _startupDatabaseUpdateChecked = true;
+
+    final updates = await checkDatabaseUpdates();
+    final availableUpdates = <BusProvider, int>{};
+    for (final entry in updates.entries) {
+      final version = entry.value;
+      if (version != null) {
+        availableUpdates[entry.key] = version;
+      }
+    }
+
+    final connectionKind = await _resolveDatabaseConnectionKind();
+    return DatabaseStartupCheckResult(
+      mode: _settings.databaseAutoUpdateMode,
+      updates: availableUpdates,
+      connectionKind: connectionKind,
+    );
+  }
+
   Future<AppUpdateInstallResult> installAppUpdate(
     AppUpdateInfo update, {
     AppUpdateInstallProgressCallback? onProgress,
@@ -376,14 +422,26 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> downloadSelectedProviderDatabases() async {
+    await downloadProviderDatabases(_settings.selectedProviders);
+  }
+
+  Future<void> downloadProviderDatabases(Iterable<BusProvider> providers) async {
+    final targets = providers.toSet().toList();
+    if (targets.isEmpty) {
+      return;
+    }
     _downloadingDatabase = true;
     notifyListeners();
     try {
-      for (final provider in _settings.selectedProviders) {
+      for (final provider in targets) {
         await repository.downloadDatabase(provider);
         _databaseReadyByProvider = {
           ..._databaseReadyByProvider,
           provider: true,
+        };
+        _pendingDatabaseUpdates = {
+          for (final entry in _pendingDatabaseUpdates.entries)
+            if (entry.key != provider) entry.key: entry.value,
         };
       }
     } finally {
@@ -393,25 +451,15 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> updateSelectedProviderDatabasesIfNeeded() async {
-    _downloadingDatabase = true;
-    notifyListeners();
-    try {
-      final updates = await repository.checkForUpdates(
-        providers: _settings.selectedProviders,
-      );
-      for (final entry in updates.entries) {
-        if (entry.value != null) {
-          await repository.downloadDatabase(entry.key);
-          _databaseReadyByProvider = {
-            ..._databaseReadyByProvider,
-            entry.key: true,
-          };
-        }
-      }
-    } finally {
-      _downloadingDatabase = false;
-      notifyListeners();
+    final updates = await checkDatabaseUpdates();
+    final targets = updates.entries
+        .where((entry) => entry.value != null)
+        .map((entry) => entry.key)
+        .toList();
+    if (targets.isEmpty) {
+      return;
     }
+    await downloadProviderDatabases(targets);
   }
 
   Future<List<RouteSummary>> searchRoutes(
@@ -820,5 +868,26 @@ class AppController extends ChangeNotifier {
     await storage.saveFavoriteGroups(_favoriteGroups);
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+  }
+
+  Future<DatabaseConnectionKind> _resolveDatabaseConnectionKind() async {
+    try {
+      final results = await Connectivity().checkConnectivity();
+      if (results.contains(ConnectivityResult.wifi)) {
+        return DatabaseConnectionKind.wifi;
+      }
+      if (results.contains(ConnectivityResult.mobile)) {
+        return DatabaseConnectionKind.cellular;
+      }
+      if (results.contains(ConnectivityResult.none)) {
+        return DatabaseConnectionKind.offline;
+      }
+      if (results.any((result) => result != ConnectivityResult.none)) {
+        return DatabaseConnectionKind.other;
+      }
+    } catch (_) {
+      return DatabaseConnectionKind.unknown;
+    }
+    return DatabaseConnectionKind.unknown;
   }
 }

@@ -161,6 +161,89 @@ AppUpdateCheckMode appUpdateCheckModeFromString(String value) {
   );
 }
 
+enum DatabaseAutoUpdateMode {
+  off,
+  checkPopup,
+  checkNotify,
+  always,
+  wifiOnly,
+  cellularOnly;
+
+  String get label => switch (this) {
+    DatabaseAutoUpdateMode.off => '不檢查',
+    DatabaseAutoUpdateMode.checkPopup => '檢查更新並彈窗',
+    DatabaseAutoUpdateMode.checkNotify => '檢查更新並提示',
+    DatabaseAutoUpdateMode.always => '總是自動更新',
+    DatabaseAutoUpdateMode.wifiOnly => '僅 Wi‑Fi 自動更新',
+    DatabaseAutoUpdateMode.cellularOnly => '僅行動數據自動更新',
+  };
+
+  String get description => switch (this) {
+    DatabaseAutoUpdateMode.off => '啟動時不主動檢查資料庫更新。',
+    DatabaseAutoUpdateMode.checkPopup => '啟動時檢查更新，若有新版本就彈出提示。',
+    DatabaseAutoUpdateMode.checkNotify => '啟動時檢查更新，若有新版本就顯示提示。',
+    DatabaseAutoUpdateMode.always => '啟動時有新版本就直接下載並更新。',
+    DatabaseAutoUpdateMode.wifiOnly => '僅在 Wi‑Fi 連線時自動更新，其他網路只保留提示。',
+    DatabaseAutoUpdateMode.cellularOnly =>
+      '僅在行動數據連線時自動更新，其他網路只保留提示。',
+  };
+}
+
+DatabaseAutoUpdateMode databaseAutoUpdateModeFromString(String value) {
+  return DatabaseAutoUpdateMode.values.firstWhere(
+    (mode) => mode.name == value,
+    orElse: () => DatabaseAutoUpdateMode.checkPopup,
+  );
+}
+
+enum DatabaseConnectionKind {
+  wifi,
+  cellular,
+  other,
+  offline,
+  unknown;
+}
+
+class DatabaseStartupCheckResult {
+  const DatabaseStartupCheckResult({
+    required this.mode,
+    required this.updates,
+    required this.connectionKind,
+  });
+
+  final DatabaseAutoUpdateMode mode;
+  final Map<BusProvider, int> updates;
+  final DatabaseConnectionKind connectionKind;
+
+  bool get hasUpdates => updates.isNotEmpty;
+
+  bool get shouldShowPopup =>
+      hasUpdates && mode == DatabaseAutoUpdateMode.checkPopup;
+
+  bool get shouldShowNotification =>
+      hasUpdates && mode == DatabaseAutoUpdateMode.checkNotify;
+
+  bool get shouldAutoDownload => switch (mode) {
+    DatabaseAutoUpdateMode.always =>
+      hasUpdates && connectionKind != DatabaseConnectionKind.offline,
+    DatabaseAutoUpdateMode.wifiOnly =>
+      hasUpdates && connectionKind == DatabaseConnectionKind.wifi,
+    DatabaseAutoUpdateMode.cellularOnly =>
+      hasUpdates && connectionKind == DatabaseConnectionKind.cellular,
+    _ => false,
+  };
+
+  String? get deferredReason => switch (mode) {
+    DatabaseAutoUpdateMode.wifiOnly
+        when hasUpdates && connectionKind != DatabaseConnectionKind.wifi =>
+      '有資料庫更新，但目前不是 Wi‑Fi，已略過自動更新。',
+    DatabaseAutoUpdateMode.cellularOnly
+        when hasUpdates && connectionKind != DatabaseConnectionKind.cellular =>
+      '有資料庫更新，但目前不是行動數據，已略過自動更新。',
+    _ => null,
+  };
+}
+
 class AppSettings {
   const AppSettings({
     required this.provider,
@@ -178,6 +261,7 @@ class AppSettings {
     required this.busErrorUpdateTime,
     required this.maxHistory,
     required this.hasCompletedOnboarding,
+    required this.databaseAutoUpdateMode,
     required this.appUpdateChannel,
     required this.appUpdateCheckMode,
   });
@@ -199,6 +283,7 @@ class AppSettings {
       busErrorUpdateTime: 3,
       maxHistory: 10,
       hasCompletedOnboarding: false,
+      databaseAutoUpdateMode: DatabaseAutoUpdateMode.checkPopup,
       appUpdateChannel: _defaultAppUpdateChannel(),
       appUpdateCheckMode:
           const String.fromEnvironment(
@@ -256,6 +341,9 @@ class AppSettings {
       busErrorUpdateTime: json['busErrorUpdateTime'] as int? ?? 3,
       maxHistory: json['maxHistory'] as int? ?? 10,
       hasCompletedOnboarding: json['hasCompletedOnboarding'] as bool? ?? false,
+      databaseAutoUpdateMode: databaseAutoUpdateModeFromString(
+        json['databaseAutoUpdateMode'] as String? ?? 'checkPopup',
+      ),
       appUpdateChannel: appUpdateChannelFromString(
         json['appUpdateChannel'] as String? ??
             const String.fromEnvironment(
@@ -291,6 +379,7 @@ class AppSettings {
   final int busErrorUpdateTime;
   final int maxHistory;
   final bool hasCompletedOnboarding;
+  final DatabaseAutoUpdateMode databaseAutoUpdateMode;
   final AppUpdateChannel appUpdateChannel;
   final AppUpdateCheckMode appUpdateCheckMode;
 
@@ -310,6 +399,7 @@ class AppSettings {
     int? busErrorUpdateTime,
     int? maxHistory,
     bool? hasCompletedOnboarding,
+    DatabaseAutoUpdateMode? databaseAutoUpdateMode,
     AppUpdateChannel? appUpdateChannel,
     AppUpdateCheckMode? appUpdateCheckMode,
   }) {
@@ -339,6 +429,8 @@ class AppSettings {
       maxHistory: maxHistory ?? this.maxHistory,
       hasCompletedOnboarding:
           hasCompletedOnboarding ?? this.hasCompletedOnboarding,
+      databaseAutoUpdateMode:
+          databaseAutoUpdateMode ?? this.databaseAutoUpdateMode,
       appUpdateChannel: appUpdateChannel ?? this.appUpdateChannel,
       appUpdateCheckMode: appUpdateCheckMode ?? this.appUpdateCheckMode,
     );
@@ -364,6 +456,7 @@ class AppSettings {
       'busErrorUpdateTime': busErrorUpdateTime,
       'maxHistory': maxHistory,
       'hasCompletedOnboarding': hasCompletedOnboarding,
+      'databaseAutoUpdateMode': databaseAutoUpdateMode.name,
       'appUpdateChannel': appUpdateChannel.name,
       'appUpdateCheckMode': appUpdateCheckMode.name,
     };

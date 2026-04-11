@@ -6,6 +6,7 @@ import '../core/android_trip_monitor.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../widgets/app_update_dialog.dart';
+import 'database_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -58,7 +59,7 @@ class SettingsScreen extends StatelessWidget {
     if (!granted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('智慧推薦通知需要通知權限。')));
+      ).showSnackBar(const SnackBar(content: Text('需要通知權限才能啟用智慧推薦通知。')));
       return;
     }
     await controller.updateEnableSmartRouteNotifications(true);
@@ -72,6 +73,9 @@ class SettingsScreen extends StatelessWidget {
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     final supportsRouteBackgroundMonitor = isAndroid || isIOS;
+    final databaseProviders = controller.selectedProviders
+        .map((provider) => provider.label)
+        .join('、');
 
     return Scaffold(
       appBar: AppBar(title: const Text('設定')),
@@ -88,7 +92,7 @@ class SettingsScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   DropdownButtonFormField<ThemeMode>(
                     initialValue: controller.settings.themeMode,
-                    decoration: const InputDecoration(labelText: '主題'),
+                    decoration: const InputDecoration(labelText: '主題模式'),
                     items: const [
                       DropdownMenuItem(
                         value: ThemeMode.system,
@@ -120,283 +124,43 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('資料庫', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<BusProvider>(
-                    initialValue: controller.settings.provider,
-                    decoration: const InputDecoration(labelText: '預設資料來源'),
-                    items: BusProvider.values
-                        .map(
-                          (provider) => DropdownMenuItem(
-                            value: provider,
-                            child: Text(provider.label),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        controller.updateProvider(value);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  Text('可複選要使用的縣市。搜尋時會優先使用已下載資料庫；未下載縣市可選擇改走 API。'),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: BusProvider.values.map((provider) {
-                      return FilterChip(
-                        label: Text(provider.label),
-                        selected: controller.selectedProviders.contains(
-                          provider,
-                        ),
-                        onSelected: (value) {
-                          controller.toggleSelectedProvider(provider, value);
-                        },
-                        avatar: controller.isDatabaseReady(provider)
-                            ? const Icon(Icons.download_done_rounded, size: 18)
-                            : const Icon(Icons.cloud_outlined, size: 18),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 14),
-                  ...controller.selectedProviders.map(
-                    (provider) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Theme.of(context).colorScheme.outlineVariant,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(child: Text(provider.label)),
-                                Text(
-                                  controller.isDatabaseReady(provider)
-                                      ? '已下載'
-                                      : '未下載',
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            FutureBuilder<int?>(
-                              future: controller.localVersionForProvider(
-                                provider,
-                              ),
-                              builder: (context, snapshot) {
-                                final version = snapshot.data;
-                                return Text(
-                                  version == null || version == 0
-                                      ? '本機版本：--'
-                                      : '本機版本：$version',
-                                );
-                              },
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                FilledButton.tonalIcon(
-                                  onPressed: controller.downloadingDatabase
-                                      ? null
-                                      : () async {
-                                          final messenger =
-                                              ScaffoldMessenger.of(context);
-                                          try {
-                                            await controller
-                                                .downloadProviderDatabase(
-                                                  provider,
-                                                );
-                                            if (!context.mounted) {
-                                              return;
-                                            }
-                                            messenger.showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  '${provider.label} 資料庫下載完成。',
-                                                ),
-                                              ),
-                                            );
-                                          } catch (error) {
-                                            if (!context.mounted) {
-                                              return;
-                                            }
-                                            messenger.showSnackBar(
-                                              SnackBar(
-                                                content: Text('下載失敗：$error'),
-                                              ),
-                                            );
-                                          }
-                                        },
-                                  icon: const Icon(Icons.download_rounded),
-                                  label: const Text('下載/重抓'),
-                                ),
-                                OutlinedButton.icon(
-                                  onPressed: controller.downloadingDatabase
-                                      ? null
-                                      : () async {
-                                          final messenger =
-                                              ScaffoldMessenger.of(context);
-                                          try {
-                                            await controller
-                                                .deleteProviderDatabase(
-                                                  provider,
-                                                );
-                                            if (!context.mounted) {
-                                              return;
-                                            }
-                                            messenger.showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  '${provider.label} 資料庫已刪除。',
-                                                ),
-                                              ),
-                                            );
-                                          } catch (error) {
-                                            if (!context.mounted) {
-                                              return;
-                                            }
-                                            messenger.showSnackBar(
-                                              SnackBar(
-                                                content: Text('刪除失敗：$error'),
-                                              ),
-                                            );
-                                          }
-                                        },
-                                  icon: const Icon(
-                                    Icons.delete_outline_rounded,
-                                  ),
-                                  label: const Text('刪除'),
-                                ),
-                              ],
-                            ),
-                            CheckboxListTile(
-                              value: !controller.shouldAskDownloadPrompt(
-                                provider,
-                              ),
-                              onChanged: (value) {
-                                controller.setSkipDownloadPrompt(
-                                  provider,
-                                  value ?? false,
-                                );
-                              },
-                              contentPadding: EdgeInsets.zero,
-                              controlAffinity: ListTileControlAffinity.leading,
-                              title: const Text('未下載時不再詢問，直接 API'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                  Text(
+                    '資料庫與下載',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: controller.downloadingDatabase
-                            ? null
-                            : () async {
-                                final messenger = ScaffoldMessenger.of(context);
-                                try {
-                                  await controller
-                                      .downloadSelectedProviderDatabases();
-                                  if (!context.mounted) {
-                                    return;
-                                  }
-                                  messenger.showSnackBar(
-                                    const SnackBar(content: Text('已選資料庫下載完成。')),
-                                  );
-                                } catch (error) {
-                                  if (!context.mounted) {
-                                    return;
-                                  }
-                                  messenger.showSnackBar(
-                                    SnackBar(content: Text('下載資料庫失敗：$error')),
-                                  );
-                                }
-                              },
-                        icon: controller.downloadingDatabase
-                            ? const SizedBox.square(
-                                dimension: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.download_rounded),
-                        label: Text(
-                          controller.downloadingDatabase ? '下載中...' : '下載已選資料庫',
+                  Text(
+                    '目前地區：${controller.settings.provider.label}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '已選地區：$databaseProviders',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '啟動更新：${controller.settings.databaseAutoUpdateMode.label}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  if (controller.hasPendingDatabaseUpdates) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '目前有 ${controller.pendingDatabaseUpdates.length} 個地區可更新',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  FilledButton.tonalIcon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const DatabaseSettingsScreen(),
                         ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: controller.downloadingDatabase
-                            ? null
-                            : () async {
-                                final messenger = ScaffoldMessenger.of(context);
-                                try {
-                                  await controller
-                                      .updateSelectedProviderDatabasesIfNeeded();
-                                  if (!context.mounted) {
-                                    return;
-                                  }
-                                  messenger.showSnackBar(
-                                    const SnackBar(
-                                      content: Text('已更新有新版的已選資料庫。'),
-                                    ),
-                                  );
-                                } catch (error) {
-                                  if (!context.mounted) {
-                                    return;
-                                  }
-                                  messenger.showSnackBar(
-                                    SnackBar(content: Text('更新失敗：$error')),
-                                  );
-                                }
-                              },
-                        icon: const Icon(Icons.sync_rounded),
-                        label: const Text('更新有新版者'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          final messenger = ScaffoldMessenger.of(context);
-                          try {
-                            final updates = await controller
-                                .checkDatabaseUpdates();
-                            if (!context.mounted) {
-                              return;
-                            }
-                            final lines = updates.entries
-                                .map(
-                                  (entry) => entry.value == null
-                                      ? '${entry.key.label}：無法取得版本'
-                                      : '${entry.key.label}：最新版本 ${entry.value}',
-                                )
-                                .join('\n');
-                            messenger.showSnackBar(
-                              SnackBar(content: Text(lines)),
-                            );
-                          } catch (error) {
-                            if (!context.mounted) {
-                              return;
-                            }
-                            messenger.showSnackBar(
-                              SnackBar(content: Text('檢查資料庫更新失敗：$error')),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.cloud_outlined),
-                        label: const Text('檢查已選更新'),
-                      ),
-                    ],
+                      );
+                    },
+                    icon: const Icon(Icons.storage_rounded),
+                    label: const Text('開啟資料庫頁面'),
                   ),
                 ],
               ),
@@ -409,7 +173,10 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('顯示與更新', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    '使用與更新',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 16),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
@@ -420,7 +187,7 @@ class SettingsScreen extends StatelessWidget {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('智慧推薦'),
-                    subtitle: const Text('學習你在不同時段最常打開的路線，並在首頁推薦給你。'),
+                    subtitle: const Text('依照你常開啟的時段與路線，在首頁顯示推薦。'),
                     value: controller.settings.enableSmartRecommendations,
                     onChanged: controller.updateEnableSmartRecommendations,
                   ),
@@ -428,7 +195,7 @@ class SettingsScreen extends StatelessWidget {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('智慧推薦通知'),
-                      subtitle: const Text('在你常打開這條路線的時間點附近，依最近站牌到站時間主動提醒。'),
+                      subtitle: const Text('在常用時段背景提醒你可能想看的路線。'),
                       value: controller.settings.enableSmartRouteNotifications,
                       onChanged: (value) => _toggleSmartRouteNotifications(
                         context,
@@ -438,8 +205,8 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('公車頁面保持螢幕常亮'),
-                    subtitle: const Text('在路線詳情頁持續保持螢幕亮著。'),
+                    title: const Text('進入公車頁保持亮屏'),
+                    subtitle: const Text('在路線詳細頁面維持螢幕常亮。'),
                     value: controller.settings.keepScreenAwakeOnRouteDetail,
                     onChanged: controller.updateKeepScreenAwakeOnRouteDetail,
                   ),
@@ -449,8 +216,8 @@ class SettingsScreen extends StatelessWidget {
                       title: const Text('背景乘車提醒'),
                       subtitle: Text(
                         isIOS
-                            ? '設定下車提醒後，會透過即時動態在背景持續顯示目前路線，並在接近目的地下車時提醒你。'
-                            : '在背景持續追蹤目前路線，並在接近目的地下車時提醒你。',
+                            ? '需要通知與背景定位權限，才能在背景持續提醒搭車狀態。'
+                            : '需要通知與定位權限，才能在背景持續提醒搭車狀態。',
                       ),
                       value: controller.settings.enableRouteBackgroundMonitor,
                       onChanged: (value) {
@@ -464,7 +231,7 @@ class SettingsScreen extends StatelessWidget {
                           controller.settings.favoriteWidgetAutoRefreshMinutes,
                       decoration: const InputDecoration(
                         labelText: '最愛小工具背景更新',
-                        helperText: 'Android 背景排程最低 15 分鐘一次',
+                        helperText: 'Android 小工具最低更新間隔為 15 分鐘。',
                       ),
                       items: _favoriteWidgetRefreshOptions
                           .map(
@@ -484,7 +251,7 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 8),
-                  Text('正常更新間隔：${controller.settings.busUpdateTime} 秒'),
+                  Text('一般更新間隔：${controller.settings.busUpdateTime} 秒'),
                   Slider(
                     min: 5,
                     max: 60,
@@ -524,7 +291,7 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   Text('目前版本：${buildInfo.displayVersion}'),
-                  Text('內建 commit：${buildInfo.shortGitSha}'),
+                  Text('目前 commit：${buildInfo.shortGitSha}'),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<AppUpdateChannel>(
                     initialValue: controller.settings.appUpdateChannel,
@@ -583,13 +350,13 @@ class SettingsScreen extends StatelessWidget {
                           )
                         : const Icon(Icons.system_update_alt_rounded),
                     label: Text(
-                      controller.checkingAppUpdate ? '檢查中...' : '檢查 app 更新',
+                      controller.checkingAppUpdate ? '檢查中…' : '立即檢查 App 更新',
                     ),
                   ),
                   if (controller.lastAppUpdateResult case final result?) ...[
                     const SizedBox(height: 12),
                     Text(
-                      '上次結果：${result.message}',
+                      '最近結果：${result.message}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -605,11 +372,11 @@ class SettingsScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '搜尋紀錄與學習',
+                    '紀錄與隱私',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 12),
-                  Text('最多保留 ${controller.settings.maxHistory} 筆'),
+                  Text('搜尋紀錄上限：${controller.settings.maxHistory} 筆'),
                   Slider(
                     min: 0,
                     max: 30,
@@ -621,9 +388,9 @@ class SettingsScreen extends StatelessWidget {
                     },
                   ),
                   const SizedBox(height: 8),
-                  Text('已學習路線：${controller.routeUsageProfiles.length} 條'),
+                  Text('智慧推薦路線：${controller.routeUsageProfiles.length} 條'),
                   const SizedBox(height: 4),
-                  Text('已記錄路線選擇：${controller.recordedRouteSelections} 次'),
+                  Text('路線選擇紀錄：${controller.recordedRouteSelections} 次'),
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 12,
@@ -637,7 +404,7 @@ class SettingsScreen extends StatelessWidget {
                       OutlinedButton.icon(
                         onPressed: controller.clearRouteUsageProfiles,
                         icon: const Icon(Icons.psychology_alt_outlined),
-                        label: const Text('清除智慧推薦學習'),
+                        label: const Text('清除智慧推薦紀錄'),
                       ),
                       OutlinedButton.icon(
                         onPressed: controller.clearRouteSelectionHistory,
@@ -657,7 +424,10 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('首次啟動', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    '開始流程',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     onPressed: () async {
@@ -668,7 +438,7 @@ class SettingsScreen extends StatelessWidget {
                       Navigator.of(context).pop();
                     },
                     icon: const Icon(Icons.restart_alt_rounded),
-                    label: const Text('重新開始設定流程'),
+                    label: const Text('重新執行開始流程'),
                   ),
                 ],
               ),

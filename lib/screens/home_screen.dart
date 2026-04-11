@@ -7,6 +7,7 @@ import '../app/bus_app.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../widgets/eta_badge.dart';
+import 'database_settings_screen.dart';
 import 'favorites_screen.dart';
 import 'nearby_screen.dart';
 import 'route_detail_screen.dart';
@@ -16,133 +17,14 @@ import 'settings_screen.dart';
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
-  Future<void> _showDatabaseSheet(
+  Future<void> _openDatabaseSettings(
     BuildContext context,
     AppController controller,
   ) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '資料庫',
-                  style: Theme.of(sheetContext).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 8),
-                Text('目前資料來源：${controller.settings.provider.label}'),
-                const SizedBox(height: 4),
-                FutureBuilder<int?>(
-                  future: controller.currentProviderLocalVersion(),
-                  builder: (context, snapshot) {
-                    final version = snapshot.data;
-                    final text = version == null || version == 0
-                        ? '本機尚未下載資料庫'
-                        : '本機資料庫版本：$version';
-                    return Text(text);
-                  },
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  controller.databaseReady
-                      ? '本機資料庫已可用。你可以在這裡重新下載，或先檢查是否有更新版本。'
-                      : '第一次使用需要先下載 ${controller.settings.provider.label} 的 sqlite 資料庫，之後搜尋、路線詳情與智慧推薦才會完整可用。',
-                  style: Theme.of(sheetContext).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: controller.downloadingDatabase
-                          ? null
-                          : () async {
-                              final messenger = ScaffoldMessenger.of(context);
-                              Navigator.of(sheetContext).pop();
-                              try {
-                                await controller
-                                    .downloadCurrentProviderDatabase();
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      '${controller.settings.provider.label} 資料庫下載完成。',
-                                    ),
-                                  ),
-                                );
-                              } catch (error) {
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                messenger.showSnackBar(
-                                  SnackBar(content: Text('資料庫下載失敗：$error')),
-                                );
-                              }
-                            },
-                      icon: controller.downloadingDatabase
-                          ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Icon(
-                              controller.databaseReady
-                                  ? Icons.download_for_offline_outlined
-                                  : Icons.cloud_download_outlined,
-                            ),
-                      label: Text(
-                        controller.downloadingDatabase
-                            ? '下載中...'
-                            : (controller.databaseReady ? '重新下載' : '下載資料庫'),
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        Navigator.of(sheetContext).pop();
-                        try {
-                          final updates = await controller
-                              .checkDatabaseUpdates();
-                          if (!context.mounted) {
-                            return;
-                          }
-                          final lines = updates.entries
-                              .map(
-                                (entry) => entry.value == null
-                                    ? '${entry.key.label}：已是最新版本'
-                                    : '${entry.key.label}：可更新到 ${entry.value}',
-                              )
-                              .join('\n');
-                          messenger.showSnackBar(
-                            SnackBar(content: Text(lines)),
-                          );
-                        } catch (error) {
-                          if (!context.mounted) {
-                            return;
-                          }
-                          messenger.showSnackBar(
-                            SnackBar(content: Text('檢查資料庫更新失敗：$error')),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.cloud_sync_outlined),
-                      label: const Text('檢查更新'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const DatabaseSettingsScreen(),
+      ),
     );
   }
 
@@ -156,17 +38,20 @@ class HomeScreen extends StatelessWidget {
         title: const Text('YABus'),
         actions: [
           IconButton(
-            tooltip: '資料庫',
-            onPressed: () => _showDatabaseSheet(context, controller),
+            tooltip: '資料庫與下載',
+            onPressed: () => _openDatabaseSettings(context, controller),
             icon: controller.downloadingDatabase
                 ? const SizedBox.square(
                     dimension: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Icon(
-                    controller.databaseReady
-                        ? Icons.storage_rounded
-                        : Icons.cloud_download_outlined,
+                : Badge(
+                    isLabelVisible: controller.hasPendingDatabaseUpdates,
+                    child: Icon(
+                      controller.databaseReady
+                          ? Icons.storage_rounded
+                          : Icons.cloud_download_outlined,
+                    ),
                   ),
           ),
           IconButton(

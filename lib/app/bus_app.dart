@@ -13,6 +13,7 @@ import '../screens/home_screen.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/route_detail_screen.dart';
 import '../widgets/app_update_dialog.dart';
+import '../widgets/database_update_dialog.dart';
 
 class BusApp extends StatelessWidget {
   const BusApp({required this.controller, super.key});
@@ -237,6 +238,114 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   }
 
   Future<void> _runStartupCheck() async {
+    try {
+      final databasePlan =
+          await widget.controller.maybeCheckForDatabaseUpdatesOnLaunch();
+      if (mounted && databasePlan != null && databasePlan.hasUpdates) {
+        if (databasePlan.shouldAutoDownload) {
+          final providers = databasePlan.updates.keys.toList();
+          final messenger = ScaffoldMessenger.maybeOf(context);
+          messenger?.showSnackBar(
+            const SnackBar(content: Text('正在更新資料庫...')),
+          );
+          try {
+            await widget.controller.downloadProviderDatabases(providers);
+            if (!mounted) {
+              return;
+            }
+            messenger?.showSnackBar(
+              SnackBar(
+                content: Text(
+                  '資料庫已更新：${providers.map((provider) => provider.label).join('、')}',
+                ),
+              ),
+            );
+          } catch (error) {
+            if (!mounted) {
+              return;
+            }
+            messenger?.showSnackBar(
+              SnackBar(content: Text('自動更新資料庫失敗：$error')),
+            );
+          }
+        } else if (databasePlan.shouldShowPopup) {
+          final shouldUpdate = await showDatabaseUpdateDialog(
+            context,
+            updates: databasePlan.updates,
+          );
+          if (shouldUpdate && mounted) {
+            try {
+              await widget.controller.downloadProviderDatabases(
+                databasePlan.updates.keys,
+              );
+              if (!mounted) {
+                return;
+              }
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                const SnackBar(content: Text('資料庫更新完成。')),
+              );
+            } catch (error) {
+              if (!mounted) {
+                return;
+              }
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                SnackBar(content: Text('資料庫更新失敗：$error')),
+              );
+            }
+          }
+        } else if (databasePlan.shouldShowNotification) {
+          final messenger = ScaffoldMessenger.maybeOf(context);
+          messenger?.showSnackBar(
+            SnackBar(
+              content: Text(
+                '資料庫有新版本：${databasePlan.updates.keys.map((provider) => provider.label).join('、')}',
+              ),
+              action: SnackBarAction(
+                label: '更新',
+                onPressed: () async {
+                  final shouldUpdate = await showDatabaseUpdateDialog(
+                    context,
+                    updates: databasePlan.updates,
+                  );
+                  if (!mounted || !shouldUpdate) {
+                    return;
+                  }
+                  try {
+                    await widget.controller.downloadProviderDatabases(
+                      databasePlan.updates.keys,
+                    );
+                    if (!mounted) {
+                      return;
+                    }
+                    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                      const SnackBar(content: Text('資料庫更新完成。')),
+                    );
+                  } catch (error) {
+                    if (!mounted) {
+                      return;
+                    }
+                    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                      SnackBar(content: Text('資料庫更新失敗：$error')),
+                    );
+                  }
+                },
+              ),
+            ),
+          );
+        } else if (databasePlan.deferredReason case final reason?) {
+          ScaffoldMessenger.maybeOf(
+            context,
+          )?.showSnackBar(SnackBar(content: Text(reason)));
+        }
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.showSnackBar(SnackBar(content: Text('檢查資料庫更新失敗：$error')));
+      }
+    }
+
     final result = await widget.controller.maybeCheckForAppUpdateOnLaunch();
     if (!mounted || result == null || !result.hasUpdate) {
       return;

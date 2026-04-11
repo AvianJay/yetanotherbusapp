@@ -154,31 +154,30 @@ class BusRepository {
     final remoteVersion = await _fetchRemoteDatabaseVersion(provider);
     final metadataFile = await _routeMetadataDatabaseFile();
     final cityFile = await _cityDatabaseFile(provider);
-    final tempDirectory = Directory(
-      p.join(cityFile.parent.path, '.download_tmp_${provider.name}'),
-    );
-    final tempMetadataFile = File(p.join(tempDirectory.path, 'routes.db'));
-    final tempCityFile = File(p.join(tempDirectory.path, 'city.db'));
+    final tempMetadataFile = File('${metadataFile.path}.download');
+    final tempCityFile = File('${cityFile.path}.download');
 
-    await tempDirectory.create(recursive: true);
+    await metadataFile.parent.create(recursive: true);
     try {
+      await _deleteDatabaseArtifacts(tempMetadataFile);
+      await _deleteDatabaseArtifacts(tempCityFile);
       await _downloadRouteMetadataDatabase(tempMetadataFile);
       await _ensureDownloadedMetadataDatabaseUsable(tempMetadataFile);
       await _downloadCityDatabase(provider, tempCityFile);
       await _ensureDownloadedCityDatabaseUsable(provider, tempCityFile);
-      await metadataFile.parent.create(recursive: true);
+      await _deleteDatabaseArtifacts(metadataFile);
       if (await metadataFile.exists()) {
         await metadataFile.delete();
       }
       await tempMetadataFile.rename(metadataFile.path);
+      await _deleteDatabaseArtifacts(cityFile);
       if (await cityFile.exists()) {
         await cityFile.delete();
       }
       await tempCityFile.rename(cityFile.path);
     } finally {
-      if (await tempDirectory.exists()) {
-        await tempDirectory.delete(recursive: true);
-      }
+      await _deleteDatabaseArtifacts(tempMetadataFile);
+      await _deleteDatabaseArtifacts(tempCityFile);
     }
 
     final versions = await _readVersionMap();

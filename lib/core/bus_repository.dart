@@ -1512,6 +1512,10 @@ class BusRepository {
       throw DatabaseNotReadyException('Route metadata database is invalid.');
     }
 
+    if (Platform.isIOS) {
+      return;
+    }
+
     try {
       final database = await openDatabase(
         file.path,

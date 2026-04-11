@@ -322,7 +322,7 @@ class BusRepository {
       limit: limit,
     );
 
-    return rows
+    final summaries = rows
         .map(
           (row) => _routeSummaryFromPathRow(
             provider: provider,
@@ -335,6 +335,7 @@ class BusRepository {
         )
         .where((summary) => summary.routeId.isNotEmpty)
         .toList();
+    return _collapseRouteSummariesByRouteId(summaries);
   }
 
   Future<List<RouteSummary>> searchRoutesFromApi(
@@ -413,7 +414,7 @@ class BusRepository {
         })
         .where((summary) => summary.routeId.isNotEmpty)
         .toList();
-    return _dedupeRouteSummaries(summaries);
+    return _collapseRouteSummariesByRouteId(summaries);
   }
 
   Future<RouteSummary?> getRoute(
@@ -1032,12 +1033,35 @@ class BusRepository {
     );
   }
 
-  List<RouteSummary> _dedupeRouteSummaries(List<RouteSummary> items) {
-    final deduped = <String, RouteSummary>{};
+  List<RouteSummary> _collapseRouteSummariesByRouteId(List<RouteSummary> items) {
+    final grouped = <String, List<RouteSummary>>{};
     for (final item in items) {
-      deduped.putIfAbsent(item.routeId, () => item);
+      grouped.putIfAbsent(item.routeId, () => <RouteSummary>[]).add(item);
     }
-    return deduped.values.toList();
+
+    return grouped.values.map((group) {
+      final first = group.first;
+      final descriptions = group
+          .map((item) => item.description.trim())
+          .where((value) => value.isNotEmpty)
+          .toSet()
+          .toList();
+      descriptions.sort();
+      final mergedDescription = descriptions.join(' / ');
+
+      return RouteSummary(
+        sourceProvider: first.sourceProvider,
+        hashMd5: first.hashMd5,
+        routeKey: first.routeKey,
+        routeId: first.routeId,
+        routeName: first.routeName,
+        officialRouteName: first.officialRouteName,
+        description: mergedDescription,
+        category: first.category,
+        sequence: first.sequence,
+        rtrip: first.rtrip,
+      );
+    }).toList();
   }
 
   Future<int> _fetchRemoteDatabaseVersion(BusProvider provider) async {

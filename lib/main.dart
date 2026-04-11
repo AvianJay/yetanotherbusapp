@@ -9,12 +9,10 @@ import 'core/app_update_service.dart';
 import 'core/bus_repository.dart';
 import 'core/database_factory.dart';
 import 'core/storage_service.dart';
-import 'core/trip_monitor_notifications.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   configureDatabaseFactory();
-  await TripMonitorNotifications.initialize();
   await AppLaunchService.instance.initialize();
   final buildInfo = await AppBuildInfo.load();
 

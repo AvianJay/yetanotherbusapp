@@ -66,7 +66,7 @@ class BusRepository {
       return false;
     }
 
-    if (Platform.isIOS) {
+    if (_preferNativeSqliteBridge) {
       try {
         await _validateMetadataDatabaseFileWithSqlite3(metadataFile);
       } catch (_) {
@@ -210,7 +210,7 @@ class BusRepository {
     String? searchQuery,
     int? limit,
   }) async {
-    if (Platform.isIOS) {
+    if (_preferNativeSqliteBridge) {
       final file = await _routeMetadataDatabaseFile();
       if (!await file.exists()) {
         throw DatabaseNotReadyException('尚未下載路線資料庫。');
@@ -264,7 +264,7 @@ class BusRepository {
     double? lonDelta,
     int? limit,
   }) async {
-    if (Platform.isIOS) {
+    if (_preferNativeSqliteBridge) {
       final file = await _cityDatabaseFile(provider);
       if (!await file.exists()) {
         throw DatabaseNotReadyException('尚未下載 ${provider.label} 資料庫。');
@@ -2035,7 +2035,7 @@ class BusRepository {
       throw DatabaseNotReadyException('Route metadata database is invalid.');
     }
 
-    if (Platform.isIOS) {
+    if (_preferNativeSqliteBridge) {
       try {
         await _validateMetadataDatabaseFileWithSqlite3(file);
       } catch (_) {
@@ -2071,7 +2071,7 @@ class BusRepository {
       throw DatabaseNotReadyException('${provider.label} city database is invalid.');
     }
 
-    if (Platform.isIOS) {
+    if (_preferNativeSqliteBridge) {
       try {
         await _validateCityDatabaseFileWithSqlite3(file);
       } catch (_) {
@@ -2124,6 +2124,8 @@ class BusRepository {
   }
 
   bool get _supportsLocalDatabase => !kIsWeb;
+
+  bool get _preferNativeSqliteBridge => !kIsWeb;
 
   void _ensureLocalDatabaseSupported() {
     if (!_supportsLocalDatabase) {

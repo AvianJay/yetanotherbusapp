@@ -36,6 +36,7 @@ class TripMonitorSession {
     required this.pathId,
     required this.pathName,
     required this.appInForeground,
+    required this.backgroundLocationAlwaysGranted,
     required this.stops,
     this.initialLatitude,
     this.initialLongitude,
@@ -52,6 +53,7 @@ class TripMonitorSession {
   final int pathId;
   final String pathName;
   final bool appInForeground;
+  final bool backgroundLocationAlwaysGranted;
   final List<TripMonitorStop> stops;
   final double? initialLatitude;
   final double? initialLongitude;
@@ -69,6 +71,7 @@ class TripMonitorSession {
       'pathId': pathId,
       'pathName': pathName,
       'appInForeground': appInForeground,
+      'backgroundLocationAlwaysGranted': backgroundLocationAlwaysGranted,
       'initialLatitude': initialLatitude,
       'initialLongitude': initialLongitude,
       'boardingStopId': boardingStopId,

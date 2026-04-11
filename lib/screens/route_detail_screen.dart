@@ -70,6 +70,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _liveActivityBoardingWindowOpen = false;
   bool _liveActivityRideConfirmed = false;
   bool _locationTrackingConfiguredForBackground = false;
+  bool _backgroundLocationAlwaysGranted = false;
   int? _liveActivityLastNearestStopIndex;
   DateTime? _lastBackgroundDataRefreshAt;
   int? _requestedPathId;
@@ -785,6 +786,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       pathId: resolvedPathInfo.pathId,
       pathName: resolvedPathInfo.name,
       appInForeground: _appIsForeground,
+      backgroundLocationAlwaysGranted: _backgroundLocationAlwaysGranted,
       boardingStopId: _boardingStopId ?? fallbackBoardingStop?.stopId,
       boardingStopName: _boardingStopName ?? fallbackBoardingStop?.stopName,
       destinationStopId: _destinationStopId,
@@ -989,19 +991,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         }
         return;
       }
-      if (permission != LocationPermission.always) {
-        if (!forcePermissionCheck) {
-          return;
-        }
-        final openSettings = await _showBackgroundLocationExplainer();
-        if (!mounted || openSettings != true) {
-          return;
-        }
-        _awaitingBackgroundLocationPermission = true;
-        await Geolocator.openAppSettings();
-        return;
+      final hasAlwaysPermission = permission == LocationPermission.always;
+      if (_backgroundLocationAlwaysGranted != hasAlwaysPermission) {
+        _backgroundLocationAlwaysGranted = hasAlwaysPermission;
       }
-      await AndroidTripMonitor.requestNotificationPermission();
+      if (forcePermissionCheck && !hasAlwaysPermission && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('未啟用「一律允許」定位，背景乘車提醒會改用最後一次定位與公車到站資訊繼續運作。'),
+          ),
+        );
+      }
+      await TripMonitorNotifications.requestPermission();
       _backgroundTripMonitorReady = true;
     }
 

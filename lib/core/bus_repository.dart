@@ -47,6 +47,8 @@ class BusRepository {
   static const _routeDetailCacheTtl = Duration(seconds: 2);
   static const _searchApiCacheTtl = Duration(seconds: 2);
   static const _realtimeCacheTtl = Duration(seconds: 2);
+  static const _routePathGeometryCacheTtl = Duration(minutes: 30);
+  static const _routeRealtimeBusesCacheTtl = Duration(seconds: 2);
   final Map<String, _TimedValue<RouteDetailData>> _routeDetailCache =
       <String, _TimedValue<RouteDetailData>>{};
   final Map<String, Future<RouteDetailData>> _routeDetailInFlight =
@@ -59,6 +61,14 @@ class BusRepository {
       <String, _TimedValue<Map<String, _LiveStopPayload>>>{};
   final Map<String, Future<Map<String, _LiveStopPayload>>> _realtimeInFlight =
       <String, Future<Map<String, _LiveStopPayload>>>{};
+  final Map<String, _TimedValue<List<RoutePathPoint>>> _routePathGeometryCache =
+      <String, _TimedValue<List<RoutePathPoint>>>{};
+  final Map<String, Future<List<RoutePathPoint>>> _routePathGeometryInFlight =
+      <String, Future<List<RoutePathPoint>>>{};
+  final Map<String, _TimedValue<List<RouteRealtimeBus>>>
+      _routeRealtimeBusesCache = <String, _TimedValue<List<RouteRealtimeBus>>>{};
+  final Map<String, Future<List<RouteRealtimeBus>>> _routeRealtimeBusesInFlight =
+      <String, Future<List<RouteRealtimeBus>>>{};
 
   Future<bool> databaseExists(BusProvider provider) async {
     if (!_supportsLocalDatabase) {
@@ -571,6 +581,74 @@ class BusRepository {
           ),
         )
         .toList();
+  }
+
+  Future<List<RoutePathPoint>> getRoutePathPoints(
+    String routeId, {
+    required int pathId,
+  }) async {
+    final cacheKey = '$routeId:$pathId';
+    final cached = _readFreshCache(
+      _routePathGeometryCache,
+      cacheKey,
+      _routePathGeometryCacheTtl,
+    );
+    if (cached != null) {
+      return cached;
+    }
+
+    final inFlight = _routePathGeometryInFlight[cacheKey];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _loadRoutePathPoints(routeId, pathId: pathId);
+    _routePathGeometryInFlight[cacheKey] = future;
+    try {
+      final points = await future;
+      _routePathGeometryCache[cacheKey] = _TimedValue<List<RoutePathPoint>>(
+        points,
+      );
+      return points;
+    } finally {
+      if (identical(_routePathGeometryInFlight[cacheKey], future)) {
+        _routePathGeometryInFlight.remove(cacheKey);
+      }
+    }
+  }
+
+  Future<List<RouteRealtimeBus>> getRouteRealtimeBuses(
+    String routeId, {
+    required int pathId,
+  }) async {
+    final cached = _readFreshCache(
+      _routeRealtimeBusesCache,
+      routeId,
+      _routeRealtimeBusesCacheTtl,
+    );
+    if (cached != null) {
+      return cached.where((bus) => bus.pathId == pathId).toList();
+    }
+
+    final inFlight = _routeRealtimeBusesInFlight[routeId];
+    if (inFlight != null) {
+      final buses = await inFlight;
+      return buses.where((bus) => bus.pathId == pathId).toList();
+    }
+
+    final future = _loadRouteRealtimeBuses(routeId);
+    _routeRealtimeBusesInFlight[routeId] = future;
+    try {
+      final buses = await future;
+      _routeRealtimeBusesCache[routeId] = _TimedValue<List<RouteRealtimeBus>>(
+        buses,
+      );
+      return buses.where((bus) => bus.pathId == pathId).toList();
+    } finally {
+      if (identical(_routeRealtimeBusesInFlight[routeId], future)) {
+        _routeRealtimeBusesInFlight.remove(routeId);
+      }
+    }
   }
 
   Future<RouteDetailData> getCompleteBusInfo(
@@ -1279,6 +1357,79 @@ class BusRepository {
     return result;
   }
 
+  Future<List<RoutePathPoint>> _loadRoutePathPoints(
+    String routeId, {
+    required int pathId,
+  }) async {
+    final response = await _client.get(
+      Uri.parse(
+        '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/paths/$pathId/points',
+      ),
+      headers: _apiJsonHeaders,
+    );
+    if (response.statusCode != 200) {
+      throw HttpException(
+        '無法取得路線地圖路徑：$routeId / $pathId (${response.statusCode})',
+      );
+    }
+
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is! Map) {
+      throw const FormatException('Route path geometry is invalid.');
+    }
+
+    final polyline = decoded['polyline']?.toString().trim() ?? '';
+    if (polyline.isNotEmpty) {
+      final points = _decodePolyline(polyline);
+      if (points.isNotEmpty) {
+        return points;
+      }
+    }
+
+    final rawPoints = decoded['points'];
+    if (rawPoints is List) {
+      final points = rawPoints
+          .whereType<Map>()
+          .map(_parseRoutePathPoint)
+          .whereType<RoutePathPoint>()
+          .toList();
+      if (points.isNotEmpty) {
+        return points;
+      }
+    }
+
+    throw const FormatException('Route path geometry is invalid.');
+  }
+
+  Future<List<RouteRealtimeBus>> _loadRouteRealtimeBuses(String routeId) async {
+    final response = await _client.get(
+      Uri.parse(
+        '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/realtime/buses',
+      ),
+      headers: _apiJsonHeaders,
+    );
+    if (response.statusCode != 200) {
+      throw HttpException(
+        '無法取得公車地圖即時資料：$routeId (${response.statusCode})',
+      );
+    }
+
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final rawBuses = switch (decoded) {
+      List<dynamic> list => list,
+      Map<dynamic, dynamic> map when map['buses'] is List<dynamic> =>
+        map['buses'] as List<dynamic>,
+      _ => const <dynamic>[],
+    };
+
+    return rawBuses
+        .whereType<Map>()
+        .map((payload) => _parseRouteRealtimeBus(routeId, payload))
+        .whereType<RouteRealtimeBus>()
+        .where((bus) => bus.id.isNotEmpty)
+        .toList();
+  }
+
   BusVehicle _parseBusVehicle(Map<dynamic, dynamic> payload) {
     final id =
         payload['id']?.toString() ??
@@ -1296,6 +1447,118 @@ class BusRepository {
       full: fullValue == true || fullValue?.toString() == '1',
       carOnStop: carOnStopValue == true || carOnStopValue?.toString() == '1',
     );
+  }
+
+  RoutePathPoint? _parseRoutePathPoint(Map<dynamic, dynamic> payload) {
+    final lat = _toDouble(
+      payload['lat'] ?? payload['latitude'] ?? payload['y'],
+    );
+    final lon = _toDouble(
+      payload['lon'] ?? payload['lng'] ?? payload['longitude'] ?? payload['x'],
+    );
+    if (lat == 0 && lon == 0) {
+      return null;
+    }
+    return RoutePathPoint(lat: lat, lon: lon);
+  }
+
+  RouteRealtimeBus? _parseRouteRealtimeBus(
+    String routeId,
+    Map<dynamic, dynamic> payload,
+  ) {
+    final id =
+        payload['id']?.toString().trim() ??
+        payload['plate']?.toString().trim() ??
+        payload['vehicle_id']?.toString().trim() ??
+        '';
+    final lat = _toDouble(payload['lat'] ?? payload['latitude']);
+    final lon = _toDouble(
+      payload['lon'] ?? payload['lng'] ?? payload['longitude'],
+    );
+    if (id.isEmpty || (lat == 0 && lon == 0)) {
+      return null;
+    }
+
+    final timestampValue = payload['time'] ?? payload['timestamp'];
+    DateTime? updatedAt;
+    if (timestampValue is num) {
+      updatedAt = DateTime.fromMillisecondsSinceEpoch(
+        timestampValue.toInt() * 1000,
+        isUtc: true,
+      ).toLocal();
+    } else {
+      final text = timestampValue?.toString().trim();
+      if (text != null && text.isNotEmpty) {
+        final parsedSeconds = int.tryParse(text);
+        if (parsedSeconds != null) {
+          updatedAt = DateTime.fromMillisecondsSinceEpoch(
+            parsedSeconds * 1000,
+            isUtc: true,
+          ).toLocal();
+        } else {
+          updatedAt = DateTime.tryParse(text)?.toLocal();
+        }
+      }
+    }
+
+    return RouteRealtimeBus(
+      id: id,
+      routeId: routeId,
+      pathId: _nullableInt(payload['pathid'] ?? payload['direction']),
+      lat: lat,
+      lon: lon,
+      speedKph: (payload['speed'] as num?)?.toDouble() ??
+          double.tryParse(payload['speed']?.toString() ?? ''),
+      azimuth: (payload['azimuth'] as num?)?.toDouble() ??
+          double.tryParse(payload['azimuth']?.toString() ?? ''),
+      statusCode: _nullableInt(payload['status']),
+      updatedAt: updatedAt,
+    );
+  }
+
+  List<RoutePathPoint> _decodePolyline(String encoded) {
+    final points = <RoutePathPoint>[];
+    var index = 0;
+    var lat = 0;
+    var lon = 0;
+
+    while (index < encoded.length) {
+      var shift = 0;
+      var result = 0;
+      int byte;
+      do {
+        if (index >= encoded.length) {
+          return points;
+        }
+        byte = encoded.codeUnitAt(index++) - 63;
+        result |= (byte & 0x1f) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      final deltaLat = (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
+      lat += deltaLat;
+
+      shift = 0;
+      result = 0;
+      do {
+        if (index >= encoded.length) {
+          return points;
+        }
+        byte = encoded.codeUnitAt(index++) - 63;
+        result |= (byte & 0x1f) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      final deltaLon = (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
+      lon += deltaLon;
+
+      points.add(
+        RoutePathPoint(
+          lat: lat / 1e5,
+          lon: lon / 1e5,
+        ),
+      );
+    }
+
+    return points;
   }
 
   RouteDetailData _applyRouteNameHint(

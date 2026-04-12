@@ -16,6 +16,7 @@ import '../core/route_detail_launch_bridge.dart';
 import '../core/trip_monitor_notifications.dart';
 import '../core/twbusforum.dart';
 import '../widgets/eta_badge.dart';
+import '../widgets/route_bus_map_sheet.dart';
 
 class RouteDetailScreen extends StatefulWidget {
   const RouteDetailScreen({
@@ -42,6 +43,7 @@ class RouteDetailScreen extends StatefulWidget {
 class _RouteDetailScreenState extends State<RouteDetailScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   late final RouteDetailLaunchHandler _launchHandler;
+  late final ValueNotifier<int?> _selectedMapPathId;
   bool _isLoading = true;
   String? _error;
   String? _statusMessage;
@@ -94,6 +96,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     WidgetsBinding.instance.addObserver(this);
     _launchHandler = _handleLaunchAction;
     RouteDetailLaunchBridge.instance.attach(_launchHandler);
+    _selectedMapPathId = ValueNotifier<int?>(widget.initialPathId);
     _countdownProgressController = AnimationController(vsync: this);
     _requestedPathId = widget.initialPathId;
     _requestedStopId = widget.initialStopId;
@@ -117,6 +120,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     RouteDetailLaunchBridge.instance.detach(_launchHandler);
     _countdownTimer?.cancel();
     _countdownProgressController.dispose();
+    _selectedMapPathId.dispose();
     _positionSubscription?.cancel();
     _tabController?.dispose();
     for (final controller in _scrollControllers.values) {
@@ -295,6 +299,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _tabController?.dispose();
       _tabController = null;
       _targetInitialPathId = null;
+      _syncSelectedMapPathId(null);
       return;
     }
 
@@ -306,6 +311,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     if (_tabController?.length == pathIds.length) {
       _tabController!.index = selectedIndex;
+      _syncSelectedMapPathId(detail.paths[selectedIndex].pathId);
       return;
     }
 
@@ -315,6 +321,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       vsync: this,
       initialIndex: selectedIndex,
     );
+    _syncSelectedMapPathId(detail.paths[selectedIndex].pathId);
     _tabController!.addListener(() {
       if (_tabController!.indexIsChanging) {
         return;
@@ -332,6 +339,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (_isIOS && _backgroundTripMonitorPaused) {
         _backgroundTripMonitorPaused = false;
       }
+      _syncSelectedMapPathId();
       setState(() {});
       _scrollToInitialStopIfNeeded();
       _maybeScrollToCurrentLocation();
@@ -679,6 +687,65 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   void _pauseForegroundRefreshLoop() {
     _countdownTimer?.cancel();
     _countdownProgressController.stop();
+  }
+
+  void _syncSelectedMapPathId([int? pathId]) {
+    final nextPathId = pathId ?? _currentPathId;
+    if (_selectedMapPathId.value == nextPathId) {
+      return;
+    }
+    _selectedMapPathId.value = nextPathId;
+  }
+
+  void _handleMapPathSelection(int pathId) {
+    _syncSelectedMapPathId(pathId);
+    final detail = _detail;
+    final tabController = _tabController;
+    if (detail == null || tabController == null) {
+      return;
+    }
+    final targetIndex = detail.paths.indexWhere((path) => path.pathId == pathId);
+    if (targetIndex == -1 || tabController.index == targetIndex) {
+      return;
+    }
+    tabController.animateTo(
+      targetIndex,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Future<void> _openBusMapSheet() async {
+    final detail = _detail;
+    final routeId = detail?.route.routeId.trim() ?? '';
+    final currentPathId = _currentPathId;
+    if (detail == null || routeId.isEmpty || currentPathId == null) {
+      return;
+    }
+
+    _syncSelectedMapPathId(currentPathId);
+    final controller = AppControllerScope.read(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      enableDrag: true,
+      isDismissible: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return FractionallySizedBox(
+          heightFactor: 0.82,
+          child: RouteBusMapSheet(
+            routeId: routeId,
+            routeName: detail.route.routeName,
+            paths: detail.paths,
+            selectedPathIdListenable: _selectedMapPathId,
+            refreshIntervalSeconds: controller.settings.busUpdateTime,
+            onSelectedPathChanged: _handleMapPathSelection,
+          ),
+        );
+      },
+    );
   }
 
   PathInfo? get _currentPathInfo {
@@ -2363,6 +2430,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       appBar: AppBar(
         title: Text(detail?.route.routeName ?? '公車資訊'),
         actions: [
+          if (detail != null && currentPathId != null)
+            IconButton(
+              onPressed: () => unawaited(_openBusMapSheet()),
+              tooltip: '公車地圖',
+              icon: const Icon(Icons.map_outlined),
+            ),
           if (currentPathId != null && currentNearestStopId != null)
             IconButton(
               onPressed: () =>

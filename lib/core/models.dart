@@ -796,6 +796,127 @@ class PathInfo {
   final String name;
 }
 
+class RoutePathPoint {
+  const RoutePathPoint({
+    required this.lat,
+    required this.lon,
+  });
+
+  final double lat;
+  final double lon;
+}
+
+class RouteRealtimeBus {
+  const RouteRealtimeBus({
+    required this.id,
+    required this.routeId,
+    required this.pathId,
+    required this.lat,
+    required this.lon,
+    this.speedKph,
+    this.azimuth,
+    this.statusCode,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String routeId;
+  final int? pathId;
+  final double lat;
+  final double lon;
+  final double? speedKph;
+  final double? azimuth;
+  final int? statusCode;
+  final DateTime? updatedAt;
+}
+
+class BusStatusDescriptor {
+  const BusStatusDescriptor({
+    required this.code,
+    required this.label,
+    required this.color,
+  });
+
+  final int? code;
+  final String label;
+  final Color color;
+}
+
+BusStatusDescriptor describeBusStatus(int? statusCode) {
+  return switch (statusCode) {
+    0 => const BusStatusDescriptor(
+      code: 0,
+      label: '正常',
+      color: Color(0xFF2E7D32),
+    ),
+    1 => const BusStatusDescriptor(
+      code: 1,
+      label: '車禍',
+      color: Color(0xFFC62828),
+    ),
+    2 => const BusStatusDescriptor(
+      code: 2,
+      label: '故障',
+      color: Color(0xFFEF6C00),
+    ),
+    3 => const BusStatusDescriptor(
+      code: 3,
+      label: '塞車',
+      color: Color(0xFFAD7B00),
+    ),
+    4 => const BusStatusDescriptor(
+      code: 4,
+      label: '緊急求援',
+      color: Color(0xFFD81B60),
+    ),
+    5 => const BusStatusDescriptor(
+      code: 5,
+      label: '加油',
+      color: Color(0xFF1565C0),
+    ),
+    90 => const BusStatusDescriptor(
+      code: 90,
+      label: '不明',
+      color: Color(0xFF6D4C41),
+    ),
+    91 => const BusStatusDescriptor(
+      code: 91,
+      label: '去回不明',
+      color: Color(0xFF455A64),
+    ),
+    98 => const BusStatusDescriptor(
+      code: 98,
+      label: '偏移路線',
+      color: Color(0xFF8E24AA),
+    ),
+    99 => const BusStatusDescriptor(
+      code: 99,
+      label: '非營運狀態',
+      color: Color(0xFF616161),
+    ),
+    100 => const BusStatusDescriptor(
+      code: 100,
+      label: '客滿',
+      color: Color(0xFFE64A19),
+    ),
+    101 => const BusStatusDescriptor(
+      code: 101,
+      label: '包車出租',
+      color: Color(0xFF00897B),
+    ),
+    255 || null => const BusStatusDescriptor(
+      code: null,
+      label: '未知',
+      color: Color(0xFF78909C),
+    ),
+    _ => BusStatusDescriptor(
+      code: statusCode,
+      label: '未知($statusCode)',
+      color: const Color(0xFF78909C),
+    ),
+  };
+}
+
 class BusVehicle {
   const BusVehicle({
     required this.id,

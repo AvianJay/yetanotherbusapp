@@ -48,6 +48,8 @@ dependencies:
   archive: ^4.0.7
   url_launcher: ^6.3.2
   flutter_local_notifications: ^19.4.2
+  flutter_map: ^8.2.2
+  latlong2: ^0.9.1
 
 dev_dependencies:
   flutter_test:

@@ -31,6 +31,15 @@ class BusRepository {
   static const _legacyRouteMetadataDatabaseFileNames = <String>[
     'routes_metadata_v2.sqlite',
   ];
+  static const _apiJsonHeaders = <String, String>{
+    'Accept': 'application/json',
+    'Accept-Encoding': 'gzip',
+    'User-Agent': _userAgent,
+  };
+  static const _downloadHeaders = <String, String>{
+    'Accept-Encoding': 'gzip',
+    'User-Agent': _userAgent,
+  };
   static const _webLocalDatabaseUnsupportedMessage =
       'Web 版目前不支援本 app 使用的本機 SQLite 資料庫。';
 
@@ -436,7 +445,7 @@ class BusRepository {
     );
     final response = await _client.get(
       uri,
-      headers: const {'Accept': 'application/json', 'User-Agent': _userAgent},
+      headers: _apiJsonHeaders,
     );
     if (response.statusCode != 200) {
       throw HttpException(
@@ -967,7 +976,7 @@ class BusRepository {
       Uri.parse(
         '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/stops',
       ),
-      headers: const {'Accept': 'application/json', 'User-Agent': _userAgent},
+      headers: _apiJsonHeaders,
     );
     if (response.statusCode != 200) {
       throw HttpException('無法取得 $routeId 的路線站牌 (${response.statusCode})。');
@@ -1117,7 +1126,7 @@ class BusRepository {
       Uri.parse(
         '$_apiBaseUrl/api/v1/database/${Uri.encodeComponent(name)}/version',
       ),
-      headers: const {'Accept': 'application/json', 'User-Agent': _userAgent},
+      headers: _apiJsonHeaders,
     );
 
     if (response.statusCode != 200) {
@@ -1146,7 +1155,7 @@ class BusRepository {
     final cityName = _providerDatabaseName(provider);
     final response = await _client.get(
       Uri.parse('$_apiBaseUrl/downloads/${Uri.encodeComponent(cityName)}.db'),
-      headers: const {'User-Agent': _userAgent},
+      headers: _downloadHeaders,
     );
     if (response.statusCode != 200) {
       throw HttpException(
@@ -1161,7 +1170,7 @@ class BusRepository {
   Future<void> _downloadRouteMetadataDatabase(File targetFile) async {
     final response = await _client.get(
       Uri.parse('$_apiBaseUrl/downloads/bus.db'),
-      headers: const {'User-Agent': _userAgent},
+      headers: _downloadHeaders,
     );
     if (response.statusCode != 200) {
       throw HttpException('Download failed (/downloads/bus.db, ${response.statusCode})');
@@ -1235,7 +1244,7 @@ class BusRepository {
       Uri.parse(
         '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/realtime',
       ),
-      headers: const {'Accept': 'application/json', 'User-Agent': _userAgent},
+      headers: _apiJsonHeaders,
     );
     if (response.statusCode != 200) {
       throw HttpException('即時資料暫時無法取得：$routeId (${response.statusCode})。');

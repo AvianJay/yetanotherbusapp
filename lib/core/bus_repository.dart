@@ -333,7 +333,9 @@ class BusRepository {
             routeName: row.routeName,
             routeNameEn: row.routeNameEn,
             pathId: row.pathId,
-            pathName: row.pathName,
+            pathName: row.routeSummaryPathName.trim().isNotEmpty
+                ? row.routeSummaryPathName
+                : row.pathName,
           ),
         )
         .where((summary) => summary.routeId.isNotEmpty)
@@ -492,6 +494,7 @@ class BusRepository {
                   routeName: '',
                   routeNameEn: '',
                   pathId: 0,
+                  routeSummaryPathName: '',
                   pathName: '',
                   pathNameEn: '',
                 ),
@@ -1704,10 +1707,16 @@ class BusRepository {
     final normalizedQuery = searchQuery?.trim() ?? '';
     if (normalizedQuery.isNotEmpty) {
       whereClauses.add(
-        '(routes.name LIKE ? OR routes.routeid LIKE ? OR $pathNameColumn LIKE ?)',
+        '('
+        'routes.name LIKE ? OR '
+        'routes.routeid LIKE ? OR '
+        "COALESCE(routes.path_name, '') LIKE ? OR "
+        '$pathNameColumn LIKE ?'
+        ')',
       );
       parameters.addAll(
         <Object?>[
+          '%$normalizedQuery%',
           '%$normalizedQuery%',
           '%$normalizedQuery%',
           '%$normalizedQuery%',
@@ -1726,6 +1735,7 @@ class BusRepository {
         routes.routeid AS route_id,
         routes.name AS route_name,
         routes.name_en AS route_name_en,
+        COALESCE(routes.path_name, '') AS route_summary_path_name,
         $pathIdColumn AS path_id,
         $pathNameColumn AS path_name,
         $pathNameEnColumn AS path_name_en
@@ -1744,6 +1754,8 @@ class BusRepository {
             routeName: row['route_name']?.toString() ?? '',
             routeNameEn: row['route_name_en']?.toString() ?? '',
             pathId: (row['path_id'] as num?)?.toInt() ?? 0,
+            routeSummaryPathName:
+                row['route_summary_path_name']?.toString() ?? '',
             pathName: row['path_name']?.toString() ?? '',
             pathNameEn: row['path_name_en']?.toString() ?? '',
           ),
@@ -1782,10 +1794,16 @@ class BusRepository {
     final normalizedQuery = searchQuery?.trim() ?? '';
     if (normalizedQuery.isNotEmpty) {
       whereClauses.add(
-        '(routes.name LIKE ? OR routes.routeid LIKE ? OR $pathNameColumn LIKE ?)',
+        '('
+        'routes.name LIKE ? OR '
+        'routes.routeid LIKE ? OR '
+        "COALESCE(routes.path_name, '') LIKE ? OR "
+        '$pathNameColumn LIKE ?'
+        ')',
       );
       parameters.addAll(
         <Object?>[
+          '%$normalizedQuery%',
           '%$normalizedQuery%',
           '%$normalizedQuery%',
           '%$normalizedQuery%',
@@ -1804,6 +1822,7 @@ class BusRepository {
         routes.routeid AS route_id,
         routes.name AS route_name,
         routes.name_en AS route_name_en,
+        COALESCE(routes.path_name, '') AS route_summary_path_name,
         $pathIdColumn AS path_id,
         $pathNameColumn AS path_name,
         $pathNameEnColumn AS path_name_en
@@ -1822,6 +1841,8 @@ class BusRepository {
             routeName: row['route_name']?.toString() ?? '',
             routeNameEn: row['route_name_en']?.toString() ?? '',
             pathId: (row['path_id'] as num?)?.toInt() ?? 0,
+            routeSummaryPathName:
+                row['route_summary_path_name']?.toString() ?? '',
             pathName: row['path_name']?.toString() ?? '',
             pathNameEn: row['path_name_en']?.toString() ?? '',
           ),
@@ -2284,6 +2305,7 @@ class _MetadataPathRow {
     required this.routeName,
     required this.routeNameEn,
     required this.pathId,
+    required this.routeSummaryPathName,
     required this.pathName,
     required this.pathNameEn,
   });
@@ -2292,6 +2314,7 @@ class _MetadataPathRow {
   final String routeName;
   final String routeNameEn;
   final int pathId;
+  final String routeSummaryPathName;
   final String pathName;
   final String pathNameEn;
 }

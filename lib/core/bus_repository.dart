@@ -24,6 +24,9 @@ class BusRepository {
   BusRepository({http.Client? client}) : _client = client ?? http.Client();
 
   static const _apiBaseUrl = 'https://bus.avianjay.sbs';
+  static const _yahooBusServerBaseUrl = 'https://busserver.bus.yahoo.com';
+  static const _yahooBusFileBaseUrl = 'https://files.bus.yahoo.com';
+  static const _yahooRouteIndexDatabaseFileName = 'yahoo_routes_twn_v1.sqlite';
   static const _userAgent = 'Mozilla/5.0 (YABus Flutter)';
   static const _databaseDirectoryName = '.yabus_backend';
   static const _legacyDatabaseDirectoryNames = <String>['.taiwanbus'];
@@ -50,6 +53,10 @@ class BusRepository {
       <String, _TimedValue<Map<String, _LiveStopPayload>>>{};
   final Map<String, Future<Map<String, _LiveStopPayload>>> _realtimeInFlight =
       <String, Future<Map<String, _LiveStopPayload>>>{};
+  final Map<String, int?> _yahooRouteKeyCache = <String, int?>{};
+  Future<void>? _yahooRouteIndexLoadInFlight;
+  Map<String, List<_YahooRouteIndexRow>>? _yahooRouteIndexByProviderRouteName;
+  Map<String, List<_YahooRouteIndexRow>>? _yahooRouteIndexByProviderRouteId;
 
   Future<bool> databaseExists(BusProvider provider) async {
     if (!_supportsLocalDatabase) {
@@ -626,8 +633,15 @@ class BusRepository {
 
       var hasLiveData = true;
       Map<String, _LiveStopPayload> liveMap;
+      final liveRouteNameHint = routeNameHint?.trim().isNotEmpty == true
+          ? routeNameHint
+          : routeRows.firstOrNull?.routeName;
       try {
-        liveMap = await _getLiveStopMap(routeId);
+        liveMap = await _getLiveStopMap(
+          routeId,
+          provider: provider,
+          routeNameHint: liveRouteNameHint,
+        );
       } catch (_) {
         hasLiveData = false;
         liveMap = const <String, _LiveStopPayload>{};
@@ -813,11 +827,12 @@ class BusRepository {
     };
 
     for (final row in stopRows) {
-      final livePayload = liveMap[_stopCompositeKey(row.pathId, _parseStopId(row.stopId))];
+      final stopId = _parseStopId(row.stopId);
+      final livePayload = _resolveLivePayload(liveMap, row.pathId, stopId);
       final stop = StopInfo(
         routeKey: routeKey,
         pathId: row.pathId,
-        stopId: _parseStopId(row.stopId),
+        stopId: stopId,
         stopName: row.stopName,
         sequence: row.sequence,
         lon: row.lon,
@@ -896,8 +911,15 @@ class BusRepository {
 
     var hasLiveData = true;
     Map<String, _LiveStopPayload> liveMap;
+    final liveRouteNameHint = routeNameHint?.trim().isNotEmpty == true
+        ? routeNameHint
+        : routeRow.routeName;
     try {
-      liveMap = await _getLiveStopMap(routeId);
+      liveMap = await _getLiveStopMap(
+        routeId,
+        provider: provider,
+        routeNameHint: liveRouteNameHint,
+      );
     } catch (_) {
       hasLiveData = false;
       liveMap = const <String, _LiveStopPayload>{};
@@ -921,7 +943,7 @@ class BusRepository {
     for (final row in stopRows) {
       final pathId = (row['pathid'] as num?)?.toInt() ?? 0;
       final stopId = _parseStopId(row['stopid']);
-      final livePayload = liveMap[_stopCompositeKey(pathId, stopId)];
+      final livePayload = _resolveLivePayload(liveMap, pathId, stopId);
       final stop = StopInfo(
         routeKey: routeKey,
         pathId: pathId,
@@ -1007,8 +1029,15 @@ class BusRepository {
 
     var hasLiveData = true;
     Map<String, _LiveStopPayload> liveMap;
+    final liveRouteNameHint = routeNameHint?.trim().isNotEmpty == true
+        ? routeNameHint
+        : decoded['name']?.toString();
     try {
-      liveMap = await _getLiveStopMap(routeId);
+      liveMap = await _getLiveStopMap(
+        routeId,
+        provider: provider,
+        routeNameHint: liveRouteNameHint,
+      );
     } catch (_) {
       hasLiveData = false;
       liveMap = const <String, _LiveStopPayload>{};
@@ -1020,8 +1049,11 @@ class BusRepository {
           0,
           entry.value.length,
           entry.value.map((stop) {
-            final payload =
-                liveMap[_stopCompositeKey(stop.pathId, stop.stopId)];
+            final payload = _resolveLivePayload(
+              liveMap,
+              stop.pathId,
+              stop.stopId,
+            );
             return stop.copyWith(
               sec: payload?.sec,
               msg: payload?.msg,
@@ -1201,36 +1233,67 @@ class BusRepository {
     return metadata;
   }
 
-  Future<Map<String, _LiveStopPayload>> _getLiveStopMap(String routeId) async {
+  Future<Map<String, _LiveStopPayload>> _getLiveStopMap(
+    String routeId, {
+    required BusProvider provider,
+    String? routeNameHint,
+  }) async {
+    final cacheKey = '${provider.name}:$routeId';
     final cached = _readFreshCache(
       _realtimeCache,
-      routeId,
+      cacheKey,
       _realtimeCacheTtl,
     );
     if (cached != null) {
       return cached;
     }
 
-    final inFlight = _realtimeInFlight[routeId];
+    final inFlight = _realtimeInFlight[cacheKey];
     if (inFlight != null) {
       return inFlight;
     }
 
-    final future = _loadLiveStopMap(routeId);
-    _realtimeInFlight[routeId] = future;
+    final future = _loadLiveStopMap(
+      routeId,
+      provider: provider,
+      routeNameHint: routeNameHint,
+    );
+    _realtimeInFlight[cacheKey] = future;
     try {
       final result = await future;
-      _realtimeCache[routeId] =
-          _TimedValue<Map<String, _LiveStopPayload>>(result);
+      _realtimeCache[cacheKey] = _TimedValue<Map<String, _LiveStopPayload>>(
+        result,
+      );
       return result;
     } finally {
-      if (identical(_realtimeInFlight[routeId], future)) {
-        _realtimeInFlight.remove(routeId);
+      if (identical(_realtimeInFlight[cacheKey], future)) {
+        _realtimeInFlight.remove(cacheKey);
       }
     }
   }
 
-  Future<Map<String, _LiveStopPayload>> _loadLiveStopMap(String routeId) async {
+  Future<Map<String, _LiveStopPayload>> _loadLiveStopMap(
+    String routeId, {
+    required BusProvider provider,
+    String? routeNameHint,
+  }) async {
+    if (_supportsLocalDatabase) {
+      try {
+        return await _loadLiveStopMapFromYahoo(
+          routeId,
+          provider: provider,
+          routeNameHint: routeNameHint,
+        );
+      } catch (_) {
+        return _loadLiveStopMapFromBackend(routeId);
+      }
+    }
+    return _loadLiveStopMapFromBackend(routeId);
+  }
+
+  Future<Map<String, _LiveStopPayload>> _loadLiveStopMapFromBackend(
+    String routeId,
+  ) async {
     final response = await _client.get(
       Uri.parse(
         '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/realtime',
@@ -1255,7 +1318,7 @@ class BusRepository {
           continue;
         }
         final stopId = _parseStopId(rawStop['stopid']);
-        result[_stopCompositeKey(pathId, stopId)] = _LiveStopPayload(
+        final payload = _LiveStopPayload(
           sec: _nullableInt(rawStop['eta']),
           msg: rawStop['message']?.toString(),
           t: rawStop['updated_at']?.toString(),
@@ -1264,10 +1327,449 @@ class BusRepository {
               .map(_parseBusVehicle)
               .toList(),
         );
+        result[_stopCompositeKey(pathId, stopId)] = payload;
+        result.putIfAbsent(_stopAnyPathKey(stopId), () => payload);
       }
     }
 
     return result;
+  }
+
+  Future<Map<String, _LiveStopPayload>> _loadLiveStopMapFromYahoo(
+    String routeId, {
+    required BusProvider provider,
+    String? routeNameHint,
+  }) async {
+    final routeKey = await _resolveYahooRouteKey(
+      provider: provider,
+      routeId: routeId,
+      routeNameHint: routeNameHint,
+    );
+    if (routeKey == null) {
+      throw StateError('Yahoo route key not found: $routeId');
+    }
+
+    final response = await _client.get(
+      Uri.parse(
+        '$_yahooBusServerBaseUrl/api/route/${Uri.encodeComponent(routeKey.toString())}',
+      ),
+      headers: const {'User-Agent': _userAgent},
+    );
+    if (response.statusCode != 200) {
+      throw HttpException('Yahoo 即時資料暫時無法取得：$routeId (${response.statusCode})。');
+    }
+
+    final decodedPayload = _decodeYahooCompressedPayload(response.bodyBytes);
+    final xmlText = utf8.decode(decodedPayload, allowMalformed: true);
+    final result = <String, _LiveStopPayload>{};
+    final stopElementPattern = RegExp(
+      r'<e\s+([^>/]*?)(?:\s*/>|>(.*?)</e>)',
+      dotAll: true,
+    );
+    for (final stopMatch in stopElementPattern.allMatches(xmlText)) {
+      final attributes = _parseXmlAttributes(stopMatch.group(1) ?? '');
+      final stopIdRaw = attributes['id']?.trim() ?? '';
+      if (stopIdRaw.isEmpty) {
+        continue;
+      }
+      final stopId = _parseStopId(stopIdRaw);
+      final secRaw = _nullableInt(attributes['sec']);
+      final message = attributes['msg']?.trim() ?? '';
+      final timestamp = attributes['t']?.trim() ?? '';
+      final buses = _parseYahooBusVehicles(stopMatch.group(2) ?? '');
+      result[_stopAnyPathKey(stopId)] = _LiveStopPayload(
+        sec: secRaw == null || secRaw < 0 ? null : secRaw,
+        msg: message.isEmpty ? null : message,
+        t: timestamp.isEmpty ? null : timestamp,
+        buses: buses,
+      );
+    }
+
+    if (result.isEmpty) {
+      throw const FormatException('Yahoo 即時資料內容為空。');
+    }
+    return result;
+  }
+
+  Future<int?> _resolveYahooRouteKey({
+    required BusProvider provider,
+    required String routeId,
+    String? routeNameHint,
+  }) async {
+    final cacheKey = '${provider.name}:$routeId';
+    final cached = _yahooRouteKeyCache[cacheKey];
+    if (cached != null) {
+      return cached;
+    }
+
+    final providerCode = _yahooProviderCode(provider);
+    if (providerCode == null) {
+      return null;
+    }
+
+    await _ensureYahooRouteIndexLoaded();
+    final byRouteId = _yahooRouteIndexByProviderRouteId;
+    final byRouteName = _yahooRouteIndexByProviderRouteName;
+    if (byRouteId == null || byRouteName == null) {
+      return null;
+    }
+
+    final routeIdCandidates = _routeIdLookupCandidates(routeId).toSet();
+    for (final routeIdCandidate in routeIdCandidates) {
+      final rows =
+          byRouteId[_providerRouteIdLookupKey(providerCode, routeIdCandidate)] ??
+          const <_YahooRouteIndexRow>[];
+      final picked = _pickYahooRouteKey(
+        rows,
+        routeIdCandidates: routeIdCandidates,
+        routeNameHint: routeNameHint,
+      );
+      if (picked != null) {
+        _yahooRouteKeyCache[cacheKey] = picked;
+        return picked;
+      }
+    }
+
+    final normalizedRouteName = _normalizeLookupText(routeNameHint ?? '');
+    if (normalizedRouteName.isNotEmpty) {
+      final rows =
+          byRouteName[
+            _providerRouteNameLookupKey(providerCode, normalizedRouteName)
+          ] ??
+          const <_YahooRouteIndexRow>[];
+      final picked = _pickYahooRouteKey(
+        rows,
+        routeIdCandidates: routeIdCandidates,
+        routeNameHint: routeNameHint,
+      );
+      if (picked != null) {
+        _yahooRouteKeyCache[cacheKey] = picked;
+        return picked;
+      }
+    }
+
+    return null;
+  }
+
+  Future<void> _ensureYahooRouteIndexLoaded() async {
+    if (_yahooRouteIndexByProviderRouteName != null &&
+        _yahooRouteIndexByProviderRouteId != null) {
+      return;
+    }
+
+    final inFlight = _yahooRouteIndexLoadInFlight;
+    if (inFlight != null) {
+      await inFlight;
+      return;
+    }
+
+    final future = _loadYahooRouteIndex();
+    _yahooRouteIndexLoadInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_yahooRouteIndexLoadInFlight, future)) {
+        _yahooRouteIndexLoadInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _loadYahooRouteIndex() async {
+    final indexFile = await _yahooRouteIndexDatabaseFile();
+    if (!await _isYahooRouteIndexDatabaseUsable(indexFile)) {
+      final tempFile = File('${indexFile.path}.download');
+      await _deleteDatabaseArtifacts(tempFile);
+      try {
+        await _downloadYahooRouteIndexDatabase(tempFile);
+        if (!await _isYahooRouteIndexDatabaseUsable(tempFile)) {
+          throw const FormatException('Yahoo 路線索引資料庫格式錯誤。');
+        }
+        await _deleteDatabaseArtifacts(indexFile);
+        if (await indexFile.exists()) {
+          await indexFile.delete();
+        }
+        await tempFile.rename(indexFile.path);
+      } finally {
+        await _deleteDatabaseArtifacts(tempFile);
+      }
+    }
+
+    _loadYahooRouteIndexFromFile(indexFile);
+  }
+
+  Future<File> _yahooRouteIndexDatabaseFile() async {
+    final directory = await _databaseDirectory();
+    return File(p.join(directory.path, _yahooRouteIndexDatabaseFileName));
+  }
+
+  Future<bool> _isYahooRouteIndexDatabaseUsable(File file) async {
+    if (!await file.exists() || !await _looksLikeSqliteFile(file)) {
+      return false;
+    }
+
+    try {
+      _withSqlite3Database(file, (database) {
+        final tableNames = _loadTableNamesSqlite(database);
+        if (!tableNames.contains('routes')) {
+          throw const FormatException('Invalid Yahoo route index schema.');
+        }
+        final columns = _loadColumnNamesSqlite(database, 'routes');
+        if (!columns.containsAll(
+          const {'provider', 'route_key', 'route_id', 'route_name'},
+        )) {
+          throw const FormatException('Invalid Yahoo route index schema.');
+        }
+        return null;
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _downloadYahooRouteIndexDatabase(File targetFile) async {
+    final baseResponse = await _client.get(
+      Uri.parse('$_yahooBusFileBaseUrl/bustracker/data/dataurl.txt'),
+      headers: const {'User-Agent': _userAgent},
+    );
+    if (baseResponse.statusCode != 200) {
+      throw HttpException(
+        '無法取得 Yahoo 資料版本資訊 (${baseResponse.statusCode})。',
+      );
+    }
+
+    final rawBaseUrl = utf8.decode(baseResponse.bodyBytes).trim();
+    if (rawBaseUrl.isEmpty) {
+      throw const FormatException('Yahoo 資料版本資訊格式錯誤。');
+    }
+    final normalizedBaseUrl = rawBaseUrl.endsWith('/')
+        ? rawBaseUrl
+        : '$rawBaseUrl/';
+
+    final response = await _client.get(
+      Uri.parse('${normalizedBaseUrl}dat_twn_zh.gz'),
+      headers: const {'User-Agent': _userAgent},
+    );
+    if (response.statusCode != 200) {
+      throw HttpException(
+        '無法下載 Yahoo 路線索引資料 (${response.statusCode})。',
+      );
+    }
+
+    final bytes = _decodeYahooCompressedPayload(response.bodyBytes);
+    await targetFile.parent.create(recursive: true);
+    await targetFile.writeAsBytes(bytes, flush: true);
+  }
+
+  void _loadYahooRouteIndexFromFile(File file) {
+    final rows = _withSqlite3Database(
+      file,
+      (database) => database.select(
+        '''
+        SELECT provider, route_key, route_id, route_name
+        FROM routes
+        ''',
+      ),
+    );
+
+    final byProviderRouteName = <String, List<_YahooRouteIndexRow>>{};
+    final byProviderRouteId = <String, List<_YahooRouteIndexRow>>{};
+
+    for (final row in rows) {
+      final providerCode = row['provider']?.toString().trim().toLowerCase() ?? '';
+      final routeKey = _nullableInt(row['route_key']);
+      final routeId = _nullableInt(row['route_id']);
+      final routeName = row['route_name']?.toString() ?? '';
+      if (providerCode.isEmpty || routeKey == null || routeId == null) {
+        continue;
+      }
+
+      final item = _YahooRouteIndexRow(
+        providerCode: providerCode,
+        routeKey: routeKey,
+        routeId: routeId,
+        routeName: routeName,
+      );
+
+      byProviderRouteName
+          .putIfAbsent(
+            _providerRouteNameLookupKey(providerCode, routeName),
+            () => <_YahooRouteIndexRow>[],
+          )
+          .add(item);
+
+      byProviderRouteId
+          .putIfAbsent(
+            _providerRouteIdLookupKey(providerCode, routeId.toString()),
+            () => <_YahooRouteIndexRow>[],
+          )
+          .add(item);
+    }
+
+    _yahooRouteIndexByProviderRouteName = byProviderRouteName;
+    _yahooRouteIndexByProviderRouteId = byProviderRouteId;
+  }
+
+  int? _pickYahooRouteKey(
+    List<_YahooRouteIndexRow> rows, {
+    required Set<String> routeIdCandidates,
+    String? routeNameHint,
+  }) {
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    var candidates = rows;
+    if (routeIdCandidates.isNotEmpty) {
+      final filtered = candidates
+          .where(
+            (row) => routeIdCandidates.contains(
+              _normalizeRouteIdLookupText(row.routeId.toString()),
+            ),
+          )
+          .toList();
+      if (filtered.length == 1) {
+        return filtered.first.routeKey;
+      }
+      if (filtered.isNotEmpty) {
+        candidates = filtered;
+      }
+    }
+
+    final normalizedHint = _normalizeLookupText(routeNameHint ?? '');
+    if (normalizedHint.isNotEmpty) {
+      final filtered = candidates
+          .where((row) => _normalizeLookupText(row.routeName) == normalizedHint)
+          .toList();
+      if (filtered.isEmpty) {
+        return null;
+      }
+      if (filtered.length == 1) {
+        return filtered.first.routeKey;
+      }
+      candidates = filtered;
+    }
+
+    candidates.sort((left, right) => left.routeKey.compareTo(right.routeKey));
+    return candidates.first.routeKey;
+  }
+
+  List<String> _routeIdLookupCandidates(String routeId) {
+    final matched = RegExp(r'(\d+)$').firstMatch(routeId.trim());
+    if (matched == null) {
+      return const <String>[];
+    }
+
+    final raw = matched.group(1) ?? '';
+    final candidates = <String>[];
+    void addCandidate(String value) {
+      final normalized = _normalizeRouteIdLookupText(value);
+      if (normalized.isNotEmpty && !candidates.contains(normalized)) {
+        candidates.add(normalized);
+      }
+    }
+
+    addCandidate(raw);
+    if (raw.endsWith('0') && raw.length > 1) {
+      addCandidate(raw.substring(0, raw.length - 1));
+    }
+    if (raw.endsWith('00') && raw.length > 2) {
+      addCandidate(raw.substring(0, raw.length - 2));
+    }
+    return candidates;
+  }
+
+  String _providerRouteNameLookupKey(String providerCode, String routeName) {
+    return '$providerCode:${_normalizeLookupText(routeName)}';
+  }
+
+  String _providerRouteIdLookupKey(String providerCode, String routeId) {
+    return '$providerCode:${_normalizeRouteIdLookupText(routeId)}';
+  }
+
+  String _normalizeLookupText(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
+  }
+
+  String _normalizeRouteIdLookupText(String value) {
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) {
+      return value.trim().toLowerCase();
+    }
+    return parsed.toString();
+  }
+
+  String? _yahooProviderCode(BusProvider provider) {
+    return switch (provider) {
+      BusProvider.kee => 'klc',
+      BusProvider.tpe => 'tpc',
+      BusProvider.nwt => 'ntc',
+      BusProvider.tao => 'tyc',
+      BusProvider.hsz => 'hcc',
+      BusProvider.hsq => 'hcc',
+      BusProvider.mia => 'mlc',
+      BusProvider.txg => 'tcc',
+      BusProvider.cha => 'zhc',
+      BusProvider.nan => 'noc',
+      BusProvider.yun => 'ync',
+      BusProvider.cyi => 'cyc',
+      BusProvider.cyq => 'cyc',
+      BusProvider.tnn => 'tnc',
+      BusProvider.khh => 'khc',
+      BusProvider.pif => 'ptc',
+      BusProvider.ila => 'ylc',
+      BusProvider.hua => 'hlc',
+      BusProvider.ttt => 'ttc',
+      BusProvider.pen => 'phc',
+      BusProvider.kin => 'kmc',
+      BusProvider.lie => 'lcc',
+    };
+  }
+
+  List<int> _decodeYahooCompressedPayload(List<int> payloadBytes) {
+    try {
+      return const ZLibCodec().decode(payloadBytes);
+    } catch (_) {
+      return const GZipCodec().decode(payloadBytes);
+    }
+  }
+
+  Map<String, String> _parseXmlAttributes(String attributeText) {
+    final attributes = <String, String>{};
+    final attributePattern = RegExp(r'(\w+)="([^"]*)"');
+    for (final match in attributePattern.allMatches(attributeText)) {
+      final key = match.group(1);
+      if (key == null || key.isEmpty) {
+        continue;
+      }
+      attributes[key] = match.group(2) ?? '';
+    }
+    return attributes;
+  }
+
+  List<BusVehicle> _parseYahooBusVehicles(String innerXml) {
+    final buses = <BusVehicle>[];
+    final busPattern = RegExp(r'<b\s+([^>/]*?)(?:\s*/>|>(.*?)</b>)', dotAll: true);
+    for (final busMatch in busPattern.allMatches(innerXml)) {
+      final attributes = _parseXmlAttributes(busMatch.group(1) ?? '');
+      buses.add(
+        BusVehicle(
+          id: attributes['id']?.toString() ?? '',
+          type: attributes['type']?.toString() ?? '',
+          note: attributes['note']?.toString() ?? '',
+          full: _isTruthy(attributes['full']),
+          carOnStop:
+              _isTruthy(attributes['carOnStop']) ||
+              _isTruthy(attributes['car_on_stop']),
+        ),
+      );
+    }
+    return buses;
+  }
+
+  bool _isTruthy(String? value) {
+    final normalized = value?.trim().toLowerCase() ?? '';
+    return normalized == '1' || normalized == 'true' || normalized == 'yes';
   }
 
   BusVehicle _parseBusVehicle(Map<dynamic, dynamic> payload) {
@@ -2246,7 +2748,18 @@ class BusRepository {
 
   double _degreesToRadians(double degree) => degree * math.pi / 180;
 
+  _LiveStopPayload? _resolveLivePayload(
+    Map<String, _LiveStopPayload> payloadByStop,
+    int pathId,
+    int stopId,
+  ) {
+    return payloadByStop[_stopCompositeKey(pathId, stopId)] ??
+        payloadByStop[_stopAnyPathKey(stopId)];
+  }
+
   String _stopCompositeKey(int pathId, int stopId) => '$pathId:$stopId';
+
+  String _stopAnyPathKey(int stopId) => '*:$stopId';
 
   T? _firstWhereOrNull<T>(Iterable<T> items, bool Function(T item) test) {
     for (final item in items) {
@@ -2329,6 +2842,20 @@ class _RouteMetadataRow {
   final String routeName;
   final String routeNameEn;
   final String pathName;
+}
+
+class _YahooRouteIndexRow {
+  const _YahooRouteIndexRow({
+    required this.providerCode,
+    required this.routeKey,
+    required this.routeId,
+    required this.routeName,
+  });
+
+  final String providerCode;
+  final int routeKey;
+  final int routeId;
+  final String routeName;
 }
 
 class _CityStopRow {

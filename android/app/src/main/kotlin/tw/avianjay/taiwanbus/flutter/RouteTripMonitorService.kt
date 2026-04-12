@@ -55,6 +55,7 @@ class RouteTripMonitorService : Service() {
     private var rideConfirmed = false
     private var rideConfirmationSamples = 0
     private var lastNearestStopIndex: Int? = null
+    private var lastBusStopIndex: Int? = null
     private var trackedBusId: String? = null
     private var destinationAlertStage = 0
     private var overshootAlertSent = false
@@ -188,6 +189,7 @@ class RouteTripMonitorService : Service() {
                     rideConfirmed = false
                     rideConfirmationSamples = 0
                     lastNearestStopIndex = null
+                    lastBusStopIndex = null
                     trackedBusId = null
                     destinationAlertStage = 0
                     overshootAlertSent = false
@@ -776,22 +778,31 @@ class RouteTripMonitorService : Service() {
         }
 
         val previousNearest = lastNearestStopIndex
+        val previousBusIndex = lastBusStopIndex
         lastNearestStopIndex = nearestIndex
+        lastBusStopIndex = busIndex
         val movedForward = previousNearest != null && nearestIndex > previousNearest
+        val busMovedForward =
+            previousBusIndex != null &&
+                busIndex != null &&
+                busIndex > previousBusIndex
         val busNearUser = busIndex != null && abs(nearestIndex - busIndex) <= 1
         val busReachedBoarding = busIndex != null && busIndex >= boardingIndex
         val userReachedBoarding = nearestIndex >= boardingIndex
-        val userMovedPastBoardingStop = nearestIndex > boardingIndex
-        val userLeftBoardingArea =
-            boardingDistanceMeters >= BOARDING_CONFIRM_DISTANCE_METERS
+        val userAdvancedPastBoardingStop = nearestIndex > boardingIndex
+        val userMovingWithBus = movedForward && busMovedForward && busNearUser
         val strongBoardingSignal =
             boardingWindowOpen &&
-                busNearUser &&
                 userReachedBoarding &&
+                busReachedBoarding &&
+                busNearUser &&
                 (
-                    (busReachedBoarding && movedForward) ||
-                        userMovedPastBoardingStop ||
-                        userLeftBoardingArea
+                    userMovingWithBus ||
+                        (
+                            busMovedForward &&
+                                userAdvancedPastBoardingStop &&
+                                boardingDistanceMeters <= BOARDING_CONFIRM_DISTANCE_METERS
+                        )
                 )
 
         if (!rideConfirmed) {
@@ -1594,6 +1605,7 @@ class RouteTripMonitorService : Service() {
         rideConfirmed = false
         rideConfirmationSamples = 0
         lastNearestStopIndex = null
+        lastBusStopIndex = null
         trackedBusId = null
         destinationAlertStage = 0
         overshootAlertSent = false

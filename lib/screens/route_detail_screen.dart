@@ -2470,10 +2470,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               ),
             ),
           IconButton(
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-          IconButton(
             onPressed: detail == null
                 ? null
                 : () {

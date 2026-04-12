@@ -27,7 +27,7 @@ class BusRepository {
   static const _userAgent = 'Mozilla/5.0 (YABus Flutter)';
   static const _databaseDirectoryName = '.yabus_backend';
   static const _legacyDatabaseDirectoryNames = <String>['.taiwanbus'];
-  static const _routeMetadataDatabaseFileName = 'routes_metadata_v1.sqlite';
+  static const _routeMetadataDatabaseFileName = 'routes_metadata_v2.sqlite';
   static const _webLocalDatabaseUnsupportedMessage =
       'Web 版目前不支援本 app 使用的本機 SQLite 資料庫。';
 
@@ -1552,9 +1552,9 @@ class BusRepository {
     }
   }
 
-  Future<_MetadataLayout> _detectMetadataLayout(Database database) async {
+  Future<void> _detectMetadataLayout(Database database) async {
     final tableNames = await _loadTableNames(database);
-    if (!tableNames.contains('routes')) {
+    if (!tableNames.containsAll(const {'routes', 'paths'})) {
       throw const FormatException('Invalid route metadata database schema.');
     }
 
@@ -1563,20 +1563,10 @@ class BusRepository {
       throw const FormatException('Invalid route metadata database schema.');
     }
 
-    if (routeColumns.containsAll(const {'pathid', 'path_name'})) {
-      return _MetadataLayout.flattenedRoutes;
-    }
-
-    if (!tableNames.contains('paths')) {
-      throw const FormatException('Invalid route metadata database schema.');
-    }
-
     final pathColumns = await _loadColumnNames(database, 'paths');
     if (!pathColumns.containsAll(const {'routeid', 'pathid', 'name'})) {
       throw const FormatException('Invalid route metadata database schema.');
     }
-
-    return _MetadataLayout.routesAndPaths;
   }
 
   Future<Set<String>> _loadTableNames(Database database) async {
@@ -1612,26 +1602,13 @@ class BusRepository {
     String? searchQuery,
     int? limit,
   }) async {
-    final layout = await _detectMetadataLayout(database);
+    await _detectMetadataLayout(database);
     final parameters = <Object?>['${provider.prefix}%'];
     final whereClauses = <String>['routes.routeid LIKE ?'];
-    final pathIdColumn = switch (layout) {
-      _MetadataLayout.flattenedRoutes => 'routes.pathid',
-      _MetadataLayout.routesAndPaths => 'paths.pathid',
-    };
-    final pathNameColumn = switch (layout) {
-      _MetadataLayout.flattenedRoutes => 'routes.path_name',
-      _MetadataLayout.routesAndPaths => 'paths.name',
-    };
-    final pathNameEnColumn = switch (layout) {
-      _MetadataLayout.flattenedRoutes => 'routes.path_name_en',
-      _MetadataLayout.routesAndPaths => 'paths.name_en',
-    };
-    final fromClause = switch (layout) {
-      _MetadataLayout.flattenedRoutes => 'FROM routes',
-      _MetadataLayout.routesAndPaths =>
-        'FROM routes JOIN paths ON paths.routeid = routes.routeid',
-    };
+    const pathIdColumn = 'paths.pathid';
+    const pathNameColumn = 'paths.name';
+    const pathNameEnColumn = 'paths.name_en';
+    const fromClause = 'FROM routes JOIN paths ON paths.routeid = routes.routeid';
 
     if (routeId != null && routeId.isNotEmpty) {
       whereClauses.add('routes.routeid = ?');
@@ -1703,26 +1680,13 @@ class BusRepository {
     String? searchQuery,
     int? limit,
   }) {
-    final layout = _detectMetadataLayoutSqlite(database);
+    _detectMetadataLayoutSqlite(database);
     final parameters = <Object?>['${provider.prefix}%'];
     final whereClauses = <String>['routes.routeid LIKE ?'];
-    final pathIdColumn = switch (layout) {
-      _MetadataLayout.flattenedRoutes => 'routes.pathid',
-      _MetadataLayout.routesAndPaths => 'paths.pathid',
-    };
-    final pathNameColumn = switch (layout) {
-      _MetadataLayout.flattenedRoutes => 'routes.path_name',
-      _MetadataLayout.routesAndPaths => 'paths.name',
-    };
-    final pathNameEnColumn = switch (layout) {
-      _MetadataLayout.flattenedRoutes => 'routes.path_name_en',
-      _MetadataLayout.routesAndPaths => 'paths.name_en',
-    };
-    final fromClause = switch (layout) {
-      _MetadataLayout.flattenedRoutes => 'FROM routes',
-      _MetadataLayout.routesAndPaths =>
-        'FROM routes JOIN paths ON paths.routeid = routes.routeid',
-    };
+    const pathIdColumn = 'paths.pathid';
+    const pathNameColumn = 'paths.name';
+    const pathNameEnColumn = 'paths.name_en';
+    const fromClause = 'FROM routes JOIN paths ON paths.routeid = routes.routeid';
 
     if (routeId != null && routeId.isNotEmpty) {
       whereClauses.add('routes.routeid = ?');
@@ -1934,11 +1898,11 @@ class BusRepository {
     }
   }
 
-  _MetadataLayout _detectMetadataLayoutSqlite(
+  void _detectMetadataLayoutSqlite(
     NativeSqliteDatabase database,
   ) {
     final tableNames = _loadTableNamesSqlite(database);
-    if (!tableNames.contains('routes')) {
+    if (!tableNames.containsAll(const {'routes', 'paths'})) {
       throw const FormatException('Invalid route metadata database schema.');
     }
 
@@ -1947,20 +1911,10 @@ class BusRepository {
       throw const FormatException('Invalid route metadata database schema.');
     }
 
-    if (routeColumns.containsAll(const {'pathid', 'path_name'})) {
-      return _MetadataLayout.flattenedRoutes;
-    }
-
-    if (!tableNames.contains('paths')) {
-      throw const FormatException('Invalid route metadata database schema.');
-    }
-
     final pathColumns = _loadColumnNamesSqlite(database, 'paths');
     if (!pathColumns.containsAll(const {'routeid', 'pathid', 'name'})) {
       throw const FormatException('Invalid route metadata database schema.');
     }
-
-    return _MetadataLayout.routesAndPaths;
   }
 
   Set<String> _loadTableNamesSqlite(NativeSqliteDatabase database) {
@@ -2243,8 +2197,6 @@ class _LiveStopPayload {
   final String? t;
   final List<BusVehicle> buses;
 }
-
-enum _MetadataLayout { flattenedRoutes, routesAndPaths }
 
 class _MetadataPathRow {
   const _MetadataPathRow({

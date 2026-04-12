@@ -234,11 +234,12 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       final previous = previousStates[bus.id];
       final speedMps = (((bus.speedKph ?? 0) / 3.6).clamp(0, 36)).toDouble();
       final status = describeBusStatus(bus.statusCode);
+      final sampleTime = _effectiveSampleTime(bus.updatedAt, now);
 
       if (projection.distanceToRouteMeters <= _offRouteThresholdMeters) {
         var baseDistance = projection.distanceAlongRouteMeters;
         final predictedPrevious = previous?.distanceAlongRouteAt(
-          now,
+          sampleTime,
           geometry: geometry,
         );
         if (predictedPrevious != null) {
@@ -255,7 +256,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
           routeDistanceAtSampleMeters: baseDistance
               .clamp(0.0, geometry.totalLengthMeters)
               .toDouble(),
-          sampledAt: now,
+          sampledAt: sampleTime,
           rawPoint: rawPoint,
           speedMps: speedMps,
           azimuth: bus.azimuth,
@@ -266,7 +267,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
       var basePoint = rawPoint;
       if (previous != null) {
-        final predicted = previous.positionAt(now, geometry: geometry);
+        final predicted = previous.positionAt(sampleTime, geometry: geometry);
         final gap = _distanceMetersBetween(predicted, rawPoint);
         if (gap <= _snapToRouteThresholdMeters) {
           basePoint = _lerpLatLng(predicted, rawPoint, 0.35);
@@ -278,7 +279,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         status: status,
         mode: _BusMotionMode.freeFloating,
         routeDistanceAtSampleMeters: null,
-        sampledAt: now,
+        sampledAt: sampleTime,
         rawPoint: basePoint,
         speedMps: speedMps,
         azimuth: bus.azimuth,
@@ -287,6 +288,22 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     }
 
     return nextStates;
+  }
+
+  DateTime _effectiveSampleTime(DateTime? updatedAt, DateTime now) {
+    if (updatedAt == null) {
+      return now;
+    }
+    if (updatedAt.isAfter(now)) {
+      return now;
+    }
+    final oldestAllowed = now.subtract(
+      Duration(seconds: math.max(_refreshSeconds, 12)),
+    );
+    if (updatedAt.isBefore(oldestAllowed)) {
+      return oldestAllowed;
+    }
+    return updatedAt;
   }
 
   String _refreshLabel() {

@@ -448,57 +448,65 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
     return Stack(
       children: [
-        FlutterMap(
-          mapController: _mapController,
-          options: MapOptions(
-            initialCenter: geometry.points.first,
-            initialZoom: 13.5,
-            interactionOptions: const InteractionOptions(
-              flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+        Positioned.fill(
+          child: FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: geometry.points.first,
+              initialZoom: 13.5,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+              ),
             ),
-          ),
-          children: [
-            TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
-            ),
-            PolylineLayer(
-              polylines: [
-                Polyline(
-                  points: geometry.points,
-                  strokeWidth: 5,
-                  color: theme.colorScheme.primary.withValues(alpha: 0.88),
-                  borderColor: theme.colorScheme.surface,
-                  borderStrokeWidth: 1.2,
-                ),
-              ],
-            ),
-            MarkerLayer(
-              markers: displayBuses.map((bus) {
-                final selected = _selectedBusId == bus.state.bus.id;
-                return Marker(
-                  point: bus.point,
-                  width: selected ? 48 : 40,
-                  height: selected ? 48 : 40,
-                  child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _selectedBusId =
-                            _selectedBusId == bus.state.bus.id
-                            ? null
-                            : bus.state.bus.id;
-                      });
-                    },
-                    child: _BusMarker(
-                      color: bus.state.status.color,
-                      selected: selected,
-                      label: bus.state.bus.id,
-                    ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
+              ),
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: geometry.points,
+                    strokeWidth: 5,
+                    color: theme.colorScheme.primary.withValues(alpha: 0.88),
+                    borderColor: theme.colorScheme.surface,
+                    borderStrokeWidth: 1.2,
                   ),
-                );
-              }).toList(),
-            ),
-          ],
+                ],
+              ),
+              MarkerLayer(
+                markers: displayBuses.map((bus) {
+                  final selected = _selectedBusId == bus.state.bus.id;
+                  return Marker(
+                    point: bus.point,
+                    width: selected ? 48 : 40,
+                    height: selected ? 48 : 40,
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _selectedBusId =
+                              _selectedBusId == bus.state.bus.id
+                              ? null
+                              : bus.state.bus.id;
+                        });
+                      },
+                      child: _BusMarker(
+                        color: bus.state.status.color,
+                        selected: selected,
+                        label: bus.state.bus.id,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 0,
+          child: IgnorePointer(child: _buildTopProgressBar()),
         ),
         if (selectedBus != null)
           Positioned(
@@ -525,7 +533,6 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: Column(
         children: [
-          _buildTopProgressBar(),
           _buildHeader(theme),
           Expanded(child: _buildMapArea(theme)),
         ],

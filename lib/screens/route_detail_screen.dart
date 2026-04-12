@@ -733,16 +733,31 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       isDismissible: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
-        return FractionallySizedBox(
-          heightFactor: 0.82,
-          child: RouteBusMapSheet(
-            routeId: routeId,
-            routeName: detail.route.routeName,
-            paths: detail.paths,
-            selectedPathIdListenable: _selectedMapPathId,
-            refreshIntervalSeconds: controller.settings.busUpdateTime,
-            onSelectedPathChanged: _handleMapPathSelection,
-          ),
+        final screenHeight = MediaQuery.sizeOf(context).height;
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.82,
+          minChildSize: 0.55,
+          maxChildSize: 1,
+          snap: true,
+          snapSizes: const [0.82, 1],
+          builder: (context, scrollController) {
+            return SingleChildScrollView(
+              controller: scrollController,
+              physics: const ClampingScrollPhysics(),
+              child: SizedBox(
+                height: screenHeight,
+                child: RouteBusMapSheet(
+                  routeId: routeId,
+                  routeName: detail.route.routeName,
+                  paths: detail.paths,
+                  selectedPathIdListenable: _selectedMapPathId,
+                  refreshIntervalSeconds: controller.settings.busUpdateTime,
+                  onSelectedPathChanged: _handleMapPathSelection,
+                ),
+              ),
+            );
+          },
         );
       },
     );

@@ -341,6 +341,47 @@ class BusRepository {
     return _collapseRouteSummariesByRouteId(summaries);
   }
 
+  Future<bool> routeMetadataDatabaseExists() async {
+    if (!_supportsLocalDatabase) {
+      return false;
+    }
+    final metadataFile = await _routeMetadataDatabaseFile();
+    if (!await metadataFile.exists()) {
+      return false;
+    }
+    if (!await _looksLikeSqliteFile(metadataFile)) {
+      await _deleteDatabaseArtifacts(metadataFile);
+      return false;
+    }
+
+    if (_preferNativeSqliteBridge) {
+      try {
+        await _validateMetadataDatabaseFileWithSqlite3(metadataFile);
+        return true;
+      } catch (_) {
+        await _deleteDatabaseArtifacts(metadataFile);
+        return false;
+      }
+    }
+
+    try {
+      final metadataDatabase = await openDatabase(
+        metadataFile.path,
+        readOnly: true,
+        singleInstance: false,
+      );
+      try {
+        await _validateMetadataDatabaseSchema(metadataDatabase);
+      } finally {
+        await metadataDatabase.close();
+      }
+      return true;
+    } catch (_) {
+      await _deleteDatabaseArtifacts(metadataFile);
+      return false;
+    }
+  }
+
   Future<List<RouteSummary>> searchRoutesFromApi(
     String query, {
     required BusProvider provider,

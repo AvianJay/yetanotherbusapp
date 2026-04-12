@@ -182,6 +182,49 @@ class DatabaseSettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text('共用路線資料庫', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Text(
+                    '這份資料庫保存所有路線與方向資料，會在下載任一地區資料庫時一併更新。',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  FutureBuilder<bool>(
+                    future: controller.isRouteMetadataDatabaseReady(),
+                    builder: (context, snapshot) {
+                      final ready = snapshot.data ?? false;
+                      return Row(
+                        children: [
+                          Chip(
+                            avatar: Icon(
+                              ready
+                                  ? Icons.alt_route_rounded
+                                  : Icons.cloud_off_outlined,
+                            ),
+                            label: Text(ready ? '已下載' : '尚未下載'),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              '檔名：routes_metadata_v1.sqlite',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text('資料來源', style: theme.textTheme.titleMedium),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<BusProvider>(

@@ -89,6 +89,10 @@ class AppController extends ChangeNotifier {
     return _databaseReadyByProvider[provider] ?? false;
   }
 
+  Future<bool> isRouteMetadataDatabaseReady() {
+    return repository.routeMetadataDatabaseExists();
+  }
+
   bool shouldAskDownloadPrompt(BusProvider provider) {
     return !_settings.skipDownloadPromptProviders.contains(provider);
   }

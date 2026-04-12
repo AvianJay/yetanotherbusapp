@@ -87,7 +87,7 @@ struct BusArrivalLiveActivity: Widget {
   ) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 6) {
-        routeBadge(context.attributes.routeName)
+        routeBadge(context.attributes.routeName, surface: .dynamicIsland)
         Text(context.attributes.pathName)
           .font(.system(size: 13, weight: .medium))
           .foregroundStyle(.secondary)
@@ -95,7 +95,7 @@ struct BusArrivalLiveActivity: Widget {
       }
 
       if let modeLabel = trimmedText(context.state.modeLabel) {
-        modePill(modeLabel)
+        modePill(modeLabel, surface: .dynamicIsland)
       }
 
       HStack(spacing: 5) {
@@ -148,7 +148,7 @@ struct BusArrivalLiveActivity: Widget {
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
     VStack(spacing: 8) {
-      stopLineView(context.state)
+      stopLineView(context.state, surface: .dynamicIsland)
 
       HStack {
         if let statusText = trimmedText(context.state.statusText) {
@@ -173,7 +173,7 @@ struct BusArrivalLiveActivity: Widget {
     HStack(spacing: 16) {
       VStack(alignment: .leading, spacing: 6) {
         HStack(spacing: 8) {
-          routeBadge(context.attributes.routeName)
+          routeBadge(context.attributes.routeName, surface: .lockScreen)
           Text(context.attributes.pathName)
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(.secondary)
@@ -181,7 +181,7 @@ struct BusArrivalLiveActivity: Widget {
         }
 
         if let modeLabel = trimmedText(context.state.modeLabel) {
-          modePill(modeLabel)
+          modePill(modeLabel, surface: .lockScreen)
         }
 
         HStack(spacing: 5) {
@@ -200,7 +200,7 @@ struct BusArrivalLiveActivity: Widget {
             .lineLimit(2)
         }
 
-        stopLineView(context.state)
+        stopLineView(context.state, surface: .lockScreen)
           .padding(.top, 4)
       }
 
@@ -255,10 +255,13 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   @ViewBuilder
-  private func routeBadge(_ name: String) -> some View {
+  private func routeBadge(
+    _ name: String,
+    surface: ActivitySurface
+  ) -> some View {
     Text(name)
       .font(.system(size: 14, weight: .heavy, design: .rounded))
-      .foregroundStyle(.white)
+      .foregroundStyle(routeBadgeTextColor(surface: surface))
       .padding(.horizontal, 8)
       .padding(.vertical, 3)
       .background(
@@ -274,27 +277,31 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   @ViewBuilder
-  private func modePill(_ label: String) -> some View {
+  private func modePill(_ label: String, surface: ActivitySurface) -> some View {
     Text(label)
       .font(.system(size: 11, weight: .semibold))
-      .foregroundStyle(.white.opacity(0.92))
+      .foregroundStyle(modePillTextColor(surface: surface))
       .padding(.horizontal, 8)
       .padding(.vertical, 3)
       .background(
         Capsule(style: .continuous)
-          .fill(Color.white.opacity(0.14))
+          .fill(modePillBackgroundColor(surface: surface))
       )
   }
 
   @ViewBuilder
-  private func stopLineView(_ state: BusArrivalAttributes.ContentState) -> some View {
+  private func stopLineView(
+    _ state: BusArrivalAttributes.ContentState,
+    surface: ActivitySurface
+  ) -> some View {
     if let stopLine = stopLineData(state) {
       VStack(spacing: 6) {
         HStack(spacing: 0) {
           ForEach(stopLine.stopNames.indices, id: \.self) { index in
             stopMarker(
               isCurrent: index == stopLine.currentStopIndex,
-              isHighlighted: index == stopLine.highlightedStopIndex
+              isHighlighted: index == stopLine.highlightedStopIndex,
+              surface: surface
             )
             .frame(width: 18)
 
@@ -303,7 +310,8 @@ struct BusArrivalLiveActivity: Widget {
                 intensity: stopConnectorOpacity(
                   currentStopIndex: stopLine.currentStopIndex,
                   connectorIndex: index
-                )
+                ),
+                surface: surface
               )
             }
           }
@@ -314,7 +322,8 @@ struct BusArrivalLiveActivity: Widget {
             stopLineLabel(
               stopLine.stopNames[index],
               isCurrent: index == stopLine.currentStopIndex,
-              isHighlighted: index == stopLine.highlightedStopIndex
+              isHighlighted: index == stopLine.highlightedStopIndex,
+              surface: surface
             )
           }
         }
@@ -327,19 +336,24 @@ struct BusArrivalLiveActivity: Widget {
       if previousStopName == nil && nextStopName == nil {
         HStack {
           Spacer(minLength: 0)
-          stopLineLabel(currentStopName, isCurrent: true, isHighlighted: true)
+          stopLineLabel(
+            currentStopName,
+            isCurrent: true,
+            isHighlighted: true,
+            surface: surface
+          )
           Spacer(minLength: 0)
         }
       } else {
         VStack(spacing: 6) {
           HStack(spacing: 0) {
-            stopMarker(isCurrent: false, isHighlighted: false)
+            stopMarker(isCurrent: false, isHighlighted: false, surface: surface)
               .frame(width: 18)
-            stopConnector(intensity: 0.4)
-            stopMarker(isCurrent: true, isHighlighted: true)
+            stopConnector(intensity: 0.4, surface: surface)
+            stopMarker(isCurrent: true, isHighlighted: true, surface: surface)
               .frame(width: 18)
-            stopConnector(intensity: 0.22)
-            stopMarker(isCurrent: false, isHighlighted: false)
+            stopConnector(intensity: 0.22, surface: surface)
+            stopMarker(isCurrent: false, isHighlighted: false, surface: surface)
               .frame(width: 18)
           }
 
@@ -347,13 +361,20 @@ struct BusArrivalLiveActivity: Widget {
             stopLineLabel(
               previousStopName ?? "起點",
               isCurrent: false,
-              isHighlighted: false
+              isHighlighted: false,
+              surface: surface
             )
-            stopLineLabel(currentStopName, isCurrent: true, isHighlighted: true)
+            stopLineLabel(
+              currentStopName,
+              isCurrent: true,
+              isHighlighted: true,
+              surface: surface
+            )
             stopLineLabel(
               nextStopName ?? "終點",
               isCurrent: false,
-              isHighlighted: false
+              isHighlighted: false,
+              surface: surface
             )
           }
         }
@@ -362,12 +383,16 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   @ViewBuilder
-  private func stopMarker(isCurrent: Bool, isHighlighted: Bool) -> some View {
+  private func stopMarker(
+    isCurrent: Bool,
+    isHighlighted: Bool,
+    surface: ActivitySurface
+  ) -> some View {
     if isCurrent {
       ZStack {
         if isHighlighted {
           Circle()
-            .stroke(Color.white.opacity(0.75), lineWidth: 2)
+            .stroke(stopMarkerRingColor(surface: surface), lineWidth: 2)
             .frame(width: 20, height: 20)
         }
         Circle()
@@ -387,15 +412,15 @@ struct BusArrivalLiveActivity: Widget {
         .frame(width: 12, height: 12)
     } else {
       Circle()
-        .fill(Color.white.opacity(0.38))
+        .fill(stopMarkerColor(surface: surface))
         .frame(width: 8, height: 8)
     }
   }
 
   @ViewBuilder
-  private func stopConnector(intensity: Double) -> some View {
+  private func stopConnector(intensity: Double, surface: ActivitySurface) -> some View {
     Capsule(style: .continuous)
-      .fill(Color.white.opacity(intensity))
+      .fill(stopConnectorColor(surface: surface, intensity: intensity))
       .frame(maxWidth: .infinity)
       .frame(height: 2)
       .padding(.horizontal, 4)
@@ -405,7 +430,8 @@ struct BusArrivalLiveActivity: Widget {
   private func stopLineLabel(
     _ text: String,
     isCurrent: Bool,
-    isHighlighted: Bool
+    isHighlighted: Bool,
+    surface: ActivitySurface
   ) -> some View {
     Text(compactStopLineLabel(text))
       .font(
@@ -417,7 +443,8 @@ struct BusArrivalLiveActivity: Widget {
       .foregroundStyle(
         stopLineLabelColor(
           isCurrent: isCurrent,
-          isHighlighted: isHighlighted
+          isHighlighted: isHighlighted,
+          surface: surface
         )
       )
       .lineLimit(2)
@@ -469,8 +496,19 @@ struct BusArrivalLiveActivity: Widget {
 
   private func stopLineLabelColor(
     isCurrent: Bool,
-    isHighlighted: Bool
+    isHighlighted: Bool,
+    surface: ActivitySurface
   ) -> Color {
+    if surface == .dynamicIsland {
+      if isCurrent {
+        return .primary
+      }
+      if isHighlighted {
+        return Color(red: 0.0, green: 0.5, blue: 0.62)
+      }
+      return .secondary
+    }
+
     if isCurrent {
       return .white
     }
@@ -508,6 +546,48 @@ struct BusArrivalLiveActivity: Widget {
 
   private func displayStopName(_ state: BusArrivalAttributes.ContentState) -> String {
     trimmedText(state.displayStopName) ?? "背景乘車提醒"
+  }
+
+  private func routeBadgeTextColor(surface: ActivitySurface) -> Color {
+    if surface == .dynamicIsland {
+      return .primary
+    }
+    return .white
+  }
+
+  private func modePillTextColor(surface: ActivitySurface) -> Color {
+    if surface == .dynamicIsland {
+      return .primary
+    }
+    return .white.opacity(0.92)
+  }
+
+  private func modePillBackgroundColor(surface: ActivitySurface) -> Color {
+    if surface == .dynamicIsland {
+      return .secondary.opacity(0.18)
+    }
+    return Color.white.opacity(0.14)
+  }
+
+  private func stopMarkerRingColor(surface: ActivitySurface) -> Color {
+    if surface == .dynamicIsland {
+      return .primary.opacity(0.32)
+    }
+    return Color.white.opacity(0.75)
+  }
+
+  private func stopMarkerColor(surface: ActivitySurface) -> Color {
+    if surface == .dynamicIsland {
+      return .secondary.opacity(0.45)
+    }
+    return Color.white.opacity(0.38)
+  }
+
+  private func stopConnectorColor(surface: ActivitySurface, intensity: Double) -> Color {
+    if surface == .dynamicIsland {
+      return .primary.opacity(max(intensity * 0.55, 0.1))
+    }
+    return Color.white.opacity(intensity)
   }
 
   @ViewBuilder
@@ -583,6 +663,11 @@ struct BusArrivalLiveActivity: Widget {
     return Color(red: 0.0, green: 0.74, blue: 0.83)
   }
 
+}
+
+private enum ActivitySurface {
+  case dynamicIsland
+  case lockScreen
 }
 
 private enum CountdownStyle {

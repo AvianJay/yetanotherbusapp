@@ -11,6 +11,8 @@ import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.drawable.Icon
 import android.location.Location
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -1030,7 +1032,7 @@ class RouteTripMonitorService : Service() {
             .setSmallIcon(R.drawable.ic_status_bus)
             .setContentTitle("YABus")
             .setOnlyAlertOnce(true)
-            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
@@ -1049,6 +1051,7 @@ class RouteTripMonitorService : Service() {
             .setPublicVersion(buildPublicTrackingNotification(snapshot))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(
@@ -1161,6 +1164,7 @@ class RouteTripMonitorService : Service() {
             .setSubText(snapshot.subText)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
     }
 
@@ -1171,7 +1175,7 @@ class RouteTripMonitorService : Service() {
         ).setSmallIcon(R.drawable.ic_status_bus)
             .setContentTitle("YABus")
             .setOnlyAlertOnce(true)
-            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
 
         val builder = NotificationCompat.Builder(this, TRACKING_CHANNEL_ID)
@@ -1181,6 +1185,7 @@ class RouteTripMonitorService : Service() {
             .setContentIntent(createOpenRoutePendingIntent(currentSession))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setRequestPromotedOngoing(true)
@@ -1476,11 +1481,19 @@ class RouteTripMonitorService : Service() {
         }
 
         val manager = getSystemService(NotificationManager::class.java)
+        manager.deleteNotificationChannel(LEGACY_TRACKING_CHANNEL_ID)
+        val defaultNotificationSound =
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val defaultAudioAttributes =
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
         manager.createNotificationChannel(
             NotificationChannel(
                 TRACKING_CHANNEL_ID,
                 "背景乘車提醒",
-                NotificationManager.IMPORTANCE_LOW,
+                NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
                 description = "在背景持續追蹤目前路線與下車提醒。"
             },
@@ -2003,7 +2016,8 @@ class RouteTripMonitorService : Service() {
         private const val EXTRA_APP_IN_FOREGROUND = "app_in_foreground"
         private const val EXTRA_PAUSE_REASON = "pause_reason"
 
-        private const val TRACKING_CHANNEL_ID = "trip_monitor_tracking"
+        private const val LEGACY_TRACKING_CHANNEL_ID = "trip_monitor_tracking"
+        private const val TRACKING_CHANNEL_ID = "trip_monitor_tracking_v2"
         private const val ALERT_CHANNEL_ID = "trip_monitor_alerts"
         private const val TRACKING_NOTIFICATION_ID = 6021
         private const val ALERT_NOTIFICATION_ID = 6022

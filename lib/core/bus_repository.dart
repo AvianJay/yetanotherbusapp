@@ -1728,9 +1728,9 @@ class BusRepository {
 
   List<int> _decodeYahooCompressedPayload(List<int> payloadBytes) {
     try {
-      return ZLibCodec().decode(payloadBytes);
+      return const ZLibCodec().decode(payloadBytes);
     } catch (_) {
-      return GZipCodec().decode(payloadBytes);
+      return const GZipCodec().decode(payloadBytes);
     }
   }
 

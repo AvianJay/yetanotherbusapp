@@ -27,7 +27,10 @@ class BusRepository {
   static const _userAgent = 'Mozilla/5.0 (YABus Flutter)';
   static const _databaseDirectoryName = '.yabus_backend';
   static const _legacyDatabaseDirectoryNames = <String>['.taiwanbus'];
-  static const _routeMetadataDatabaseFileName = 'routes_metadata_v2.sqlite';
+  static const _routeMetadataDatabaseFileName = 'routes_metadata_v1.sqlite';
+  static const _legacyRouteMetadataDatabaseFileNames = <String>[
+    'routes_metadata_v2.sqlite',
+  ];
   static const _webLocalDatabaseUnsupportedMessage =
       'Web 版目前不支援本 app 使用的本機 SQLite 資料庫。';
 
@@ -1347,7 +1350,9 @@ class BusRepository {
 
   Future<File> _routeMetadataDatabaseFile() async {
     final directory = await _databaseDirectory();
-    return File(p.join(directory.path, _routeMetadataDatabaseFileName));
+    final file = File(p.join(directory.path, _routeMetadataDatabaseFileName));
+    await _migrateRouteMetadataFileIfNeeded(file);
+    return file;
   }
 
   Future<Directory> _databaseDirectory() async {
@@ -1453,6 +1458,40 @@ class BusRepository {
         }
       }
       return;
+    }
+  }
+
+  Future<void> _migrateRouteMetadataFileIfNeeded(File targetFile) async {
+    if (!await targetFile.exists()) {
+      for (final legacyName in _legacyRouteMetadataDatabaseFileNames) {
+        final legacyFile = File(p.join(targetFile.parent.path, legacyName));
+        if (!await legacyFile.exists()) {
+          continue;
+        }
+
+        await targetFile.parent.create(recursive: true);
+        await _deleteDatabaseArtifacts(targetFile);
+        try {
+          await legacyFile.rename(targetFile.path);
+        } catch (_) {
+          await legacyFile.copy(targetFile.path);
+          await _deleteDatabaseArtifacts(legacyFile);
+        }
+        break;
+      }
+    }
+
+    await _migrateLegacyDatabaseFileIfNeeded(targetFile);
+    await _deleteStaleRouteMetadataFiles(targetFile);
+  }
+
+  Future<void> _deleteStaleRouteMetadataFiles(File activeFile) async {
+    for (final legacyName in _legacyRouteMetadataDatabaseFileNames) {
+      final staleFile = File(p.join(activeFile.parent.path, legacyName));
+      if (p.equals(staleFile.path, activeFile.path)) {
+        continue;
+      }
+      await _deleteDatabaseArtifacts(staleFile);
     }
   }
 

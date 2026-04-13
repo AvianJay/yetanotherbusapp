@@ -9,12 +9,15 @@ import 'package:latlong2/latlong.dart';
 
 import '../app/bus_app.dart';
 import '../core/models.dart';
+import 'eta_badge.dart';
 
 class RouteBusMapSheet extends StatefulWidget {
   const RouteBusMapSheet({
     required this.routeId,
     required this.routeName,
     required this.paths,
+    required this.stopsByPath,
+    required this.alwaysShowSeconds,
     required this.selectedPathIdListenable,
     required this.refreshIntervalSeconds,
     this.dragScrollController,
@@ -25,6 +28,8 @@ class RouteBusMapSheet extends StatefulWidget {
   final String routeId;
   final String routeName;
   final List<PathInfo> paths;
+  final Map<int, List<StopInfo>> stopsByPath;
+  final bool alwaysShowSeconds;
   final ValueListenable<int?> selectedPathIdListenable;
   final int refreshIntervalSeconds;
   final ScrollController? dragScrollController;
@@ -52,7 +57,10 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   bool _isRefreshing = false;
   String? _error;
   String? _selectedBusId;
+  int? _selectedStopId;
   bool _followSelectedBus = false;
+  bool _showBuses = true;
+  bool _showStops = true;
   LatLng? _userLocation;
   bool _didFitCurrentPathWithUserLocation = false;
   late int _activePathId;
@@ -94,6 +102,22 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     return _busStates[selectedBusId];
   }
 
+  List<StopInfo> get _activePathStops =>
+      widget.stopsByPath[_activePathId] ?? const <StopInfo>[];
+
+  StopInfo? get _selectedStop {
+    final selectedStopId = _selectedStopId;
+    if (selectedStopId == null) {
+      return null;
+    }
+    for (final stop in _activePathStops) {
+      if (stop.stopId == selectedStopId) {
+        return stop;
+      }
+    }
+    return null;
+  }
+
   void _handleExternalPathSelection() {
     final nextPathId = widget.selectedPathIdListenable.value;
     if (nextPathId == null || nextPathId == _activePathId) {
@@ -117,6 +141,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     setState(() {
       _activePathId = pathId;
       _selectedBusId = null;
+      _selectedStopId = null;
       _followSelectedBus = false;
       _didFitCurrentPathWithUserLocation = false;
       _error = null;
@@ -485,6 +510,40 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilterChip(
+                selected: _showBuses,
+                onSelected: (value) {
+                  setState(() {
+                    _showBuses = value;
+                    if (!value) {
+                      _selectedBusId = null;
+                      _followSelectedBus = false;
+                    }
+                  });
+                },
+                avatar: const Icon(Icons.directions_bus_rounded, size: 18),
+                label: const Text('公車'),
+              ),
+              FilterChip(
+                selected: _showStops,
+                onSelected: (value) {
+                  setState(() {
+                    _showStops = value;
+                    if (!value) {
+                      _selectedStopId = null;
+                    }
+                  });
+                },
+                avatar: const Icon(Icons.signpost_rounded, size: 18),
+                label: const Text('站牌'),
+              ),
+            ],
+          ),
           if (widget.paths.length > 1) ...[
             const SizedBox(height: 12),
             DecoratedBox(
@@ -556,12 +615,31 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
           ),
         )
         .toList();
+    final displayStops = _activePathStops
+        .where((stop) => stop.lat != 0 || stop.lon != 0)
+        .map(
+          (stop) => _DisplayedStop(
+            stop: stop,
+            point: LatLng(stop.lat, stop.lon),
+          ),
+        )
+        .toList();
     final selectedBus = _selectedBusState;
     _DisplayedBus? selectedDisplayBus;
     if (selectedBus != null) {
       for (final bus in displayBuses) {
         if (bus.state.bus.id == selectedBus.bus.id) {
           selectedDisplayBus = bus;
+          break;
+        }
+      }
+    }
+    final selectedStop = _selectedStop;
+    _DisplayedStop? selectedDisplayStop;
+    if (selectedStop != null) {
+      for (final stop in displayStops) {
+        if (stop.stop.stopId == selectedStop.stopId) {
+          selectedDisplayStop = stop;
           break;
         }
       }
@@ -576,11 +654,12 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
               initialCenter: geometry.points.first,
               initialZoom: 13.5,
               onTap: (_, point) {
-                if (_selectedBusId == null) {
+                if (_selectedBusId == null && _selectedStopId == null) {
                   return;
                 }
                 setState(() {
                   _selectedBusId = null;
+                  _selectedStopId = null;
                   _followSelectedBus = false;
                 });
               },
@@ -623,36 +702,67 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                     ),
                   ],
                 ),
-              MarkerLayer(
-                markers: displayBuses.map((bus) {
-                  final selected = _selectedBusId == bus.state.bus.id;
-                  return Marker(
-                    point: bus.point,
-                    width: selected ? 48 : 40,
-                    height: selected ? 48 : 40,
-                    child: GestureDetector(
-                      onTap: () {
-                        final nextSelectedBusId = _selectedBusId == bus.state.bus.id
-                            ? null
-                            : bus.state.bus.id;
-                        setState(() {
-                          _selectedBusId = nextSelectedBusId;
-                          _followSelectedBus = nextSelectedBusId != null;
-                        });
-                        if (nextSelectedBusId != null) {
-                          _syncSelectedBusCamera(force: true);
-                        }
-                      },
-                      child: _BusMarker(
-                        color: bus.state.status.color,
-                        selected: selected,
-                        label: bus.state.bus.id,
+              if (_showStops)
+                MarkerLayer(
+                  markers: displayStops.map((stop) {
+                    final selected = _selectedStopId == stop.stop.stopId;
+                    return Marker(
+                      point: stop.point,
+                      width: selected ? 44 : 36,
+                      height: selected ? 44 : 36,
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedStopId =
+                                _selectedStopId == stop.stop.stopId
+                                ? null
+                                : stop.stop.stopId;
+                            _selectedBusId = null;
+                            _followSelectedBus = false;
+                          });
+                        },
+                        child: _StopMarker(
+                          stop: stop.stop,
+                          alwaysShowSeconds: widget.alwaysShowSeconds,
+                          selected: selected,
+                        ),
                       ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              if (selectedDisplayBus != null)
+                    );
+                  }).toList(),
+                ),
+              if (_showBuses)
+                MarkerLayer(
+                  markers: displayBuses.map((bus) {
+                    final selected = _selectedBusId == bus.state.bus.id;
+                    return Marker(
+                      point: bus.point,
+                      width: selected ? 48 : 40,
+                      height: selected ? 48 : 40,
+                      child: GestureDetector(
+                        onTap: () {
+                          final nextSelectedBusId =
+                              _selectedBusId == bus.state.bus.id
+                              ? null
+                              : bus.state.bus.id;
+                          setState(() {
+                            _selectedBusId = nextSelectedBusId;
+                            _selectedStopId = null;
+                            _followSelectedBus = nextSelectedBusId != null;
+                          });
+                          if (nextSelectedBusId != null) {
+                            _syncSelectedBusCamera(force: true);
+                          }
+                        },
+                        child: _BusMarker(
+                          color: bus.state.status.color,
+                          selected: selected,
+                          label: bus.state.bus.id,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              if (_showBuses && selectedDisplayBus != null)
                 MarkerLayer(
                   markers: [
                     () {
@@ -670,6 +780,32 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                             offset: _selectedPopupOffset(popupAlignment),
                             child: _BusInfoPopup(
                               busState: displayedBus.state,
+                            ),
+                          ),
+                        ),
+                      );
+                    }(),
+                  ],
+                ),
+              if (_showStops && selectedDisplayStop != null)
+                MarkerLayer(
+                  markers: [
+                    () {
+                      final displayedStop = selectedDisplayStop!;
+                      final popupAlignment = _selectedPopupAlignment(
+                        displayedStop.point,
+                      );
+                      return Marker(
+                        point: displayedStop.point,
+                        width: 228,
+                        height: 122,
+                        alignment: popupAlignment,
+                        child: IgnorePointer(
+                          child: Transform.translate(
+                            offset: _selectedPopupOffset(popupAlignment),
+                            child: _StopInfoPopup(
+                              stop: displayedStop.stop,
+                              alwaysShowSeconds: widget.alwaysShowSeconds,
                             ),
                           ),
                         ),
@@ -758,6 +894,50 @@ class _BusMarker extends StatelessWidget {
             Icons.directions_bus_rounded,
             color: foreground,
             size: selected ? 24 : 20,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StopMarker extends StatelessWidget {
+  const _StopMarker({
+    required this.stop,
+    required this.alwaysShowSeconds,
+    required this.selected,
+  });
+
+  final StopInfo stop;
+  final bool alwaysShowSeconds;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedScale(
+      scale: selected ? 1.08 : 1,
+      duration: const Duration(milliseconds: 180),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: Colors.white,
+            width: selected ? 2.5 : 1.8,
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33000000),
+              blurRadius: 8,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: EtaBadge(
+            stop: stop,
+            alwaysShowSeconds: alwaysShowSeconds,
+            size: selected ? 36 : 30,
           ),
         ),
       ),
@@ -890,6 +1070,78 @@ class _BusInfoPopup extends StatelessWidget {
   }
 }
 
+class _StopInfoPopup extends StatelessWidget {
+  const _StopInfoPopup({
+    required this.stop,
+    required this.alwaysShowSeconds,
+  });
+
+  final StopInfo stop;
+  final bool alwaysShowSeconds;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final eta = buildEtaPresentation(
+      stop,
+      alwaysShowSeconds: alwaysShowSeconds,
+      brightness: theme.brightness,
+    );
+
+    return Material(
+      elevation: 10,
+      color: theme.colorScheme.surface,
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            EtaBadge(
+              stop: stop,
+              alwaysShowSeconds: alwaysShowSeconds,
+              size: 40,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    stop.stopName,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      _InfoChip(
+                        label: '站序',
+                        value: '${stop.sequence}',
+                      ),
+                      _InfoChip(
+                        label: '到站',
+                        value: eta.text.replaceAll('\n', ''),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _InfoChip extends StatelessWidget {
   const _InfoChip({
     required this.label,
@@ -944,6 +1196,16 @@ class _DisplayedBus {
   });
 
   final _AnimatedBusState state;
+  final LatLng point;
+}
+
+class _DisplayedStop {
+  const _DisplayedStop({
+    required this.stop,
+    required this.point,
+  });
+
+  final StopInfo stop;
   final LatLng point;
 }
 

@@ -746,6 +746,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               routeId: routeId,
               routeName: detail.route.routeName,
               paths: detail.paths,
+              stopsByPath: detail.stopsByPath,
+              alwaysShowSeconds: controller.settings.alwaysShowSeconds,
               selectedPathIdListenable: _selectedMapPathId,
               refreshIntervalSeconds: controller.settings.busUpdateTime,
               dragScrollController: scrollController,

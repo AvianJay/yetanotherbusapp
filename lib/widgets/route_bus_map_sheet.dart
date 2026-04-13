@@ -47,6 +47,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   Timer? _simulationTimer;
   _RouteGeometry? _geometry;
   Map<String, _AnimatedBusState> _busStates = <String, _AnimatedBusState>{};
+  int _refreshRequestSerial = 0;
   bool _isRefreshing = false;
   String? _error;
   String? _selectedBusId;
@@ -75,13 +76,6 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     _simulationTimer?.cancel();
     _refreshProgressController.dispose();
     super.dispose();
-  }
-
-  PathInfo get _activePathInfo {
-    return widget.paths.firstWhere(
-      (path) => path.pathId == _activePathId,
-      orElse: () => widget.paths.first,
-    );
   }
 
   int get _refreshSeconds => math.max(3, widget.refreshIntervalSeconds);
@@ -132,6 +126,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     final controller = AppControllerScope.read(context);
     final pathId = _activePathId;
     final previousStates = _busStates;
+    final requestId = ++_refreshRequestSerial;
     setState(() {
       _isRefreshing = true;
       _error = null;
@@ -146,7 +141,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         widget.routeId,
         pathId: pathId,
       );
-      if (!mounted || pathId != _activePathId) {
+      if (!mounted ||
+          pathId != _activePathId ||
+          requestId != _refreshRequestSerial) {
         return;
       }
 
@@ -171,7 +168,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         _fitCameraToGeometry(geometry);
       }
     } catch (error) {
-      if (!mounted || pathId != _activePathId) {
+      if (!mounted ||
+          pathId != _activePathId ||
+          requestId != _refreshRequestSerial) {
         return;
       }
       setState(() {
@@ -317,6 +316,18 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       ((_refreshSeconds * (1 - _refreshProgressController.value))).ceil(),
     );
     return '$secondsRemaining 秒後更新';
+  }
+
+  Alignment _selectedPopupAlignment(LatLng point) {
+    try {
+      final offset = _mapController.camera.latLngToScreenOffset(point);
+      if (offset.dy < 168) {
+        return Alignment.bottomCenter;
+      }
+    } catch (_) {
+      // Ignore camera state errors before the map is fully ready.
+    }
+    return Alignment.topCenter;
   }
 
   Widget _buildTopProgressBar() {
@@ -540,13 +551,13 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                   markers: [
                     Marker(
                       point: selectedDisplayBus.point,
-                      width: 244,
-                      height: 176,
-                      alignment: Alignment.topCenter,
+                      width: 216,
+                      height: 128,
+                      alignment: _selectedPopupAlignment(
+                        selectedDisplayBus.point,
+                      ),
                       child: IgnorePointer(
                         child: _BusInfoPopup(
-                          routeName: widget.routeName,
-                          pathName: _activePathInfo.name,
                           busState: selectedDisplayBus.state,
                         ),
                       ),
@@ -643,13 +654,9 @@ class _BusMarker extends StatelessWidget {
 
 class _BusInfoPopup extends StatelessWidget {
   const _BusInfoPopup({
-    required this.routeName,
-    required this.pathName,
     required this.busState,
   });
 
-  final String routeName;
-  final String pathName;
   final _AnimatedBusState busState;
 
   @override
@@ -707,8 +714,6 @@ class _BusInfoPopup extends StatelessWidget {
               spacing: 6,
               runSpacing: 6,
               children: [
-                _InfoChip(label: '路線', value: routeName),
-                _InfoChip(label: '方向', value: pathName),
                 _InfoChip(
                   label: '速度',
                   value: busState.bus.speedKph == null

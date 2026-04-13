@@ -174,13 +174,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
     if (isForeground) {
-      unawaited(AndroidTripMonitor.setAppInForeground(true));
       if (!wasForeground && _detail != null) {
         unawaited(_refresh());
       }
     } else {
       _pauseForegroundRefreshLoop();
-      unawaited(AndroidTripMonitor.setAppInForeground(false));
     }
     unawaited(_configureBackgroundTripMonitorIfNeeded());
   }
@@ -1125,8 +1123,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
 
-    await AndroidTripMonitor.setAppInForeground(_appIsForeground);
     await AndroidTripMonitor.startOrUpdate(session);
+    await AndroidTripMonitor.setAppInForeground(_appIsForeground);
   }
 
   Future<bool?> _showBackgroundLocationExplainer() {

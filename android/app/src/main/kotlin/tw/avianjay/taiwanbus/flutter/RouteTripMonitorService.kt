@@ -97,6 +97,9 @@ class RouteTripMonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.action
+            ?.takeIf { it != ACTION_STOP }
+            ?.let { ensureForegroundBootstrapStarted() }
         when (intent?.action) {
             ACTION_STOP -> {
                 AppRuntimeStateStore.clearPausedTripMonitor(this)
@@ -122,6 +125,10 @@ class RouteTripMonitorService : Service() {
                     System.currentTimeMillis()
                 }
                 AppRuntimeStateStore.setAppInForeground(this, appInForeground)
+                if (session == null) {
+                    stopTracking(cancelAlertNotification = false)
+                    return START_NOT_STICKY
+                }
                 if (appInForeground) {
                     stopPolling()
                 } else {
@@ -226,10 +233,6 @@ class RouteTripMonitorService : Service() {
     }
 
     private fun ensureForegroundStarted(session: TrackingSession) {
-        if (foregroundStarted) {
-            return
-        }
-
         val initialNotification = buildTrackingNotification(
             TrackingSnapshot(
                 title = session.routeName,
@@ -244,14 +247,29 @@ class RouteTripMonitorService : Service() {
                 shortCriticalText = "啟動中",
             ),
         )
+        if (foregroundStarted) {
+            notificationManager.notify(TRACKING_NOTIFICATION_ID, initialNotification)
+            return
+        }
+        startForegroundInternal(initialNotification)
+    }
+
+    private fun ensureForegroundBootstrapStarted() {
+        if (foregroundStarted) {
+            return
+        }
+        startForegroundInternal(buildStoppedNotification())
+    }
+
+    private fun startForegroundInternal(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 TRACKING_NOTIFICATION_ID,
-                initialNotification,
+                notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
             )
         } else {
-            startForeground(TRACKING_NOTIFICATION_ID, initialNotification)
+            startForeground(TRACKING_NOTIFICATION_ID, notification)
         }
         foregroundStarted = true
     }

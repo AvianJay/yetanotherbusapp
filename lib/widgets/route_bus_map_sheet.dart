@@ -330,6 +330,13 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     return Alignment.topCenter;
   }
 
+  Offset _selectedPopupOffset(Alignment alignment) {
+    if (alignment == Alignment.bottomCenter) {
+      return const Offset(0, 14);
+    }
+    return const Offset(0, -18);
+  }
+
   Widget _buildTopProgressBar() {
     return SizedBox(
       height: 3,
@@ -549,19 +556,26 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
               if (selectedDisplayBus != null)
                 MarkerLayer(
                   markers: [
-                    Marker(
-                      point: selectedDisplayBus.point,
-                      width: 244,
-                      height: 156,
-                      alignment: _selectedPopupAlignment(
-                        selectedDisplayBus.point,
-                      ),
-                      child: IgnorePointer(
-                        child: _BusInfoPopup(
-                          busState: selectedDisplayBus.state,
+                    () {
+                      final displayedBus = selectedDisplayBus!;
+                      final popupAlignment = _selectedPopupAlignment(
+                        displayedBus.point,
+                      );
+                      return Marker(
+                        point: displayedBus.point,
+                        width: 244,
+                        height: 156,
+                        alignment: popupAlignment,
+                        child: IgnorePointer(
+                          child: Transform.translate(
+                            offset: _selectedPopupOffset(popupAlignment),
+                            child: _BusInfoPopup(
+                              busState: displayedBus.state,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    }(),
                   ],
                 ),
             ],

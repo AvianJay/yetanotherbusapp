@@ -719,7 +719,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final detail = _detail;
     final routeId = detail?.route.routeId.trim() ?? '';
     final currentPathId = _currentPathId;
-    if (detail == null || routeId.isEmpty || currentPathId == null) {
+    if (detail == null ||
+        detail.paths.isEmpty ||
+        routeId.isEmpty ||
+        currentPathId == null) {
       return;
     }
 
@@ -733,7 +736,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       isDismissible: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
-        final screenHeight = MediaQuery.sizeOf(context).height;
         return DraggableScrollableSheet(
           expand: false,
           initialChildSize: 0.82,
@@ -742,20 +744,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           snap: true,
           snapSizes: const [0.82, 1],
           builder: (context, scrollController) {
-            return SingleChildScrollView(
-              controller: scrollController,
-              physics: const ClampingScrollPhysics(),
-              child: SizedBox(
-                height: screenHeight,
-                child: RouteBusMapSheet(
-                  routeId: routeId,
-                  routeName: detail.route.routeName,
-                  paths: detail.paths,
-                  selectedPathIdListenable: _selectedMapPathId,
-                  refreshIntervalSeconds: controller.settings.busUpdateTime,
-                  onSelectedPathChanged: _handleMapPathSelection,
-                ),
-              ),
+            return RouteBusMapSheet(
+              routeId: routeId,
+              routeName: detail.route.routeName,
+              paths: detail.paths,
+              selectedPathIdListenable: _selectedMapPathId,
+              refreshIntervalSeconds: controller.settings.busUpdateTime,
+              dragScrollController: scrollController,
+              onSelectedPathChanged: _handleMapPathSelection,
             );
           },
         );

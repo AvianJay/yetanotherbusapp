@@ -16,6 +16,7 @@ class RouteBusMapSheet extends StatefulWidget {
     required this.paths,
     required this.selectedPathIdListenable,
     required this.refreshIntervalSeconds,
+    this.dragScrollController,
     this.onSelectedPathChanged,
     super.key,
   });
@@ -25,6 +26,7 @@ class RouteBusMapSheet extends StatefulWidget {
   final List<PathInfo> paths;
   final ValueListenable<int?> selectedPathIdListenable;
   final int refreshIntervalSeconds;
+  final ScrollController? dragScrollController;
   final ValueChanged<int>? onSelectedPathChanged;
 
   @override
@@ -462,6 +464,15 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         )
         .toList();
     final selectedBus = _selectedBusState;
+    _DisplayedBus? selectedDisplayBus;
+    if (selectedBus != null) {
+      for (final bus in displayBuses) {
+        if (bus.state.bus.id == selectedBus.bus.id) {
+          selectedDisplayBus = bus;
+          break;
+        }
+      }
+    }
 
     return Stack(
       children: [
@@ -471,6 +482,14 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
             options: MapOptions(
               initialCenter: geometry.points.first,
               initialZoom: 13.5,
+              onTap: (_, point) {
+                if (_selectedBusId == null) {
+                  return;
+                }
+                setState(() {
+                  _selectedBusId = null;
+                });
+              },
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
@@ -516,6 +535,24 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                   );
                 }).toList(),
               ),
+              if (selectedDisplayBus != null)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: selectedDisplayBus.point,
+                      width: 244,
+                      height: 176,
+                      alignment: Alignment.topCenter,
+                      child: IgnorePointer(
+                        child: _BusInfoPopup(
+                          routeName: widget.routeName,
+                          pathName: _activePathInfo.name,
+                          busState: selectedDisplayBus.state,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -525,17 +562,6 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
           top: 0,
           child: IgnorePointer(child: _buildTopProgressBar()),
         ),
-        if (selectedBus != null)
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
-            child: _BusInfoCard(
-              routeName: widget.routeName,
-              pathName: _activePathInfo.name,
-              busState: selectedBus,
-            ),
-          ),
       ],
     );
   }
@@ -548,11 +574,20 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       clipBehavior: Clip.antiAlias,
       color: theme.colorScheme.surface,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      child: Column(
-        children: [
-          _buildHeader(theme),
-          Expanded(child: _buildMapArea(theme)),
-        ],
+      child: SafeArea(
+        top: true,
+        bottom: false,
+        child: CustomScrollView(
+          controller: widget.dragScrollController,
+          physics: const ClampingScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(child: _buildHeader(theme)),
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _buildMapArea(theme),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -606,8 +641,8 @@ class _BusMarker extends StatelessWidget {
   }
 }
 
-class _BusInfoCard extends StatelessWidget {
-  const _BusInfoCard({
+class _BusInfoPopup extends StatelessWidget {
+  const _BusInfoPopup({
     required this.routeName,
     required this.pathName,
     required this.busState,
@@ -628,9 +663,9 @@ class _BusInfoCard extends StatelessWidget {
     return Material(
       elevation: 10,
       color: theme.colorScheme.surface,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(18),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -643,13 +678,15 @@ class _BusInfoCard extends StatelessWidget {
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
+                    horizontal: 10,
+                    vertical: 5,
                   ),
                   decoration: BoxDecoration(
                     color: status.color,
@@ -657,7 +694,7 @@ class _BusInfoCard extends StatelessWidget {
                   ),
                   child: Text(
                     status.label,
-                    style: theme.textTheme.labelLarge?.copyWith(
+                    style: theme.textTheme.labelMedium?.copyWith(
                       color: statusForeground,
                       fontWeight: FontWeight.w800,
                     ),
@@ -665,10 +702,10 @@ class _BusInfoCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 6,
+              runSpacing: 6,
               children: [
                 _InfoChip(label: '路線', value: routeName),
                 _InfoChip(label: '方向', value: pathName),

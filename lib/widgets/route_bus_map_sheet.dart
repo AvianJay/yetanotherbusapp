@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../app/bus_app.dart';
@@ -52,6 +53,8 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   String? _error;
   String? _selectedBusId;
   bool _followSelectedBus = false;
+  LatLng? _userLocation;
+  bool _didFitCurrentPathWithUserLocation = false;
   late int _activePathId;
 
   @override
@@ -68,6 +71,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       _syncSelectedBusCamera();
       setState(() {});
     });
+    unawaited(_loadUserLocation());
     unawaited(_loadMapData(fitCamera: true));
   }
 
@@ -114,6 +118,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       _activePathId = pathId;
       _selectedBusId = null;
       _followSelectedBus = false;
+      _didFitCurrentPathWithUserLocation = false;
       _error = null;
       _geometry = null;
       _busStates = <String, _AnimatedBusState>{};
@@ -204,22 +209,65 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     });
   }
 
+  Future<void> _loadUserLocation() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      Position? resolved = lastKnown;
+      resolved ??= await Geolocator.getCurrentPosition().timeout(
+        const Duration(seconds: 4),
+      );
+      if (!mounted) {
+        return;
+      }
+
+      final nextLocation = LatLng(resolved.latitude, resolved.longitude);
+      setState(() {
+        _userLocation = nextLocation;
+      });
+
+      final geometry = _geometry;
+      if (geometry != null && !_didFitCurrentPathWithUserLocation) {
+        _fitCameraToGeometry(geometry);
+      }
+    } catch (_) {
+      // Ignore location lookup failures and keep the map focused on the route.
+    }
+  }
+
   void _fitCameraToGeometry(_RouteGeometry geometry) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || geometry.points.isEmpty) {
         return;
       }
       try {
-        if (geometry.points.length == 1) {
-          _mapController.move(geometry.points.first, 16);
+        final fitPoints = <LatLng>[...geometry.points, ?_userLocation];
+        if (fitPoints.length == 1) {
+          _mapController.move(fitPoints.first, 16);
+          _didFitCurrentPathWithUserLocation = _userLocation != null;
           return;
         }
         _mapController.fitCamera(
           CameraFit.bounds(
-            bounds: LatLngBounds.fromPoints(geometry.points),
-            padding: _cameraPadding,
+            bounds: LatLngBounds.fromPoints(fitPoints),
+            padding: _userLocation != null
+                ? const EdgeInsets.fromLTRB(20, 20, 20, 168)
+                : _cameraPadding,
           ),
         );
+        _didFitCurrentPathWithUserLocation = _userLocation != null;
       } catch (_) {
         // Ignore fit errors from early controller lifecycle and wait for next refresh.
       }
@@ -564,6 +612,17 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                   ),
                 ],
               ),
+              if (_userLocation != null)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: _userLocation!,
+                      width: 24,
+                      height: 24,
+                      child: const _UserLocationMarker(),
+                    ),
+                  ],
+                ),
               MarkerLayer(
                 markers: displayBuses.map((bus) {
                   final selected = _selectedBusId == bus.state.bus.id;
@@ -701,6 +760,28 @@ class _BusMarker extends StatelessWidget {
             size: selected ? 24 : 20,
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _UserLocationMarker extends StatelessWidget {
+  const _UserLocationMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: const Color(0xFF1E88E5),
+        border: Border.all(color: Colors.white, width: 2.5),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
     );
   }

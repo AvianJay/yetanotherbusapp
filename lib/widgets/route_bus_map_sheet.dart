@@ -51,6 +51,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   bool _isRefreshing = false;
   String? _error;
   String? _selectedBusId;
+  bool _followSelectedBus = false;
   late int _activePathId;
 
   @override
@@ -64,6 +65,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       if (!mounted || _busStates.isEmpty) {
         return;
       }
+      _syncSelectedBusCamera();
       setState(() {});
     });
     unawaited(_loadMapData(fitCamera: true));
@@ -111,6 +113,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     setState(() {
       _activePathId = pathId;
       _selectedBusId = null;
+      _followSelectedBus = false;
       _error = null;
       _geometry = null;
       _busStates = <String, _AnimatedBusState>{};
@@ -161,12 +164,14 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         _geometry = geometry;
         _busStates = nextStates;
         _selectedBusId = nextSelectedBusId;
+        _followSelectedBus = nextSelectedBusId != null && _followSelectedBus;
         _isRefreshing = false;
       });
       _scheduleNextRefresh();
       if (fitCamera) {
         _fitCameraToGeometry(geometry);
       }
+      _syncSelectedBusCamera(force: true);
     } catch (error) {
       if (!mounted ||
           pathId != _activePathId ||
@@ -219,6 +224,28 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         // Ignore fit errors from early controller lifecycle and wait for next refresh.
       }
     });
+  }
+
+  void _syncSelectedBusCamera({bool force = false}) {
+    if (!_followSelectedBus) {
+      return;
+    }
+    final geometry = _geometry;
+    final selectedBus = _selectedBusState;
+    if (geometry == null || selectedBus == null) {
+      return;
+    }
+
+    try {
+      final point = selectedBus.positionAt(DateTime.now(), geometry: geometry);
+      final currentCenter = _mapController.camera.center;
+      if (!force && _distanceMetersBetween(currentCenter, point) < 8) {
+        return;
+      }
+      _mapController.move(point, _mapController.camera.zoom);
+    } catch (_) {
+      // Ignore early camera lifecycle errors before the map is ready.
+    }
   }
 
   Map<String, _AnimatedBusState> _buildAnimatedBusStates(
@@ -506,6 +533,15 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                 }
                 setState(() {
                   _selectedBusId = null;
+                  _followSelectedBus = false;
+                });
+              },
+              onPositionChanged: (_, hasGesture) {
+                if (!hasGesture || !_followSelectedBus) {
+                  return;
+                }
+                setState(() {
+                  _followSelectedBus = false;
                 });
               },
               interactionOptions: const InteractionOptions(
@@ -537,12 +573,16 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                     height: selected ? 48 : 40,
                     child: GestureDetector(
                       onTap: () {
+                        final nextSelectedBusId = _selectedBusId == bus.state.bus.id
+                            ? null
+                            : bus.state.bus.id;
                         setState(() {
-                          _selectedBusId =
-                              _selectedBusId == bus.state.bus.id
-                              ? null
-                              : bus.state.bus.id;
+                          _selectedBusId = nextSelectedBusId;
+                          _followSelectedBus = nextSelectedBusId != null;
                         });
+                        if (nextSelectedBusId != null) {
+                          _syncSelectedBusCamera(force: true);
+                        }
                       },
                       child: _BusMarker(
                         color: bus.state.status.color,

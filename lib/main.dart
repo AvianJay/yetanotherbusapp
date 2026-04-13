@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import 'app/bus_app.dart';
 import 'core/app_controller.dart';
@@ -9,25 +10,12 @@ import 'core/app_update_service.dart';
 import 'core/bus_repository.dart';
 import 'core/database_factory.dart';
 import 'core/storage_service.dart';
-import 'widgets/startup_splash_screen.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
   configureDatabaseFactory();
-  runApp(const _BootstrapApp());
-}
-
-class _BootstrapApp extends StatefulWidget {
-  const _BootstrapApp();
-
-  @override
-  State<_BootstrapApp> createState() => _BootstrapAppState();
-}
-
-class _BootstrapAppState extends State<_BootstrapApp> {
-  late final Future<AppController> _controllerFuture = _initializeController();
-
-  Future<AppController> _initializeController() async {
+  try {
     await AppLaunchService.instance.initialize();
     final buildInfo = await AppBuildInfo.load();
 
@@ -39,25 +27,49 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       appUpdateInstaller: createAppUpdateInstaller(),
     );
     await controller.initialize();
-    return controller;
+    runApp(BusApp(controller: controller));
+  } catch (error) {
+    runApp(_StartupErrorApp(error: '$error'));
+  } finally {
+    FlutterNativeSplash.remove();
   }
+}
+
+class _StartupErrorApp extends StatelessWidget {
+  const _StartupErrorApp({required this.error});
+
+  final String error;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<AppController>(
-      future: _controllerFuture,
-      builder: (context, snapshot) {
-        if (snapshot.hasData) {
-          return BusApp(controller: snapshot.requireData);
-        }
-
-        return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          home: StartupSplashScreen(
-            errorMessage: snapshot.hasError ? '${snapshot.error}' : null,
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '啟動失敗',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    error,
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

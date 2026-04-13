@@ -1509,11 +1509,20 @@ class BusRepository {
       lon: lon,
       speedKph: (payload['speed'] as num?)?.toDouble() ??
           double.tryParse(payload['speed']?.toString() ?? ''),
-      azimuth: (payload['azimuth'] as num?)?.toDouble() ??
-          double.tryParse(payload['azimuth']?.toString() ?? ''),
+      azimuth: _normalizeRealtimeAzimuth(
+        (payload['azimuth'] as num?)?.toDouble() ??
+            double.tryParse(payload['azimuth']?.toString() ?? ''),
+      ),
       statusCode: _nullableInt(payload['status']),
       updatedAt: updatedAt,
     );
+  }
+
+  double? _normalizeRealtimeAzimuth(double? value) {
+    if (value == null || !value.isFinite || value < 0 || value > 365) {
+      return null;
+    }
+    return value;
   }
 
   List<RoutePathPoint> _decodePolyline(String encoded) {

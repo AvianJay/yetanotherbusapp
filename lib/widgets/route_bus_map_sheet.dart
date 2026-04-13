@@ -551,8 +551,8 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                   markers: [
                     Marker(
                       point: selectedDisplayBus.point,
-                      width: 216,
-                      height: 128,
+                      width: 244,
+                      height: 156,
                       alignment: _selectedPopupAlignment(
                         selectedDisplayBus.point,
                       ),
@@ -768,6 +768,7 @@ class _InfoChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
+      constraints: const BoxConstraints(maxWidth: 220),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest,
@@ -791,6 +792,11 @@ class _InfoChip extends StatelessWidget {
             ),
           ],
         ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        softWrap: false,
+        textWidthBasis: TextWidthBasis.parent,
+        textScaler: MediaQuery.textScalerOf(context),
       ),
     );
   }

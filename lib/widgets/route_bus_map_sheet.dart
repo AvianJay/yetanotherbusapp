@@ -332,9 +332,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
   Offset _selectedPopupOffset(Alignment alignment) {
     if (alignment == Alignment.bottomCenter) {
-      return const Offset(0, 14);
+      return const Offset(0, 16);
     }
-    return const Offset(0, -18);
+    return const Offset(0, -32);
   }
 
   Widget _buildTopProgressBar() {
@@ -563,8 +563,8 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                       );
                       return Marker(
                         point: displayedBus.point,
-                        width: 244,
-                        height: 156,
+                        width: 216,
+                        height: 132,
                         alignment: popupAlignment,
                         child: IgnorePointer(
                           child: Transform.translate(
@@ -686,7 +686,7 @@ class _BusInfoPopup extends StatelessWidget {
       color: theme.colorScheme.surface,
       borderRadius: BorderRadius.circular(18),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -723,10 +723,10 @@ class _BusInfoPopup extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Wrap(
-              spacing: 6,
-              runSpacing: 6,
+              spacing: 5,
+              runSpacing: 5,
               children: [
                 _InfoChip(
                   label: '速度',
@@ -782,8 +782,8 @@ class _InfoChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      constraints: const BoxConstraints(maxWidth: 220),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      constraints: const BoxConstraints(maxWidth: 188),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(14),

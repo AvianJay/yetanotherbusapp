@@ -13,11 +13,14 @@ import 'eta_badge.dart';
 
 class RouteBusMapSheet extends StatefulWidget {
   const RouteBusMapSheet({
+    required this.routeKey,
+    required this.provider,
     required this.routeId,
     required this.routeName,
     required this.paths,
     required this.stopsByPath,
     required this.alwaysShowSeconds,
+    this.routeIdHint,
     required this.selectedPathIdListenable,
     required this.refreshIntervalSeconds,
     this.dragScrollController,
@@ -25,7 +28,10 @@ class RouteBusMapSheet extends StatefulWidget {
     super.key,
   });
 
+  final int routeKey;
+  final BusProvider provider;
   final String routeId;
+  final String? routeIdHint;
   final String routeName;
   final List<PathInfo> paths;
   final Map<int, List<StopInfo>> stopsByPath;
@@ -51,7 +57,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
   Timer? _refreshTimer;
   Timer? _simulationTimer;
+  StreamSubscription<Position>? _userLocationSubscription;
   _RouteGeometry? _geometry;
+  Map<int, List<StopInfo>> _stopsByPath = <int, List<StopInfo>>{};
   Map<String, _AnimatedBusState> _busStates = <String, _AnimatedBusState>{};
   int _refreshRequestSerial = 0;
   bool _isRefreshing = false;
@@ -70,6 +78,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     super.initState();
     _activePathId =
         widget.selectedPathIdListenable.value ?? widget.paths.first.pathId;
+    _stopsByPath = _copyStopsByPath(widget.stopsByPath);
     _refreshProgressController = AnimationController(vsync: this);
     widget.selectedPathIdListenable.addListener(_handleExternalPathSelection);
     _simulationTimer = Timer.periodic(_simulationTick, (_) {
@@ -88,6 +97,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     widget.selectedPathIdListenable.removeListener(_handleExternalPathSelection);
     _refreshTimer?.cancel();
     _simulationTimer?.cancel();
+    _userLocationSubscription?.cancel();
     _refreshProgressController.dispose();
     super.dispose();
   }
@@ -103,7 +113,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   }
 
   List<StopInfo> get _activePathStops =>
-      widget.stopsByPath[_activePathId] ?? const <StopInfo>[];
+      _stopsByPath[_activePathId] ?? const <StopInfo>[];
 
   StopInfo? get _selectedStop {
     final selectedStopId = _selectedStopId;
@@ -166,14 +176,28 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     });
 
     try {
-      final pathPoints = await controller.repository.getRoutePathPoints(
+      final pathPointsFuture = controller.repository.getRoutePathPoints(
         widget.routeId,
         pathId: pathId,
       );
-      final buses = await controller.repository.getRouteRealtimeBuses(
+      final busesFuture = controller.repository.getRouteRealtimeBuses(
         widget.routeId,
         pathId: pathId,
       );
+      final detailFuture = controller.getRouteDetail(
+        widget.routeKey,
+        provider: widget.provider,
+        routeIdHint: widget.routeIdHint ?? widget.routeId,
+        routeNameHint: widget.routeName,
+      );
+      final pathPoints = await pathPointsFuture;
+      final buses = await busesFuture;
+      RouteDetailData? refreshedDetail;
+      try {
+        refreshedDetail = await detailFuture;
+      } catch (_) {
+        refreshedDetail = null;
+      }
       if (!mounted ||
           pathId != _activePathId ||
           requestId != _refreshRequestSerial) {
@@ -190,10 +214,22 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
           _selectedBusId != null && nextStates.containsKey(_selectedBusId)
           ? _selectedBusId
           : null;
+      final nextStopsByPath = refreshedDetail == null
+          ? _stopsByPath
+          : _copyStopsByPath(refreshedDetail.stopsByPath);
+      final nextSelectedStopId =
+          _selectedStopId != null &&
+              (nextStopsByPath[pathId] ?? const <StopInfo>[]).any(
+                (stop) => stop.stopId == _selectedStopId,
+              )
+          ? _selectedStopId
+          : null;
       setState(() {
         _geometry = geometry;
+        _stopsByPath = nextStopsByPath;
         _busStates = nextStates;
         _selectedBusId = nextSelectedBusId;
+        _selectedStopId = nextSelectedStopId;
         _followSelectedBus = nextSelectedBusId != null && _followSelectedBus;
         _isRefreshing = false;
       });
@@ -261,6 +297,25 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       final nextLocation = LatLng(resolved.latitude, resolved.longitude);
       setState(() {
         _userLocation = nextLocation;
+      });
+
+      _userLocationSubscription?.cancel();
+      _userLocationSubscription = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 8,
+        ),
+      ).listen((position) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _userLocation = LatLng(position.latitude, position.longitude);
+        });
+        final geometry = _geometry;
+        if (geometry != null && !_didFitCurrentPathWithUserLocation) {
+          _fitCameraToGeometry(geometry);
+        }
       });
 
       final geometry = _geometry;
@@ -435,6 +490,12 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       return const Offset(0, 16);
     }
     return const Offset(0, -32);
+  }
+
+  Map<int, List<StopInfo>> _copyStopsByPath(Map<int, List<StopInfo>> source) {
+    return source.map(
+      (pathId, stops) => MapEntry(pathId, List<StopInfo>.of(stops)),
+    );
   }
 
   Widget _buildTopProgressBar() {
@@ -772,13 +833,13 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                       );
                       return Marker(
                         point: displayedBus.point,
-                        width: 216,
-                        height: 132,
+                        width: 224,
+                        height: 124,
                         alignment: popupAlignment,
                         child: IgnorePointer(
                           child: Transform.translate(
                             offset: _selectedPopupOffset(popupAlignment),
-                            child: _BusInfoPopup(
+                            child: _BusInfoPopupCompact(
                               busState: displayedBus.state,
                             ),
                           ),
@@ -1142,6 +1203,114 @@ class _StopInfoPopup extends StatelessWidget {
   }
 }
 
+class _BusInfoPopupCompact extends StatelessWidget {
+  const _BusInfoPopupCompact({
+    required this.busState,
+  });
+
+  final _AnimatedBusState busState;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final status = busState.status;
+    final statusForeground = status.color.computeLuminance() > 0.45
+        ? Colors.black87
+        : Colors.white;
+
+    return Material(
+      elevation: 10,
+      color: theme.colorScheme.surface,
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    busState.bus.id,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: status.color,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    status.label,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: statusForeground,
+                      fontWeight: FontWeight.w800,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _CompactInfoCell(
+                    label: '速度',
+                    value: busState.bus.speedKph == null
+                        ? '--'
+                        : '${busState.bus.speedKph!.round()} km/h',
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: _CompactInfoCell(
+                    label: '角度',
+                    value: busState.bus.azimuth == null
+                        ? '--'
+                        : '${busState.bus.azimuth!.round()}°',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 5),
+            Row(
+              children: [
+                Expanded(
+                  child: _CompactInfoCell(
+                    label: '更新',
+                    value: _BusInfoPopup._formatTime(busState.bus.updatedAt),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: _CompactInfoCell(
+                    label: '狀態',
+                    value: busState.mode == _BusMotionMode.snappedToRoute
+                        ? '貼線'
+                        : '離線 ${busState.distanceToRouteMeters.round()}m',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _InfoChip extends StatelessWidget {
   const _InfoChip({
     required this.label,
@@ -1184,6 +1353,51 @@ class _InfoChip extends StatelessWidget {
         softWrap: false,
         textWidthBasis: TextWidthBasis.parent,
         textScaler: MediaQuery.textScalerOf(context),
+      ),
+    );
+  }
+}
+
+class _CompactInfoCell extends StatelessWidget {
+  const _CompactInfoCell({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '$label ',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            TextSpan(
+              text: value,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        softWrap: false,
       ),
     );
   }

@@ -743,7 +743,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           snapSizes: const [0.82, 1],
           builder: (context, scrollController) {
             return RouteBusMapSheet(
+              routeKey: widget.routeKey,
+              provider: widget.provider,
               routeId: routeId,
+              routeIdHint: widget.routeIdHint,
               routeName: detail.route.routeName,
               paths: detail.paths,
               stopsByPath: detail.stopsByPath,

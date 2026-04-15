@@ -58,6 +58,7 @@ class RouteTripMonitorService : Service() {
     private var lastNearestStopIndex: Int? = null
     private var lastBusStopIndex: Int? = null
     private var trackedBusId: String? = null
+    private var destinationSetupPromptSent = false
     private var destinationAlertStage = 0
     private var overshootAlertSent = false
     private var lastWentBackgroundAtMs = 0L
@@ -192,6 +193,7 @@ class RouteTripMonitorService : Service() {
                     lastNearestStopIndex = null
                     lastBusStopIndex = null
                     trackedBusId = null
+                    destinationSetupPromptSent = false
                     destinationAlertStage = 0
                     overshootAlertSent = false
                 }
@@ -1388,7 +1390,11 @@ class RouteTripMonitorService : Service() {
             ) {
                 return
             }
-            pauseTracking(PAUSE_REASON_BOARDED_NO_DESTINATION)
+            maybeSendDestinationSetupPrompt(session, snapshot)
+            pauseTracking(
+                PAUSE_REASON_BOARDED_NO_DESTINATION,
+                preserveAlertNotification = true,
+            )
             return
         }
         if (!snapshot.hasBoarded) {
@@ -1506,6 +1512,36 @@ class RouteTripMonitorService : Service() {
                         createNotBoardedPendingIntent(),
                     ).build(),
                 )
+                .build(),
+        )
+    }
+
+    private fun maybeSendDestinationSetupPrompt(
+        session: TrackingSession,
+        snapshot: TrackingSnapshot,
+    ) {
+        if (destinationSetupPromptSent) {
+            return
+        }
+        destinationSetupPromptSent = true
+        val boardingName = snapshot.boardingName
+        val contentText = if (boardingName.isNullOrBlank()) {
+            "已偵測到可能上車，要設定下車站嗎？"
+        } else {
+            "已偵測在 $boardingName 上車，要設定下車站嗎？"
+        }
+        notificationManager.notify(
+            ALERT_NOTIFICATION_ID,
+            NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_status_bus)
+                .setContentTitle("已偵測上車")
+                .setContentText(contentText)
+                .setSubText(session.pathName)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .setAutoCancel(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setContentIntent(createOpenRoutePendingIntent(session))
                 .build(),
         )
     }
@@ -1737,6 +1773,7 @@ class RouteTripMonitorService : Service() {
         lastNearestStopIndex = null
         lastBusStopIndex = null
         trackedBusId = null
+        destinationSetupPromptSent = false
         destinationAlertStage = 0
         overshootAlertSent = false
         refreshInFlight = false

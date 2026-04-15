@@ -414,26 +414,36 @@ class RouteTripMonitorService : Service() {
             }.takeIf { it >= 0 } ?: nearestIndex
             val boardingStop = session.stops[boardingIndex]
             val boardingLiveStop = liveStops[boardingStop.stopId]
-            val busStopsUntilBoarding = busIndex?.let { (boardingIndex - it).coerceAtLeast(0) }
             val boardingEtaText = displayEtaText(boardingLiveStop)
+            val boardingEtaSeconds = resolveEtaSeconds(boardingLiveStop)
+            val boardingBusIndex = findClosestBusIndexForBoarding(
+                stops = session.stops,
+                liveStops = liveStops,
+                boardingIndex = boardingIndex,
+            )
+            val busStopsUntilBoarding = boardingBusIndex?.let {
+                (boardingIndex - it).coerceAtLeast(0)
+            }
             val hasBoarded = if (session.backgroundLocationAlwaysGranted) {
                 updateRideState(
                     nearestIndex = nearestIndex,
                     boardingIndex = boardingIndex,
                     busStopsUntilBoarding = busStopsUntilBoarding,
                     boardingEtaText = boardingEtaText,
+                    boardingEtaSeconds = boardingEtaSeconds,
                     boardingDistanceMeters = distanceMeters(
                         location.latitude,
                         location.longitude,
                         boardingStop.lat,
                         boardingStop.lon,
                     ),
-                    busIndex = busIndex,
+                    busIndex = boardingBusIndex,
                 )
             } else {
                 hasBusReachedBoardingStop(
                     busStopsUntilBoarding = busStopsUntilBoarding,
                     boardingEtaText = boardingEtaText,
+                    boardingEtaSeconds = boardingEtaSeconds,
                 )
             }
             trackedBusId = if (hasBoarded) {
@@ -465,6 +475,7 @@ class RouteTripMonitorService : Service() {
                 hasBoarded = hasBoarded,
                 boardingName = boardingStop.stopName,
                 boardingEtaText = boardingEtaText,
+                boardingEtaSeconds = boardingEtaSeconds,
                 boardingStopsAway = busStopsUntilBoarding,
                 boardingDistanceMeters = distanceMeters(
                     location.latitude,
@@ -483,6 +494,7 @@ class RouteTripMonitorService : Service() {
             val boardingLiveStop = liveStops[boardingStop.stopId]
             val boardingEtaText = displayEtaText(boardingLiveStop)
             val boardingEtaShort = displayShortEtaText(boardingLiveStop)
+            val boardingEtaSeconds = resolveEtaSeconds(boardingLiveStop)
             val boardingDistanceMeters = distanceMeters(
                 location.latitude,
                 location.longitude,
@@ -495,6 +507,7 @@ class RouteTripMonitorService : Service() {
                 boardingIndex = boardingIndex,
                 busStopsUntilBoarding = busStopsUntilBoarding,
                 boardingEtaText = boardingEtaText,
+                boardingEtaSeconds = boardingEtaSeconds,
                 boardingDistanceMeters = boardingDistanceMeters,
                 busIndex = busIndex,
             )
@@ -565,26 +578,36 @@ class RouteTripMonitorService : Service() {
         val boardingLiveStop = liveStops[boardingStop.stopId]
         val boardingEtaText = displayEtaText(boardingLiveStop)
         val boardingEtaShort = displayShortEtaText(boardingLiveStop)
+        val boardingEtaSeconds = resolveEtaSeconds(boardingLiveStop)
         val boardingDistanceMeters = distanceMeters(
             location.latitude,
             location.longitude,
             boardingStop.lat,
             boardingStop.lon,
         )
-        val busStopsUntilBoarding = busIndex?.let { (boardingIndex - it).coerceAtLeast(0) }
+        val boardingBusIndex = findClosestBusIndexForBoarding(
+            stops = session.stops,
+            liveStops = liveStops,
+            boardingIndex = boardingIndex,
+        )
+        val busStopsUntilBoarding = boardingBusIndex?.let {
+            (boardingIndex - it).coerceAtLeast(0)
+        }
         val hasBoarded = if (session.backgroundLocationAlwaysGranted) {
             updateRideState(
                 nearestIndex = nearestIndex,
                 boardingIndex = boardingIndex,
                 busStopsUntilBoarding = busStopsUntilBoarding,
                 boardingEtaText = boardingEtaText,
+                boardingEtaSeconds = boardingEtaSeconds,
                 boardingDistanceMeters = boardingDistanceMeters,
-                busIndex = busIndex,
+                busIndex = boardingBusIndex,
             )
         } else {
             hasBusReachedBoardingStop(
                 busStopsUntilBoarding = busStopsUntilBoarding,
                 boardingEtaText = boardingEtaText,
+                boardingEtaSeconds = boardingEtaSeconds,
             )
         }
 
@@ -608,6 +631,7 @@ class RouteTripMonitorService : Service() {
                 ),
                 boardingName = boardingStop.stopName,
                 boardingEtaText = boardingEtaText,
+                boardingEtaSeconds = boardingEtaSeconds,
                 boardingStopsAway = busStopsUntilBoarding,
                 boardingDistanceMeters = boardingDistanceMeters,
                 hasBoarded = false,
@@ -780,13 +804,21 @@ class RouteTripMonitorService : Service() {
         boardingIndex: Int,
         busStopsUntilBoarding: Int?,
         boardingEtaText: String,
+        boardingEtaSeconds: Int?,
         boardingDistanceMeters: Double,
         busIndex: Int?,
     ): Boolean {
         val userNearBoardingStop =
             boardingDistanceMeters <= BOARDING_STOP_RADIUS_METERS || nearestIndex == boardingIndex
         val busNearBoardingStop =
-            (busStopsUntilBoarding != null && busStopsUntilBoarding <= 1) ||
+            (
+                busStopsUntilBoarding != null &&
+                    busStopsUntilBoarding <= 1 &&
+                    isLikelyBoardingArrival(
+                        etaSeconds = boardingEtaSeconds,
+                        etaText = boardingEtaText,
+                    )
+                ) ||
                 isImmediateEtaText(boardingEtaText)
         if (userNearBoardingStop && busNearBoardingStop) {
             if (!boardingWindowOpen) {
@@ -841,9 +873,15 @@ class RouteTripMonitorService : Service() {
     private fun hasBusReachedBoardingStop(
         busStopsUntilBoarding: Int?,
         boardingEtaText: String,
+        boardingEtaSeconds: Int?,
     ): Boolean {
-        return (busStopsUntilBoarding != null && busStopsUntilBoarding <= 0) ||
-            isImmediateEtaText(boardingEtaText)
+        if (isImmediateEtaText(boardingEtaText)) {
+            return true
+        }
+        if (!isLikelyBoardingArrival(etaSeconds = boardingEtaSeconds, etaText = boardingEtaText)) {
+            return false
+        }
+        return busStopsUntilBoarding != null && busStopsUntilBoarding <= 0
     }
 
     private fun buildNearestStatusText(
@@ -978,6 +1016,24 @@ class RouteTripMonitorService : Service() {
             return null
         }
         return cleaned.uppercase()
+    }
+
+    private fun resolveEtaSeconds(
+        stopState: LiveStopState?,
+        preferredVehicleId: String? = null,
+    ): Int? {
+        val selectedEta = findEtaForVehicle(stopState, preferredVehicleId)
+        return selectedEta?.seconds ?: stopState?.seconds
+    }
+
+    private fun isLikelyBoardingArrival(
+        etaSeconds: Int?,
+        etaText: String?,
+    ): Boolean {
+        if (isImmediateEtaText(etaText)) {
+            return true
+        }
+        return etaSeconds != null && etaSeconds <= BOARDING_ARRIVAL_MAX_ETA_SECONDS
     }
 
     private fun composeEtaText(seconds: Int?, message: String?): String {
@@ -1356,9 +1412,17 @@ class RouteTripMonitorService : Service() {
             return
         }
         val boardingName = snapshot.boardingName ?: return
+        val boardingEtaSeconds = snapshot.boardingEtaSeconds
+        if (
+            boardingEtaSeconds != null &&
+                boardingEtaSeconds > BOARDING_CHECK_PROMPT_MAX_ETA_SECONDS
+        ) {
+            return
+        }
         val busArrived = hasBusReachedBoardingStop(
             busStopsUntilBoarding = snapshot.boardingStopsAway,
             boardingEtaText = snapshot.boardingEtaText.orEmpty(),
+            boardingEtaSeconds = boardingEtaSeconds,
         )
         if (!busArrived) {
             return
@@ -1990,6 +2054,24 @@ class RouteTripMonitorService : Service() {
         return busIndexes.minOrNull()
     }
 
+    private fun findClosestBusIndexForBoarding(
+        stops: List<TrackingStop>,
+        liveStops: Map<Int, LiveStopState>,
+        boardingIndex: Int,
+    ): Int? {
+        val busIndexes = stops.mapIndexedNotNull { index, stop ->
+            val liveStop = liveStops[stop.stopId] ?: return@mapIndexedNotNull null
+            if (isBusApproachingStop(liveStop)) {
+                index
+            } else {
+                null
+            }
+        }
+        return busIndexes
+            .filter { it <= boardingIndex }
+            .maxOrNull()
+    }
+
     private fun isBusApproachingStop(liveStop: LiveStopState): Boolean {
         val message = liveStop.message?.trim().orEmpty()
         return liveStop.vehicleIds.isNotEmpty() ||
@@ -2059,6 +2141,8 @@ class RouteTripMonitorService : Service() {
         private const val LOCATION_MIN_UPDATE_INTERVAL_MS = 6_000L
         private const val BOARDING_STOP_RADIUS_METERS = 180.0
         private const val BOARDING_CONFIRM_DISTANCE_METERS = 250.0
+        private const val BOARDING_ARRIVAL_MAX_ETA_SECONDS = 180
+        private const val BOARDING_CHECK_PROMPT_MAX_ETA_SECONDS = 180
         private const val REQUIRED_RIDE_CONFIRMATION_SAMPLES = 2
         private const val BACKGROUND_AUTO_PAUSE_GRACE_MS = 90_000L
         private const val BOARDING_CHECK_PROMPT_DELAY_MS = 45_000L
@@ -2217,6 +2301,7 @@ data class TrackingSnapshot(
     val hasBoarded: Boolean = false,
     val boardingName: String? = null,
     val boardingEtaText: String? = null,
+    val boardingEtaSeconds: Int? = null,
     val boardingStopsAway: Int? = null,
     val boardingDistanceMeters: Double? = null,
     val destinationName: String? = null,

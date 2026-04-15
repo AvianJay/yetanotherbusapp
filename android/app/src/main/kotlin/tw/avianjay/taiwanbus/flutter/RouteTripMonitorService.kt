@@ -59,6 +59,7 @@ class RouteTripMonitorService : Service() {
     private var lastBusStopIndex: Int? = null
     private var trackedBusId: String? = null
     private var destinationSetupPromptSent = false
+    private var arrivalDetectedAtMs = 0L
     private var destinationAlertStage = 0
     private var overshootAlertSent = false
     private var lastWentBackgroundAtMs = 0L
@@ -194,6 +195,7 @@ class RouteTripMonitorService : Service() {
                     lastBusStopIndex = null
                     trackedBusId = null
                     destinationSetupPromptSent = false
+                    arrivalDetectedAtMs = 0L
                     destinationAlertStage = 0
                     overshootAlertSent = false
                 }
@@ -387,6 +389,12 @@ class RouteTripMonitorService : Service() {
         }
 
         val nearestStop = session.stops[nearestIndex]
+        val nearestStopDistanceMeters = distanceMeters(
+            location.latitude,
+            location.longitude,
+            nearestStop.lat,
+            nearestStop.lon,
+        )
         val nearestLiveStop = liveStops[nearestStop.stopId]
         val nearestEtaText = displayEtaText(nearestLiveStop)
         val busIndex = findClosestBusIndex(session.stops, liveStops, nearestIndex)
@@ -475,6 +483,7 @@ class RouteTripMonitorService : Service() {
                     boardingStop.lat,
                     boardingStop.lon,
                 ),
+                nearestStopDistanceMeters = nearestStopDistanceMeters,
             )
         }
 
@@ -628,6 +637,7 @@ class RouteTripMonitorService : Service() {
                 boardingDistanceMeters = boardingDistanceMeters,
                 hasBoarded = false,
                 destinationName = destinationStop.stopName,
+                nearestStopDistanceMeters = nearestStopDistanceMeters,
             )
         }
 
@@ -681,6 +691,7 @@ class RouteTripMonitorService : Service() {
             destinationDistanceMeters = destinationDistanceMeters,
             boardingName = boardingStop.stopName,
             passedDestinationByStops = (-rawRemainingStops).takeIf { it > 0 },
+            nearestStopDistanceMeters = nearestStopDistanceMeters,
         )
     }
 
@@ -1379,7 +1390,10 @@ class RouteTripMonitorService : Service() {
         snapshot: TrackingSnapshot,
     ) {
         if (snapshot.passedDestinationByStops != null) {
-            maybeSendOvershotAlert(session, snapshot)
+            if (maybeSendOvershotAlert(session, snapshot)) {
+                return
+            }
+            maybePauseAfterArrivalGrace()
             return
         }
         if (snapshot.hasBoarded && snapshot.destinationName == null) {
@@ -1403,6 +1417,7 @@ class RouteTripMonitorService : Service() {
             return
         }
         maybeSendDestinationAlert(session, snapshot)
+        maybePauseAfterArrivalGrace()
     }
 
     private fun maybeSendBoardingAlert(
@@ -1553,6 +1568,7 @@ class RouteTripMonitorService : Service() {
         val destinationName = snapshot.destinationName ?: return
         val remainingStops = snapshot.remainingStops ?: return
         val distanceMeters = snapshot.destinationDistanceMeters ?: return
+        val now = System.currentTimeMillis()
 
         if (remainingStops <= 2 && destinationAlertStage < 1) {
             destinationAlertStage = 1
@@ -1587,6 +1603,7 @@ class RouteTripMonitorService : Service() {
 
         if ((remainingStops == 0 || distanceMeters <= 120.0) && destinationAlertStage < 2) {
             destinationAlertStage = 2
+            arrivalDetectedAtMs = now
             notificationManager.notify(
                 ALERT_NOTIFICATION_ID,
                 NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
@@ -1614,22 +1631,34 @@ class RouteTripMonitorService : Service() {
                     .setContentIntent(createOpenRoutePendingIntent(session))
                     .build(),
             )
-            pauseTracking(
-                PAUSE_REASON_ARRIVED,
-                preserveAlertNotification = true,
-            )
+        } else if (destinationAlertStage >= 2 && arrivalDetectedAtMs == 0L) {
+            arrivalDetectedAtMs = now
         }
     }
 
     private fun maybeSendOvershotAlert(
         session: TrackingSession,
         snapshot: TrackingSnapshot,
-    ) {
+    ): Boolean {
         if (overshootAlertSent) {
-            return
+            return true
         }
-        val destinationName = snapshot.destinationName ?: return
-        val passedByStops = snapshot.passedDestinationByStops ?: return
+        if (arrivalDetectedAtMs == 0L) {
+            return false
+        }
+        if (System.currentTimeMillis() - arrivalDetectedAtMs < OVERSHOOT_CONFIRM_DELAY_MS) {
+            return false
+        }
+        val destinationName = snapshot.destinationName ?: return false
+        val passedByStops = snapshot.passedDestinationByStops ?: return false
+        val destinationDistanceMeters = snapshot.destinationDistanceMeters ?: return false
+        val nearestStopDistanceMeters = snapshot.nearestStopDistanceMeters ?: return false
+        if (
+            destinationDistanceMeters <= DESTINATION_OVERSHOOT_DISTANCE_METERS ||
+                nearestStopDistanceMeters > ROUTE_PROXIMITY_MAX_DISTANCE_METERS
+        ) {
+            return false
+        }
 
         overshootAlertSent = true
         notificationManager.notify(
@@ -1648,6 +1677,20 @@ class RouteTripMonitorService : Service() {
         )
         pauseTracking(
             PAUSE_REASON_OVERSHOT,
+            preserveAlertNotification = true,
+        )
+        return true
+    }
+
+    private fun maybePauseAfterArrivalGrace() {
+        if (arrivalDetectedAtMs == 0L || overshootAlertSent) {
+            return
+        }
+        if (System.currentTimeMillis() - arrivalDetectedAtMs < ARRIVAL_AUTO_PAUSE_DELAY_MS) {
+            return
+        }
+        pauseTracking(
+            PAUSE_REASON_ARRIVED,
             preserveAlertNotification = true,
         )
     }
@@ -1774,6 +1817,7 @@ class RouteTripMonitorService : Service() {
         lastBusStopIndex = null
         trackedBusId = null
         destinationSetupPromptSent = false
+        arrivalDetectedAtMs = 0L
         destinationAlertStage = 0
         overshootAlertSent = false
         refreshInFlight = false
@@ -2233,6 +2277,10 @@ class RouteTripMonitorService : Service() {
         private const val BOARDING_CHECK_PROMPT_DELAY_MS = 45_000L
         private const val BOARDING_CHECK_SNOOZE_MS = 180_000L
         private const val MAX_PROGRESS_POINTS = 8
+        private const val OVERSHOOT_CONFIRM_DELAY_MS = 45_000L
+        private const val ARRIVAL_AUTO_PAUSE_DELAY_MS = 60_000L
+        private const val ROUTE_PROXIMITY_MAX_DISTANCE_METERS = 300.0
+        private const val DESTINATION_OVERSHOOT_DISTANCE_METERS = 300.0
         private const val LIVE_UPDATE_SDK_INT = 36
         private const val PAUSE_REASON_USER = "user"
         private const val PAUSE_REASON_ARRIVED = "arrived"
@@ -2395,4 +2443,5 @@ data class TrackingSnapshot(
     val remainingStops: Int? = null,
     val destinationDistanceMeters: Double? = null,
     val passedDestinationByStops: Int? = null,
+    val nearestStopDistanceMeters: Double? = null,
 )

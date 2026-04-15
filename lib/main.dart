@@ -3,6 +3,7 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import 'app/bus_app.dart';
 import 'core/app_controller.dart';
+import 'core/app_analytics.dart';
 import 'core/app_build_info.dart';
 import 'core/app_launch_service.dart';
 import 'core/app_update_installer.dart';
@@ -17,6 +18,7 @@ Future<void> main() async {
   configureDatabaseFactory();
   try {
     await AppLaunchService.instance.initialize();
+    final analytics = await AppAnalytics.initialize();
     final buildInfo = await AppBuildInfo.load();
 
     final controller = AppController(
@@ -27,7 +29,7 @@ Future<void> main() async {
       appUpdateInstaller: createAppUpdateInstaller(),
     );
     await controller.initialize();
-    runApp(BusApp(controller: controller));
+    runApp(BusApp(controller: controller, analytics: analytics));
   } catch (error) {
     runApp(_StartupErrorApp(error: '$error'));
   } finally {

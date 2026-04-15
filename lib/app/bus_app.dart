@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/app_controller.dart';
+import '../core/app_analytics.dart';
 import '../core/app_launch_service.dart';
 import '../core/android_home_integration.dart';
 import '../core/ios_widget_integration.dart';
@@ -16,9 +17,10 @@ import '../widgets/app_update_dialog.dart';
 import '../widgets/database_update_dialog.dart';
 
 class BusApp extends StatelessWidget {
-  const BusApp({required this.controller, super.key});
+  const BusApp({required this.controller, required this.analytics, super.key});
 
   final AppController controller;
+  final AppAnalytics analytics;
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +35,9 @@ class BusApp extends StatelessWidget {
             themeMode: controller.settings.themeMode,
             theme: _buildTheme(Brightness.light),
             darkTheme: _buildTheme(Brightness.dark),
+            navigatorObservers: [
+              if (analytics.observer != null) analytics.observer!,
+            ],
             home: _AppHome(controller: controller),
           );
         },

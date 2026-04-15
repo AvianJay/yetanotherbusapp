@@ -180,7 +180,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     } else {
       _pauseForegroundRefreshLoop();
     }
-    unawaited(_configureBackgroundTripMonitorIfNeeded());
   }
 
   Future<void> _refresh() async {
@@ -1130,7 +1129,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     // Prime the service as soon as we have a valid route session so the
     // foreground/background transition is not the first cold start.
     await AndroidTripMonitor.startOrUpdate(session);
-    await AndroidTripMonitor.setAppInForeground(_appIsForeground);
     await _syncBackgroundTripMonitorPausedState(session: session);
   }
 

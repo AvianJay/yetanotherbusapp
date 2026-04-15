@@ -70,7 +70,7 @@ class RouteTripMonitorService : Service() {
 
     private val pollingRunnable = object : Runnable {
         override fun run() {
-            if (!foregroundStarted || appInForeground) {
+            if (!foregroundStarted) {
                 return
             }
             refreshNotification()
@@ -81,9 +81,7 @@ class RouteTripMonitorService : Service() {
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(locationResult: LocationResult) {
             latestLocation = locationResult.lastLocation
-            if (!appInForeground) {
-                refreshNotification()
-            }
+            refreshNotification()
         }
     }
 
@@ -126,15 +124,10 @@ class RouteTripMonitorService : Service() {
                 }
                 AppRuntimeStateStore.setAppInForeground(this, appInForeground)
                 if (session == null) {
-                    stopTracking(cancelAlertNotification = false)
                     return START_NOT_STICKY
                 }
-                if (appInForeground) {
-                    stopPolling()
-                } else {
-                    refreshNotification(force = true)
-                    startPolling()
-                }
+                refreshNotification(force = true)
+                startPolling()
                 return START_STICKY
             }
 
@@ -212,12 +205,8 @@ class RouteTripMonitorService : Service() {
 
                 ensureForegroundStarted(parsedSession)
                 requestLocationUpdates()
-                if (!appInForeground) {
-                    refreshNotification(force = true)
-                    startPolling()
-                } else {
-                    stopPolling()
-                }
+                refreshNotification(force = true)
+                startPolling()
             }
         }
         return START_STICKY
@@ -296,9 +285,7 @@ class RouteTripMonitorService : Service() {
             fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                 if (location != null) {
                     latestLocation = location
-                    if (!appInForeground) {
-                        refreshNotification()
-                    }
+                    refreshNotification()
                 }
             }
         }
@@ -306,7 +293,7 @@ class RouteTripMonitorService : Service() {
 
     private fun startPolling() {
         mainHandler.removeCallbacks(pollingRunnable)
-        if (!foregroundStarted || appInForeground) {
+        if (!foregroundStarted) {
             return
         }
         mainHandler.postDelayed(pollingRunnable, POLL_INTERVAL_MS)
@@ -318,9 +305,6 @@ class RouteTripMonitorService : Service() {
 
     private fun refreshNotification(force: Boolean = false) {
         val currentSession = session ?: return
-        if (appInForeground && !force) {
-            return
-        }
         synchronized(refreshLock) {
             val now = SystemClock.elapsedRealtime()
             if (refreshInFlight) {
@@ -346,7 +330,7 @@ class RouteTripMonitorService : Service() {
                 var shouldRefreshAgain = false
                 synchronized(refreshLock) {
                     refreshInFlight = false
-                    if (refreshPending && !appInForeground) {
+                    if (refreshPending) {
                         refreshPending = false
                         shouldRefreshAgain = true
                     } else {
@@ -1322,9 +1306,6 @@ class RouteTripMonitorService : Service() {
         session: TrackingSession,
         snapshot: TrackingSnapshot,
     ) {
-        if (appInForeground) {
-            return
-        }
         if (snapshot.passedDestinationByStops != null) {
             maybeSendOvershotAlert(session, snapshot)
             return
@@ -1463,9 +1444,6 @@ class RouteTripMonitorService : Service() {
         session: TrackingSession,
         snapshot: TrackingSnapshot,
     ) {
-        if (appInForeground) {
-            return
-        }
         val destinationName = snapshot.destinationName ?: return
         val remainingStops = snapshot.remainingStops ?: return
         val distanceMeters = snapshot.destinationDistanceMeters ?: return

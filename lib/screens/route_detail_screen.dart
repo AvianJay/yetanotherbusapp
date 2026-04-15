@@ -1123,13 +1123,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (session == null) {
       return;
     }
-    await _syncBackgroundTripMonitorPausedState(session: session);
     if (_backgroundTripMonitorPaused) {
       return;
     }
 
+    // Prime the service as soon as we have a valid route session so the
+    // foreground/background transition is not the first cold start.
     await AndroidTripMonitor.startOrUpdate(session);
     await AndroidTripMonitor.setAppInForeground(_appIsForeground);
+    await _syncBackgroundTripMonitorPausedState(session: session);
   }
 
   Future<bool?> _showBackgroundLocationExplainer() {

@@ -79,8 +79,10 @@ class HomeScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
           children: [
-            _SmartRecommendationCard(controller: controller),
-            const SizedBox(height: 16),
+            if (controller.settings.enableSmartRecommendations) ...[
+              _SmartRecommendationCard(controller: controller),
+              const SizedBox(height: 16),
+            ],
             _FeatureCard(
               icon: Icons.search_rounded,
               title: '搜尋路線',
@@ -347,6 +349,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return null;
   }
 
+  // ignore: unused_element
   Widget _buildDisabledState(BuildContext context) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
@@ -623,7 +626,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     if (!controller.settings.enableSmartRecommendations) {
-      return _buildDisabledState(context);
+      return const SizedBox.shrink();
     }
     if (!controller.databaseReady) {
       return _buildNeedDatabaseState(context);

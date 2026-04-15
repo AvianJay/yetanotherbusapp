@@ -33,6 +33,7 @@ import java.net.URLEncoder
 import java.net.URL
 import java.util.concurrent.Executors
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -441,6 +442,11 @@ class RouteTripMonitorService : Service() {
                 null
             }
             val busStopsAway = busIndex?.let { (nearestIndex - it).coerceAtLeast(0) }
+            val boardingProgressValue = if (hasBoarded) {
+                boardingIndex + 1
+            } else {
+                boardingBusIndex?.plus(1)?.coerceAtMost(boardingIndex + 1) ?: 0
+            }
             return TrackingSnapshot(
                 title = session.routeName,
                 content = "${nearestStop.stopName} 約 $nearestEtaText",
@@ -450,8 +456,8 @@ class RouteTripMonitorService : Service() {
                     nearestEtaText = nearestEtaText,
                     busStopsAway = busStopsAway,
                 ),
-                progressMax = null,
-                progressValue = null,
+                progressMax = boardingIndex + 1,
+                progressValue = boardingProgressValue,
                 shortCriticalText = buildShortCriticalText(
                     busStopsAway,
                     displayShortEtaText(nearestLiveStop),
@@ -1096,6 +1102,71 @@ class RouteTripMonitorService : Service() {
         }
     }
 
+    private fun applyShortCriticalPresentation(
+        builder: NotificationCompat.Builder,
+        shortCriticalText: String?,
+    ) {
+        val trimmed = shortCriticalText?.trim().orEmpty()
+        val countdownWhen = parseShortCriticalCountdownWhen(trimmed)
+        if (countdownWhen != null) {
+            builder
+                .setShowWhen(true)
+                .setWhen(countdownWhen)
+                .setUsesChronometer(true)
+                .setChronometerCountDown(true)
+            return
+        }
+        builder
+            .setShowWhen(false)
+            .setUsesChronometer(false)
+        trimmed.takeIf { it.isNotEmpty() }?.let(builder::setShortCriticalText)
+    }
+
+    private fun applyShortCriticalPresentation(
+        builder: Notification.Builder,
+        shortCriticalText: String?,
+    ) {
+        val trimmed = shortCriticalText?.trim().orEmpty()
+        val countdownWhen = parseShortCriticalCountdownWhen(trimmed)
+        if (countdownWhen != null) {
+            builder
+                .setShowWhen(true)
+                .setWhen(countdownWhen)
+                .setUsesChronometer(true)
+                .setChronometerCountDown(true)
+            return
+        }
+        builder
+            .setShowWhen(false)
+            .setUsesChronometer(false)
+        trimmed.takeIf { it.isNotEmpty() }?.let(builder::setShortCriticalText)
+    }
+
+    private fun parseShortCriticalCountdownWhen(shortCriticalText: String): Long? {
+        val match = SHORT_CRITICAL_COUNTDOWN_REGEX.matchEntire(shortCriticalText) ?: return null
+        val minutes = match.groupValues[1].toLongOrNull() ?: return null
+        val seconds = match.groupValues[2].toLongOrNull() ?: return null
+        val totalMillis = (minutes * 60L + seconds) * 1_000L
+        return System.currentTimeMillis() + totalMillis
+    }
+
+    private fun buildProgressPointPositions(progressMax: Int): List<Int> {
+        if (progressMax <= 0) {
+            return emptyList()
+        }
+        if (progressMax <= MAX_PROGRESS_POINTS) {
+            return (1..progressMax).toList()
+        }
+        val positions = linkedSetOf(1)
+        val lastIndex = MAX_PROGRESS_POINTS - 1
+        for (index in 1 until lastIndex) {
+            val progress = 1 + ((progressMax - 1).toDouble() * index / lastIndex).roundToInt()
+            positions += progress.coerceIn(1, progressMax)
+        }
+        positions += progressMax
+        return positions.toList().sorted()
+    }
+
     private fun buildStoppedNotification(): Notification {
         return NotificationCompat.Builder(this, TRACKING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_status_bus)
@@ -1131,14 +1202,13 @@ class RouteTripMonitorService : Service() {
                 ).build(),
             )
 
-        snapshot.shortCriticalText
-            ?.takeIf { it.isNotBlank() }
-            ?.let(builder::setShortCriticalText)
+        applyShortCriticalPresentation(builder, snapshot.shortCriticalText)
 
         requestPromotedOngoing(builder)
         val progressMax = snapshot.progressMax
         val progressValue = snapshot.progressValue
         if (progressMax != null && progressValue != null) {
+            val progressPoints = buildProgressPointPositions(progressMax)
             builder.setProgress(progressMax, progressValue, false)
             val progressStyle = NotificationCompat.ProgressStyle()
                 .setStyledByProgress(true)
@@ -1152,9 +1222,9 @@ class RouteTripMonitorService : Service() {
                     ),
                 )
                 .setProgressPoints(
-                    mutableListOf(
-                        NotificationCompat.ProgressStyle.Point(progressMax),
-                    ),
+                    progressPoints.mapTo(mutableListOf()) { position ->
+                        NotificationCompat.ProgressStyle.Point(position)
+                    },
                 )
                 .setProgressEndIcon(
                     IconCompat.createWithResource(this, R.drawable.ic_progress_flag),
@@ -1191,14 +1261,13 @@ class RouteTripMonitorService : Service() {
                 ).build(),
             )
 
-        snapshot.shortCriticalText
-            ?.takeIf { it.isNotBlank() }
-            ?.let(builder::setShortCriticalText)
+        applyShortCriticalPresentation(builder, snapshot.shortCriticalText)
 
         requestPromotedOngoing(builder)
         val progressMax = snapshot.progressMax
         val progressValue = snapshot.progressValue
         if (progressMax != null && progressValue != null) {
+            val progressPoints = buildProgressPointPositions(progressMax)
             builder.setProgress(progressMax, progressValue, false)
             val progressStyle = Notification.ProgressStyle()
                 .setStyledByProgress(true)
@@ -1212,9 +1281,9 @@ class RouteTripMonitorService : Service() {
                     ),
                 )
                 .setProgressPoints(
-                    mutableListOf(
-                        Notification.ProgressStyle.Point(progressMax),
-                    ),
+                    progressPoints.mapTo(mutableListOf()) { position ->
+                        Notification.ProgressStyle.Point(position)
+                    },
                 )
                 .setProgressEndIcon(
                     Icon.createWithResource(this, R.drawable.ic_progress_flag),
@@ -1269,11 +1338,12 @@ class RouteTripMonitorService : Service() {
         if (snapshot.subText.isNotBlank()) {
             builder.setSubText(snapshot.subText)
         }
-        snapshot.shortCriticalText?.let(builder::setShortCriticalText)
+        applyShortCriticalPresentation(builder, snapshot.shortCriticalText)
 
         val progressMax = snapshot.progressMax
         val progressValue = snapshot.progressValue
         if (progressMax != null && progressValue != null) {
+            val progressPoints = buildProgressPointPositions(progressMax)
             builder.setProgress(progressMax, progressValue, false)
             val progressStyle = NotificationCompat.ProgressStyle()
                 .setStyledByProgress(true)
@@ -1287,9 +1357,9 @@ class RouteTripMonitorService : Service() {
                     ),
                 )
                 .setProgressPoints(
-                    mutableListOf(
-                        NotificationCompat.ProgressStyle.Point(progressMax),
-                    ),
+                    progressPoints.mapTo(mutableListOf()) { position ->
+                        NotificationCompat.ProgressStyle.Point(position)
+                    },
                 )
                 .setProgressEndIcon(
                     IconCompat.createWithResource(this, R.drawable.ic_progress_flag),
@@ -2125,11 +2195,13 @@ class RouteTripMonitorService : Service() {
         private const val BACKGROUND_AUTO_PAUSE_GRACE_MS = 90_000L
         private const val BOARDING_CHECK_PROMPT_DELAY_MS = 45_000L
         private const val BOARDING_CHECK_SNOOZE_MS = 180_000L
+        private const val MAX_PROGRESS_POINTS = 8
         private const val LIVE_UPDATE_SDK_INT = 36
         private const val PAUSE_REASON_USER = "user"
         private const val PAUSE_REASON_ARRIVED = "arrived"
         private const val PAUSE_REASON_OVERSHOT = "overshot"
         private const val PAUSE_REASON_BOARDED_NO_DESTINATION = "boarded_no_destination"
+        private val SHORT_CRITICAL_COUNTDOWN_REGEX = Regex("^\\(?([0-9]{2}):([0-9]{2})\\)?$")
 
         private fun parseSessionJson(sessionJson: String): TrackingSession? {
             return try {

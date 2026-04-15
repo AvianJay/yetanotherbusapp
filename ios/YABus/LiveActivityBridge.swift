@@ -160,6 +160,7 @@ final class LiveActivityBridge {
     let lineHighlightedStopIndex = args["lineHighlightedStopIndex"] as? Int
     let modeLabel = args["modeLabel"] as? String
     let statusText = args["statusText"] as? String
+    let alertKind = args["alertKind"] as? String
     let etaSeconds = args["etaSeconds"] as? Int
     let etaMessage = args["etaMessage"] as? String
     let vehicleId = args["vehicleId"] as? String

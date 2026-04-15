@@ -17,6 +17,7 @@ class LiveActivityDisplayState {
     this.vehicleId,
     this.progressValue,
     this.progressTotal,
+    this.alertKind,
   });
 
   final int stopId;
@@ -33,6 +34,7 @@ class LiveActivityDisplayState {
   final String? vehicleId;
   final int? progressValue;
   final int? progressTotal;
+  final String? alertKind;
 
   Map<String, Object?> toArguments() {
     return <String, Object?>{
@@ -50,6 +52,7 @@ class LiveActivityDisplayState {
       'vehicleId': vehicleId,
       'progressValue': progressValue,
       'progressTotal': progressTotal,
+      'alertKind': alertKind,
     }..removeWhere((_, value) => value == null);
   }
 }

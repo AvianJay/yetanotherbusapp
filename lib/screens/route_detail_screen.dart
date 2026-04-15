@@ -72,6 +72,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _liveActivityBoardingWindowOpen = false;
   bool _liveActivityRideConfirmed = false;
   DateTime? _liveActivityBoardingWindowOpenedAt;
+  bool _liveActivityBoardingArrivalAlertSent = false;
+  bool _liveActivityDestinationSetupAlertSent = false;
+  int _liveActivityDestinationAlertStage = 0;
   bool _iosBoardingCheckPromptSent = false;
   bool _locationTrackingConfiguredForBackground = false;
   bool _backgroundLocationAlwaysGranted = false;
@@ -1468,6 +1471,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _liveActivityBoardingWindowOpen = false;
     _liveActivityRideConfirmed = false;
     _liveActivityBoardingWindowOpenedAt = null;
+    _liveActivityBoardingArrivalAlertSent = false;
+    _liveActivityDestinationSetupAlertSent = false;
+    _liveActivityDestinationAlertStage = 0;
     _iosBoardingCheckPromptSent = false;
     _liveActivityLastNearestStopIndex = null;
   }
@@ -1704,6 +1710,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return '公車還有 $stopsAway 站';
   }
 
+  // ignore: unused_element
   String _buildNearestStatusText({
     required String pathName,
     required StopInfo nearestStop,
@@ -1798,6 +1805,54 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     );
   }
 
+  String? _maybeIssueLiveActivityBoardingAlert({
+    required int? busStopsUntilBoarding,
+    required String boardingEtaText,
+  }) {
+    if (_appIsForeground || _liveActivityBoardingArrivalAlertSent) {
+      return null;
+    }
+    final shouldAlert =
+        (busStopsUntilBoarding != null && busStopsUntilBoarding <= 1) ||
+        _isImmediateEtaText(boardingEtaText);
+    if (!shouldAlert) {
+      return null;
+    }
+    _liveActivityBoardingArrivalAlertSent = true;
+    return 'boarding_imminent';
+  }
+
+  String? _maybeIssueLiveActivityDestinationSetupAlert() {
+    if (_appIsForeground || _liveActivityDestinationSetupAlertSent) {
+      return null;
+    }
+    _liveActivityDestinationSetupAlertSent = true;
+    return 'boarded_no_destination';
+  }
+
+  String? _maybeIssueLiveActivityDestinationArrivalAlert({
+    required int remainingStops,
+    required double? destinationDistanceMeters,
+  }) {
+    if (_appIsForeground) {
+      return null;
+    }
+    if (remainingStops <= 1 ||
+        (destinationDistanceMeters != null &&
+            destinationDistanceMeters <= 120)) {
+      if (_liveActivityDestinationAlertStage < 2) {
+        _liveActivityDestinationAlertStage = 2;
+        return 'destination_arriving';
+      }
+      return null;
+    }
+    if (remainingStops <= 2 && _liveActivityDestinationAlertStage < 1) {
+      _liveActivityDestinationAlertStage = 1;
+      return 'destination_imminent';
+    }
+    return null;
+  }
+
   LiveActivityDisplayState? _buildLiveActivityDisplayState(
     RouteDetailData detail,
     PathInfo pathInfo,
@@ -1833,10 +1888,63 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         ? null
         : pathStops.indexWhere((stop) => stop.stopId == _destinationStopId);
     if (destinationIndex == null || destinationIndex == -1) {
-      _resetLiveActivityRideState();
-      final busStopsAway = busIndex == null
+      final explicitBoardingIndex = _boardingStopId == null
           ? null
-          : math.max(nearestIndex - busIndex, 0);
+          : pathStops.indexWhere((stop) => stop.stopId == _boardingStopId);
+      final boardingIndex = explicitBoardingIndex != null && explicitBoardingIndex != -1
+          ? explicitBoardingIndex
+          : nearestIndex;
+      final boardingStop = pathStops[boardingIndex];
+      final boardingEtaText = _displayEtaText(boardingStop);
+      final busStopsUntilBoarding = busIndex == null
+          ? null
+          : math.max(boardingIndex - busIndex, 0);
+      final hasBoarded = _updateLiveActivityRideState(
+        nearestIndex: nearestIndex,
+        boardingIndex: boardingIndex,
+        busStopsUntilBoarding: busStopsUntilBoarding,
+        boardingEtaText: boardingEtaText,
+        boardingDistanceMeters: _distanceToStop(boardingStop),
+        busIndex: busIndex,
+      );
+      if (!hasBoarded) {
+        final boardingProgressValue = busIndex == null
+            ? 0
+            : math.min(busIndex + 1, boardingIndex + 1);
+        final stopLine = _buildLiveActivityStopLine(
+          pathStops,
+          anchorIndex: busIndex ?? boardingIndex,
+          highlightedIndex: boardingIndex,
+        );
+        final adjacentStops = _adjacentStopNames(pathStops, boardingStop.stopId);
+        return LiveActivityDisplayState(
+          stopId: boardingStop.stopId,
+          stopName: boardingStop.stopName,
+          previousStopName: adjacentStops.previousStopName,
+          nextStopName: adjacentStops.nextStopName,
+          lineStopNames: stopLine.stopNames,
+          lineCurrentStopIndex: stopLine.currentStopIndex,
+          lineHighlightedStopIndex: stopLine.highlightedStopIndex,
+          modeLabel: '撠銝?',
+          statusText: _buildWaitingBoardingText(
+            pathName: pathInfo.name,
+            boardingStop: boardingStop,
+            destinationStop: boardingStop,
+            busStopsUntilBoarding: busStopsUntilBoarding,
+          ),
+          etaSeconds: boardingStop.sec,
+          etaMessage: boardingStop.msg,
+          vehicleId: _vehicleIdForStop(boardingStop),
+          progressValue: boardingProgressValue,
+          progressTotal: boardingIndex + 1,
+          alertKind: _maybeIssueLiveActivityBoardingAlert(
+            busStopsUntilBoarding: busStopsUntilBoarding,
+            boardingEtaText: boardingEtaText,
+          ),
+        );
+      }
+
+      final currentProgress = math.min((busIndex ?? nearestIndex) + 1, pathStops.length);
       final stopLine = _buildLiveActivityStopLine(
         pathStops,
         anchorIndex: busIndex ?? nearestIndex,
@@ -1852,15 +1960,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         lineCurrentStopIndex: stopLine.currentStopIndex,
         lineHighlightedStopIndex: stopLine.highlightedStopIndex,
         modeLabel: '最近站牌',
-        statusText: _buildNearestStatusText(
-          pathName: pathInfo.name,
-          nearestStop: nearestStop,
-          nearestEtaText: nearestEtaText,
-          busStopsAway: busStopsAway,
-        ),
+        statusText: '尚未設定下車站',
         etaSeconds: nearestStop.sec,
         etaMessage: nearestStop.msg,
         vehicleId: _vehicleIdForStop(nearestStop),
+        progressValue: currentProgress,
+        progressTotal: pathStops.length,
+        alertKind: _maybeIssueLiveActivityDestinationSetupAlert(),
       );
     }
 
@@ -1944,6 +2050,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       vehicleId: _vehicleIdForStop(destinationStop),
       progressValue: currentProgress,
       progressTotal: destinationIndex + 1,
+      alertKind: _maybeIssueLiveActivityDestinationArrivalAlert(
+        remainingStops: destinationIndex - nearestIndex,
+        destinationDistanceMeters: _distanceToStop(destinationStop),
+      ),
     );
   }
 

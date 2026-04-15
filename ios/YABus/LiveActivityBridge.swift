@@ -85,6 +85,7 @@ final class LiveActivityBridge {
     let lineHighlightedStopIndex = args["lineHighlightedStopIndex"] as? Int
     let modeLabel = args["modeLabel"] as? String
     let statusText = args["statusText"] as? String
+    let alertKind = args["alertKind"] as? String
 
     let etaSeconds = args["etaSeconds"] as? Int
     let etaMessage = args["etaMessage"] as? String
@@ -199,7 +200,14 @@ final class LiveActivityBridge {
         state: state,
         staleDate: resolveStaleDate(for: state)
       )
-      await activity.update(content)
+      if let alertConfiguration = makeAlertConfiguration(
+        kind: alertKind,
+        state: state
+      ) {
+        await activity.update(content, alertConfiguration: alertConfiguration)
+      } else {
+        await activity.update(content)
+      }
       await MainActor.run { result(nil) }
     }
   }
@@ -272,5 +280,40 @@ final class LiveActivityBridge {
     return Date().addingTimeInterval(
       max(Double(etaSeconds) + 60, minimumRefreshWindow)
     )
+  }
+
+  @available(iOS 16.2, *)
+  private func makeAlertConfiguration(
+    kind: String?,
+    state: BusArrivalAttributes.ContentState
+  ) -> AlertConfiguration? {
+    switch kind {
+    case "boarding_imminent":
+      return AlertConfiguration(
+        title: "快到站了",
+        body: "\(state.displayStopName) 即將到站",
+        sound: .default
+      )
+    case "boarded_no_destination":
+      return AlertConfiguration(
+        title: "已偵測上車",
+        body: "要設定下車站嗎？",
+        sound: .default
+      )
+    case "destination_imminent":
+      return AlertConfiguration(
+        title: "準備下車",
+        body: "再幾站就到 \(state.displayStopName)",
+        sound: .default
+      )
+    case "destination_arriving":
+      return AlertConfiguration(
+        title: "快到站了",
+        body: "\(state.displayStopName) 快到了",
+        sound: .default
+      )
+    default:
+      return nil
+    }
   }
 }

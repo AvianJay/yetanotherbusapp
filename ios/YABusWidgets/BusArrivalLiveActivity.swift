@@ -8,15 +8,10 @@ struct BusArrivalLiveActivity: Widget {
       lockScreenView(context: context)
     } dynamicIsland: { context in
       DynamicIsland {
-        DynamicIslandExpandedRegion(.leading) {
-          expandedLeading(context: context)
-            .padding(.leading, 12)
-            .padding(.trailing, 4)
-        }
-        DynamicIslandExpandedRegion(.trailing) {
-          expandedTrailing(context: context)
-            .padding(.leading, 4)
-            .padding(.trailing, 12)
+        DynamicIslandExpandedRegion(.center) {
+          expandedHeader(context: context)
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
         }
         DynamicIslandExpandedRegion(.bottom) {
           expandedBottom(context: context)
@@ -30,6 +25,7 @@ struct BusArrivalLiveActivity: Widget {
       } minimal: {
         minimalView(context: context)
       }
+      .keylineTint(etaColor(context.state))
     }
   }
 
@@ -37,15 +33,17 @@ struct BusArrivalLiveActivity: Widget {
   private func compactLeadingView(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    HStack(spacing: 4) {
-      Image(systemName: "bus.fill")
-        .font(.system(size: 12, weight: .bold))
-        .foregroundStyle(.cyan)
-      Text(context.attributes.routeName)
-        .font(.system(size: 14, weight: .bold, design: .rounded))
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
-    }
+    Text(compactRouteName(context.attributes.routeName))
+      .font(.system(size: 13, weight: .heavy, design: .rounded))
+      .foregroundStyle(.white)
+      .lineLimit(1)
+      .minimumScaleFactor(0.7)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background(
+        Capsule(style: .continuous)
+          .fill(etaColor(context.state).opacity(0.9))
+      )
   }
 
   @ViewBuilder
@@ -55,7 +53,7 @@ struct BusArrivalLiveActivity: Widget {
     countdownText(
       context.state,
       style: .compact,
-      font: .system(size: 14, weight: .bold, design: .rounded)
+      font: .system(size: 15, weight: .bold, design: .rounded)
     )
     .foregroundStyle(etaColor(context.state))
     .lineLimit(1)
@@ -78,6 +76,19 @@ struct BusArrivalLiveActivity: Widget {
       .foregroundStyle(etaColor(context.state))
       .minimumScaleFactor(0.5)
       .monospacedDigit()
+    }
+  }
+
+  @ViewBuilder
+  private func expandedHeader(
+    context: ActivityViewContext<BusArrivalAttributes>
+  ) -> some View {
+    HStack(alignment: .top, spacing: 12) {
+      expandedLeading(context: context)
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+      expandedTrailing(context: context)
+        .fixedSize(horizontal: true, vertical: false)
     }
   }
 
@@ -546,6 +557,14 @@ struct BusArrivalLiveActivity: Widget {
 
   private func displayStopName(_ state: BusArrivalAttributes.ContentState) -> String {
     trimmedText(state.displayStopName) ?? "背景乘車提醒"
+  }
+
+  private func compactRouteName(_ text: String) -> String {
+    let trimmed = trimmedText(text) ?? text
+    if trimmed.count <= 4 {
+      return trimmed
+    }
+    return String(trimmed.prefix(4))
   }
 
   private func routeBadgeTextColor(surface: ActivitySurface) -> Color {

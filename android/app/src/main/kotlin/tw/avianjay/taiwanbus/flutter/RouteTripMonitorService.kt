@@ -643,7 +643,13 @@ class RouteTripMonitorService : Service() {
         }
 
         val destinationLive = liveStops[destinationStop.stopId]
-        val travelIndex = busIndex ?: nearestIndex
+        val trackedBusIndex =
+            findTrackedBusIndex(
+                stops = session.stops,
+                liveStops = liveStops,
+                preferredVehicleId = trackedBusId,
+            ) ?: busIndex
+        val travelIndex = trackedBusIndex ?: nearestIndex
         val currentStop = session.stops[travelIndex]
         val currentLiveStop = liveStops[currentStop.stopId]
         val rawRemainingStops = destinationIndex - travelIndex
@@ -967,7 +973,7 @@ class RouteTripMonitorService : Service() {
             return normalizedCurrent
         }
 
-        listOf(nearestLiveStop, boardingLiveStop, destinationLiveStop).forEach { stopState ->
+        listOf(boardingLiveStop, nearestLiveStop, destinationLiveStop).forEach { stopState ->
             firstKnownVehicleId(stopState)?.let { return it }
         }
 
@@ -2216,6 +2222,20 @@ class RouteTripMonitorService : Service() {
         return busIndexes
             .filter { it <= boardingIndex }
             .maxOrNull()
+    }
+
+    private fun findTrackedBusIndex(
+        stops: List<TrackingStop>,
+        liveStops: Map<Int, LiveStopState>,
+        preferredVehicleId: String?,
+    ): Int? {
+        val normalizedVehicleId = normalizeVehicleId(preferredVehicleId) ?: return null
+        return stops.indexOfFirst { stop ->
+            isVehicleSeenAtStop(
+                stopState = liveStops[stop.stopId],
+                normalizedVehicleId = normalizedVehicleId,
+            )
+        }.takeIf { it >= 0 }
     }
 
     private fun isBusApproachingStop(liveStop: LiveStopState): Boolean {

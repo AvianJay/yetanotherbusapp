@@ -663,7 +663,11 @@ class RouteTripMonitorService : Service() {
             destinationStop.lat,
             destinationStop.lon,
         )
-        val currentProgress = (travelIndex + 1).coerceAtMost(destinationIndex + 1)
+        val journeyStartIndex = boardingIndex.coerceAtMost(destinationIndex)
+        val journeyProgressMax = (destinationIndex - journeyStartIndex + 1).coerceAtLeast(1)
+        val currentProgress =
+            ((travelIndex.coerceAtLeast(journeyStartIndex) - journeyStartIndex) + 1)
+                .coerceIn(1, journeyProgressMax)
 
         return TrackingSnapshot(
             title = "${session.routeName} · ${destinationStop.stopName}",
@@ -672,7 +676,7 @@ class RouteTripMonitorService : Service() {
                 else -> "距離 ${destinationStop.stopName} 還有 $remainingStops 站 · $destinationEtaText"
             },
             subText = "已上車 · 最近站牌 ${nearestStop.stopName} · $nearestEtaText",
-            progressMax = destinationIndex + 1,
+            progressMax = journeyProgressMax,
             progressValue = currentProgress,
             shortCriticalText = buildShortCriticalText(
                 remainingStops,

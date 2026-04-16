@@ -36,13 +36,62 @@ class SceneDelegate: FlutterSceneDelegate {
   }
 
   private func configureBridgesIfNeeded() {
-    guard let flutterViewController = window?.rootViewController as? FlutterViewController else {
+    guard
+      let flutterViewController = resolveFlutterViewController(
+        from: window?.rootViewController
+      )
+    else {
       return
     }
 
-    let messenger = flutterViewController.binaryMessenger
+    configureBridges(messenger: flutterViewController.binaryMessenger)
+  }
+
+  private func configureBridges(messenger: FlutterBinaryMessenger) {
     AppLaunchBridge.shared.configure(messenger: messenger)
     WidgetDataBridge.shared.configure(messenger: messenger)
     LiveActivityBridge.shared.configure(messenger: messenger)
+  }
+
+  private func resolveFlutterViewController(
+    from viewController: UIViewController?
+  ) -> FlutterViewController? {
+    guard let viewController else {
+      return nil
+    }
+
+    if let flutterViewController = viewController as? FlutterViewController {
+      return flutterViewController
+    }
+
+    if let navigationController = viewController as? UINavigationController {
+      for child in navigationController.viewControllers {
+        if let match = resolveFlutterViewController(from: child) {
+          return match
+        }
+      }
+    }
+
+    if let tabBarController = viewController as? UITabBarController {
+      for child in tabBarController.viewControllers ?? [] {
+        if let match = resolveFlutterViewController(from: child) {
+          return match
+        }
+      }
+    }
+
+    if let presented = viewController.presentedViewController,
+      let match = resolveFlutterViewController(from: presented)
+    {
+      return match
+    }
+
+    for child in viewController.children {
+      if let match = resolveFlutterViewController(from: child) {
+        return match
+      }
+    }
+
+    return nil
   }
 }

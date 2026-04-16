@@ -7,15 +7,15 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    if let registrar = registrar(forPlugin: "YABusHostBridges") {
+      configureBridges(messenger: registrar.messenger())
+    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    let messenger = engineBridge.applicationRegistrar.messenger()
-    AppLaunchBridge.shared.configure(messenger: messenger)
-    WidgetDataBridge.shared.configure(messenger: messenger)
-    LiveActivityBridge.shared.configure(messenger: messenger)
+    configureBridges(messenger: engineBridge.applicationRegistrar.messenger())
   }
 
   override func application(
@@ -32,5 +32,11 @@ import UIKit
   override func applicationWillTerminate(_ application: UIApplication) {
     LiveActivityBridge.shared.endAllActivitiesFromHost()
     super.applicationWillTerminate(application)
+  }
+
+  private func configureBridges(messenger: FlutterBinaryMessenger) {
+    AppLaunchBridge.shared.configure(messenger: messenger)
+    WidgetDataBridge.shared.configure(messenger: messenger)
+    LiveActivityBridge.shared.configure(messenger: messenger)
   }
 }

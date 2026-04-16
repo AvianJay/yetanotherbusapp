@@ -185,7 +185,10 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
 
   void _syncIOSWidgets() {
     unawaited(
-      IOSWidgetIntegration.syncFavoriteGroups(widget.controller.favoriteGroups),
+      IOSWidgetIntegration.syncFavoriteGroups(
+        widget.controller.favoriteGroups,
+        waitForBridge: true,
+      ),
     );
   }
 

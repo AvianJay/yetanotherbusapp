@@ -2029,7 +2029,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           lineStopNames: stopLine.stopNames,
           lineCurrentStopIndex: stopLine.currentStopIndex,
           lineHighlightedStopIndex: stopLine.highlightedStopIndex,
-          modeLabel: '撠銝?',
+          modeLabel: '等待上車',
           statusText: _buildWaitingBoardingText(
             pathName: pathInfo.name,
             boardingStop: boardingStop,

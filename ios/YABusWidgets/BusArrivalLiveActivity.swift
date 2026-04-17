@@ -1,11 +1,14 @@
 import ActivityKit
 import SwiftUI
+import UIKit
 import WidgetKit
 
 struct BusArrivalLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: BusArrivalAttributes.self) { context in
       lockScreenView(context: context)
+        .activityBackgroundTint(lockScreenBackgroundTintColor())
+        .activitySystemActionForegroundColor(lockScreenActionForegroundColor())
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
@@ -179,7 +182,7 @@ struct BusArrivalLiveActivity: Widget {
           routeBadge(context.attributes.routeName, surface: .lockScreen)
           Text(context.attributes.pathName)
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(lockScreenSecondaryTextColor())
             .lineLimit(1)
         }
 
@@ -199,7 +202,7 @@ struct BusArrivalLiveActivity: Widget {
         if let statusText = trimmedText(context.state.statusText) {
           Text(statusText)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(lockScreenSecondaryTextColor())
             .lineLimit(2)
         }
 
@@ -227,12 +230,12 @@ struct BusArrivalLiveActivity: Widget {
             Text(vehicleId)
               .font(.system(size: 11, weight: .medium, design: .monospaced))
           }
-          .foregroundStyle(.secondary)
+          .foregroundStyle(lockScreenSecondaryTextColor())
         }
 
         Text(context.state.updatedAt, style: .time)
           .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color(white: 0.5))
+          .foregroundStyle(lockScreenTimestampTextColor())
       }
     }
     .padding(.horizontal, 20)
@@ -245,16 +248,6 @@ struct BusArrivalLiveActivity: Widget {
         stopId: context.state.displayStopId
       )
     )
-    .containerBackground(for: .widget) {
-      LinearGradient(
-        colors: [
-          Color(red: 0.08, green: 0.11, blue: 0.17),
-          Color(red: 0.13, green: 0.17, blue: 0.24),
-        ],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-      )
-    }
   }
 
   @ViewBuilder
@@ -513,12 +506,12 @@ struct BusArrivalLiveActivity: Widget {
     }
 
     if isCurrent {
-      return .white
+      return lockScreenPrimaryTextColor()
     }
     if isHighlighted {
-      return Color(red: 0.55, green: 0.9, blue: 0.98)
+      return lockScreenHighlightTextColor()
     }
-    return Color.white.opacity(0.68)
+    return lockScreenSecondaryTextColor()
   }
 
   private func compactStopLineLabel(_ text: String) -> String {
@@ -570,35 +563,112 @@ struct BusArrivalLiveActivity: Widget {
     if surface == .dynamicIsland {
       return .primary
     }
-    return .white.opacity(0.92)
+    return lockScreenPrimaryTextColor().opacity(0.92)
   }
 
   private func modePillBackgroundColor(surface: ActivitySurface) -> Color {
     if surface == .dynamicIsland {
       return .secondary.opacity(0.18)
     }
-    return Color.white.opacity(0.14)
+    return lockScreenModePillBackgroundColor()
   }
 
   private func stopMarkerRingColor(surface: ActivitySurface) -> Color {
     if surface == .dynamicIsland {
       return .primary.opacity(0.32)
     }
-    return Color.white.opacity(0.75)
+    return lockScreenPrimaryTextColor().opacity(0.75)
   }
 
   private func stopMarkerColor(surface: ActivitySurface) -> Color {
     if surface == .dynamicIsland {
       return .secondary.opacity(0.45)
     }
-    return Color.white.opacity(0.38)
+    return lockScreenSecondaryTextColor().opacity(0.45)
   }
 
   private func stopConnectorColor(surface: ActivitySurface, intensity: Double) -> Color {
     if surface == .dynamicIsland {
       return .primary.opacity(max(intensity * 0.55, 0.1))
     }
-    return Color.white.opacity(intensity)
+    return lockScreenSecondaryTextColor().opacity(max(intensity, 0.12))
+  }
+
+  private func lockScreenBackgroundTintColor() -> Color {
+    Color(
+      uiColor: UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+          return UIColor(red: 0.08, green: 0.11, blue: 0.17, alpha: 1)
+        }
+        return UIColor(red: 0.95, green: 0.96, blue: 0.98, alpha: 1)
+      }
+    )
+  }
+
+  private func lockScreenActionForegroundColor() -> Color {
+    Color(
+      uiColor: UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+          return .white
+        }
+        return UIColor(red: 0.11, green: 0.14, blue: 0.19, alpha: 1)
+      }
+    )
+  }
+
+  private func lockScreenPrimaryTextColor() -> Color {
+    Color(
+      uiColor: UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+          return UIColor(white: 1, alpha: 0.96)
+        }
+        return UIColor(red: 0.11, green: 0.14, blue: 0.19, alpha: 1)
+      }
+    )
+  }
+
+  private func lockScreenSecondaryTextColor() -> Color {
+    Color(
+      uiColor: UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+          return UIColor(white: 0.82, alpha: 1)
+        }
+        return UIColor(red: 0.39, green: 0.43, blue: 0.49, alpha: 1)
+      }
+    )
+  }
+
+  private func lockScreenHighlightTextColor() -> Color {
+    Color(
+      uiColor: UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+          return UIColor(red: 0.55, green: 0.9, blue: 0.98, alpha: 1)
+        }
+        return UIColor(red: 0.0, green: 0.5, blue: 0.62, alpha: 1)
+      }
+    )
+  }
+
+  private func lockScreenTimestampTextColor() -> Color {
+    Color(
+      uiColor: UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+          return UIColor(white: 0.55, alpha: 1)
+        }
+        return UIColor(red: 0.56, green: 0.59, blue: 0.64, alpha: 1)
+      }
+    )
+  }
+
+  private func lockScreenModePillBackgroundColor() -> Color {
+    Color(
+      uiColor: UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+          return UIColor(white: 1, alpha: 0.14)
+        }
+        return UIColor(red: 0.16, green: 0.22, blue: 0.31, alpha: 0.1)
+      }
+    )
   }
 
   @ViewBuilder

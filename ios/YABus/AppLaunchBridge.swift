@@ -89,6 +89,8 @@ final class AppLaunchBridge {
     let routeKey = queryInt("routeKey", from: components) ?? intValue(at: 1, in: pathSegments)
     let pathId = queryInt("pathId", from: components) ?? intValue(at: 2, in: pathSegments)
     let stopId = queryInt("stopId", from: components) ?? intValue(at: 3, in: pathSegments)
+    let destinationPathId = queryInt("destinationPathId", from: components)
+    let destinationStopId = queryInt("destinationStopId", from: components)
 
     guard let provider, !provider.isEmpty, let routeKey else {
       return nil
@@ -104,6 +106,12 @@ final class AppLaunchBridge {
     }
     if let stopId {
       payload["stopId"] = stopId
+    }
+    if let destinationPathId {
+      payload["destinationPathId"] = destinationPathId
+    }
+    if let destinationStopId {
+      payload["destinationStopId"] = destinationStopId
     }
     return payload
   }

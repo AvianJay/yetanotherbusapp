@@ -26,6 +26,8 @@ class RouteDetailScreen extends StatefulWidget {
     this.routeNameHint,
     this.initialPathId,
     this.initialStopId,
+    this.initialDestinationPathId,
+    this.initialDestinationStopId,
     super.key,
   });
 
@@ -35,6 +37,8 @@ class RouteDetailScreen extends StatefulWidget {
   final String? routeNameHint;
   final int? initialPathId;
   final int? initialStopId;
+  final int? initialDestinationPathId;
+  final int? initialDestinationStopId;
 
   @override
   State<RouteDetailScreen> createState() => _RouteDetailScreenState();
@@ -83,6 +87,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int? _requestedPathId;
   int? _requestedStopId;
   int? _targetInitialPathId;
+  int? _requestedDestinationPathId;
+  int? _requestedDestinationStopId;
   int? _boardingStopId;
   String? _boardingStopName;
   int? _destinationStopId;
@@ -103,6 +109,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _countdownProgressController = AnimationController(vsync: this);
     _requestedPathId = widget.initialPathId;
     _requestedStopId = widget.initialStopId;
+    _requestedDestinationPathId = widget.initialDestinationPathId;
+    _requestedDestinationStopId = widget.initialDestinationStopId;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_refresh());
     });
@@ -236,6 +244,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       );
       _scrollToInitialStopIfNeeded();
       _recalculateNearestStops();
+      await _applyRequestedDestinationIfPossible();
       unawaited(_ensureLocationTracking());
       unawaited(_maybePromptForBackgroundTripMonitor());
       unawaited(_configureBackgroundTripMonitorIfNeeded());
@@ -434,6 +443,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     await _applyLaunchFocus(
       requestedPathId: action.pathId,
       requestedStopId: action.stopId,
+      requestedDestinationPathId: action.destinationPathId,
+      requestedDestinationStopId: action.destinationStopId,
     );
     return true;
   }
@@ -441,6 +452,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   Future<void> _applyLaunchFocus({
     required int? requestedPathId,
     required int? requestedStopId,
+    required int? requestedDestinationPathId,
+    required int? requestedDestinationStopId,
   }) async {
     final detail = _detail;
     final resolvedPathId = _resolveRequestedPathId(
@@ -451,6 +464,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     setState(() {
       _requestedPathId = resolvedPathId;
       _requestedStopId = requestedStopId;
+      _requestedDestinationPathId = requestedDestinationPathId;
+      _requestedDestinationStopId = requestedDestinationStopId;
       _targetInitialPathId = resolvedPathId;
       _didScrollToInitialStop = requestedStopId == null;
       _didAutoScrollToCurrentLocation = false;
@@ -477,6 +492,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       }
     }
 
+    await _applyRequestedDestinationIfPossible();
     _scrollToInitialStopIfNeeded();
     unawaited(_configureBackgroundTripMonitorIfNeeded());
     unawaited(_refresh());
@@ -512,6 +528,94 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     return _currentPathId;
+  }
+
+  Future<void> _applyRequestedDestinationIfPossible() async {
+    final requestedDestinationStopId = _requestedDestinationStopId;
+    final detail = _detail;
+    if (requestedDestinationStopId == null || detail == null) {
+      return;
+    }
+
+    final resolvedPathId = _resolveRequestedPathId(
+      requestedPathId: _requestedDestinationPathId,
+      requestedStopId: requestedDestinationStopId,
+    );
+    if (resolvedPathId == null) {
+      return;
+    }
+
+    if (_tabController != null) {
+      final targetIndex = detail.paths.indexWhere(
+        (path) => path.pathId == resolvedPathId,
+      );
+      if (targetIndex != -1 && _tabController!.index != targetIndex) {
+        _tabController!.animateTo(
+          targetIndex,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+        for (var attempt = 0; attempt < 12; attempt++) {
+          await WidgetsBinding.instance.endOfFrame;
+          if (!mounted ||
+              _tabController == null ||
+              !_tabController!.indexIsChanging) {
+            break;
+          }
+        }
+      }
+    }
+
+    final pathStops = detail.stopsByPath[resolvedPathId] ?? const <StopInfo>[];
+    final destinationStop = _findStopById(
+      pathStops,
+      requestedDestinationStopId,
+    );
+    if (destinationStop == null) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _requestedDestinationPathId = null;
+        _requestedDestinationStopId = null;
+      });
+      return;
+    }
+
+    final boardingStop = _findStopById(
+      pathStops,
+      _nearestStopByPath[resolvedPathId],
+    );
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _resetLiveActivityRideState();
+      if (_isIOS) {
+        _backgroundTripMonitorPaused = false;
+      }
+      _requestedDestinationPathId = null;
+      _requestedDestinationStopId = null;
+      _destinationStopId = destinationStop.stopId;
+      _destinationStopName = destinationStop.stopName;
+      _boardingStopId = boardingStop?.stopId;
+      _boardingStopName = boardingStop?.stopName;
+    });
+
+    await _configureBackgroundTripMonitorIfNeeded();
+  }
+
+  StopInfo? _findStopById(List<StopInfo> stops, int? stopId) {
+    if (stopId == null) {
+      return null;
+    }
+    for (final stop in stops) {
+      if (stop.stopId == stopId) {
+        return stop;
+      }
+    }
+    return null;
   }
 
   Widget _buildBottomProgressIndicator() {
@@ -1891,7 +1995,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final explicitBoardingIndex = _boardingStopId == null
           ? null
           : pathStops.indexWhere((stop) => stop.stopId == _boardingStopId);
-      final boardingIndex = explicitBoardingIndex != null && explicitBoardingIndex != -1
+        final boardingIndex = explicitBoardingIndex != null && explicitBoardingIndex != -1
           ? explicitBoardingIndex
           : nearestIndex;
       final boardingStop = pathStops[boardingIndex];
@@ -2230,24 +2334,125 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       groupName = controller.favoriteGroupNames.first;
     }
 
+    final favorite = FavoriteStop(
+      provider: widget.provider,
+      routeKey: widget.routeKey,
+      pathId: stop.pathId,
+      stopId: stop.stopId,
+      routeId: _detail?.route.routeId,
+      routeName: _detail?.route.routeName,
+      stopName: stop.stopName,
+    );
     final selectedGroup = await controller.addFavoriteStop(
-      FavoriteStop(
-        provider: widget.provider,
-        routeKey: widget.routeKey,
-        pathId: stop.pathId,
-        stopId: stop.stopId,
-        routeId: _detail?.route.routeId,
-        routeName: _detail?.route.routeName,
-        stopName: stop.stopName,
-      ),
+      favorite,
       groupName: groupName,
     );
     if (!mounted) {
       return;
     }
+
+    String? assignedDestinationName;
+    if (await _shouldAssignFavoriteDestination()) {
+      final destination = await _pickFavoriteDestinationStop(
+        pathId: stop.pathId,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (destination != null) {
+        final didAssign = await controller.updateFavoriteDestination(
+          selectedGroup,
+          favorite,
+          destinationPathId: destination.pathId,
+          destinationStopId: destination.stopId,
+          destinationStopName: destination.stopName,
+        );
+        if (!mounted) {
+          return;
+        }
+        if (didAssign) {
+          assignedDestinationName = destination.stopName;
+        }
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+    final message = assignedDestinationName == null
+        ? '已加入 $selectedGroup'
+        : '已加入 $selectedGroup，目的地：$assignedDestinationName';
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text('已加入 $selectedGroup')));
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<bool> _shouldAssignFavoriteDestination() async {
+    final detail = _detail;
+    if (detail == null || _currentPathStops.isEmpty) {
+      return false;
+    }
+
+    final shouldAssign = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('設定最愛目的地？'),
+          content: const Text('下次從最愛或小工具開啟時，會自動幫你套用下車提醒。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('先不用'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('設定目的地'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return shouldAssign == true;
+  }
+
+  Future<StopInfo?> _pickFavoriteDestinationStop({required int pathId}) async {
+    final detail = _detail;
+    if (detail == null) {
+      return null;
+    }
+    final pathStops = detail.stopsByPath[pathId] ?? const <StopInfo>[];
+    if (pathStops.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('這個方向目前沒有可選擇的站牌。')));
+      return null;
+    }
+
+    return showModalBottomSheet<StopInfo>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * 0.72,
+            child: ListView.separated(
+              itemCount: pathStops.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final destinationStop = pathStops[index];
+                return ListTile(
+                  title: Text(destinationStop.stopName),
+                  subtitle: Text('第 ${index + 1} 站'),
+                  onTap: () => Navigator.of(context).pop(destinationStop),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _handlePinnedShortcut(StopInfo stop) async {

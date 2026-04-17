@@ -114,7 +114,12 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     return favorites
         .map(
           (favorite) =>
-              '${favorite.provider.name}:${favorite.routeKey}:${favorite.pathId}:${favorite.stopId}',
+              '${favorite.provider.name}:'
+              '${favorite.routeKey}:'
+              '${favorite.pathId}:'
+              '${favorite.stopId}:'
+              '${favorite.destinationPathId ?? 0}:'
+              '${favorite.destinationStopId ?? 0}',
         )
         .join('|');
   }
@@ -391,6 +396,100 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     _scheduleRefresh(forceResolveStatic: true);
   }
 
+  Future<void> _handleFavoriteDestinationAction(
+    AppController controller,
+    String groupName,
+    FavoriteResolvedItem item,
+    _FavoriteDestinationAction action,
+  ) async {
+    if (action == _FavoriteDestinationAction.setDestination) {
+      final detail = await controller.getRouteDetail(
+        item.reference.routeKey,
+        provider: item.reference.provider,
+        routeIdHint: item.reference.routeId,
+        routeNameHint: item.route.routeName,
+      );
+      if (!mounted) {
+        return;
+      }
+      final pathStops =
+          detail.stopsByPath[item.reference.pathId] ?? const <StopInfo>[];
+      if (pathStops.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('這條路線目前沒有可選的站牌。')));
+        return;
+      }
+
+      final destination = await showModalBottomSheet<StopInfo>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (context) {
+          return SafeArea(
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.72,
+              child: ListView.separated(
+                itemCount: pathStops.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final stop = pathStops[index];
+                  return ListTile(
+                    title: Text(stop.stopName),
+                    subtitle: Text('第 ${index + 1} 站'),
+                    trailing: stop.stopId == item.reference.destinationStopId
+                        ? const Icon(Icons.flag_rounded)
+                        : null,
+                    onTap: () => Navigator.of(context).pop(stop),
+                  );
+                },
+              ),
+            ),
+          );
+        },
+      );
+
+      if (!mounted || destination == null) {
+        return;
+      }
+
+      final didChange = await controller.updateFavoriteDestination(
+        groupName,
+        item.reference,
+        destinationPathId: destination.pathId,
+        destinationStopId: destination.stopId,
+        destinationStopName: destination.stopName,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (didChange) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已將目的地設為 ${destination.stopName}')),
+        );
+        _scheduleRefresh(forceResolveStatic: true);
+      }
+      return;
+    }
+
+    final didChange = await controller.updateFavoriteDestination(
+      groupName,
+      item.reference,
+      destinationPathId: null,
+      destinationStopId: null,
+      destinationStopName: null,
+    );
+    if (!mounted) {
+      return;
+    }
+    if (didChange) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已清除這個最愛的目的地設定')));
+      _scheduleRefresh(forceResolveStatic: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
@@ -496,6 +595,12 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final item = items[index];
+        final destinationSummary =
+            item.reference.destinationStopName?.trim().isNotEmpty == true
+            ? item.reference.destinationStopName!.trim()
+            : (item.reference.destinationStopId == null
+                  ? null
+                  : '站牌 ${item.reference.destinationStopId}');
         return Dismissible(
           key: ValueKey(_favoriteItemKey(item.reference)),
           direction: DismissDirection.endToStart,
@@ -540,8 +645,40 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
                   '${item.reference.provider.label} · '
-                  '${item.route.description.isEmpty ? "routeKey ${item.route.routeKey}" : item.route.description}',
+                  '${item.route.description.isEmpty ? "routeKey ${item.route.routeKey}" : item.route.description}'
+                  '${destinationSummary == null ? "" : "\n目的地：$destinationSummary"}',
                 ),
+              ),
+              trailing: PopupMenuButton<_FavoriteDestinationAction>(
+                tooltip: '目的地設定',
+                icon: Icon(
+                  item.reference.destinationStopId == null
+                      ? Icons.flag_outlined
+                      : Icons.flag_rounded,
+                ),
+                onSelected: (action) {
+                  unawaited(
+                    _handleFavoriteDestinationAction(
+                      controller,
+                      currentGroupName,
+                      item,
+                      action,
+                    ),
+                  );
+                },
+                itemBuilder: (context) {
+                  return [
+                    const PopupMenuItem(
+                      value: _FavoriteDestinationAction.setDestination,
+                      child: Text('設定目的地'),
+                    ),
+                    if (item.reference.destinationStopId != null)
+                      const PopupMenuItem(
+                        value: _FavoriteDestinationAction.clearDestination,
+                        child: Text('清除目的地'),
+                      ),
+                  ];
+                },
               ),
               onTap: () async {
                 await controller.recordRouteSelection(
@@ -559,6 +696,10 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                       provider: item.reference.provider,
                       initialPathId: item.reference.pathId,
                       initialStopId: item.reference.stopId,
+                      initialDestinationPathId:
+                          item.reference.destinationPathId,
+                      initialDestinationStopId:
+                          item.reference.destinationStopId,
                     ),
                   ),
                 );
@@ -570,6 +711,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     );
   }
 }
+
+enum _FavoriteDestinationAction { setDestination, clearDestination }
 
 class _EmptyFavoritesState extends StatelessWidget {
   const _EmptyFavoritesState({this.message = '還沒有任何已收藏的站牌。'});

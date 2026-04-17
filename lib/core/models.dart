@@ -510,6 +510,9 @@ class FavoriteStop {
     this.routeId,
     this.routeName,
     this.stopName,
+    this.destinationPathId,
+    this.destinationStopId,
+    this.destinationStopName,
   });
 
   factory FavoriteStop.fromJson(Map<String, dynamic> json) {
@@ -523,6 +526,12 @@ class FavoriteStop {
           : null,
       routeName: json['routeName'] as String?,
       stopName: json['stopName'] as String?,
+      destinationPathId: (json['destinationPathId'] as num?)?.toInt(),
+      destinationStopId: (json['destinationStopId'] as num?)?.toInt(),
+      destinationStopName:
+          (json['destinationStopName'] as String?)?.trim().isNotEmpty == true
+          ? (json['destinationStopName'] as String).trim()
+          : null,
     );
   }
 
@@ -533,6 +542,9 @@ class FavoriteStop {
   final String? routeId;
   final String? routeName;
   final String? stopName;
+  final int? destinationPathId;
+  final int? destinationStopId;
+  final String? destinationStopName;
 
   Map<String, dynamic> toJson() {
     return {
@@ -543,6 +555,10 @@ class FavoriteStop {
       if (routeId != null) 'routeId': routeId,
       if (routeName != null) 'routeName': routeName,
       if (stopName != null) 'stopName': stopName,
+      if (destinationPathId != null) 'destinationPathId': destinationPathId,
+      if (destinationStopId != null) 'destinationStopId': destinationStopId,
+      if (destinationStopName != null)
+        'destinationStopName': destinationStopName,
     };
   }
 

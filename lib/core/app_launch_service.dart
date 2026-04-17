@@ -13,6 +13,8 @@ class AppLaunchAction {
     this.routeKey,
     this.pathId,
     this.stopId,
+    this.destinationPathId,
+    this.destinationStopId,
     this.groupName,
   });
 
@@ -28,6 +30,8 @@ class AppLaunchAction {
       routeKey: (map['routeKey'] as num?)?.toInt(),
       pathId: (map['pathId'] as num?)?.toInt(),
       stopId: (map['stopId'] as num?)?.toInt(),
+      destinationPathId: (map['destinationPathId'] as num?)?.toInt(),
+      destinationStopId: (map['destinationStopId'] as num?)?.toInt(),
       groupName: map['groupName'] as String?,
     );
   }
@@ -37,6 +41,8 @@ class AppLaunchAction {
   final int? routeKey;
   final int? pathId;
   final int? stopId;
+  final int? destinationPathId;
+  final int? destinationStopId;
   final String? groupName;
 }
 

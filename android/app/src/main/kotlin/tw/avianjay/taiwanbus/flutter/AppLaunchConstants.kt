@@ -12,6 +12,8 @@ object AppLaunchConstants {
     private const val EXTRA_ROUTE_KEY = "route_key"
     private const val EXTRA_PATH_ID = "path_id"
     private const val EXTRA_STOP_ID = "stop_id"
+    private const val EXTRA_DESTINATION_PATH_ID = "destination_path_id"
+    private const val EXTRA_DESTINATION_STOP_ID = "destination_stop_id"
     private const val EXTRA_GROUP_NAME = "group_name"
 
     fun createRouteDetailIntent(
@@ -20,6 +22,8 @@ object AppLaunchConstants {
         routeKey: Int,
         pathId: Int,
         stopId: Int,
+        destinationPathId: Int? = null,
+        destinationStopId: Int? = null,
     ): Intent {
         return Intent(context, MainActivity::class.java).apply {
             putExtra(EXTRA_TARGET, TARGET_ROUTE_DETAIL)
@@ -27,6 +31,12 @@ object AppLaunchConstants {
             putExtra(EXTRA_ROUTE_KEY, routeKey)
             putExtra(EXTRA_PATH_ID, pathId)
             putExtra(EXTRA_STOP_ID, stopId)
+            if (destinationPathId != null) {
+                putExtra(EXTRA_DESTINATION_PATH_ID, destinationPathId)
+            }
+            if (destinationStopId != null) {
+                putExtra(EXTRA_DESTINATION_STOP_ID, destinationStopId)
+            }
             addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
@@ -58,13 +68,28 @@ object AppLaunchConstants {
                 if (routeKey == Int.MIN_VALUE) {
                     return null
                 }
-                mapOf(
+                val payload = mutableMapOf<String, Any?>(
                     "target" to TARGET_ROUTE_DETAIL,
                     "provider" to provider,
                     "routeKey" to routeKey,
                     "pathId" to intent.getIntExtra(EXTRA_PATH_ID, 0),
                     "stopId" to intent.getIntExtra(EXTRA_STOP_ID, 0),
                 )
+                val destinationPathId = intent.getIntExtra(
+                    EXTRA_DESTINATION_PATH_ID,
+                    Int.MIN_VALUE,
+                )
+                if (destinationPathId != Int.MIN_VALUE) {
+                    payload["destinationPathId"] = destinationPathId
+                }
+                val destinationStopId = intent.getIntExtra(
+                    EXTRA_DESTINATION_STOP_ID,
+                    Int.MIN_VALUE,
+                )
+                if (destinationStopId != Int.MIN_VALUE) {
+                    payload["destinationStopId"] = destinationStopId
+                }
+                payload
             }
 
             TARGET_FAVORITES_GROUP -> {

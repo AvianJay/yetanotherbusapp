@@ -36,6 +36,10 @@ enum FavoriteWidgetSharedStore {
         let routeKey = integerValue(from: stopMap["routeKey"])
         let pathId = integerValue(from: stopMap["pathId"])
         let stopId = integerValue(from: stopMap["stopId"])
+        let destinationStopId = optionalIntegerValue(from: stopMap["destinationStopId"])
+        let destinationPathId = destinationStopId == nil
+          ? nil
+          : (optionalIntegerValue(from: stopMap["destinationPathId"]) ?? pathId)
         guard !provider.isEmpty, routeKey > 0, pathId >= 0, stopId >= 0 else {
           return nil
         }
@@ -47,7 +51,10 @@ enum FavoriteWidgetSharedStore {
           stopId: stopId,
           routeId: (stopMap["routeId"] as? String)?.nilIfBlank,
           routeName: (stopMap["routeName"] as? String)?.nilIfBlank,
-          stopName: (stopMap["stopName"] as? String)?.nilIfBlank
+          stopName: (stopMap["stopName"] as? String)?.nilIfBlank,
+          destinationPathId: destinationPathId,
+          destinationStopId: destinationStopId,
+          destinationStopName: (stopMap["destinationStopName"] as? String)?.nilIfBlank
         )
       }
     }
@@ -107,6 +114,19 @@ enum FavoriteWidgetSharedStore {
       return 0
     }
   }
+
+  private static func optionalIntegerValue(from value: Any?) -> Int? {
+    switch value {
+    case let number as NSNumber:
+      return number.intValue
+    case let number as Int:
+      return number
+    case let text as String:
+      return Int(text)
+    default:
+      return nil
+    }
+  }
 }
 
 struct FavoriteWidgetStop: Decodable, Hashable {
@@ -117,6 +137,9 @@ struct FavoriteWidgetStop: Decodable, Hashable {
   let routeId: String?
   let routeName: String?
   let stopName: String?
+  let destinationPathId: Int?
+  let destinationStopId: Int?
+  let destinationStopName: String?
 }
 
 struct FavoriteWidgetItem: Identifiable, Hashable {
@@ -351,7 +374,9 @@ private enum FavoriteWidgetRouteFetcher {
           provider: favorite.provider,
           routeKey: favorite.routeKey,
           pathId: favorite.pathId,
-          stopId: favorite.stopId
+          stopId: favorite.stopId,
+          destinationPathId: favorite.destinationPathId,
+          destinationStopId: favorite.destinationStopId
         )
       )
     }
@@ -545,17 +570,30 @@ private enum FavoriteWidgetDeepLink {
     provider: String,
     routeKey: Int,
     pathId: Int,
-    stopId: Int
+    stopId: Int,
+    destinationPathId: Int?,
+    destinationStopId: Int?
   ) -> URL? {
     var components = URLComponents()
     components.scheme = "yabus"
     components.host = "route"
-    components.queryItems = [
+    var queryItems = [
       URLQueryItem(name: "provider", value: provider),
       URLQueryItem(name: "routeKey", value: String(routeKey)),
       URLQueryItem(name: "pathId", value: String(pathId)),
       URLQueryItem(name: "stopId", value: String(stopId)),
     ]
+    if let destinationPathId {
+      queryItems.append(
+        URLQueryItem(name: "destinationPathId", value: String(destinationPathId))
+      )
+    }
+    if let destinationStopId {
+      queryItems.append(
+        URLQueryItem(name: "destinationStopId", value: String(destinationStopId))
+      )
+    }
+    components.queryItems = queryItems
     return components.url
   }
 }

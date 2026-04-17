@@ -760,11 +760,46 @@ class AppController extends ChangeNotifier {
         entry.key: List<FavoriteStop>.from(entry.value),
     };
     next.putIfAbsent(targetGroup, () => <FavoriteStop>[]);
-    final alreadyExists = next[targetGroup]!.any(
+    final existingIndex = next[targetGroup]!.indexWhere(
       (item) => item.sameAs(favorite),
     );
-    if (!alreadyExists) {
+    if (existingIndex == -1) {
       next[targetGroup]!.add(favorite);
+    } else {
+      final existing = next[targetGroup]![existingIndex];
+      final routeId = favorite.routeId?.trim().isNotEmpty == true
+          ? favorite.routeId
+          : existing.routeId;
+      final routeName = favorite.routeName?.trim().isNotEmpty == true
+          ? favorite.routeName
+          : existing.routeName;
+      final stopName = favorite.stopName?.trim().isNotEmpty == true
+          ? favorite.stopName
+          : existing.stopName;
+      final destinationStopId = favorite.destinationStopId;
+      final mergedDestinationStopId =
+          destinationStopId ?? existing.destinationStopId;
+      final mergedDestinationPathId = mergedDestinationStopId == null
+          ? null
+          : (destinationStopId == null
+                ? existing.destinationPathId
+                : (favorite.destinationPathId ?? favorite.pathId));
+      final mergedDestinationStopName = destinationStopId == null
+          ? existing.destinationStopName
+          : favorite.destinationStopName;
+
+      next[targetGroup]![existingIndex] = FavoriteStop(
+        provider: favorite.provider,
+        routeKey: favorite.routeKey,
+        pathId: favorite.pathId,
+        stopId: favorite.stopId,
+        routeId: routeId,
+        routeName: routeName,
+        stopName: stopName,
+        destinationPathId: mergedDestinationPathId,
+        destinationStopId: mergedDestinationStopId,
+        destinationStopName: mergedDestinationStopName,
+      );
     }
 
     _favoriteGroups = next;
@@ -773,6 +808,72 @@ class AppController extends ChangeNotifier {
     await AndroidHomeIntegration.refreshFavoriteWidgets();
     notifyListeners();
     return targetGroup;
+  }
+
+  Future<bool> updateFavoriteDestination(
+    String groupName,
+    FavoriteStop favorite, {
+    int? destinationPathId,
+    int? destinationStopId,
+    String? destinationStopName,
+  }) async {
+    final currentGroup = _favoriteGroups[groupName];
+    if (currentGroup == null || currentGroup.isEmpty) {
+      return false;
+    }
+
+    final normalizedDestinationStopId =
+        destinationStopId != null && destinationStopId > 0
+        ? destinationStopId
+        : null;
+    final normalizedDestinationPathId = normalizedDestinationStopId == null
+        ? null
+        : (destinationPathId ?? favorite.pathId);
+    final normalizedDestinationStopName = normalizedDestinationStopId == null
+        ? null
+        : (destinationStopName?.trim().isNotEmpty == true
+              ? destinationStopName!.trim()
+              : null);
+
+    var found = false;
+    var didChange = false;
+    final updatedGroup = currentGroup.map((item) {
+      if (!item.sameAs(favorite)) {
+        return item;
+      }
+
+      found = true;
+      if (item.destinationPathId == normalizedDestinationPathId &&
+          item.destinationStopId == normalizedDestinationStopId &&
+          item.destinationStopName == normalizedDestinationStopName) {
+        return item;
+      }
+
+      didChange = true;
+      return FavoriteStop(
+        provider: item.provider,
+        routeKey: item.routeKey,
+        pathId: item.pathId,
+        stopId: item.stopId,
+        routeId: item.routeId,
+        routeName: item.routeName,
+        stopName: item.stopName,
+        destinationPathId: normalizedDestinationPathId,
+        destinationStopId: normalizedDestinationStopId,
+        destinationStopName: normalizedDestinationStopName,
+      );
+    }).toList();
+
+    if (!found || !didChange) {
+      return false;
+    }
+
+    _favoriteGroups = {..._favoriteGroups, groupName: updatedGroup};
+    await storage.saveFavoriteGroups(_favoriteGroups);
+    await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
+    await AndroidHomeIntegration.refreshFavoriteWidgets();
+    notifyListeners();
+    return true;
   }
 
   Future<void> removeFavoriteStop(
@@ -861,6 +962,9 @@ class AppController extends ChangeNotifier {
         routeId: nextRouteId,
         routeName: nextRouteName,
         stopName: nextStopName,
+        destinationPathId: favorite.destinationPathId,
+        destinationStopId: favorite.destinationStopId,
+        destinationStopName: favorite.destinationStopName,
       );
     }).toList();
 

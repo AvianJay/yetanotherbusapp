@@ -328,10 +328,17 @@ object FavoriteGroupWidgetSupport {
             routeKey = item.routeKey,
             pathId = item.pathId,
             stopId = item.stopId,
+            destinationPathId = item.destinationPathId,
+            destinationStopId = item.destinationStopId,
         ).apply {
             data = Uri.parse(
                 "yabus://route/${item.provider}/${item.routeKey}/${item.pathId}/${item.stopId}",
-            )
+            ).buildUpon()
+                .apply {
+                    item.destinationPathId?.let { appendQueryParameter("destinationPathId", it.toString()) }
+                    item.destinationStopId?.let { appendQueryParameter("destinationStopId", it.toString()) }
+                }
+                .build()
         }
         return PendingIntent.getActivity(
             context,
@@ -366,6 +373,13 @@ object FavoriteGroupWidgetSupport {
                 if (routeKey <= 0 || stopId <= 0) {
                     continue
                 }
+                val destinationStopId = item.optInt("destinationStopId", 0)
+                    .takeIf { it > 0 }
+                val destinationPathId = if (destinationStopId == null) {
+                    null
+                } else {
+                    item.optInt("destinationPathId", item.optInt("pathId", 0))
+                }
                 groupItems += FavoriteWidgetItem(
                     provider = item.optString("provider", "twn"),
                     routeKey = routeKey,
@@ -376,6 +390,11 @@ object FavoriteGroupWidgetSupport {
                         .takeIf { it.isNotEmpty() },
                     routeName = item.optString("routeName", ""),
                     stopName = item.optString("stopName", ""),
+                    destinationPathId = destinationPathId,
+                    destinationStopId = destinationStopId,
+                    destinationStopName = item.optString("destinationStopName", "")
+                        .trim()
+                        .takeIf { it.isNotEmpty() },
                 )
             }
             result[groupName] = groupItems
@@ -641,6 +660,9 @@ data class FavoriteWidgetItem(
     val routeId: String?,
     val routeName: String,
     val stopName: String,
+    val destinationPathId: Int?,
+    val destinationStopId: Int?,
+    val destinationStopName: String?,
 )
 
 data class WidgetLiveStop(

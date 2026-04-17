@@ -233,6 +233,8 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
               provider: provider,
               initialPathId: action.pathId,
               initialStopId: action.stopId,
+              initialDestinationPathId: action.destinationPathId,
+              initialDestinationStopId: action.destinationStopId,
             ),
           ),
         );

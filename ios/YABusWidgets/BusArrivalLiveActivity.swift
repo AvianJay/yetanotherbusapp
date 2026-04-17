@@ -8,9 +8,14 @@ struct BusArrivalLiveActivity: Widget {
       lockScreenView(context: context)
     } dynamicIsland: { context in
       DynamicIsland {
-        DynamicIslandExpandedRegion(.center) {
-          expandedHeader(context: context)
-            .padding(.horizontal, 12)
+        DynamicIslandExpandedRegion(.leading) {
+          expandedLeading(context: context)
+            .padding(.leading, 12)
+            .padding(.top, 8)
+        }
+        DynamicIslandExpandedRegion(.trailing) {
+          expandedTrailing(context: context)
+            .padding(.trailing, 12)
             .padding(.top, 8)
         }
         DynamicIslandExpandedRegion(.bottom) {
@@ -76,19 +81,6 @@ struct BusArrivalLiveActivity: Widget {
       .foregroundStyle(etaColor(context.state))
       .minimumScaleFactor(0.5)
       .monospacedDigit()
-    }
-  }
-
-  @ViewBuilder
-  private func expandedHeader(
-    context: ActivityViewContext<BusArrivalAttributes>
-  ) -> some View {
-    HStack(alignment: .top, spacing: 12) {
-      expandedLeading(context: context)
-        .frame(maxWidth: .infinity, alignment: .leading)
-
-      expandedTrailing(context: context)
-        .fixedSize(horizontal: true, vertical: false)
     }
   }
 

@@ -1245,6 +1245,7 @@ class RouteTripMonitorService : Service() {
                 .setProgressPoints(
                     progressPoints.mapTo(mutableListOf()) { position ->
                         NotificationCompat.ProgressStyle.Point(position)
+                            .setColor(PROGRESS_POINT_COLOR)
                     },
                 )
                 .setProgressEndIcon(
@@ -1305,6 +1306,7 @@ class RouteTripMonitorService : Service() {
                 .setProgressPoints(
                     progressPoints.mapTo(mutableListOf()) { position ->
                         Notification.ProgressStyle.Point(position)
+                            .setColor(PROGRESS_POINT_COLOR)
                     },
                 )
                 .setProgressEndIcon(
@@ -1382,6 +1384,7 @@ class RouteTripMonitorService : Service() {
                 .setProgressPoints(
                     progressPoints.mapTo(mutableListOf()) { position ->
                         NotificationCompat.ProgressStyle.Point(position)
+                            .setColor(PROGRESS_POINT_COLOR)
                     },
                 )
                 .setProgressEndIcon(
@@ -2301,6 +2304,7 @@ class RouteTripMonitorService : Service() {
         private const val BOARDING_CHECK_PROMPT_DELAY_MS = 45_000L
         private const val BOARDING_CHECK_SNOOZE_MS = 180_000L
         private const val MAX_PROGRESS_POINTS = 8
+        private const val PROGRESS_POINT_COLOR = 0x80000000.toInt()
         private const val OVERSHOOT_CONFIRM_DELAY_MS = 45_000L
         private const val ARRIVAL_AUTO_PAUSE_DELAY_MS = 60_000L
         private const val ROUTE_PROXIMITY_MAX_DISTANCE_METERS = 300.0

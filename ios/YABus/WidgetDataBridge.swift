@@ -14,9 +14,7 @@ final class WidgetDataBridge {
   private init() {}
 
   func configure(messenger: FlutterBinaryMessenger) {
-    if channel != nil {
-      return
-    }
+    channel?.setMethodCallHandler(nil)
 
     let methodChannel = FlutterMethodChannel(
       name: channelName,

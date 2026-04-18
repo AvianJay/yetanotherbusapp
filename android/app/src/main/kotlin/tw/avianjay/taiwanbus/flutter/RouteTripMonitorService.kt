@@ -453,7 +453,8 @@ class RouteTripMonitorService : Service() {
             }
             val busStopsAway = busIndex?.let { (nearestIndex - it).coerceAtLeast(0) }
             val boardingProgressValue = if (hasBoarded) {
-                boardingIndex + 1
+                val trackedPos = boardingBusIndex ?: nearestIndex
+                (trackedPos + 1).coerceIn(1, boardingIndex + 1)
             } else {
                 boardingBusIndex?.plus(1)?.coerceAtMost(boardingIndex + 1) ?: 0
             }
@@ -881,13 +882,15 @@ class RouteTripMonitorService : Service() {
         boardingEtaText: String,
         boardingEtaSeconds: Int?,
     ): Boolean {
-        if (isImmediateEtaText(boardingEtaText)) {
-            return true
+        if (busStopsUntilBoarding != null && busStopsUntilBoarding <= 0) {
+            if (isImmediateEtaText(boardingEtaText)) {
+                return true
+            }
+            if (isLikelyBoardingArrival(etaSeconds = boardingEtaSeconds, etaText = boardingEtaText)) {
+                return true
+            }
         }
-        if (!isLikelyBoardingArrival(etaSeconds = boardingEtaSeconds, etaText = boardingEtaText)) {
-            return false
-        }
-        return busStopsUntilBoarding != null && busStopsUntilBoarding <= 0
+        return false
     }
 
     private fun buildNearestStatusText(
@@ -1166,38 +1169,22 @@ class RouteTripMonitorService : Service() {
         return System.currentTimeMillis() + totalMillis
     }
 
-    private fun normalizeProgressPosition(
-        progressMax: Int,
-        progressValue: Int,
-    ): Int {
-        if (progressMax <= 0 || progressValue <= 0) {
-            return 0
-        }
-        return ((PROGRESS_DISPLAY_MAX.toDouble() * progressValue) / progressMax)
-            .roundToInt()
-            .coerceIn(0, PROGRESS_DISPLAY_MAX)
-    }
 
     private fun buildProgressPointPositions(progressMax: Int): List<Int> {
         if (progressMax <= 0) {
             return emptyList()
         }
-        val sampledStopPositions = if (progressMax <= MAX_PROGRESS_POINTS) {
-            (1..progressMax).toList()
-        } else {
-            val positions = linkedSetOf(1)
-            val lastIndex = MAX_PROGRESS_POINTS - 1
-            for (index in 1 until lastIndex) {
-                val progress = 1 + ((progressMax - 1).toDouble() * index / lastIndex).roundToInt()
-                positions += progress.coerceIn(1, progressMax)
-            }
-            positions += progressMax
-            positions.toList().sorted()
+        if (progressMax <= MAX_PROGRESS_POINTS) {
+            return (1..progressMax).toList()
         }
-        return sampledStopPositions
-            .map { stopProgress -> normalizeProgressPosition(progressMax, stopProgress) }
-            .distinct()
-            .sorted()
+        val positions = linkedSetOf(1)
+        val lastIndex = MAX_PROGRESS_POINTS - 1
+        for (index in 1 until lastIndex) {
+            val progress = 1 + ((progressMax - 1).toDouble() * index / lastIndex).roundToInt()
+            positions += progress.coerceIn(1, progressMax)
+        }
+        positions += progressMax
+        return positions.toList().sorted()
     }
 
     private fun buildStoppedNotification(): Notification {
@@ -1240,19 +1227,19 @@ class RouteTripMonitorService : Service() {
         requestPromotedOngoing(builder)
         val progressMax = snapshot.progressMax
         val progressValue = snapshot.progressValue
-        if (progressMax != null && progressValue != null) {
-            val displayProgressValue = normalizeProgressPosition(progressMax, progressValue)
+        if (progressMax != null && progressValue != null && progressMax > 0) {
+            val clampedValue = progressValue.coerceIn(0, progressMax)
             val progressPoints = buildProgressPointPositions(progressMax)
-            builder.setProgress(PROGRESS_DISPLAY_MAX, displayProgressValue, false)
+            builder.setProgress(progressMax, clampedValue, false)
             val progressStyle = NotificationCompat.ProgressStyle()
                 .setStyledByProgress(true)
-                .setProgress(displayProgressValue)
+                .setProgress(clampedValue)
                 .setProgressTrackerIcon(
                     IconCompat.createWithResource(this, R.drawable.ic_progress_bus),
                 )
                 .setProgressSegments(
                     mutableListOf(
-                        NotificationCompat.ProgressStyle.Segment(PROGRESS_DISPLAY_MAX),
+                        NotificationCompat.ProgressStyle.Segment(progressMax),
                     ),
                 )
                 .setProgressPoints(
@@ -1300,19 +1287,19 @@ class RouteTripMonitorService : Service() {
         requestPromotedOngoing(builder)
         val progressMax = snapshot.progressMax
         val progressValue = snapshot.progressValue
-        if (progressMax != null && progressValue != null) {
-            val displayProgressValue = normalizeProgressPosition(progressMax, progressValue)
+        if (progressMax != null && progressValue != null && progressMax > 0) {
+            val clampedValue = progressValue.coerceIn(0, progressMax)
             val progressPoints = buildProgressPointPositions(progressMax)
-            builder.setProgress(PROGRESS_DISPLAY_MAX, displayProgressValue, false)
+            builder.setProgress(progressMax, clampedValue, false)
             val progressStyle = Notification.ProgressStyle()
                 .setStyledByProgress(true)
-                .setProgress(displayProgressValue)
+                .setProgress(clampedValue)
                 .setProgressTrackerIcon(
                     Icon.createWithResource(this, R.drawable.ic_progress_bus),
                 )
                 .setProgressSegments(
                     mutableListOf(
-                        Notification.ProgressStyle.Segment(PROGRESS_DISPLAY_MAX),
+                        Notification.ProgressStyle.Segment(progressMax),
                     ),
                 )
                 .setProgressPoints(
@@ -1377,19 +1364,19 @@ class RouteTripMonitorService : Service() {
 
         val progressMax = snapshot.progressMax
         val progressValue = snapshot.progressValue
-        if (progressMax != null && progressValue != null) {
-            val displayProgressValue = normalizeProgressPosition(progressMax, progressValue)
+        if (progressMax != null && progressValue != null && progressMax > 0) {
+            val clampedValue = progressValue.coerceIn(0, progressMax)
             val progressPoints = buildProgressPointPositions(progressMax)
-            builder.setProgress(PROGRESS_DISPLAY_MAX, displayProgressValue, false)
+            builder.setProgress(progressMax, clampedValue, false)
             val progressStyle = NotificationCompat.ProgressStyle()
                 .setStyledByProgress(true)
-                .setProgress(displayProgressValue)
+                .setProgress(clampedValue)
                 .setProgressTrackerIcon(
                     IconCompat.createWithResource(this, R.drawable.ic_progress_bus),
                 )
                 .setProgressSegments(
                     mutableListOf(
-                        NotificationCompat.ProgressStyle.Segment(PROGRESS_DISPLAY_MAX),
+                        NotificationCompat.ProgressStyle.Segment(progressMax),
                     ),
                 )
                 .setProgressPoints(
@@ -2314,7 +2301,6 @@ class RouteTripMonitorService : Service() {
         private const val BOARDING_CHECK_PROMPT_DELAY_MS = 45_000L
         private const val BOARDING_CHECK_SNOOZE_MS = 180_000L
         private const val MAX_PROGRESS_POINTS = 8
-        private const val PROGRESS_DISPLAY_MAX = 1_000
         private const val OVERSHOOT_CONFIRM_DELAY_MS = 45_000L
         private const val ARRIVAL_AUTO_PAUSE_DELAY_MS = 60_000L
         private const val ROUTE_PROXIMITY_MAX_DISTANCE_METERS = 300.0

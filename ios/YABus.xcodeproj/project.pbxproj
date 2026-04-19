@@ -76,12 +76,12 @@
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		15F0808E35734468FE36991A /* Pods-YABus.profile-yabus.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-YABus.profile-yabus.xcconfig"; path = "Target Support Files/Pods-YABus/Pods-YABus.profile-yabus.xcconfig"; sourceTree = "<group>"; };
 		1AF716B7203CA9B92A35CD32 /* Pods-YABus.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-YABus.debug.xcconfig"; path = "Target Support Files/Pods-YABus/Pods-YABus.debug.xcconfig"; sourceTree = "<group>"; };
-		5F4A3C2B1D0E9F8877665543 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* YABusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YABusTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* YABusTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = YABusTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
 		41B72443613B46C5F9FA4E42 /* Pods-YABusTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-YABusTests.profile.xcconfig"; path = "Target Support Files/Pods-YABusTests/Pods-YABusTests.profile.xcconfig"; sourceTree = "<group>"; };
 		5470018CE8AA54C2A78B8026 /* Pods-YABusTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-YABusTests.debug.xcconfig"; path = "Target Support Files/Pods-YABusTests/Pods-YABusTests.debug.xcconfig"; sourceTree = "<group>"; };
+		5F4A3C2B1D0E9F8877665543 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		689B39984E83277DB951E8CB /* Pods-YABusTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-YABusTests.release.xcconfig"; path = "Target Support Files/Pods-YABusTests/Pods-YABusTests.release.xcconfig"; sourceTree = "<group>"; };
 		70426B9653F0FC18264A2B34 /* Pods-YABus.debug-yabus.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-YABus.debug-yabus.xcconfig"; path = "Target Support Files/Pods-YABus/Pods-YABus.debug-yabus.xcconfig"; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* YABus-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "YABus-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -243,7 +243,6 @@
 				CFC10E1024FA4249BF7884DB /* Pods-YABusTests.release-yabus.xcconfig */,
 				AE472FD4E174E152F0F36261 /* Pods-YABusTests.profile-yabus.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -444,9 +443,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-YABus/Pods-YABus-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-YABus/Pods-YABus-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -834,6 +837,7 @@
 				CODE_SIGN_ENTITLEMENTS = YABusWidgets/YABusWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2V25DVST23;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = YABusWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -862,6 +866,7 @@
 				CODE_SIGN_ENTITLEMENTS = YABusWidgets/YABusWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2V25DVST23;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = YABusWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -888,6 +893,7 @@
 				CODE_SIGN_ENTITLEMENTS = YABusWidgets/YABusWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2V25DVST23;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = YABusWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1144,6 +1150,7 @@
 				CODE_SIGN_ENTITLEMENTS = YABusWidgets/YABusWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2V25DVST23;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = YABusWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1172,6 +1179,7 @@
 				CODE_SIGN_ENTITLEMENTS = YABusWidgets/YABusWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2V25DVST23;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = YABusWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1198,6 +1206,7 @@
 				CODE_SIGN_ENTITLEMENTS = YABusWidgets/YABusWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2V25DVST23;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = YABusWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

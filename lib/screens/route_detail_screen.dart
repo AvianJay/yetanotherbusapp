@@ -63,6 +63,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _didAutoScrollToCurrentLocation = false;
   bool _didAttemptLocationTracking = false;
   bool _didRecordRouteVisit = false;
+  Timer? _routeVisitTimer;
   bool? _wakelockEnabled;
   bool _backgroundTripMonitorReady = false;
   bool _backgroundTripMonitorPromptInProgress = false;
@@ -133,6 +134,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     WidgetsBinding.instance.removeObserver(this);
     RouteDetailLaunchBridge.instance.detach(_launchHandler);
     _countdownTimer?.cancel();
+    _routeVisitTimer?.cancel();
     _countdownProgressController.dispose();
     _selectedMapPathId.dispose();
     _positionSubscription?.cancel();
@@ -233,12 +235,17 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       });
       if (!_didRecordRouteVisit) {
         _didRecordRouteVisit = true;
-        unawaited(
-          controller.recordRouteVisit(
-            displayDetail.route,
-            provider: widget.provider,
-          ),
-        );
+        _routeVisitTimer = Timer(const Duration(seconds: 10), () {
+          if (!mounted) return;
+          final detail = _detail;
+          if (detail == null) return;
+          unawaited(
+            AppControllerScope.read(context).recordRouteVisit(
+              detail.route,
+              provider: widget.provider,
+            ),
+          );
+        });
       }
       if (!_alertsFetched) {
         _alertsFetched = true;

@@ -72,32 +72,79 @@ enum FavoriteWidgetSharedStore {
   }
 
   private static func loadFavoriteGroupsPayload() -> [String: Any]? {
-    if
-      let containerURL = FileManager.default.containerURL(
-        forSecurityApplicationGroupIdentifier: appGroupIdentifier
-      )
-    {
+    let containerURL = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    )
+    if let containerURL {
       let fileURL = containerURL.appendingPathComponent(favoriteGroupsFileName)
+      let fileExists = FileManager.default.fileExists(atPath: fileURL.path)
       if
-        let data = try? Data(contentsOf: fileURL),
-        let object = try? JSONSerialization.jsonObject(with: data),
-        let payload = object as? [String: Any]
+        fileExists,
+        let data = try? Data(contentsOf: fileURL)
       {
-        return payload
+        if
+          let object = try? JSONSerialization.jsonObject(with: data),
+          let payload = object as? [String: Any]
+        {
+          NSLog(
+            "FavoriteWidgetSharedStore loaded payload from shared file. groups=%d, bytes=%d",
+            payload.count,
+            data.count
+          )
+          return payload
+        } else {
+          NSLog(
+            "FavoriteWidgetSharedStore failed to parse shared file JSON. bytes=%d",
+            data.count
+          )
+        }
+      } else {
+        NSLog(
+          "FavoriteWidgetSharedStore shared file missing. exists=%@",
+          fileExists ? "true" : "false"
+        )
       }
+    } else {
+      NSLog(
+        "FavoriteWidgetSharedStore container URL nil for %@",
+        appGroupIdentifier
+      )
     }
 
+    guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+      NSLog(
+        "FavoriteWidgetSharedStore UserDefaults suite nil for %@",
+        appGroupIdentifier
+      )
+      return nil
+    }
     guard
-      let defaults = UserDefaults(suiteName: appGroupIdentifier),
       let raw = defaults.string(forKey: favoriteGroupsKey),
       let data = raw.data(using: .utf8)
     else {
+      NSLog(
+        "FavoriteWidgetSharedStore UserDefaults missing key %@",
+        favoriteGroupsKey
+      )
       return nil
     }
 
     do {
-      return try JSONSerialization.jsonObject(with: data) as? [String: Any]
+      let object = try JSONSerialization.jsonObject(with: data)
+      if let payload = object as? [String: Any] {
+        NSLog(
+          "FavoriteWidgetSharedStore loaded payload from UserDefaults. groups=%d",
+          payload.count
+        )
+        return payload
+      }
+      NSLog("FavoriteWidgetSharedStore UserDefaults JSON not top-level dict.")
+      return nil
     } catch {
+      NSLog(
+        "FavoriteWidgetSharedStore UserDefaults JSON parse error: %@",
+        error.localizedDescription
+      )
       return nil
     }
   }
@@ -189,7 +236,9 @@ private extension FavoriteWidgetSharedStore {
 
 struct FavoriteGroupQuery: EntityQuery, EnumerableEntityQuery {
   func allEntities() async throws -> [FavoriteGroupEntity] {
-    FavoriteWidgetSharedStore.loadFavoriteGroupEntities()
+    let entities = FavoriteWidgetSharedStore.loadFavoriteGroupEntities()
+    NSLog("FavoriteGroupQuery.allEntities returned %d", entities.count)
+    return entities
   }
 
   func entities(
@@ -205,7 +254,9 @@ struct FavoriteGroupQuery: EntityQuery, EnumerableEntityQuery {
   }
 
   func suggestedEntities() async throws -> [FavoriteGroupEntity] {
-    try await allEntities()
+    let entities = FavoriteWidgetSharedStore.loadFavoriteGroupEntities()
+    NSLog("FavoriteGroupQuery.suggestedEntities returned %d", entities.count)
+    return entities
   }
 
   func defaultResult() async -> FavoriteGroupEntity? {

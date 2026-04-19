@@ -305,7 +305,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             child: ListView.separated(
               shrinkWrap: true,
               itemCount: _alerts.length,
-              separatorBuilder: (_, __) => const Divider(height: 16),
+              separatorBuilder: (_, _) => const Divider(height: 16),
               itemBuilder: (context, index) {
                 final alert = _alerts[index];
                 return _buildAlertTile(alert, theme);

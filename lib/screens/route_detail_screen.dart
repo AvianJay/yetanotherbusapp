@@ -97,6 +97,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   List<RouteAlert> _alerts = const <RouteAlert>[];
   bool _alertsShownOnce = false;
   bool _alertsFetched = false;
+  bool _alertsRead = false;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
   Map<int, int> _nearestStopByPath = const <int, int>{};
   final Map<int, GlobalKey> _stopKeys = <int, GlobalKey>{};
@@ -282,9 +283,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (!mounted) return;
       setState(() {
         _alerts = alerts;
+        if (alerts.isNotEmpty) _alertsRead = false;
       });
       if (alerts.isNotEmpty && !_alertsShownOnce) {
         _alertsShownOnce = true;
+        setState(() { _alertsRead = true; });
         _showAlertsDialog();
       }
     } catch (_) {
@@ -1031,10 +1034,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (_alerts.isEmpty) return false;
     final stopIdStr = stop.stopId.toString();
     for (final alert in _alerts) {
-      if (alert.stopIds.isNotEmpty) {
-        if (alert.stopIds.contains(stopIdStr)) return true;
-      } else if (alert.stopIds.isEmpty) {
-        // Alert applies to entire route/direction — show on all stops.
+      if (alert.stopIds.isNotEmpty &&
+          alert.stopIds.contains(stopIdStr)) {
         return true;
       }
     }
@@ -1045,9 +1046,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final stopIdStr = stop.stopId.toString();
     Color color = const Color(0xFFF57C00); // default orange
     for (final alert in _alerts) {
-      final matches = alert.stopIds.isEmpty ||
-          alert.stopIds.contains(stopIdStr);
-      if (matches) {
+      if (alert.stopIds.isNotEmpty &&
+          alert.stopIds.contains(stopIdStr)) {
         if (alert.status == 0) return const Color(0xFFD32F2F);
         if (alert.status == 2) color = const Color(0xFFF57C00);
       }
@@ -2980,6 +2980,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             onPressed: detail == null
                 ? null
                 : () {
+                    if (_alerts.isNotEmpty && !_alertsRead) {
+                      setState(() { _alertsRead = true; });
+                    }
                     showDialog<void>(
                       context: context,
                       builder: (dialogContext) {
@@ -3030,12 +3033,17 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       },
                     );
                   },
-            icon: _alerts.isNotEmpty
-                ? Badge(
-                    label: Text('${_alerts.length}'),
-                    child: const Icon(Icons.info_outline_rounded),
-                  )
-                : const Icon(Icons.info_outline_rounded),
+            icon: _alerts.isEmpty
+                ? const Icon(Icons.info_outline_rounded)
+                : _alertsRead
+                    ? Badge.count(
+                        count: 0,
+                        child: const Icon(Icons.info_outline_rounded),
+                      )
+                    : Badge(
+                        label: Text('${_alerts.length}'),
+                        child: const Icon(Icons.info_outline_rounded),
+                      ),
           ),
         ],
       ),

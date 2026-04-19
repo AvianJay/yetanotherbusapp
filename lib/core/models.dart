@@ -64,10 +64,26 @@ BusProvider nearestBusProvider({
   required double latitude,
   required double longitude,
 }) {
-  BusProvider best = BusProvider.tpe;
-  var bestDistance = double.infinity;
-
+  // Phase 1: Check bounding-box containment.
+  final contained = <BusProvider>[];
   for (final provider in BusProvider.values) {
+    final bounds = _providerBounds[provider];
+    if (bounds != null &&
+        latitude >= bounds.south &&
+        latitude <= bounds.north &&
+        longitude >= bounds.west &&
+        longitude <= bounds.east) {
+      contained.add(provider);
+    }
+  }
+  if (contained.length == 1) return contained.first;
+
+  // Phase 2: Ambiguous or no bounding-box match → nearest center.
+  final candidates =
+      contained.isNotEmpty ? contained : BusProvider.values.toList();
+  BusProvider best = candidates.first;
+  var bestDistance = double.infinity;
+  for (final provider in candidates) {
     final distance = _distanceMeters(
       latitude,
       longitude,
@@ -79,9 +95,31 @@ BusProvider nearestBusProvider({
       bestDistance = distance;
     }
   }
-
   return best;
 }
+
+class _LatLngBounds {
+  const _LatLngBounds(this.south, this.west, this.north, this.east);
+  final double south;
+  final double west;
+  final double north;
+  final double east;
+}
+
+/// Approximate administrative bounding boxes for cities whose shapes make
+/// simple center-point distance unreliable.
+const _providerBounds = <BusProvider, _LatLngBounds>{
+  BusProvider.kee: _LatLngBounds(25.0878, 121.6396, 25.1940, 121.8090),
+  BusProvider.tpe: _LatLngBounds(24.9607, 121.4570, 25.2101, 121.6659),
+  BusProvider.nwt: _LatLngBounds(24.6712, 121.2831, 25.2994, 121.9976),
+  BusProvider.tao: _LatLngBounds(24.7384, 121.0960, 25.1166, 121.3988),
+  BusProvider.hsz: _LatLngBounds(24.7473, 120.9148, 24.8434, 121.0316),
+  BusProvider.hsq: _LatLngBounds(24.3879, 120.9240, 24.8790, 121.3405),
+  BusProvider.txg: _LatLngBounds(24.0089, 120.4710, 24.4106, 121.0310),
+  BusProvider.tnn: _LatLngBounds(22.8563, 120.0390, 23.4390, 120.6530),
+  BusProvider.khh: _LatLngBounds(22.4705, 120.1800, 23.4710, 120.8595),
+};
+
 
 ThemeMode themeModeFromString(String value) {
   return ThemeMode.values.firstWhere(

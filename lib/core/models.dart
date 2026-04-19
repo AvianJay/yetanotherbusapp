@@ -1292,3 +1292,97 @@ class RouteAlert {
       effect == 4 ||
       effect == 7;
 }
+
+class RouteOperator {
+  final String operatorId;
+  final String name;
+  final String? nameEn;
+  final String? code;
+  final String? phone;
+  final String? email;
+  final String? url;
+
+  const RouteOperator({
+    required this.operatorId,
+    required this.name,
+    this.nameEn,
+    this.code,
+    this.phone,
+    this.email,
+    this.url,
+  });
+
+  factory RouteOperator.fromJson(Map<String, dynamic> json) => RouteOperator(
+        operatorId: json['operator_id'] as String? ?? '',
+        name: json['name'] as String? ?? '',
+        nameEn: json['name_en'] as String?,
+        code: json['code'] as String?,
+        phone: json['phone'] as String?,
+        email: json['email'] as String?,
+        url: json['url'] as String?,
+      );
+}
+
+class RouteScheduleEntry {
+  final String subrouteUid;
+  final int direction;
+  final String kind; // 'frequency' or 'timetable'
+  final int seq;
+  final Map<String, dynamic> serviceDays;
+  final Map<String, dynamic> payload;
+
+  const RouteScheduleEntry({
+    required this.subrouteUid,
+    required this.direction,
+    required this.kind,
+    required this.seq,
+    required this.serviceDays,
+    required this.payload,
+  });
+
+  factory RouteScheduleEntry.fromJson(Map<String, dynamic> json) =>
+      RouteScheduleEntry(
+        subrouteUid: json['subroute_uid'] as String? ?? '',
+        direction: json['direction'] as int? ?? 0,
+        kind: json['kind'] as String? ?? '',
+        seq: json['seq'] as int? ?? 0,
+        serviceDays: json['service_days'] as Map<String, dynamic>? ?? {},
+        payload: json['payload'] as Map<String, dynamic>? ?? {},
+      );
+
+  bool get isFrequency => kind == 'frequency';
+
+  String get serviceDaysSummary {
+    final days = <String>[];
+    if (serviceDays['mon'] == 1) days.add('一');
+    if (serviceDays['tue'] == 1) days.add('二');
+    if (serviceDays['wed'] == 1) days.add('三');
+    if (serviceDays['thu'] == 1) days.add('四');
+    if (serviceDays['fri'] == 1) days.add('五');
+    if (serviceDays['sat'] == 1) days.add('六');
+    if (serviceDays['sun'] == 1) days.add('日');
+    if (serviceDays['holiday'] == 1) days.add('假');
+    if (days.isEmpty) return '無';
+    return days.join('、');
+  }
+
+  String get displayText {
+    if (isFrequency) {
+      final start = payload['start'] ?? '';
+      final end = payload['end'] ?? '';
+      final minH = payload['min_headway'];
+      final maxH = payload['max_headway'];
+      if (minH == maxH) {
+        return '$start - $end 每${minH}分';
+      }
+      return '$start - $end 每$minH-${maxH}分';
+    }
+    final tripId = payload['trip_id'] ?? '';
+    final stops = payload['stop_times'] as List<dynamic>? ?? [];
+    if (stops.isNotEmpty) {
+      final first = stops.first as Map<String, dynamic>;
+      return '${first['departure'] ?? ''} (班次$tripId)';
+    }
+    return '班次$tripId';
+  }
+}

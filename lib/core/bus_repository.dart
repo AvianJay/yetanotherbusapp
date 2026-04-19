@@ -2619,6 +2619,56 @@ class BusRepository {
       BusProvider.lie => 'LienchiangCounty',
     };
   }
+
+  // ---- Operators (daily cache) ----
+  final Map<String, _TimedValue<List<RouteOperator>>> _operatorsCache =
+      <String, _TimedValue<List<RouteOperator>>>{};
+  static const _operatorsCacheTtl = Duration(hours: 24);
+
+  Future<List<RouteOperator>> fetchRouteOperators(String routeId) async {
+    final cached = _operatorsCache[routeId];
+    if (cached != null &&
+        DateTime.now().difference(cached.createdAt) < _operatorsCacheTtl) {
+      return cached.value;
+    }
+    final uri = Uri.parse('$_apiBaseUrl/api/v1/routes/$routeId/operators');
+    final response = await http.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to fetch operators: ${response.statusCode}');
+    }
+    final List<dynamic> jsonList =
+        jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
+    final operators = jsonList
+        .map((e) => RouteOperator.fromJson(e as Map<String, dynamic>))
+        .toList();
+    _operatorsCache[routeId] = _TimedValue(operators);
+    return operators;
+  }
+
+  // ---- Schedule (daily cache) ----
+  final Map<String, _TimedValue<List<RouteScheduleEntry>>> _scheduleCache =
+      <String, _TimedValue<List<RouteScheduleEntry>>>{};
+  static const _scheduleCacheTtl = Duration(hours: 24);
+
+  Future<List<RouteScheduleEntry>> fetchRouteSchedule(String routeId) async {
+    final cached = _scheduleCache[routeId];
+    if (cached != null &&
+        DateTime.now().difference(cached.createdAt) < _scheduleCacheTtl) {
+      return cached.value;
+    }
+    final uri = Uri.parse('$_apiBaseUrl/api/v1/routes/$routeId/schedule');
+    final response = await http.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to fetch schedule: ${response.statusCode}');
+    }
+    final List<dynamic> jsonList =
+        jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
+    final entries = jsonList
+        .map((e) => RouteScheduleEntry.fromJson(e as Map<String, dynamic>))
+        .toList();
+    _scheduleCache[routeId] = _TimedValue(entries);
+    return entries;
+  }
 }
 
 class _LiveStopPayload {

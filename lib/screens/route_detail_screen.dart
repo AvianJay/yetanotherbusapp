@@ -10,6 +10,7 @@ import '../app/bus_app.dart';
 import '../core/android_home_integration.dart';
 import '../core/android_trip_monitor.dart';
 import '../core/app_launch_service.dart';
+import '../core/bus_repository.dart';
 import '../core/live_activity_service.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
@@ -2986,49 +2987,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     showDialog<void>(
                       context: context,
                       builder: (dialogContext) {
-                        final dialogTheme = Theme.of(dialogContext);
-                        return AlertDialog(
-                          title: Text(detail.route.routeName),
-                          content: SizedBox(
-                            width: double.maxFinite,
-                            child: ListView(
-                              shrinkWrap: true,
-                              children: [
-                                Text(
-                                  detail.route.description.isEmpty
-                                      ? '路線 ID: ${detail.route.routeKey}'
-                                      : detail.route.description,
-                                ),
-                                if (_alerts.isNotEmpty) ...[
-                                  const Divider(height: 24),
-                                  Row(
-                                    children: [
-                                      Icon(Icons.warning_amber_rounded,
-                                          color: dialogTheme.colorScheme.error,
-                                          size: 18),
-                                      const SizedBox(width: 6),
-                                      Text('營運通知 (${_alerts.length})',
-                                          style: dialogTheme
-                                              .textTheme.titleSmall),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  for (var i = 0; i < _alerts.length; i++) ...[
-                                    if (i > 0) const Divider(height: 12),
-                                    _buildAlertTile(
-                                        _alerts[i], dialogTheme),
-                                  ],
-                                ],
-                              ],
-                            ),
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () =>
-                                  Navigator.of(dialogContext).pop(),
-                              child: const Text('關閉'),
-                            ),
-                          ],
+                        return _RouteInfoDialog(
+                          detail: detail,
+                          alerts: _alerts,
+                          repository: AppControllerScope.read(context).repository,
                         );
                       },
                     );
@@ -3178,6 +3140,163 @@ class _RouteStatusPill extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _RouteInfoDialog extends StatefulWidget {
+  const _RouteInfoDialog({
+    required this.detail,
+    required this.alerts,
+    required this.repository,
+  });
+
+  final RouteDetailData detail;
+  final List<RouteAlert> alerts;
+  final BusRepository repository;
+
+  @override
+  State<_RouteInfoDialog> createState() => _RouteInfoDialogState();
+}
+
+class _RouteInfoDialogState extends State<_RouteInfoDialog> {
+  List<RouteOperator>? _operators;
+  List<RouteScheduleEntry>? _schedule;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    final routeId = widget.detail.route.routeId;
+    try {
+      final results = await Future.wait([
+        widget.repository.fetchRouteOperators(routeId),
+        widget.repository.fetchRouteSchedule(routeId),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _operators = results[0] as List<RouteOperator>;
+        _schedule = results[1] as List<RouteScheduleEntry>;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final route = widget.detail.route;
+
+    return AlertDialog(
+      title: Text(route.routeName),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            if (route.description.isNotEmpty) ...[
+              Text(route.description, style: theme.textTheme.bodyMedium),
+              const SizedBox(height: 12),
+            ],
+            if (widget.alerts.isNotEmpty) ...[
+              Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      color: theme.colorScheme.error, size: 18),
+                  const SizedBox(width: 6),
+                  Text('營運通知',
+                      style: theme.textTheme.titleSmall
+                          ?.copyWith(color: theme.colorScheme.error)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              for (final alert in widget.alerts)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('• ${alert.title}',
+                      style: theme.textTheme.bodySmall),
+                ),
+              const Divider(height: 20),
+            ],
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(child: CircularProgressIndicator.adaptive()),
+              )
+            else ...[
+              if (_operators != null && _operators!.isNotEmpty) ...[
+                Text('營運業者', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 4),
+                for (final op in _operators!) _buildOperatorTile(op, theme),
+                const Divider(height: 20),
+              ],
+              if (_schedule != null && _schedule!.isNotEmpty) ...[
+                Text('發車時間', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 4),
+                ..._buildScheduleSection(),
+              ],
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('關閉'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOperatorTile(RouteOperator op, ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(op.name, style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          )),
+          if (op.phone != null && op.phone!.isNotEmpty)
+            Text('電話：${op.phone}', style: theme.textTheme.bodySmall),
+          if (op.url != null && op.url!.isNotEmpty)
+            Text('網站：${op.url}', style: theme.textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildScheduleSection() {
+    final grouped = <String, List<RouteScheduleEntry>>{};
+    for (final entry in _schedule!) {
+      final key = entry.serviceDaysSummary;
+      (grouped[key] ??= []).add(entry);
+    }
+
+    final widgets = <Widget>[];
+    for (final entry in grouped.entries) {
+      widgets.add(Padding(
+        padding: const EdgeInsets.only(top: 4, bottom: 2),
+        child: Text('星期${entry.key}',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                )),
+      ));
+      for (final item in entry.value) {
+        widgets.add(Padding(
+          padding: const EdgeInsets.only(left: 8, bottom: 2),
+          child: Text(item.displayText,
+              style: Theme.of(context).textTheme.bodySmall),
+        ));
+      }
+    }
+    return widgets;
   }
 }
 

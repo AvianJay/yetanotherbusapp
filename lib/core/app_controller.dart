@@ -531,6 +531,10 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  Future<List<RouteAlert>> getRouteAlerts(String routeId) {
+    return repository.fetchRouteAlerts(routeId);
+  }
+
   Future<List<NearbyStopResult>> getNearbyStops({
     required double latitude,
     required double longitude,

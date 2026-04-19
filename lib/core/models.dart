@@ -1149,3 +1149,108 @@ double _distanceMeters(double lat1, double lon1, double lat2, double lon2) {
 }
 
 double _degreesToRadians(double degree) => degree * math.pi / 180;
+
+class RouteAlert {
+  const RouteAlert({
+    required this.alertId,
+    required this.title,
+    required this.description,
+    required this.status,
+    required this.cause,
+    required this.effect,
+    required this.direction,
+    required this.scope,
+    required this.stopIds,
+    required this.startTime,
+    required this.endTime,
+    required this.publishTime,
+    required this.updatedTime,
+  });
+
+  factory RouteAlert.fromJson(Map<String, dynamic> json) {
+    return RouteAlert(
+      alertId: json['alert_id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      description: json['description']?.toString() ?? '',
+      status: (json['status'] as num?)?.toInt(),
+      cause: (json['cause'] as num?)?.toInt(),
+      effect: (json['effect'] as num?)?.toInt(),
+      direction: (json['direction'] as num?)?.toInt(),
+      scope: json['scope']?.toString(),
+      stopIds: (json['stop_ids'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const <String>[],
+      startTime: (json['start_time'] as num?)?.toInt(),
+      endTime: (json['end_time'] as num?)?.toInt(),
+      publishTime: (json['publish_time'] as num?)?.toInt(),
+      updatedTime: (json['updated_time'] as num?)?.toInt(),
+    );
+  }
+
+  final String alertId;
+  final String title;
+  final String description;
+  final int? status;
+  final int? cause;
+  final int? effect;
+  final int? direction;
+  final String? scope;
+  final List<String> stopIds;
+  final int? startTime;
+  final int? endTime;
+  final int? publishTime;
+  final int? updatedTime;
+
+  String get statusText => switch (status) {
+        0 => '全部營運停止',
+        1 => '全部營運正常',
+        2 => '有異常狀況',
+        _ => '未知',
+      };
+
+  Color get statusColor => switch (status) {
+        0 => const Color(0xFFD32F2F),
+        1 => const Color(0xFF388E3C),
+        2 => const Color(0xFFF57C00),
+        _ => const Color(0xFF757575),
+      };
+
+  String get causeText => switch (cause) {
+        1 => '事故',
+        2 => '維護檢修',
+        3 => '技術問題',
+        4 => '施工',
+        5 => '醫療緊急狀況',
+        6 => '氣候',
+        7 => '示威遊行',
+        8 => '政治活動/維安',
+        9 => '假日/節慶',
+        10 => '罷工',
+        11 => '活動',
+        254 => '其他',
+        255 => '未知原因',
+        _ => '',
+      };
+
+  String get effectText => switch (effect) {
+        1 => '車輛改道/站牌不停靠',
+        2 => '班次增加',
+        3 => '班次減少',
+        4 => '班次取消',
+        5 => '班次改變',
+        6 => '站點異動',
+        7 => '重大延遲',
+        254 => '其他影響',
+        255 => '未知影響',
+        _ => '',
+      };
+
+  bool get isNegative =>
+      status == 0 ||
+      status == 2 ||
+      effect == 1 ||
+      effect == 3 ||
+      effect == 4 ||
+      effect == 7;
+}

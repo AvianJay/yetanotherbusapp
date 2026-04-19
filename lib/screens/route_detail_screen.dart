@@ -93,6 +93,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   String? _boardingStopName;
   int? _destinationStopId;
   String? _destinationStopName;
+  List<RouteAlert> _alerts = const <RouteAlert>[];
+  bool _alertsShownOnce = false;
+  bool _alertsFetched = false;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
   Map<int, int> _nearestStopByPath = const <int, int>{};
   final Map<int, GlobalKey> _stopKeys = <int, GlobalKey>{};
@@ -237,6 +240,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           ),
         );
       }
+      if (!_alertsFetched) {
+        _alertsFetched = true;
+        unawaited(_fetchAndShowAlerts(displayDetail.route.routeId));
+      }
       _startCountdown(
         fetchedDetail.hasLiveData
             ? controller.settings.busUpdateTime
@@ -259,6 +266,124 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       });
       _startCountdown(controller.settings.busErrorUpdateTime);
     }
+  }
+
+  Future<void> _fetchAndShowAlerts(String routeId) async {
+    try {
+      final controller = AppControllerScope.read(context);
+      final alerts = await controller.getRouteAlerts(routeId);
+      if (!mounted) return;
+      setState(() {
+        _alerts = alerts;
+      });
+      if (alerts.isNotEmpty && !_alertsShownOnce) {
+        _alertsShownOnce = true;
+        _showAlertsDialog();
+      }
+    } catch (_) {
+      // Silently ignore alert fetch errors.
+    }
+  }
+
+  void _showAlertsDialog() {
+    if (_alerts.isEmpty || !mounted) return;
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded,
+                  color: theme.colorScheme.error, size: 22),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('營運通知')),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: _alerts.length,
+              separatorBuilder: (_, __) => const Divider(height: 16),
+              itemBuilder: (context, index) {
+                final alert = _alerts[index];
+                return _buildAlertTile(alert, theme);
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('關閉'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildAlertTile(RouteAlert alert, ThemeData theme) {
+    final effectLabel = alert.effectText;
+    final causeLabel = alert.causeText;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: alert.statusColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                alert.title,
+                style: theme.textTheme.titleSmall,
+              ),
+            ),
+          ],
+        ),
+        if (effectLabel.isNotEmpty || causeLabel.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 16),
+            child: Wrap(
+              spacing: 6,
+              children: [
+                if (effectLabel.isNotEmpty)
+                  Chip(
+                    label: Text(effectLabel),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    labelStyle: theme.textTheme.labelSmall,
+                    padding: EdgeInsets.zero,
+                  ),
+                if (causeLabel.isNotEmpty)
+                  Chip(
+                    label: Text(causeLabel),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    labelStyle: theme.textTheme.labelSmall,
+                    padding: EdgeInsets.zero,
+                  ),
+              ],
+            ),
+          ),
+        if (alert.description.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 16),
+            child: Text(
+              alert.description,
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+      ],
+    );
   }
 
   RouteDetailData _mergeDetailWithPreviousLiveData(
@@ -893,6 +1018,34 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   bool _isDestinationStop(StopInfo stop) {
     return stop.pathId == _currentPathId && stop.stopId == _destinationStopId;
+  }
+
+  bool _stopHasAlert(StopInfo stop) {
+    if (_alerts.isEmpty) return false;
+    final stopIdStr = stop.stopId.toString();
+    for (final alert in _alerts) {
+      if (alert.stopIds.isNotEmpty) {
+        if (alert.stopIds.contains(stopIdStr)) return true;
+      } else if (alert.stopIds.isEmpty) {
+        // Alert applies to entire route/direction — show on all stops.
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Color _alertColorForStop(StopInfo stop) {
+    final stopIdStr = stop.stopId.toString();
+    Color color = const Color(0xFFF57C00); // default orange
+    for (final alert in _alerts) {
+      final matches = alert.stopIds.isEmpty ||
+          alert.stopIds.contains(stopIdStr);
+      if (matches) {
+        if (alert.status == 0) return const Color(0xFFD32F2F);
+        if (alert.status == 2) color = const Color(0xFFF57C00);
+      }
+    }
+    return color;
   }
 
   Future<void> _maybePromptForBackgroundTripMonitor() async {
@@ -2724,6 +2877,24 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         height: 1.2,
                       ),
                     ),
+                    if (_stopHasAlert(stop)) ...[
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: _showAlertsDialog,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: _alertColorForStop(stop),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: theme.colorScheme.surface,
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(width: 8),
                     Expanded(
                       child: Container(
@@ -2804,17 +2975,47 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 : () {
                     showDialog<void>(
                       context: context,
-                      builder: (context) {
+                      builder: (dialogContext) {
+                        final dialogTheme = Theme.of(dialogContext);
                         return AlertDialog(
                           title: Text(detail.route.routeName),
-                          content: Text(
-                            detail.route.description.isEmpty
-                                ? '路線 ID: ${detail.route.routeKey}'
-                                : detail.route.description,
+                          content: SizedBox(
+                            width: double.maxFinite,
+                            child: ListView(
+                              shrinkWrap: true,
+                              children: [
+                                Text(
+                                  detail.route.description.isEmpty
+                                      ? '路線 ID: ${detail.route.routeKey}'
+                                      : detail.route.description,
+                                ),
+                                if (_alerts.isNotEmpty) ...[
+                                  const Divider(height: 24),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.warning_amber_rounded,
+                                          color: dialogTheme.colorScheme.error,
+                                          size: 18),
+                                      const SizedBox(width: 6),
+                                      Text('營運通知 (${_alerts.length})',
+                                          style: dialogTheme
+                                              .textTheme.titleSmall),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  for (var i = 0; i < _alerts.length; i++) ...[
+                                    if (i > 0) const Divider(height: 12),
+                                    _buildAlertTile(
+                                        _alerts[i], dialogTheme),
+                                  ],
+                                ],
+                              ],
+                            ),
                           ),
                           actions: [
                             TextButton(
-                              onPressed: () => Navigator.of(context).pop(),
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(),
                               child: const Text('關閉'),
                             ),
                           ],
@@ -2822,7 +3023,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       },
                     );
                   },
-            icon: const Icon(Icons.info_outline_rounded),
+            icon: _alerts.isNotEmpty
+                ? Badge(
+                    label: Text('${_alerts.length}'),
+                    child: const Icon(Icons.info_outline_rounded),
+                  )
+                : const Icon(Icons.info_outline_rounded),
           ),
         ],
       ),

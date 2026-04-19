@@ -69,6 +69,11 @@ class BusRepository {
       _routeRealtimeBusesCache = <String, _TimedValue<List<RouteRealtimeBus>>>{};
   final Map<String, Future<List<RouteRealtimeBus>>> _routeRealtimeBusesInFlight =
       <String, Future<List<RouteRealtimeBus>>>{};
+  static const _routeAlertsCacheTtl = Duration(minutes: 10);
+  final Map<String, _TimedValue<List<RouteAlert>>> _routeAlertsCache =
+      <String, _TimedValue<List<RouteAlert>>>{};
+  final Map<String, Future<List<RouteAlert>>> _routeAlertsInFlight =
+      <String, Future<List<RouteAlert>>>{};
 
   Future<bool> databaseExists(BusProvider provider) async {
     if (!_supportsLocalDatabase) {
@@ -1429,6 +1434,56 @@ class BusRepository {
         .where((bus) => bus.id.isNotEmpty)
         .toList();
   }
+
+  Future<List<RouteAlert>> fetchRouteAlerts(String routeId) async {
+    final cached = _readFreshCache(
+      _routeAlertsCache,
+      routeId,
+      _routeAlertsCacheTtl,
+    );
+    if (cached != null) {
+      return cached;
+    }
+
+    final inFlight = _routeAlertsInFlight[routeId];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _loadRouteAlerts(routeId);
+    _routeAlertsInFlight[routeId] = future;
+    try {
+      final alerts = await future;
+      _routeAlertsCache[routeId] = _TimedValue<List<RouteAlert>>(alerts);
+      return alerts;
+    } finally {
+      if (identical(_routeAlertsInFlight[routeId], future)) {
+        _routeAlertsInFlight.remove(routeId);
+      }
+    }
+  }
+
+  Future<List<RouteAlert>> _loadRouteAlerts(String routeId) async {
+    final response = await _client.get(
+      Uri.parse(
+        '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/alerts',
+      ),
+      headers: _apiJsonHeaders,
+    );
+    if (response.statusCode != 200) {
+      return const <RouteAlert>[];
+    }
+
+    final decoded =
+        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final rawAlerts = decoded['alerts'] as List<dynamic>? ?? const [];
+    return rawAlerts
+        .whereType<Map<String, dynamic>>()
+        .map(RouteAlert.fromJson)
+        .where((alert) => alert.alertId.isNotEmpty)
+        .toList();
+  }
+
 
   BusVehicle _parseBusVehicle(Map<dynamic, dynamic> payload) {
     final id =

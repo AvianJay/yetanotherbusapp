@@ -2632,7 +2632,7 @@ class BusRepository {
       return cached.value;
     }
     final uri = Uri.parse('$_apiBaseUrl/api/v1/routes/$routeId/operators');
-    final response = await http.get(uri, headers: _apiJsonHeaders);
+    final response = await _client.get(uri, headers: _apiJsonHeaders);
     if (response.statusCode != 200) {
       throw Exception('Failed to fetch operators: ${response.statusCode}');
     }
@@ -2657,7 +2657,7 @@ class BusRepository {
       return cached.value;
     }
     final uri = Uri.parse('$_apiBaseUrl/api/v1/routes/$routeId/schedule');
-    final response = await http.get(uri, headers: _apiJsonHeaders);
+    final response = await _client.get(uri, headers: _apiJsonHeaders);
     if (response.statusCode != 200) {
       throw Exception('Failed to fetch schedule: ${response.statusCode}');
     }

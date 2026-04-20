@@ -3162,6 +3162,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
   List<RouteOperator>? _operators;
   List<RouteScheduleEntry>? _schedule;
   bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -3182,9 +3183,13 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
         _schedule = results[1] as List<RouteScheduleEntry>;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('RouteInfoDialog load error for $routeId: $e');
       if (!mounted) return;
-      setState(() => _loading = false);
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
     }
   }
 
@@ -3230,6 +3235,13 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
                 child: Center(child: CircularProgressIndicator.adaptive()),
               )
             else ...[
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text('載入失敗：$_error',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.error)),
+                ),
               if (_operators != null && _operators!.isNotEmpty) ...[
                 Text('營運業者', style: theme.textTheme.titleSmall),
                 const SizedBox(height: 4),

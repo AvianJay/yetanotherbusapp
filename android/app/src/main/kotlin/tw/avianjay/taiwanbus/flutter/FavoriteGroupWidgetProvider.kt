@@ -217,7 +217,7 @@ object FavoriteGroupWidgetSupport {
             return WidgetRenderResult(views, updateTimestamp = true)
         }
 
-        val liveStopsByRoute = linkedMapOf<String, Map<Int, WidgetLiveStop>>()
+        val liveStopsByRoute = linkedMapOf<String, Map<String, WidgetLiveStop>>()
         var successfulRouteFetches = 0
         items.associateBy(::routeRequestKey).forEach { (requestKey, item) ->
             val fetchResult = fetchLiveStopMap(context, item)
@@ -229,7 +229,7 @@ object FavoriteGroupWidgetSupport {
 
         views.removeAllViews(R.id.favorite_widget_items_container)
         items.take(MAX_WIDGET_ITEMS).forEach { item ->
-            val liveStop = liveStopsByRoute[routeRequestKey(item)]?.get(item.stopId)
+            val liveStop = liveStopsByRoute[routeRequestKey(item)]?.get("${item.pathId}:${item.stopId}")
             val itemViews = RemoteViews(context.packageName, R.layout.favorite_group_widget_item)
             itemViews.setTextViewText(
                 R.id.favorite_widget_item_eta,
@@ -245,7 +245,7 @@ object FavoriteGroupWidgetSupport {
             )
             itemViews.setTextViewText(
                 R.id.favorite_widget_item_note,
-                liveStop?.vehicleId ?: item.provider.uppercase(),
+                liveStop?.vehicleId ?: "",
             )
             itemViews.setOnClickPendingIntent(
                 R.id.favorite_widget_item_root,
@@ -500,12 +500,13 @@ object FavoriteGroupWidgetSupport {
     private fun parseLiveStopMap(
         jsonText: String,
         preferredPathId: Int,
-    ): Map<Int, WidgetLiveStop> {
+    ): Map<String, WidgetLiveStop> {
         val root = JSONObject(jsonText)
         val paths = root.optJSONArray("paths") ?: return emptyMap()
-        val result = mutableMapOf<Int, WidgetLiveStop>()
+        val result = mutableMapOf<String, WidgetLiveStop>()
 
         fun appendPath(pathObject: JSONObject) {
+            val pathId = toIntOrNull(pathObject.opt("pathid")) ?: return
             val stops = pathObject.optJSONArray("stops") ?: return
             for (stopIndex in 0 until stops.length()) {
                 val stopObject = stops.optJSONObject(stopIndex) ?: continue
@@ -517,7 +518,7 @@ object FavoriteGroupWidgetSupport {
                     ?.toString()
                     ?.trim()
                     ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
-                result[stopId] = WidgetLiveStop(
+                result["$pathId:$stopId"] = WidgetLiveStop(
                     sec = toIntOrNull(stopObject.opt("eta")),
                     msg = message,
                     vehicleId = firstVehicleId(stopObject.optJSONArray("buses")),
@@ -525,20 +526,9 @@ object FavoriteGroupWidgetSupport {
             }
         }
 
-        var matchedPath = false
         for (index in 0 until paths.length()) {
             val pathObject = paths.optJSONObject(index) ?: continue
-            if (toIntOrNull(pathObject.opt("pathid")) == preferredPathId) {
-                matchedPath = true
-                appendPath(pathObject)
-            }
-        }
-
-        if (!matchedPath) {
-            for (index in 0 until paths.length()) {
-                val pathObject = paths.optJSONObject(index) ?: continue
-                appendPath(pathObject)
-            }
+            appendPath(pathObject)
         }
 
         return result
@@ -673,7 +663,7 @@ data class WidgetLiveStop(
 
 data class WidgetRouteFetchResult(
     val success: Boolean,
-    val liveStops: Map<Int, WidgetLiveStop>,
+    val liveStops: Map<String, WidgetLiveStop>,
 )
 
 data class WidgetRenderResult(

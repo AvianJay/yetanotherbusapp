@@ -459,14 +459,56 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
                 )
               : _stationOfLine.isEmpty
                   ? const Center(child: Text('此路線尚無站點資料。'))
-                  : _stationOfLine.length <= 1
-                      ? _buildStationList(_stationOfLine.first)
-                      : TabBarView(
-                          controller: _tabController,
-                          children: _stationOfLine
-                              .map(_buildStationList)
-                              .toList(),
+                  : Column(
+                      children: [
+                        if (_liveboard.isEmpty)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline_rounded,
+                                  size: 18,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '此捷運系統目前無即時到站資訊',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                        ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        Expanded(
+                          child: _stationOfLine.length <= 1
+                              ? _buildStationList(_stationOfLine.first)
+                              : TabBarView(
+                                  controller: _tabController,
+                                  children: _stationOfLine
+                                      .map(_buildStationList)
+                                      .toList(),
+                                ),
                         ),
+                      ],
+                    ),
     );
   }
 

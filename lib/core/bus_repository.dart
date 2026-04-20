@@ -931,7 +931,9 @@ class BusRepository {
           : routeRow.routeName,
       routeNameEn: routeRow.routeNameEn,
       pathId: firstPath?.pathId ?? 0,
-      pathName: firstPath?.pathName ?? '',
+      pathName: routeRow.routeSummaryPathName.trim().isNotEmpty
+          ? routeRow.routeSummaryPathName
+          : firstPath?.pathName ?? '',
     );
 
     return RouteDetailData(
@@ -1039,7 +1041,9 @@ class BusRepository {
           : routeRow.routeName,
       routeNameEn: routeRow.routeNameEn,
       pathId: firstPath?.pathId ?? 0,
-      pathName: firstPath?.pathName ?? '',
+      pathName: routeRow.routeSummaryPathName.trim().isNotEmpty
+          ? routeRow.routeSummaryPathName
+          : firstPath?.pathName ?? '',
     );
 
     return RouteDetailData(

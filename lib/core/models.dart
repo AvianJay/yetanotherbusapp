@@ -507,6 +507,7 @@ class SearchHistoryEntry {
     required this.routeKey,
     required this.routeName,
     this.routeId,
+    this.pathName,
     required this.timestampMs,
   });
 
@@ -518,6 +519,9 @@ class SearchHistoryEntry {
       routeId: (json['routeId'] as String?)?.trim().isNotEmpty == true
           ? (json['routeId'] as String).trim()
           : null,
+      pathName: (json['pathName'] as String?)?.trim().isNotEmpty == true
+          ? (json['pathName'] as String).trim()
+          : null,
       timestampMs: (json['timestampMs'] as num?)?.toInt() ?? 0,
     );
   }
@@ -526,6 +530,7 @@ class SearchHistoryEntry {
   final int routeKey;
   final String routeName;
   final String? routeId;
+  final String? pathName;
   final int timestampMs;
 
   Map<String, dynamic> toJson() {
@@ -534,6 +539,7 @@ class SearchHistoryEntry {
       'routeKey': routeKey,
       'routeName': routeName,
       if (routeId != null) 'routeId': routeId,
+      if (pathName != null) 'pathName': pathName,
       'timestampMs': timestampMs,
     };
   }

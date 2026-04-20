@@ -570,6 +570,7 @@ class AppController extends ChangeNotifier {
         routeKey: route.routeKey,
         routeName: route.routeName,
         routeId: route.routeId,
+        pathName: route.description.trim().isNotEmpty ? route.description.trim() : null,
         timestampMs: DateTime.now().millisecondsSinceEpoch,
       ),
     );

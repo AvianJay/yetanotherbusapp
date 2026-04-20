@@ -387,7 +387,11 @@ class _HistorySection extends StatelessWidget {
               child: ListTile(
                 leading: const Icon(Icons.history_rounded),
                 title: Text(entry.routeName),
-                subtitle: Text(entry.provider.label),
+                subtitle: Text(
+                  entry.pathName != null && entry.pathName!.isNotEmpty
+                      ? '${entry.provider.label} | ${entry.pathName}'
+                      : entry.provider.label,
+                ),
                 onTap: () => onSelect(entry),
               ),
             ),

@@ -554,7 +554,45 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: () {
+                  setState(() {
+                    _showBuses = !_showBuses;
+                    if (!_showBuses) {
+                      _selectedBusId = null;
+                      _followSelectedBus = false;
+                    }
+                  });
+                },
+                tooltip: '公車',
+                icon: Icon(
+                  Icons.directions_bus_rounded,
+                  color: _showBuses
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
+              IconButton(
+                onPressed: () {
+                  setState(() {
+                    _showStops = !_showStops;
+                    if (!_showStops) {
+                      _selectedStopId = null;
+                    }
+                  });
+                },
+                tooltip: '站牌',
+                icon: Icon(
+                  Icons.signpost_rounded,
+                  color: _showStops
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
+              const SizedBox(width: 4),
               AnimatedBuilder(
                 animation: _refreshProgressController,
                 builder: (context, child) {
@@ -568,40 +606,6 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                     ),
                   );
                 },
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilterChip(
-                selected: _showBuses,
-                onSelected: (value) {
-                  setState(() {
-                    _showBuses = value;
-                    if (!value) {
-                      _selectedBusId = null;
-                      _followSelectedBus = false;
-                    }
-                  });
-                },
-                avatar: const Icon(Icons.directions_bus_rounded, size: 18),
-                label: const Text('公車'),
-              ),
-              FilterChip(
-                selected: _showStops,
-                onSelected: (value) {
-                  setState(() {
-                    _showStops = value;
-                    if (!value) {
-                      _selectedStopId = null;
-                    }
-                  });
-                },
-                avatar: const Icon(Icons.signpost_rounded, size: 18),
-                label: const Text('站牌'),
               ),
             ],
           ),

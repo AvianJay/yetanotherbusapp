@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../core/transit_repository.dart';
+import '../widgets/transit_drawer.dart';
 
 class YouBikeScreen extends StatefulWidget {
   const YouBikeScreen({super.key});
@@ -148,7 +149,16 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('YouBike')),
+      appBar: AppBar(
+        title: const Text('YABike'),
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu_rounded),
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
+      ),
+      drawer: const TransitDrawer(currentMode: TransitMode.youbike),
       body: _locating
           ? const Center(child: CircularProgressIndicator())
           : Stack(

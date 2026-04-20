@@ -7,16 +7,13 @@ import '../app/bus_app.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../widgets/eta_badge.dart';
+import '../widgets/transit_drawer.dart';
 import 'database_settings_screen.dart';
 import 'favorites_screen.dart';
-import 'metro_screen.dart';
 import 'nearby_screen.dart';
 import 'route_detail_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
-import 'thsr_screen.dart';
-import 'tra_screen.dart';
-import 'youbike_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -74,89 +71,7 @@ class HomeScreen extends StatelessWidget {
           ),
         ],
       ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            DrawerHeader(
-              decoration: BoxDecoration(color: colorScheme.primaryContainer),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Icon(Icons.directions_transit_rounded,
-                      size: 40, color: colorScheme.onPrimaryContainer),
-                  const SizedBox(height: 8),
-                  Text(
-                    'YABus',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          color: colorScheme.onPrimaryContainer,
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                  Text(
-                    '多模式大眾運輸',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onPrimaryContainer
-                              .withValues(alpha: 0.7),
-                        ),
-                  ),
-                ],
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.directions_bus_rounded),
-              title: const Text('公車'),
-              selected: true,
-              onTap: () => Navigator.of(context).pop(),
-            ),
-            ListTile(
-              leading: const Icon(Icons.subway_rounded),
-              title: const Text('捷運'),
-              onTap: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                      builder: (_) => const MetroScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.train_rounded),
-              title: const Text('高鐵'),
-              onTap: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                      builder: (_) => const ThsrScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.tram_rounded),
-              title: const Text('台鐵'),
-              onTap: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                      builder: (_) => const TraScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.pedal_bike_rounded),
-              title: const Text('YouBike'),
-              onTap: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                      builder: (_) => const YouBikeScreen()),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
+      drawer: const TransitDrawer(currentMode: TransitMode.bus),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(

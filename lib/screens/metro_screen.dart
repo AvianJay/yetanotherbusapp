@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../core/transit_repository.dart';
+import '../widgets/transit_drawer.dart';
 
 class MetroScreen extends StatefulWidget {
   const MetroScreen({super.key});
@@ -44,7 +45,16 @@ class _MetroScreenState extends State<MetroScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('捷運')),
+      appBar: AppBar(
+        title: const Text('YAMetro'),
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu_rounded),
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
+      ),
+      drawer: const TransitDrawer(currentMode: TransitMode.metro),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null

@@ -511,7 +511,9 @@ class RailAlert {
         alertId: json['alert_id'] as String? ?? '',
         title: json['title'] as String? ?? '',
         description: json['description'] as String? ?? '',
-        status: (json['status'] as num?)?.toInt() ?? 0,
+        status: json['status'] is num
+            ? (json['status'] as num).toInt()
+            : int.tryParse('${json['status']}') ?? 0,
         publishTime: json['publish_time'] as String? ?? '',
         startTime: json['start_time'] as String? ?? '',
         endTime: json['end_time'] as String? ?? '',

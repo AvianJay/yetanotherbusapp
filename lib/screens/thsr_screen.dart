@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/transit_repository.dart';
+import '../widgets/transit_drawer.dart';
 
 class ThsrScreen extends StatefulWidget {
   const ThsrScreen({super.key});
@@ -32,7 +33,13 @@ class _ThsrScreenState extends State<ThsrScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('高鐵'),
+        title: const Text('YAHSR'),
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu_rounded),
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -41,6 +48,7 @@ class _ThsrScreenState extends State<ThsrScreen>
           ],
         ),
       ),
+      drawer: const TransitDrawer(currentMode: TransitMode.thsr),
       body: TabBarView(
         controller: _tabController,
         children: [

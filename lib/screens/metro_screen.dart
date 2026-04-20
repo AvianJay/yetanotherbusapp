@@ -7,7 +7,9 @@ import '../core/transit_repository.dart';
 import '../widgets/transit_drawer.dart';
 
 class MetroScreen extends StatefulWidget {
-  const MetroScreen({super.key});
+  const MetroScreen({required this.onModeChanged, super.key});
+
+  final ValueChanged<TransitMode> onModeChanged;
 
   @override
   State<MetroScreen> createState() => _MetroScreenState();
@@ -54,7 +56,10 @@ class _MetroScreenState extends State<MetroScreen> {
           ),
         ),
       ),
-      drawer: const TransitDrawer(currentMode: TransitMode.metro),
+      drawer: TransitDrawer(
+        currentMode: TransitMode.metro,
+        onModeChanged: widget.onModeChanged,
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null

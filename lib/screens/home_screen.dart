@@ -16,7 +16,9 @@ import 'search_screen.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({required this.onModeChanged, super.key});
+
+  final ValueChanged<TransitMode> onModeChanged;
 
   Future<void> _openDatabaseSettings(
     BuildContext context,
@@ -71,7 +73,10 @@ class HomeScreen extends StatelessWidget {
           ),
         ],
       ),
-      drawer: const TransitDrawer(currentMode: TransitMode.bus),
+      drawer: TransitDrawer(
+        currentMode: TransitMode.bus,
+        onModeChanged: onModeChanged,
+      ),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(

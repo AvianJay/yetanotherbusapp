@@ -6,7 +6,9 @@ import '../core/transit_repository.dart';
 import '../widgets/transit_drawer.dart';
 
 class ThsrScreen extends StatefulWidget {
-  const ThsrScreen({super.key});
+  const ThsrScreen({required this.onModeChanged, super.key});
+
+  final ValueChanged<TransitMode> onModeChanged;
 
   @override
   State<ThsrScreen> createState() => _ThsrScreenState();
@@ -48,7 +50,10 @@ class _ThsrScreenState extends State<ThsrScreen>
           ],
         ),
       ),
-      drawer: const TransitDrawer(currentMode: TransitMode.thsr),
+      drawer: TransitDrawer(
+        currentMode: TransitMode.thsr,
+        onModeChanged: widget.onModeChanged,
+      ),
       body: TabBarView(
         controller: _tabController,
         children: [

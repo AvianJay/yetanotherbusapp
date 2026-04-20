@@ -6,7 +6,9 @@ import '../core/transit_repository.dart';
 import '../widgets/transit_drawer.dart';
 
 class TraScreen extends StatefulWidget {
-  const TraScreen({super.key});
+  const TraScreen({required this.onModeChanged, super.key});
+
+  final ValueChanged<TransitMode> onModeChanged;
 
   @override
   State<TraScreen> createState() => _TraScreenState();
@@ -48,7 +50,10 @@ class _TraScreenState extends State<TraScreen>
           ],
         ),
       ),
-      drawer: const TransitDrawer(currentMode: TransitMode.tra),
+      drawer: TransitDrawer(
+        currentMode: TransitMode.tra,
+        onModeChanged: widget.onModeChanged,
+      ),
       body: TabBarView(
         controller: _tabController,
         children: [

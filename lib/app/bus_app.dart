@@ -10,7 +10,7 @@ import '../core/ios_widget_integration.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
 import '../screens/favorites_screen.dart';
-import '../screens/home_screen.dart';
+import '../screens/main_transit_shell.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/route_detail_screen.dart';
 import '../widgets/app_update_dialog.dart';
@@ -394,7 +394,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return widget.controller.needsOnboarding
         ? const OnboardingScreen()
-        : const HomeScreen();
+        : const MainTransitShell();
   }
 }
 

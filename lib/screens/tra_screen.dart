@@ -257,7 +257,7 @@ class _TraLiveBoardTabState extends State<_TraLiveBoardTab>
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      '預定 ${e.scheduledTime}',
+                                        '預定 ${e.scheduledDeparture}',
                                       style: theme.textTheme.bodySmall,
                                     ),
                                   ],
@@ -537,7 +537,7 @@ class _TraOdTabState extends State<_TraOdTab>
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '${train.originStation} → ${train.destStation}',
+                            '${train.startStation} → ${train.endStation}',
                             style: theme.textTheme.bodySmall,
                           ),
                         ],

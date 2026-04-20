@@ -474,11 +474,11 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
 
   Widget _buildStationList(MetroStationOfLine sol) {
     // Build lookup: stationId → list of liveboard entries
+    // TDX does not reliably return Direction for LiveBoard, so show all
+    // entries per station regardless of direction.
     final liveMap = <String, List<MetroLiveBoardEntry>>{};
     for (final entry in _liveboard) {
-      if (entry.direction == sol.direction) {
-        liveMap.putIfAbsent(entry.stationId, () => []).add(entry);
-      }
+      liveMap.putIfAbsent(entry.stationId, () => []).add(entry);
     }
 
     return ListView.builder(
@@ -561,7 +561,7 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  '往${entry.destinationName} ${_formatEta(entry.estimatedTime)}',
+                                  '${entry.tripHeadSign.isNotEmpty ? entry.tripHeadSign : '往${entry.destinationName}'} ${_formatEta(entry.estimatedTime)}',
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodySmall

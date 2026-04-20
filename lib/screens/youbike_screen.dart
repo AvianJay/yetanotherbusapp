@@ -105,10 +105,11 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   }
 
   Color _availabilityColor(BikeStation station) {
-    final ratio = station.totalSpaces > 0
-        ? station.availableBikes / station.totalSpaces
+    final total = station.availableRent + station.availableReturn;
+    final ratio = total > 0
+        ? station.availableRent / total
         : 0.0;
-    if (station.availableBikes == 0) return Colors.red.shade600;
+    if (station.availableRent == 0) return Colors.red.shade600;
     if (ratio < 0.25) return Colors.orange.shade600;
     return Colors.green.shade600;
   }
@@ -230,7 +231,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                               ),
                               child: Center(
                                 child: Text(
-                                  '${station.availableBikes}',
+                                  '${station.availableRent}',
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 12,
@@ -359,7 +360,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                                           backgroundColor: color,
                                           radius: 18,
                                           child: Text(
-                                            '${station.availableBikes}',
+                                            '${station.availableRent}',
                                             style: const TextStyle(
                                               color: Colors.white,
                                               fontWeight: FontWeight.w700,
@@ -377,14 +378,14 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                         subtitle: Text(
-                                          '可借 ${station.availableBikes}  '
-                                          '可還 ${station.availableSpaces}',
+                                          '可借 ${station.availableRent}  '
+                                          '可還 ${station.availableReturn}',
                                           style: theme.textTheme.bodySmall,
                                         ),
-                                        trailing: station.distance != null
+                                        trailing: station.distanceMeters != null
                                             ? Text(
                                                 _formatDist(
-                                                    station.distance!),
+                                                    station.distanceMeters!.toDouble()),
                                                 style: theme
                                                     .textTheme.bodySmall
                                                     ?.copyWith(

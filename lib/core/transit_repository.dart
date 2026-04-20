@@ -388,6 +388,7 @@ class MetroLiveBoardEntry {
     required this.destinationId,
     required this.destinationName,
     required this.direction,
+    required this.tripHeadSign,
     required this.estimatedTime,
     required this.serviceStatus,
   });
@@ -400,6 +401,7 @@ class MetroLiveBoardEntry {
         destinationId: json['destination_id'] as String? ?? '',
         destinationName: json['destination_name'] as String? ?? '',
         direction: (json['direction'] as num?)?.toInt() ?? 0,
+        tripHeadSign: json['trip_head_sign'] as String? ?? '',
         estimatedTime: (json['estimated_time'] as num?)?.toInt(),
         serviceStatus: (json['service_status'] as num?)?.toInt() ?? 0,
       );
@@ -410,6 +412,7 @@ class MetroLiveBoardEntry {
   final String destinationId;
   final String destinationName;
   final int direction;
+  final String tripHeadSign;
   final int? estimatedTime; // seconds
   final int serviceStatus;
 }

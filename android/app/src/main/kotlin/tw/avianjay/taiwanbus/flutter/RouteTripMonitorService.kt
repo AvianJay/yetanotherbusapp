@@ -441,12 +441,14 @@ class RouteTripMonitorService : Service() {
                     boardingEtaSeconds = boardingEtaSeconds,
                 )
             }
+            val userBusLiveStop = busIndex?.let { liveStops[session.stops[it].stopId] }
             trackedBusId = if (hasBoarded) {
                 selectTrackedBusId(
                     currentTrackedBusId = trackedBusId,
                     nearestLiveStop = nearestLiveStop,
                     boardingLiveStop = boardingLiveStop,
                     destinationLiveStop = null,
+                    userBusLiveStop = userBusLiveStop,
                 )
             } else {
                 null
@@ -655,11 +657,13 @@ class RouteTripMonitorService : Service() {
         val currentLiveStop = liveStops[currentStop.stopId]
         val rawRemainingStops = destinationIndex - travelIndex
         val remainingStops = rawRemainingStops.coerceAtLeast(0)
+        val userBusLiveStop = busIndex?.let { liveStops[session.stops[it].stopId] }
         trackedBusId = selectTrackedBusId(
             currentTrackedBusId = trackedBusId,
             nearestLiveStop = nearestLiveStop,
             boardingLiveStop = boardingLiveStop,
             destinationLiveStop = destinationLive,
+            userBusLiveStop = userBusLiveStop,
         )
         val destinationEtaText = displayEtaText(destinationLive, trackedBusId)
         val destinationEtaShort = displayShortEtaText(destinationLive, trackedBusId)
@@ -963,12 +967,14 @@ class RouteTripMonitorService : Service() {
         nearestLiveStop: LiveStopState?,
         boardingLiveStop: LiveStopState?,
         destinationLiveStop: LiveStopState?,
+        userBusLiveStop: LiveStopState? = null,
     ): String? {
         val normalizedCurrent = normalizeVehicleId(currentTrackedBusId)
         if (
             normalizedCurrent != null &&
             (
-                isVehicleSeenAtStop(nearestLiveStop, normalizedCurrent) ||
+                isVehicleSeenAtStop(userBusLiveStop, normalizedCurrent) ||
+                    isVehicleSeenAtStop(nearestLiveStop, normalizedCurrent) ||
                     isVehicleSeenAtStop(boardingLiveStop, normalizedCurrent) ||
                     isVehicleSeenAtStop(destinationLiveStop, normalizedCurrent)
             )
@@ -976,7 +982,7 @@ class RouteTripMonitorService : Service() {
             return normalizedCurrent
         }
 
-        listOf(boardingLiveStop, nearestLiveStop, destinationLiveStop).forEach { stopState ->
+        listOf(userBusLiveStop, nearestLiveStop, boardingLiveStop, destinationLiveStop).forEach { stopState ->
             firstKnownVehicleId(stopState)?.let { return it }
         }
 

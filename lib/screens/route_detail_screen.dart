@@ -96,7 +96,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int? _destinationStopId;
   String? _destinationStopName;
   List<RouteAlert> _alerts = const <RouteAlert>[];
-  bool _alertsShownOnce = false;
+  static final Set<String> _shownAlertIds = <String>{};
   bool _alertsFetched = false;
   bool _alertsRead = false;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
@@ -286,8 +286,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _alerts = alerts;
         if (alerts.isNotEmpty) _alertsRead = false;
       });
-      if (alerts.isNotEmpty && !_alertsShownOnce) {
-        _alertsShownOnce = true;
+      final unseenAlerts = alerts.where(
+        (a) => !_shownAlertIds.contains(a.alertId),
+      ).toList();
+      if (unseenAlerts.isNotEmpty) {
+        _shownAlertIds.addAll(unseenAlerts.map((a) => a.alertId));
         setState(() { _alertsRead = true; });
         _showAlertsDialog();
       }
@@ -2995,17 +2998,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       },
                     );
                   },
-            icon: _alerts.isEmpty
-                ? const Icon(Icons.info_outline_rounded)
-                : _alertsRead
-                    ? Badge.count(
-                        count: 0,
-                        child: const Icon(Icons.info_outline_rounded),
-                      )
-                    : Badge(
-                        label: Text('${_alerts.length}'),
-                        child: const Icon(Icons.info_outline_rounded),
-                      ),
+            icon: _alerts.isNotEmpty && !_alertsRead
+                ? const Badge(
+                    smallSize: 8,
+                    child: Icon(Icons.info_outline_rounded),
+                  )
+                : const Icon(Icons.info_outline_rounded),
           ),
         ],
       ),
@@ -3163,6 +3161,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
   List<RouteScheduleEntry>? _schedule;
   bool _loading = true;
   String? _error;
+  final Set<String> _expandedAlertIds = <String>{};
 
   @override
   void initState() {
@@ -3222,11 +3221,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
               ),
               const SizedBox(height: 4),
               for (final alert in widget.alerts)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text('• ${alert.title}',
-                      style: theme.textTheme.bodySmall),
-                ),
+                _buildExpandableAlertItem(alert, theme),
               const Divider(height: 20),
             ],
             if (_loading)
@@ -3263,6 +3258,87 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
           child: const Text('關閉'),
         ),
       ],
+    );
+  }
+
+  Widget _buildExpandableAlertItem(RouteAlert alert, ThemeData theme) {
+    final expanded = _expandedAlertIds.contains(alert.alertId);
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () {
+        setState(() {
+          if (expanded) {
+            _expandedAlertIds.remove(alert.alertId);
+          } else {
+            _expandedAlertIds.add(alert.alertId);
+          }
+        });
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: alert.statusColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(alert.title,
+                      style: theme.textTheme.bodySmall),
+                ),
+                Icon(
+                  expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 18,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+            if (expanded) ...[
+              if (alert.effectText.isNotEmpty || alert.causeText.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, left: 16),
+                  child: Wrap(
+                    spacing: 6,
+                    children: [
+                      if (alert.effectText.isNotEmpty)
+                        Chip(
+                          label: Text(alert.effectText),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          labelStyle: theme.textTheme.labelSmall,
+                          padding: EdgeInsets.zero,
+                        ),
+                      if (alert.causeText.isNotEmpty)
+                        Chip(
+                          label: Text(alert.causeText),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          labelStyle: theme.textTheme.labelSmall,
+                          padding: EdgeInsets.zero,
+                        ),
+                    ],
+                  ),
+                ),
+              if (alert.description.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, left: 16),
+                  child: Text(alert.description,
+                      style: theme.textTheme.bodySmall),
+                ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

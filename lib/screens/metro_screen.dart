@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
 import '../core/transit_repository.dart';
+import '../widgets/eta_badge.dart';
 import '../widgets/transit_drawer.dart';
 
 class MetroScreen extends StatefulWidget {
@@ -411,25 +411,8 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
     }
   }
 
-  String _formatEta(int? seconds) {
-    if (seconds == null) return '--';
-    if (seconds <= 0) return '進站中';
-    if (seconds < 60) return '$seconds秒';
-    final min = seconds ~/ 60;
-    return '$min分';
-  }
-
-  Color _etaColor(int? seconds) {
-    if (seconds == null) return Colors.grey;
-    if (seconds <= 0) return Colors.red.shade700;
-    if (seconds < 120) return Colors.orange.shade700;
-    return Colors.teal.shade700;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.line.name),
@@ -488,113 +471,113 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
   }
 
   Widget _buildStationList(MetroStationOfLine sol) {
-    // Build lookup: stationId → list of liveboard entries
-    // TDX does not reliably return Direction for LiveBoard, so show all
-    // entries per station regardless of direction.
+    final theme = Theme.of(context);
+    // Build lookup: stationId → list of liveboard entries for this direction
     final liveMap = <String, List<MetroLiveBoardEntry>>{};
     for (final entry in _liveboard) {
-      liveMap.putIfAbsent(entry.stationId, () => []).add(entry);
+      // Only include entries matching this direction's destination
+      if (sol.stations.isNotEmpty) {
+        final lastStation = sol.stations.last;
+        // Match by destination or direction
+        if (entry.destinationId == lastStation.stationId ||
+            entry.direction == sol.direction ||
+            entry.tripHeadSign.contains(lastStation.name)) {
+          liveMap.putIfAbsent(entry.stationId, () => []).add(entry);
+        }
+      }
+    }
+
+    // If no filtered entries, show all (fallback)
+    if (liveMap.isEmpty) {
+      for (final entry in _liveboard) {
+        liveMap.putIfAbsent(entry.stationId, () => []).add(entry);
+      }
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: sol.stations.length,
       itemBuilder: (context, index) {
         final station = sol.stations[index];
         final liveEntries = liveMap[station.stationId] ?? [];
-        final isFirst = index == 0;
-        final isLast = index == sol.stations.length - 1;
+        // Pick the nearest arrival (smallest positive estimatedTime)
+        MetroLiveBoardEntry? nearestEntry;
+        for (final e in liveEntries) {
+          if (e.estimatedTime != null) {
+            if (nearestEntry == null ||
+                (e.estimatedTime! >= 0 &&
+                    (nearestEntry.estimatedTime! < 0 ||
+                        e.estimatedTime! < nearestEntry.estimatedTime!))) {
+              nearestEntry = e;
+            }
+          }
+        }
 
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Station line indicator
-                SizedBox(
-                  width: 32,
-                  child: Column(
-                    children: [
-                      if (!isFirst)
-                        Expanded(
-                          child: Container(
-                            width: 4,
-                            color:
-                                _parseLineColor().withValues(alpha: 0.6),
-                          ),
-                        ),
-                      Container(
-                        width: 14,
-                        height: 14,
-                        decoration: BoxDecoration(
-                          color: _parseLineColor(),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Theme.of(context).colorScheme.surface,
-                            width: 2,
-                          ),
-                        ),
-                      ),
-                      if (!isLast)
-                        Expanded(
-                          child: Container(
-                            width: 4,
-                            color:
-                                _parseLineColor().withValues(alpha: 0.6),
-                          ),
-                        ),
-                    ],
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // ETA Badge
+                  GenericEtaBadge(
+                    seconds: nearestEntry?.estimatedTime,
+                    size: 58,
                   ),
-                ),
-                const SizedBox(width: 12),
-                // Station info
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(width: 16),
+                  // Station name and divider
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
+                        // Line color indicator
+                        Container(
+                          width: 4,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: _parseLineColor(),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Station name
                         Text(
                           station.name,
-                          style: Theme.of(context).textTheme.titleSmall,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.primary,
+                            height: 1.2,
+                          ),
                         ),
-                        if (liveEntries.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 4,
-                            children: liveEntries.map((entry) {
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _etaColor(entry.estimatedTime)
-                                      .withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '${entry.tripHeadSign.isNotEmpty ? entry.tripHeadSign : '往${entry.destinationName}'} ${_formatEta(entry.estimatedTime)}',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                        color:
-                                            _etaColor(entry.estimatedTime),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                ),
-                              );
-                            }).toList(),
+                        const SizedBox(width: 12),
+                        // Divider line
+                        Expanded(
+                          child: Container(
+                            height: 1,
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                        ),
+                        // Show destination if available
+                        if (nearestEntry != null &&
+                            nearestEntry.tripHeadSign.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            nearestEntry.tripHeadSign,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ],
                       ],
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

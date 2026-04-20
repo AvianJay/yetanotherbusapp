@@ -35,7 +35,7 @@ class _TraScreenState extends State<TraScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('YATRA'),
+        title: const Text('YATrain'),
         leading: Builder(
           builder: (ctx) => IconButton(
             icon: const Icon(Icons.menu_rounded),

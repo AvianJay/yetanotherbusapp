@@ -334,6 +334,9 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
   String? _error;
   List<MetroStationOfLine> _stationOfLine = [];
   List<MetroLiveBoardEntry> _liveboard = [];
+  String _etaSource = 'unknown';
+  String? _etaMessage;
+  List<MetroFrequencyInfo>? _frequency;
   Timer? _refreshTimer;
   TabController? _tabController;
 
@@ -358,12 +361,12 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
     try {
       final futures = await Future.wait([
         widget.repo.getMetroStationOfLine(widget.system.system),
-        widget.repo.getMetroLiveBoard(widget.system.system, widget.line.lineId),
+        widget.repo.getMetroLineEta(widget.system.system, widget.line.lineId),
       ]);
       if (!mounted) return;
 
       final allSol = futures[0] as List<MetroStationOfLine>;
-      final liveboard = futures[1] as List<MetroLiveBoardEntry>;
+      final etaResponse = futures[1] as MetroEtaResponse;
 
       // Filter to this line only.
       final filtered =
@@ -379,7 +382,10 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
 
       setState(() {
         _stationOfLine = filtered;
-        _liveboard = liveboard;
+        _liveboard = etaResponse.entries;
+        _etaSource = etaResponse.source;
+        _etaMessage = etaResponse.message;
+        _frequency = etaResponse.frequency;
       });
 
       _startAutoRefresh();
@@ -400,12 +406,17 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
 
   Future<void> _refreshLiveboard() async {
     try {
-      final liveboard = await widget.repo.getMetroLiveBoard(
+      final etaResponse = await widget.repo.getMetroLineEta(
         widget.system.system,
         widget.line.lineId,
       );
       if (!mounted) return;
-      setState(() => _liveboard = liveboard);
+      setState(() {
+        _liveboard = etaResponse.entries;
+        _etaSource = etaResponse.source;
+        _etaMessage = etaResponse.message;
+        _frequency = etaResponse.frequency;
+      });
     } catch (_) {
       // Silently ignore refresh errors.
     }
@@ -461,7 +472,8 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
                   ? const Center(child: Text('此路線尚無站點資料。'))
                   : Column(
                       children: [
-                        if (_liveboard.isEmpty)
+                        // Show message for frequency-only mode (TMRT)
+                        if (_etaSource == 'frequency' || _liveboard.isEmpty)
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.symmetric(
@@ -483,7 +495,7 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    '此捷運系統目前無即時到站資訊',
+                                    _etaMessage ?? '此捷運系統目前無即時到站資訊',
                                     style: Theme.of(context)
                                         .textTheme
                                         .bodySmall
@@ -497,6 +509,9 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
                               ],
                             ),
                           ),
+                        // Show frequency info for TMRT
+                        if (_etaSource == 'frequency' && _frequency != null)
+                          ..._buildFrequencyInfo(),
                         Expanded(
                           child: _stationOfLine.length <= 1
                               ? _buildStationList(_stationOfLine.first)
@@ -510,6 +525,67 @@ class _MetroLineDetailScreenState extends State<MetroLineDetailScreen>
                       ],
                     ),
     );
+  }
+
+  List<Widget> _buildFrequencyInfo() {
+    if (_frequency == null || _frequency!.isEmpty) return [];
+
+    final theme = Theme.of(context);
+    final currentHeadway = _getCurrentHeadway();
+    if (currentHeadway == null) return [];
+
+    return [
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+        child: Row(
+          children: [
+            Icon(
+              Icons.schedule_rounded,
+              size: 18,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '班距約 ${currentHeadway.minHeadway}-${currentHeadway.maxHeadway} 分鐘',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  MetroHeadway? _getCurrentHeadway() {
+    if (_frequency == null || _frequency!.isEmpty) return null;
+
+    final now = TimeOfDay.now();
+    final nowMinutes = now.hour * 60 + now.minute;
+
+    for (final freq in _frequency!) {
+      for (final hw in freq.headways) {
+        final startParts = hw.startTime.split(':');
+        final endParts = hw.endTime.split(':');
+        if (startParts.length >= 2 && endParts.length >= 2) {
+          final startMinutes =
+              int.parse(startParts[0]) * 60 + int.parse(startParts[1]);
+          final endMinutes =
+              int.parse(endParts[0]) * 60 + int.parse(endParts[1]);
+          if (nowMinutes >= startMinutes && nowMinutes <= endMinutes) {
+            return hw;
+          }
+        }
+      }
+    }
+
+    // Return first headway as fallback
+    return _frequency!.first.headways.isNotEmpty
+        ? _frequency!.first.headways.first
+        : null;
   }
 
   Widget _buildStationList(MetroStationOfLine sol) {

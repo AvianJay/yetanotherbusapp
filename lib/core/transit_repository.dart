@@ -104,6 +104,19 @@ class TransitRepository {
     });
   }
 
+  /// Get calculated ETA for metro line (uses timetable fallback if LiveBoard is unavailable/unreliable).
+  Future<MetroEtaResponse> getMetroLineEta(String system, String lineId) async {
+    return _cached('metro_eta_${system}_$lineId', _metroLiveTtl, () async {
+      final uri = Uri.parse('$_apiBaseUrl/api/v1/metro/$system/lines/$lineId/eta');
+      final response = await _client.get(uri, headers: _headers);
+      if (response.statusCode != 200) {
+        throw Exception('API error ${response.statusCode}: ${response.body}');
+      }
+      final decoded = json.decode(response.body) as Map<String, dynamic>;
+      return MetroEtaResponse.fromJson(decoded);
+    });
+  }
+
   Future<List<MetroFrequencyInfo>> getMetroFrequency(String system) async {
     return _cached('metro_freq_$system', _metroStaticTtl, () async {
       final data = await _getJsonList('/api/v1/metro/$system/frequency');
@@ -415,6 +428,40 @@ class MetroLiveBoardEntry {
   final String tripHeadSign;
   final int? estimatedTime; // seconds
   final int serviceStatus;
+}
+
+/// Response from the /eta endpoint with smart fallback.
+class MetroEtaResponse {
+  const MetroEtaResponse({
+    required this.source,
+    required this.currentTime,
+    required this.entries,
+    this.message,
+    this.frequency,
+  });
+
+  factory MetroEtaResponse.fromJson(Map<String, dynamic> json) {
+    final rawEntries = json['entries'] as List<dynamic>? ?? [];
+    final rawFreq = json['frequency'] as List<dynamic>?;
+    return MetroEtaResponse(
+      source: json['source'] as String? ?? 'unknown',
+      currentTime: json['current_time'] as String? ?? '',
+      entries: rawEntries
+          .map((e) => MetroLiveBoardEntry.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      message: json['message'] as String?,
+      frequency: rawFreq
+          ?.map((e) => MetroFrequencyInfo.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
+  /// "liveboard", "timetable", or "frequency"
+  final String source;
+  final String currentTime;
+  final List<MetroLiveBoardEntry> entries;
+  final String? message; // For frequency source
+  final List<MetroFrequencyInfo>? frequency; // TMRT only
 }
 
 class MetroFrequencyInfo {

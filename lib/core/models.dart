@@ -1373,9 +1373,9 @@ class RouteScheduleEntry {
       final minH = payload['min_headway'];
       final maxH = payload['max_headway'];
       if (minH == maxH) {
-        return '$start - $end 每${minH}分';
+        return '$start - $end 每$minH分';
       }
-      return '$start - $end 每$minH-${maxH}分';
+      return '$start - $end 每$minH-$maxH分';
     }
     final tripId = payload['trip_id'] ?? '';
     final stops = payload['stop_times'] as List<dynamic>? ?? [];

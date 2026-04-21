@@ -194,7 +194,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 4),
                           itemCount: _stations.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          separatorBuilder: (_, _) => const Divider(height: 1),
                           itemBuilder: (context, index) {
                             final station = _stations[index];
                             final color = _availabilityColor(station);

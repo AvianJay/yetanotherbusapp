@@ -83,7 +83,7 @@ class _MetroScreenState extends State<MetroScreen> {
               : ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: _systems.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
                     final sys = _systems[index];
                     return _SystemCard(
@@ -243,7 +243,7 @@ class _MetroLinesScreenState extends State<_MetroLinesScreen> {
               : ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: _lines.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final line = _lines[index];
                     final lineColor = _parseColor(line.color);

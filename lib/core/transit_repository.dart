@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// Lightweight repository for non-bus transit data (Metro, THSR, TRA, Bike).

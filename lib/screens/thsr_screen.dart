@@ -468,7 +468,7 @@ class _ThsrSeatsTabState extends State<_ThsrSeatsTab>
         Padding(
           padding: const EdgeInsets.all(16),
           child: DropdownButtonFormField<RailStation>(
-            value: _selectedStation,
+            initialValue: _selectedStation,
             decoration: const InputDecoration(
               labelText: '選擇車站',
               border: OutlineInputBorder(),
@@ -617,7 +617,7 @@ class _StationDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<RailStation>(
-      value: selected,
+      initialValue: selected,
       isExpanded: true,
       decoration: InputDecoration(
         labelText: label,

@@ -1399,8 +1399,10 @@ class RouteTripMonitorService : Service() {
         if (progressMax <= 0) {
             return emptyList()
         }
-        return generateSequence(PROGRESS_POINT_UNIT) { current ->
-            (current + PROGRESS_POINT_UNIT).takeIf { it <= progressMax }
+        val pointOffset = (PROGRESS_POINT_UNIT / 2).coerceAtLeast(1)
+        val lastPointPosition = (progressMax - pointOffset).coerceAtLeast(pointOffset)
+        return generateSequence(pointOffset) { current ->
+            (current + PROGRESS_POINT_UNIT).takeIf { it <= lastPointPosition }
         }.toList()
     }
 

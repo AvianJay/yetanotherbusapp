@@ -33,7 +33,6 @@ import java.net.URLEncoder
 import java.net.URL
 import java.util.concurrent.Executors
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -507,11 +506,12 @@ class RouteTripMonitorService : Service() {
                 null
             }
             val busStopsAway = busIndex?.let { (nearestIndex - it).coerceAtLeast(0) }
-            val boardingProgressValue = if (rideState.hasBoarded) {
+            val boardingPointCount = boardingIndex + 1
+            val boardingProgressPoint = if (rideState.hasBoarded) {
                 val trackedPos = boardingBusIndex ?: nearestIndex
-                (trackedPos + 1).coerceIn(1, boardingIndex + 1)
+                (trackedPos + 1).coerceIn(1, boardingPointCount)
             } else {
-                boardingBusIndex?.plus(1)?.coerceAtMost(boardingIndex + 1) ?: 0
+                boardingBusIndex?.plus(1)?.coerceAtMost(boardingPointCount) ?: 0
             }
             return TrackingSnapshot(
                 title = session.routeName,
@@ -522,8 +522,8 @@ class RouteTripMonitorService : Service() {
                     nearestEtaText = nearestEtaText,
                     busStopsAway = busStopsAway,
                 ),
-                progressMax = boardingIndex + 1,
-                progressValue = boardingProgressValue,
+                progressMax = toProgressMax(boardingPointCount),
+                progressValue = toProgressValue(boardingProgressPoint, boardingPointCount),
                 shortCriticalText = buildShortCriticalText(
                     busStopsAway,
                     displayShortEtaText(nearestLiveStop),
@@ -616,8 +616,9 @@ class RouteTripMonitorService : Service() {
 
         if (!rideState.hasBoarded) {
             trackedBusId = null
-            val boardingProgressValue =
-                boardingBusIndex?.plus(1)?.coerceAtMost(boardingIndex + 1) ?: 0
+            val boardingPointCount = boardingIndex + 1
+            val boardingProgressPoint =
+                boardingBusIndex?.plus(1)?.coerceAtMost(boardingPointCount) ?: 0
             return TrackingSnapshot(
                 title = "${session.routeName} · ${boardingStop.stopName}",
                 content = "公車到 ${boardingStop.stopName} 約 $boardingEtaText",
@@ -627,8 +628,8 @@ class RouteTripMonitorService : Service() {
                     destinationStop = destinationStop,
                     busStopsUntilBoarding = busStopsUntilBoarding,
                 ),
-                progressMax = boardingIndex + 1,
-                progressValue = boardingProgressValue,
+                progressMax = toProgressMax(boardingPointCount),
+                progressValue = toProgressValue(boardingProgressPoint, boardingPointCount),
                 shortCriticalText = buildShortCriticalText(
                     busStopsUntilBoarding,
                     boardingEtaShort,
@@ -677,10 +678,10 @@ class RouteTripMonitorService : Service() {
             destinationStop.lon,
         )
         val journeyStartIndex = boardingIndex.coerceAtMost(destinationIndex)
-        val journeyProgressMax = (destinationIndex - journeyStartIndex + 1).coerceAtLeast(1)
-        val currentProgress =
+        val journeyPointCount = (destinationIndex - journeyStartIndex + 1).coerceAtLeast(1)
+        val currentProgressPoint =
             ((travelIndex.coerceAtLeast(journeyStartIndex) - journeyStartIndex) + 1)
-                .coerceIn(1, journeyProgressMax)
+                .coerceIn(1, journeyPointCount)
 
         return TrackingSnapshot(
             title = "${session.routeName} · ${destinationStop.stopName}",
@@ -689,8 +690,8 @@ class RouteTripMonitorService : Service() {
                 else -> "距離 ${destinationStop.stopName} 還有 $remainingStops 站 · $destinationEtaText"
             },
             subText = "已上車 · 最近站牌 ${nearestStop.stopName} · $nearestEtaText",
-            progressMax = journeyProgressMax,
-            progressValue = currentProgress,
+            progressMax = toProgressMax(journeyPointCount),
+            progressValue = toProgressValue(currentProgressPoint, journeyPointCount),
             shortCriticalText = buildShortCriticalText(
                 remainingStops,
                 destinationEtaShort,
@@ -783,7 +784,8 @@ class RouteTripMonitorService : Service() {
             destinationStop.lat,
             destinationStop.lon,
         )
-        val currentProgress = (busIndex ?: nearestIndex).plus(1).coerceAtMost(destinationIndex + 1)
+        val pointCount = destinationIndex + 1
+        val currentProgressPoint = (busIndex ?: nearestIndex).plus(1).coerceAtMost(pointCount)
 
         return TrackingSnapshot(
             title = "${session.routeName} · ${destinationStop.stopName}",
@@ -792,8 +794,8 @@ class RouteTripMonitorService : Service() {
                 else -> "${destinationStop.stopName} 還有 $remainingStops 站 · $destinationEtaText"
             },
             subText = "最近站牌 ${nearestStop.stopName} · $nearestEtaText",
-            progressMax = destinationIndex + 1,
-            progressValue = currentProgress,
+            progressMax = toProgressMax(pointCount),
+            progressValue = toProgressValue(currentProgressPoint, pointCount),
             destinationName = destinationStop.stopName,
             remainingStops = remainingStops,
             destinationDistanceMeters = destinationDistanceMeters,
@@ -1397,17 +1399,17 @@ class RouteTripMonitorService : Service() {
         if (progressMax <= 0) {
             return emptyList()
         }
-        if (progressMax <= MAX_PROGRESS_POINTS) {
-            return (1..progressMax).toList()
-        }
-        val positions = linkedSetOf(1)
-        val lastIndex = MAX_PROGRESS_POINTS - 1
-        for (index in 1 until lastIndex) {
-            val progress = 1 + ((progressMax - 1).toDouble() * index / lastIndex).roundToInt()
-            positions += progress.coerceIn(1, progressMax)
-        }
-        positions += progressMax
-        return positions.toList().sorted()
+        return generateSequence(PROGRESS_POINT_UNIT) { current ->
+            (current + PROGRESS_POINT_UNIT).takeIf { it <= progressMax }
+        }.toList()
+    }
+
+    private fun toProgressMax(pointCount: Int): Int {
+        return pointCount.coerceAtLeast(1) * PROGRESS_POINT_UNIT
+    }
+
+    private fun toProgressValue(pointIndex: Int, pointCount: Int): Int {
+        return pointIndex.coerceIn(0, pointCount.coerceAtLeast(1)) * PROGRESS_POINT_UNIT
     }
 
     private fun buildStoppedNotification(): Notification {
@@ -2521,7 +2523,7 @@ class RouteTripMonitorService : Service() {
         private const val USER_MOVEMENT_MIN_DISTANCE_METERS = 35.0
         private const val USER_ROUTE_PROGRESS_MIN_DISTANCE_METERS = 45.0
         private const val USER_TRANSIT_LIKE_SPEED_MPS = 4.2
-        private const val MAX_PROGRESS_POINTS = 8
+        private const val PROGRESS_POINT_UNIT = 100
         private const val PROGRESS_POINT_COLOR = 0x80000000.toInt()
         private const val OVERSHOOT_CONFIRM_DELAY_MS = 45_000L
         private const val ARRIVAL_AUTO_PAUSE_DELAY_MS = 60_000L

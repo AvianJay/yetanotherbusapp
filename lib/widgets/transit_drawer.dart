@@ -18,10 +18,9 @@ class TransitDrawer extends StatelessWidget {
 
   static const _modes = [
     (TransitMode.bus, Icons.directions_bus_rounded, '公車'),
-    (TransitMode.metro, Icons.subway_rounded, '捷運'),
-    (TransitMode.thsr, Icons.train_rounded, '高鐵'),
-    (TransitMode.tra, Icons.tram_rounded, '台鐵'),
     (TransitMode.youbike, Icons.pedal_bike_rounded, 'YouBike'),
+    (TransitMode.tra, Icons.tram_rounded, '台鐵'),
+    (TransitMode.thsr, Icons.train_rounded, '高鐵'),
   ];
 
   void _switchTo(BuildContext context, TransitMode mode) {
@@ -45,21 +44,17 @@ class TransitDrawer extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Icon(Icons.directions_transit_rounded,
-                    size: 40, color: colorScheme.onPrimaryContainer),
+                Image.asset(
+                  'assets/branding/icon_transparent.png',
+                  width: 48,
+                  height: 48,
+                ),
                 const SizedBox(height: 8),
                 Text(
                   'YABus',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: colorScheme.onPrimaryContainer,
                         fontWeight: FontWeight.w700,
-                      ),
-                ),
-                Text(
-                  '多模式大眾運輸',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onPrimaryContainer
-                            .withValues(alpha: 0.7),
                       ),
                 ),
               ],

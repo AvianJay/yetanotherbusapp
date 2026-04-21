@@ -79,6 +79,7 @@ flutter:
 
   assets:
     - assets/branding/splash_android.png
+    - assets/branding/icon_transparent.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

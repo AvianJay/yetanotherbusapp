@@ -578,7 +578,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return false;
     }
 
-    Navigator.of(context).popUntil((candidate) => identical(candidate, route));
+    final navigator = route.navigator;
+    if (navigator == null || !route.isActive) {
+      return false;
+    }
+
+    if (!route.isCurrent) {
+      navigator.popUntil((candidate) => identical(candidate, route));
+      if (!mounted || !route.isCurrent) {
+        return false;
+      }
+    }
+
     await _applyLaunchFocus(
       requestedPathId: action.pathId,
       requestedStopId: action.stopId,

@@ -198,6 +198,12 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateUseAmoledDark(bool value) async {
+    _settings = _settings.copyWith(useAmoledDark: value);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
   Future<void> updateAlwaysShowSeconds(bool value) async {
     _settings = _settings.copyWith(alwaysShowSeconds: value);
     await storage.saveSettings(_settings);

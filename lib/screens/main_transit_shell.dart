@@ -8,8 +8,7 @@ import 'youbike_screen.dart';
 
 /// Main shell that manages in-place switching between transit modes.
 ///
-/// Uses [IndexedStack] to preserve state of all screens and avoid
-/// re-initialization when switching modes.
+/// Lazily mounts top-level screens and animates between visited ones in place.
 class MainTransitShell extends StatefulWidget {
   const MainTransitShell({super.key});
 
@@ -17,12 +16,9 @@ class MainTransitShell extends StatefulWidget {
   State<MainTransitShell> createState() => _MainTransitShellState();
 }
 
-class _MainTransitShellState extends State<MainTransitShell>
-    with SingleTickerProviderStateMixin {
+class _MainTransitShellState extends State<MainTransitShell> {
   TransitMode _currentMode = TransitMode.bus;
-
-  late final AnimationController _fadeController;
-  late final Animation<double> _fadeAnimation;
+  final Set<TransitMode> _loadedModes = {TransitMode.bus};
 
   static const _visibleModes = [
     TransitMode.bus,
@@ -30,54 +26,85 @@ class _MainTransitShellState extends State<MainTransitShell>
     TransitMode.tra,
     TransitMode.youbike,
   ];
-
-  @override
-  void initState() {
-    super.initState();
-    _fadeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 150),
-      value: 1.0,
-    );
-    _fadeAnimation = CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeInOut,
-    );
-  }
-
-  @override
-  void dispose() {
-    _fadeController.dispose();
-    super.dispose();
-  }
+  static const _switchDuration = Duration(milliseconds: 220);
+  static const _hiddenOffset = Offset(0.035, 0);
 
   void _setMode(TransitMode mode) {
-    if (mode == TransitMode.metro) mode = TransitMode.bus;
-    if (mode == _currentMode) return;
+    if (!_visibleModes.contains(mode) || mode == TransitMode.metro) {
+      mode = TransitMode.bus;
+    }
+    if (mode == _currentMode) {
+      return;
+    }
 
-    _fadeController.reverse().then((_) {
+    if (_loadedModes.contains(mode)) {
+      setState(() => _currentMode = mode);
+      return;
+    }
+
+    setState(() => _loadedModes.add(mode));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() => _currentMode = mode);
-      _fadeController.forward();
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentIndex = _visibleModes.indexOf(_currentMode);
+    final screens = _visibleModes
+        .where(_loadedModes.contains)
+        .map((mode) => (mode: mode, child: _buildScreenForMode(mode)))
+        .toList();
+    final orderedScreens = [
+      ...screens.where((screen) => screen.mode != _currentMode),
+      ...screens.where((screen) => screen.mode == _currentMode),
+    ];
 
-    return ColoredBox(
-      color: Theme.of(context).scaffoldBackgroundColor,
-      child: FadeTransition(
-        opacity: _fadeAnimation,
-        child: IndexedStack(
-          index: currentIndex >= 0 ? currentIndex : 0,
-          children: [
-            HomeScreen(onModeChanged: _setMode),
-            ThsrScreen(onModeChanged: _setMode),
-            TraScreen(onModeChanged: _setMode),
-            YouBikeScreen(onModeChanged: _setMode),
-          ],
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        for (final screen in orderedScreens)
+          KeyedSubtree(
+            key: ValueKey(screen.mode),
+            child: _buildModeLayer(
+              mode: screen.mode,
+              child: screen.child,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildScreenForMode(TransitMode mode) {
+    return switch (mode) {
+      TransitMode.bus => HomeScreen(onModeChanged: _setMode),
+      TransitMode.thsr => ThsrScreen(onModeChanged: _setMode),
+      TransitMode.tra => TraScreen(onModeChanged: _setMode),
+      TransitMode.youbike => YouBikeScreen(onModeChanged: _setMode),
+      TransitMode.metro => HomeScreen(onModeChanged: _setMode),
+    };
+  }
+
+  Widget _buildModeLayer({required TransitMode mode, required Widget child}) {
+    final isActive = mode == _currentMode;
+
+    return IgnorePointer(
+      ignoring: !isActive,
+      child: ExcludeSemantics(
+        excluding: !isActive,
+        child: TickerMode(
+          enabled: isActive,
+          child: AnimatedSlide(
+            duration: _switchDuration,
+            curve: Curves.easeOutCubic,
+            offset: isActive ? Offset.zero : _hiddenOffset,
+            child: AnimatedOpacity(
+              duration: _switchDuration,
+              curve: Curves.easeOutCubic,
+              opacity: isActive ? 1 : 0,
+              child: child,
+            ),
+          ),
         ),
       ),
     );

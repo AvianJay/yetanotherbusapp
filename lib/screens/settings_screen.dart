@@ -113,6 +113,18 @@ class SettingsScreen extends StatelessWidget {
                       }
                     },
                   ),
+                  const SizedBox(height: 4),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('純黑 (AMOLED) 深色主題'),
+                    subtitle: const Text('深色模式下使用純黑背景，可省電並提升對比'),
+                    value: controller.settings.useAmoledDark,
+                    onChanged: controller.settings.themeMode == ThemeMode.light
+                        ? null
+                        : (value) {
+                            controller.updateUseAmoledDark(value);
+                          },
+                  ),
                 ],
               ),
             ),

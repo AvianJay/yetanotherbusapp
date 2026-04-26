@@ -288,6 +288,7 @@ class AppSettings {
     required this.selectedProviders,
     required this.skipDownloadPromptProviders,
     required this.themeMode,
+    required this.useAmoledDark,
     required this.alwaysShowSeconds,
     required this.enableSmartRecommendations,
     required this.enableSmartRouteNotifications,
@@ -310,6 +311,7 @@ class AppSettings {
       selectedProviders: const [BusProvider.tpe],
       skipDownloadPromptProviders: const [],
       themeMode: ThemeMode.system,
+      useAmoledDark: false,
       alwaysShowSeconds: false,
       enableSmartRecommendations: true,
       enableSmartRouteNotifications: false,
@@ -362,6 +364,7 @@ class AppSettings {
       selectedProviders: selectedProviders,
       skipDownloadPromptProviders: skipPromptProviders,
       themeMode: themeModeFromString(json['themeMode'] as String? ?? 'system'),
+      useAmoledDark: json['useAmoledDark'] as bool? ?? false,
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
       enableSmartRecommendations:
           json['enableSmartRecommendations'] as bool? ?? true,
@@ -406,6 +409,7 @@ class AppSettings {
   final List<BusProvider> selectedProviders;
   final List<BusProvider> skipDownloadPromptProviders;
   final ThemeMode themeMode;
+  final bool useAmoledDark;
   final bool alwaysShowSeconds;
   final bool enableSmartRecommendations;
   final bool enableSmartRouteNotifications;
@@ -426,6 +430,7 @@ class AppSettings {
     List<BusProvider>? selectedProviders,
     List<BusProvider>? skipDownloadPromptProviders,
     ThemeMode? themeMode,
+    bool? useAmoledDark,
     bool? alwaysShowSeconds,
     bool? enableSmartRecommendations,
     bool? enableSmartRouteNotifications,
@@ -447,6 +452,7 @@ class AppSettings {
       skipDownloadPromptProviders:
           skipDownloadPromptProviders ?? this.skipDownloadPromptProviders,
       themeMode: themeMode ?? this.themeMode,
+      useAmoledDark: useAmoledDark ?? this.useAmoledDark,
       alwaysShowSeconds: alwaysShowSeconds ?? this.alwaysShowSeconds,
       enableSmartRecommendations:
           enableSmartRecommendations ?? this.enableSmartRecommendations,
@@ -482,6 +488,7 @@ class AppSettings {
           .map((item) => item.name)
           .toList(),
       'themeMode': themeMode.name,
+      'useAmoledDark': useAmoledDark,
       'alwaysShowSeconds': alwaysShowSeconds,
       'enableSmartRecommendations': enableSmartRecommendations,
       'enableSmartRouteNotifications': enableSmartRouteNotifications,

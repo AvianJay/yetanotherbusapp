@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import 'models.dart';
+// import 'models.dart';
 
 /// Lightweight repository for non-bus transit data (Metro, THSR, TRA, Bike).
 /// All data comes from the API server — no local SQLite database needed.
@@ -60,6 +60,7 @@ class TransitRepository {
     return decoded is List ? decoded : [];
   }
 
+  // ignore: unused_element
   Future<Map<String, dynamic>> _getJsonMap(String path) async {
     final uri = Uri.parse('$_apiBaseUrl$path');
     final response = await _client.get(uri, headers: _headers);
@@ -70,6 +71,7 @@ class TransitRepository {
     return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
   }
 
+  // ignore: unused_element
   int _stableRouteKey(String routeId) {
     var hash = 17;
     for (final codeUnit in routeId.codeUnits) {

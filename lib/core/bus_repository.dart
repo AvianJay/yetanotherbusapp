@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'api_user_agent.dart';
 import 'models.dart';
 import 'native_sqlite_bridge.dart';
 
@@ -24,26 +25,23 @@ class BusRepository {
   BusRepository({http.Client? client}) : _client = client ?? http.Client();
 
   static const _apiBaseUrl = 'https://bus.avianjay.sbs';
-  static const _userAgent = 'Mozilla/5.0 (YABus Flutter)';
   static const _databaseDirectoryName = '.yabus_backend';
   static const _legacyDatabaseDirectoryNames = <String>['.taiwanbus'];
   static const _routeMetadataDatabaseFileName = 'routes_metadata_v1.sqlite';
   static const _legacyRouteMetadataDatabaseFileNames = <String>[
     'routes_metadata_v2.sqlite',
   ];
-  static const _apiJsonHeaders = <String, String>{
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip',
-    'User-Agent': _userAgent,
-  };
-  static const _downloadHeaders = <String, String>{
-    'Accept-Encoding': 'gzip',
-    'User-Agent': _userAgent,
-  };
   static const _webLocalDatabaseUnsupportedMessage =
       'Web 版目前不支援本 app 使用的本機 SQLite 資料庫。';
 
   final http.Client _client;
+  Map<String, String> get _apiJsonHeaders => ApiUserAgent.applyTo(const {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip',
+      });
+  Map<String, String> get _downloadHeaders => ApiUserAgent.applyTo(const {
+        'Accept-Encoding': 'gzip',
+      });
   static const _routeDetailCacheTtl = Duration(seconds: 2);
   static const _searchApiCacheTtl = Duration(seconds: 2);
   static const _realtimeCacheTtl = Duration(seconds: 2);

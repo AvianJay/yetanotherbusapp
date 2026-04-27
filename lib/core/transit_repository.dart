@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'api_user_agent.dart';
+
 // import 'models.dart';
 
 /// Lightweight repository for non-bus transit data (Metro, THSR, TRA, Bike).
@@ -11,13 +13,12 @@ class TransitRepository {
       : _client = client ?? http.Client();
 
   static const _apiBaseUrl = 'https://bus.avianjay.sbs';
-  static const _headers = <String, String>{
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip',
-    'User-Agent': 'Mozilla/5.0 (YABus Flutter)',
-  };
 
   final http.Client _client;
+  Map<String, String> get _headers => ApiUserAgent.applyTo(const {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip',
+      });
 
   // ── In-memory cache ─────────────────────────────────────────────────────
 

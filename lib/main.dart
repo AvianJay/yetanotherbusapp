@@ -8,6 +8,7 @@ import 'core/app_build_info.dart';
 import 'core/app_launch_service.dart';
 import 'core/app_update_installer.dart';
 import 'core/app_update_service.dart';
+import 'core/api_user_agent.dart';
 import 'core/bus_repository.dart';
 import 'core/database_factory.dart';
 import 'core/storage_service.dart';
@@ -20,6 +21,7 @@ Future<void> main() async {
     await AppLaunchService.instance.initialize();
     final analytics = await AppAnalytics.initialize();
     final buildInfo = await AppBuildInfo.load();
+    ApiUserAgent.configure(buildInfo);
 
     final controller = AppController(
       repository: BusRepository(),

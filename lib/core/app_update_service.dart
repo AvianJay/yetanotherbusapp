@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'api_user_agent.dart';
 import 'app_build_info.dart';
 import 'models.dart';
 
@@ -217,11 +218,10 @@ class AppUpdateService {
     final response = await _client
         .get(
           uri,
-          headers: const {
+          headers: ApiUserAgent.applyTo(const {
             'Accept': 'application/vnd.github+json',
             'X-GitHub-Api-Version': _githubApiVersion,
-            'User-Agent': 'YetAnotherBusApp',
-          },
+          }),
         )
         .timeout(const Duration(seconds: 10));
     if (response.statusCode < 200 || response.statusCode >= 300) {

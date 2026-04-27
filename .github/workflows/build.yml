@@ -99,6 +99,8 @@ jobs:
           fi
 
       - name: Build APK
+        env:
+          APP_GIT_SHA: ${{ github.sha }}
         run: >
           flutter build apk --release
           --dart-define=APP_GIT_SHA=${{ github.sha }}
@@ -296,6 +298,8 @@ jobs:
         run: flutter precache --ios
 
       - name: Generate iOS archive without codesign
+        env:
+          APP_GIT_SHA: ${{ github.sha }}
         run: >
           flutter build ios --release --no-codesign
           --flavor=${{ env.IOS_FLAVOR }}
@@ -308,6 +312,8 @@ jobs:
           --dart-define=APP_NIGHTLY_ARTIFACT=ios-unsigned-ipa
 
       - name: Archive YABus.app
+        env:
+          APP_GIT_SHA: ${{ github.sha }}
         run: |
           xcodebuild \
             -workspace ios/YABus.xcworkspace \

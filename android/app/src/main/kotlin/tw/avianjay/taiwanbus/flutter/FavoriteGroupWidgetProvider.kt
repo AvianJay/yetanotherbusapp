@@ -415,7 +415,7 @@ object FavoriteGroupWidgetSupport {
         connection.readTimeout = 10_000
         connection.requestMethod = "GET"
         connection.setRequestProperty("Accept", "application/json")
-        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (YABus Android Widget)")
+        connection.setRequestProperty("User-Agent", NativeApiUserAgent.value())
         connection.doInput = true
         connection.useCaches = false
 

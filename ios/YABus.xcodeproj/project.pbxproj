@@ -299,6 +299,7 @@
 				ABABABABABABABABABABAB03 /* Sources */,
 				A99999999999999999999991 /* Frameworks */,
 				ABABABABABABABABABABAB04 /* Resources */,
+				F11111111111111111111111 /* Configure Widget Build Info */,
 			);
 			buildRules = (
 			);
@@ -454,6 +455,23 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-YABus/Pods-YABus-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		F11111111111111111111111 /* Configure Widget Build Info */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${SRCROOT}/Flutter/Generated.xcconfig",
+				"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}",
+			);
+			name = "Configure Widget Build Info";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"${SRCROOT}/scripts/configure_widget_build_info.sh\"";
 			showEnvVarsInLog = 0;
 		};
 		FE9E509E11F793AE7A67CC19 /* [CP] Check Pods Manifest.lock */ = {

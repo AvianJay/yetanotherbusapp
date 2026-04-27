@@ -73,9 +73,25 @@ class AppController extends ChangeNotifier {
   bool get databaseReady => isDatabaseReady(_settings.provider);
   List<BusProvider> get selectedProviders =>
       List.unmodifiable(_settings.selectedProviders);
-  List<BusProvider> get downloadedProviders => BusProvider.values
+  List<BusProvider> get downloadedProviders => downloadableBusProviders()
       .where((provider) => _databaseReadyByProvider[provider] ?? false)
       .toList();
+  List<BusProvider> get searchProviders {
+    final ordered = <BusProvider>[];
+    final currentProvider =
+        _settings.provider.supportsLocalDatabase ? _settings.provider : null;
+    if (currentProvider != null) {
+      ordered.add(currentProvider);
+    }
+    ordered.add(BusProvider.inter);
+    for (final provider in _settings.selectedProviders) {
+      if (!provider.supportsLocalDatabase || provider == currentProvider) {
+        continue;
+      }
+      ordered.add(provider);
+    }
+    return List.unmodifiable(ordered);
+  }
   bool get checkingDatabase => _checkingDatabase;
   bool get downloadingDatabase => _downloadingDatabase;
   bool get needsOnboarding => !_settings.hasCompletedOnboarding;
@@ -94,6 +110,9 @@ class AppController extends ChangeNotifier {
   }
 
   bool shouldAskDownloadPrompt(BusProvider provider) {
+    if (!provider.supportsLocalDatabase) {
+      return false;
+    }
     return !_settings.skipDownloadPromptProviders.contains(provider);
   }
 
@@ -134,6 +153,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> updateProvider(BusProvider provider) async {
+    if (!provider.supportsLocalDatabase) {
+      provider = BusProvider.tpe;
+    }
     final selected = _settings.selectedProviders.toSet();
     selected.add(provider);
     _settings = _settings.copyWith(
@@ -146,7 +168,10 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> updateSelectedProviders(List<BusProvider> providers) async {
-    final normalized = providers.toSet().toList();
+    final normalized = providers
+        .where((provider) => provider.supportsLocalDatabase)
+        .toSet()
+        .toList();
     if (normalized.isEmpty) {
       normalized.add(_settings.provider);
     }
@@ -166,6 +191,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> toggleSelectedProvider(BusProvider provider, bool value) async {
+    if (!provider.supportsLocalDatabase) {
+      return;
+    }
     final next = _settings.selectedProviders.toSet();
     if (value) {
       next.add(provider);
@@ -181,6 +209,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> setSkipDownloadPrompt(BusProvider provider, bool skip) async {
+    if (!provider.supportsLocalDatabase) {
+      return;
+    }
     final next = _settings.skipDownloadPromptProviders.toSet();
     if (skip) {
       next.add(provider);
@@ -343,7 +374,9 @@ class AppController extends ChangeNotifier {
   Future<Map<BusProvider, int?>> checkDatabaseUpdates({
     Iterable<BusProvider>? providers,
   }) async {
-    final targetProviders = (providers ?? _settings.selectedProviders).toList();
+    final targetProviders = (providers ?? _settings.selectedProviders)
+        .where((provider) => provider.supportsLocalDatabase)
+        .toList();
     final updates = await repository.checkForUpdates(providers: targetProviders);
     final nextPending = {..._pendingDatabaseUpdates};
     for (final provider in targetProviders) {
@@ -436,7 +469,10 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> downloadProviderDatabases(Iterable<BusProvider> providers) async {
-    final targets = providers.toSet().toList();
+    final targets = providers
+        .where((provider) => provider.supportsLocalDatabase)
+        .toSet()
+        .toList();
     if (targets.isEmpty) {
       return;
     }
@@ -480,38 +516,22 @@ class AppController extends ChangeNotifier {
     if (isDatabaseReady(targetProvider)) {
       return repository.searchRoutes(query, provider: targetProvider);
     }
-    if (shouldAskDownloadPrompt(targetProvider)) {
-      throw DatabaseNotReadyException('尚未下載 ${targetProvider.label} 資料庫。');
-    }
     return repository.searchRoutesFromApi(query, provider: targetProvider);
   }
 
   Future<List<RouteSummary>> searchRoutesAcrossSelected(String query) async {
     final results = <RouteSummary>[];
-    for (final provider in _settings.selectedProviders) {
+    for (final provider in searchProviders) {
       if (isDatabaseReady(provider)) {
         results.addAll(
           await repository.searchRoutes(query, provider: provider),
         );
-      } else if (!shouldAskDownloadPrompt(provider)) {
+      } else {
         results.addAll(
           await repository.searchRoutesFromApi(query, provider: provider),
         );
       }
     }
-
-    results.sort((left, right) {
-      final leftDownloaded = isDatabaseReady(
-        busProviderFromString(left.sourceProvider),
-      );
-      final rightDownloaded = isDatabaseReady(
-        busProviderFromString(right.sourceProvider),
-      );
-      if (leftDownloaded != rightDownloaded) {
-        return leftDownloaded ? -1 : 1;
-      }
-      return left.routeName.compareTo(right.routeName);
-    });
 
     return results;
   }

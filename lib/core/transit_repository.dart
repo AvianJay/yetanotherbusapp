@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'models.dart';
+
 /// Lightweight repository for non-bus transit data (Metro, THSR, TRA, Bike).
 /// All data comes from the API server — no local SQLite database needed.
 class TransitRepository {
@@ -56,6 +58,25 @@ class TransitRepository {
     }
     final decoded = json.decode(response.body);
     return decoded is List ? decoded : [];
+  }
+
+  Future<Map<String, dynamic>> _getJsonMap(String path) async {
+    final uri = Uri.parse('$_apiBaseUrl$path');
+    final response = await _client.get(uri, headers: _headers);
+    if (response.statusCode != 200) {
+      throw Exception('API error ${response.statusCode}: ${response.body}');
+    }
+    final decoded = json.decode(response.body);
+    return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+  }
+
+  int _stableRouteKey(String routeId) {
+    var hash = 17;
+    for (final codeUnit in routeId.codeUnits) {
+      hash = 37 * hash + codeUnit;
+      hash &= 0x7fffffff;
+    }
+    return hash;
   }
 
   // ══════════════════════════════════════════════════════════════════════════

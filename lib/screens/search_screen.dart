@@ -17,7 +17,6 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _controller = TextEditingController();
   Timer? _debounce;
-  final Set<BusProvider> _apiAllowedThisSession = <BusProvider>{};
   bool _isLoading = false;
   String? _error;
   List<RouteSummary> _results = const [];
@@ -45,83 +44,15 @@ class _SearchScreenState extends State<SearchScreen> {
     });
   }
 
-  Future<bool> _ensureProvidersReadyForSearch(
-    AppController busController,
-  ) async {
-    for (final provider in busController.selectedProviders) {
-      if (busController.isDatabaseReady(provider)) {
-        continue;
-      }
-      if (!busController.shouldAskDownloadPrompt(provider) ||
-          _apiAllowedThisSession.contains(provider)) {
-        continue;
-      }
-
-      final action = await _showMissingDatabaseDialog(provider);
-      if (!mounted) {
-        return false;
-      }
-
-      switch (action) {
-        case _MissingDatabaseAction.download:
-          await busController.downloadProviderDatabase(provider);
-          if (!mounted) {
-            return false;
-          }
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('${provider.label} 資料庫下載完成。')));
-          break;
-        case _MissingDatabaseAction.apiOnce:
-          _apiAllowedThisSession.add(provider);
-          break;
-        case _MissingDatabaseAction.apiAlways:
-          _apiAllowedThisSession.add(provider);
-          await busController.setSkipDownloadPrompt(provider, true);
-          break;
-        case _MissingDatabaseAction.cancel:
-          return false;
-      }
+  int _providerPriority(AppController busController, BusProvider provider) {
+    final currentProvider = busController.settings.provider;
+    if (provider == currentProvider) {
+      return 0;
     }
-
-    return true;
-  }
-
-  Future<_MissingDatabaseAction> _showMissingDatabaseDialog(
-    BusProvider provider,
-  ) async {
-    final action = await showDialog<_MissingDatabaseAction>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('${provider.label} 尚未下載'),
-          content: const Text('要先下載資料庫，或改為直接使用 API 查詢？'),
-          actions: [
-            TextButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_MissingDatabaseAction.cancel),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_MissingDatabaseAction.apiOnce),
-              child: const Text('這次用 API'),
-            ),
-            TextButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_MissingDatabaseAction.apiAlways),
-              child: const Text('改用 API 且不再詢問'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_MissingDatabaseAction.download),
-              child: const Text('下載資料庫'),
-            ),
-          ],
-        );
-      },
-    );
-    return action ?? _MissingDatabaseAction.cancel;
+    if (provider == BusProvider.inter) {
+      return 1;
+    }
+    return 2;
   }
 
   Future<void> _search(String query) async {
@@ -132,21 +63,14 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      final shouldContinue = await _ensureProvidersReadyForSearch(
-        busController,
-      );
-      if (!shouldContinue) {
-        return;
-      }
-
       final results = <RouteSummary>[];
-      for (final provider in busController.selectedProviders) {
-        if (busController.isDatabaseReady(provider)) {
+      for (final provider in busController.searchProviders) {
+        if (provider.supportsLocalDatabase &&
+            busController.isDatabaseReady(provider)) {
           results.addAll(
             await busController.searchRoutes(query, provider: provider),
           );
-        } else if (!busController.shouldAskDownloadPrompt(provider) ||
-            _apiAllowedThisSession.contains(provider)) {
+        } else {
           results.addAll(
             await busController.searchRoutesViaApi(query, provider: provider),
           );
@@ -154,16 +78,18 @@ class _SearchScreenState extends State<SearchScreen> {
       }
 
       results.sort((left, right) {
-        final leftDownloaded = busController.isDatabaseReady(
-          busProviderFromString(left.sourceProvider),
-        );
-        final rightDownloaded = busController.isDatabaseReady(
-          busProviderFromString(right.sourceProvider),
-        );
-        if (leftDownloaded != rightDownloaded) {
-          return leftDownloaded ? -1 : 1;
+        final leftProvider = busProviderFromString(left.sourceProvider);
+        final rightProvider = busProviderFromString(right.sourceProvider);
+        final leftPriority = _providerPriority(busController, leftProvider);
+        final rightPriority = _providerPriority(busController, rightProvider);
+        if (leftPriority != rightPriority) {
+          return leftPriority.compareTo(rightPriority);
         }
-        return left.routeName.compareTo(right.routeName);
+        final routeNameCompare = left.routeName.compareTo(right.routeName);
+        if (routeNameCompare != 0) {
+          return routeNameCompare;
+        }
+        return left.description.compareTo(right.description);
       });
 
       if (!mounted) {
@@ -242,7 +168,7 @@ class _SearchScreenState extends State<SearchScreen> {
             onSubmitted: (value) => _search(value),
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.search_rounded),
-              hintText: '輸入公車號碼或路線名稱',
+              hintText: '輸入公車號碼、路線名稱或客運名稱',
               suffixIcon: _controller.text.isEmpty
                   ? null
                   : IconButton(
@@ -262,7 +188,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Text(
                   '尚未下載：${missingProviders.map((provider) => provider.label).join('、')}。\n'
-                  '搜尋時會先用已下載資料庫；未下載縣市可選擇下載或改走 API。',
+                  '搜尋時會自動改走線上 API；公路客運固定使用線上查詢。',
                 ),
               ),
             ),
@@ -342,8 +268,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 }
-
-enum _MissingDatabaseAction { download, apiOnce, apiAlways, cancel }
 
 class _HistorySection extends StatelessWidget {
   const _HistorySection({

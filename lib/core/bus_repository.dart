@@ -76,6 +76,10 @@ class BusRepository {
       <String, Future<List<RouteAlert>>>{};
 
   Future<bool> databaseExists(BusProvider provider) async {
+    if (!provider.supportsLocalDatabase) {
+      await _cleanupUnsupportedProviderArtifacts(provider);
+      return false;
+    }
     if (!_supportsLocalDatabase) {
       return false;
     }
@@ -149,7 +153,7 @@ class BusRepository {
       return const [];
     }
     final result = <BusProvider>[];
-    for (final provider in BusProvider.values) {
+    for (final provider in downloadableBusProviders()) {
       if (await databaseExists(provider)) {
         result.add(provider);
       }
@@ -158,7 +162,9 @@ class BusRepository {
   }
 
   Future<void> deleteProviderDatabase(BusProvider provider) async {
-    _ensureLocalDatabaseSupported();
+    if (!_supportsLocalDatabase) {
+      return;
+    }
     final file = await _cityDatabaseFile(provider);
     if (await file.exists()) {
       await file.delete();
@@ -172,10 +178,12 @@ class BusRepository {
   Future<Map<BusProvider, int?>> checkForUpdates({
     Iterable<BusProvider>? providers,
   }) async {
-    final targetProviders = (providers ?? BusProvider.values).toList();
+    final targetProviders = (providers ?? downloadableBusProviders())
+        .where((provider) => provider.supportsLocalDatabase)
+        .toList();
     final localVersions = _supportsLocalDatabase
         ? await _readVersionMap()
-        : {for (final provider in BusProvider.values) provider.name: 0};
+        : {for (final provider in downloadableBusProviders()) provider.name: 0};
 
     final updates = <BusProvider, int?>{};
     for (final provider in targetProviders) {
@@ -187,6 +195,9 @@ class BusRepository {
   }
 
   Future<int?> getLocalVersion(BusProvider provider) async {
+    if (!provider.supportsLocalDatabase) {
+      return null;
+    }
     if (!_supportsLocalDatabase) {
       return null;
     }
@@ -195,6 +206,9 @@ class BusRepository {
   }
 
   Future<void> downloadDatabase(BusProvider provider) async {
+    if (!provider.supportsLocalDatabase) {
+      throw UnsupportedError('公路客運不提供離線資料庫下載。');
+    }
     _ensureLocalDatabaseSupported();
     final remoteVersion = await _fetchRemoteDatabaseVersion(provider);
     final metadataFile = await _routeMetadataDatabaseFile();
@@ -279,6 +293,21 @@ class BusRepository {
       );
     } finally {
       await database.close();
+    }
+  }
+
+  Future<void> _cleanupUnsupportedProviderArtifacts(BusProvider provider) async {
+    if (!_supportsLocalDatabase) {
+      return;
+    }
+    final file = await _cityDatabaseFile(provider);
+    if (await file.exists()) {
+      await file.delete();
+    }
+
+    final versions = await _readVersionMap();
+    if (versions.remove(provider.name) != null) {
+      await _writeVersionMap(versions);
     }
   }
 
@@ -2602,6 +2631,7 @@ class BusRepository {
       BusProvider.kee => 'Keelung',
       BusProvider.tpe => 'Taipei',
       BusProvider.nwt => 'NewTaipei',
+      BusProvider.inter => 'InterCity',
       BusProvider.tao => 'Taoyuan',
       BusProvider.hsz => 'Hsinchu',
       BusProvider.hsq => 'HsinchuCounty',

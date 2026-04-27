@@ -230,7 +230,7 @@ class DatabaseSettingsScreen extends StatelessWidget {
                   DropdownButtonFormField<BusProvider>(
                     initialValue: controller.settings.provider,
                     decoration: const InputDecoration(labelText: '預設顯示地區'),
-                    items: BusProvider.values
+                    items: downloadableBusProviders()
                         .map(
                           (provider) => DropdownMenuItem(
                             value: provider,
@@ -246,14 +246,14 @@ class DatabaseSettingsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    '選取要保留在本機的地區資料庫。若未下載，搜尋與詳細頁會在需要時改走線上 API。',
+                    '選取要保留在本機的縣市資料庫。若未下載，搜尋與詳細頁會自動改走線上 API。公路客運固定使用線上查詢，不提供下載。',
                     style: theme.textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: BusProvider.values.map((provider) {
+                    children: downloadableBusProviders().map((provider) {
                       return FilterChip(
                         label: Text(provider.label),
                         selected: controller.selectedProviders.contains(provider),
@@ -395,18 +395,6 @@ class DatabaseSettingsScreen extends StatelessWidget {
                             label: const Text('刪除'),
                           ),
                         ],
-                      ),
-                      CheckboxListTile(
-                        value: !controller.shouldAskDownloadPrompt(provider),
-                        onChanged: (value) {
-                          controller.setSkipDownloadPrompt(
-                            provider,
-                            value ?? false,
-                          );
-                        },
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        title: const Text('未下載時不要再提醒我，直接改走線上 API'),
                       ),
                     ],
                   ),

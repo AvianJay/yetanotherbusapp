@@ -152,6 +152,11 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
+                    '公路客運固定走線上查詢，不提供下載。',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
                     '啟動更新：${controller.settings.databaseAutoUpdateMode.label}',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),

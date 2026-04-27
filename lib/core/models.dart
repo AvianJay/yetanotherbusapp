@@ -6,6 +6,7 @@ enum BusProvider {
   kee('KEE', '基隆市', 25.1283, 121.7419),
   tpe('TPE', '台北市', 25.0330, 121.5654),
   nwt('NWT', '新北市', 25.0119, 121.4638),
+  inter('INT', '公路客運', 23.6978, 120.9605),
   tao('TAO', '桃園市', 24.9937, 121.3010),
   hsz('HSZ', '新竹市', 24.8042, 120.9717),
   hsq('HSQ', '新竹縣', 24.8396, 121.0047),
@@ -39,7 +40,13 @@ enum BusProvider {
   final double centerLongitude;
 
   String get databaseFileName => 'bus_${name}_v2.sqlite';
+
+  bool get supportsLocalDatabase => this != BusProvider.inter;
 }
+
+List<BusProvider> downloadableBusProviders() => BusProvider.values
+    .where((provider) => provider.supportsLocalDatabase)
+    .toList(growable: false);
 
 BusProvider busProviderFromString(String value) {
   final normalized = value.trim().toLowerCase();
@@ -64,9 +71,13 @@ BusProvider nearestBusProvider({
   required double latitude,
   required double longitude,
 }) {
+  final locationProviders = BusProvider.values
+      .where((provider) => provider != BusProvider.inter)
+      .toList();
+
   // Phase 1: Check bounding-box containment.
   final contained = <BusProvider>[];
-  for (final provider in BusProvider.values) {
+  for (final provider in locationProviders) {
     final bounds = _providerBounds[provider];
     if (bounds != null &&
         latitude >= bounds.south &&
@@ -80,7 +91,7 @@ BusProvider nearestBusProvider({
 
   // Phase 2: Ambiguous or no bounding-box match → nearest center.
   final candidates =
-      contained.isNotEmpty ? contained : BusProvider.values.toList();
+    contained.isNotEmpty ? contained : locationProviders;
   BusProvider best = candidates.first;
   var bestDistance = double.infinity;
   for (final provider in candidates) {
@@ -337,16 +348,23 @@ class AppSettings {
   }
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
-    final provider = busProviderFromString(
+    var provider = busProviderFromString(
       json['provider'] as String? ?? 'tpe',
     );
     final selectedProvidersRaw = json['selectedProviders'];
     final selectedProviders = selectedProvidersRaw is List
         ? selectedProvidersRaw
               .map((item) => busProviderFromString(item.toString()))
+              .where((item) => item.supportsLocalDatabase)
               .toSet()
               .toList()
         : <BusProvider>[provider];
+    if (!provider.supportsLocalDatabase) {
+      provider = selectedProviders.firstWhere(
+        (item) => item.supportsLocalDatabase,
+        orElse: () => BusProvider.tpe,
+      );
+    }
     if (!selectedProviders.contains(provider)) {
       selectedProviders.insert(0, provider);
     }
@@ -355,6 +373,7 @@ class AppSettings {
     final skipPromptProviders = skipPromptRaw is List
         ? skipPromptRaw
               .map((item) => busProviderFromString(item.toString()))
+              .where((item) => item.supportsLocalDatabase)
               .toSet()
               .toList()
         : <BusProvider>[];

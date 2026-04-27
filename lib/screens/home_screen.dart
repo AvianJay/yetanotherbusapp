@@ -99,7 +99,7 @@ class HomeScreen extends StatelessWidget {
             _FeatureCard(
               icon: Icons.search_rounded,
               title: '搜尋路線',
-              subtitle: '輸入公車號碼或名稱，直接看即時到站資訊。',
+              subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(builder: (_) => const SearchScreen()),

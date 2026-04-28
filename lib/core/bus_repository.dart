@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'api_user_agent.dart';
 import 'models.dart';
 import 'native_sqlite_bridge.dart';
 
@@ -24,26 +25,23 @@ class BusRepository {
   BusRepository({http.Client? client}) : _client = client ?? http.Client();
 
   static const _apiBaseUrl = 'https://bus.avianjay.sbs';
-  static const _userAgent = 'Mozilla/5.0 (YABus Flutter)';
   static const _databaseDirectoryName = '.yabus_backend';
   static const _legacyDatabaseDirectoryNames = <String>['.taiwanbus'];
   static const _routeMetadataDatabaseFileName = 'routes_metadata_v1.sqlite';
   static const _legacyRouteMetadataDatabaseFileNames = <String>[
     'routes_metadata_v2.sqlite',
   ];
-  static const _apiJsonHeaders = <String, String>{
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip',
-    'User-Agent': _userAgent,
-  };
-  static const _downloadHeaders = <String, String>{
-    'Accept-Encoding': 'gzip',
-    'User-Agent': _userAgent,
-  };
   static const _webLocalDatabaseUnsupportedMessage =
       'Web 版目前不支援本 app 使用的本機 SQLite 資料庫。';
 
   final http.Client _client;
+  Map<String, String> get _apiJsonHeaders => ApiUserAgent.applyTo(const {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip',
+      });
+  Map<String, String> get _downloadHeaders => ApiUserAgent.applyTo(const {
+        'Accept-Encoding': 'gzip',
+      });
   static const _routeDetailCacheTtl = Duration(seconds: 2);
   static const _searchApiCacheTtl = Duration(seconds: 2);
   static const _realtimeCacheTtl = Duration(seconds: 2);
@@ -76,6 +74,10 @@ class BusRepository {
       <String, Future<List<RouteAlert>>>{};
 
   Future<bool> databaseExists(BusProvider provider) async {
+    if (!provider.supportsLocalDatabase) {
+      await _cleanupUnsupportedProviderArtifacts(provider);
+      return false;
+    }
     if (!_supportsLocalDatabase) {
       return false;
     }
@@ -149,7 +151,7 @@ class BusRepository {
       return const [];
     }
     final result = <BusProvider>[];
-    for (final provider in BusProvider.values) {
+    for (final provider in downloadableBusProviders()) {
       if (await databaseExists(provider)) {
         result.add(provider);
       }
@@ -158,7 +160,9 @@ class BusRepository {
   }
 
   Future<void> deleteProviderDatabase(BusProvider provider) async {
-    _ensureLocalDatabaseSupported();
+    if (!_supportsLocalDatabase) {
+      return;
+    }
     final file = await _cityDatabaseFile(provider);
     if (await file.exists()) {
       await file.delete();
@@ -172,10 +176,12 @@ class BusRepository {
   Future<Map<BusProvider, int?>> checkForUpdates({
     Iterable<BusProvider>? providers,
   }) async {
-    final targetProviders = (providers ?? BusProvider.values).toList();
+    final targetProviders = (providers ?? downloadableBusProviders())
+        .where((provider) => provider.supportsLocalDatabase)
+        .toList();
     final localVersions = _supportsLocalDatabase
         ? await _readVersionMap()
-        : {for (final provider in BusProvider.values) provider.name: 0};
+        : {for (final provider in downloadableBusProviders()) provider.name: 0};
 
     final updates = <BusProvider, int?>{};
     for (final provider in targetProviders) {
@@ -187,6 +193,9 @@ class BusRepository {
   }
 
   Future<int?> getLocalVersion(BusProvider provider) async {
+    if (!provider.supportsLocalDatabase) {
+      return null;
+    }
     if (!_supportsLocalDatabase) {
       return null;
     }
@@ -195,6 +204,9 @@ class BusRepository {
   }
 
   Future<void> downloadDatabase(BusProvider provider) async {
+    if (!provider.supportsLocalDatabase) {
+      throw UnsupportedError('公路客運不提供離線資料庫下載。');
+    }
     _ensureLocalDatabaseSupported();
     final remoteVersion = await _fetchRemoteDatabaseVersion(provider);
     final metadataFile = await _routeMetadataDatabaseFile();
@@ -279,6 +291,21 @@ class BusRepository {
       );
     } finally {
       await database.close();
+    }
+  }
+
+  Future<void> _cleanupUnsupportedProviderArtifacts(BusProvider provider) async {
+    if (!_supportsLocalDatabase) {
+      return;
+    }
+    final file = await _cityDatabaseFile(provider);
+    if (await file.exists()) {
+      await file.delete();
+    }
+
+    final versions = await _readVersionMap();
+    if (versions.remove(provider.name) != null) {
+      await _writeVersionMap(versions);
     }
   }
 
@@ -2602,6 +2629,7 @@ class BusRepository {
       BusProvider.kee => 'Keelung',
       BusProvider.tpe => 'Taipei',
       BusProvider.nwt => 'NewTaipei',
+      BusProvider.inter => 'InterCity',
       BusProvider.tao => 'Taoyuan',
       BusProvider.hsz => 'Hsinchu',
       BusProvider.hsq => 'HsinchuCounty',

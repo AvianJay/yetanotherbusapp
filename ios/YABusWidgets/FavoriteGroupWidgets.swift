@@ -3,6 +3,30 @@ import Foundation
 import SwiftUI
 import WidgetKit
 
+enum FavoriteWidgetApiUserAgent {
+  static func current(platform: String = "ios") -> String {
+    let version = sanitize(
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    )
+    let gitSha = sanitize(
+      (Bundle.main.object(forInfoDictionaryKey: "YABusGitSha") as? String)?.lowercased()
+    )
+    return "YABus/\(version)-\(gitSha) (\(platform))"
+  }
+
+  private static func sanitize(_ value: String?) -> String {
+    let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      return "unknown"
+    }
+    return trimmed.replacingOccurrences(
+      of: #"\s+"#,
+      with: "_",
+      options: .regularExpression
+    )
+  }
+}
+
 enum FavoriteWidgetSharedStore {
   static let appGroupIdentifier = "group.tw.avianjay.taiwanbus.flutter"
   static let favoriteGroupsKey = "favorite_groups_json"
@@ -453,7 +477,7 @@ private enum FavoriteWidgetRouteFetcher {
     request.timeoutInterval = 10
     request.cachePolicy = .reloadIgnoringLocalCacheData
     request.setValue("application/json", forHTTPHeaderField: "Accept")
-    request.setValue("Mozilla/5.0 (YABus iOS Widget)", forHTTPHeaderField: "User-Agent")
+    request.setValue(FavoriteWidgetApiUserAgent.current(), forHTTPHeaderField: "User-Agent")
 
     do {
       let (data, response) = try await URLSession.shared.data(for: request)

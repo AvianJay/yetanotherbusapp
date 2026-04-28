@@ -16,10 +16,23 @@ if (keystorePropertiesFile.exists()) {
     }
 }
 
+fun escapeBuildConfigString(value: String): String {
+    return value.replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
+val appGitSha = (System.getenv("APP_GIT_SHA") ?: "unknown")
+    .trim()
+    .lowercase()
+    .ifEmpty { "unknown" }
+
 android {
     namespace = "tw.avianjay.taiwanbus.flutter"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -39,6 +52,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        buildConfigField("String", "GIT_SHA", "\"${escapeBuildConfigString(appGitSha)}\"")
     }
 
     signingConfigs {

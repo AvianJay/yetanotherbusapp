@@ -10,7 +10,7 @@ import '../core/ios_widget_integration.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
 import '../screens/favorites_screen.dart';
-import '../screens/home_screen.dart';
+import '../screens/main_transit_shell.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/route_detail_screen.dart';
 import '../widgets/app_update_dialog.dart';
@@ -33,8 +33,11 @@ class BusApp extends StatelessWidget {
             title: 'YetAnotherBusApp',
             debugShowCheckedModeBanner: false,
             themeMode: controller.settings.themeMode,
-            theme: _buildTheme(Brightness.light),
-            darkTheme: _buildTheme(Brightness.dark),
+            theme: _buildTheme(Brightness.light, amoled: false),
+            darkTheme: _buildTheme(
+              Brightness.dark,
+              amoled: controller.settings.useAmoledDark,
+            ),
             navigatorObservers: [
               if (analytics.observer != null) analytics.observer!,
             ],
@@ -45,18 +48,39 @@ class BusApp extends StatelessWidget {
     );
   }
 
-  ThemeData _buildTheme(Brightness brightness) {
-    final colorScheme = ColorScheme.fromSeed(
+  ThemeData _buildTheme(Brightness brightness, {required bool amoled}) {
+    var colorScheme = ColorScheme.fromSeed(
       seedColor: const Color(0xFF0B7285),
       brightness: brightness,
     );
 
+    final useAmoled = amoled && brightness == Brightness.dark;
+    if (useAmoled) {
+      colorScheme = colorScheme.copyWith(
+        surface: Colors.black,
+        surfaceDim: Colors.black,
+        surfaceBright: const Color(0xFF1A1A1A),
+        surfaceContainerLowest: Colors.black,
+        surfaceContainerLow: const Color(0xFF0A0A0A),
+        surfaceContainer: const Color(0xFF111111),
+        surfaceContainerHigh: const Color(0xFF1A1A1A),
+        surfaceContainerHighest: const Color(0xFF222222),
+      );
+    }
+
+    final Color? scaffoldBackground;
+    if (brightness == Brightness.light) {
+      scaffoldBackground = const Color(0xFFF5F7F2);
+    } else if (useAmoled) {
+      scaffoldBackground = Colors.black;
+    } else {
+      scaffoldBackground = null;
+    }
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: brightness == Brightness.light
-          ? const Color(0xFFF5F7F2)
-          : null,
+      scaffoldBackgroundColor: scaffoldBackground,
       appBarTheme: AppBarTheme(
         centerTitle: false,
         backgroundColor: Colors.transparent,
@@ -64,7 +88,7 @@ class BusApp extends StatelessWidget {
         elevation: 0,
       ),
       cardTheme: CardThemeData(
-        color: colorScheme.surface,
+        color: useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
@@ -73,7 +97,7 @@ class BusApp extends StatelessWidget {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: colorScheme.surface,
+        fillColor: useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
           borderSide: BorderSide(color: colorScheme.outlineVariant),
@@ -394,7 +418,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return widget.controller.needsOnboarding
         ? const OnboardingScreen()
-        : const HomeScreen();
+        : const MainTransitShell();
   }
 }
 

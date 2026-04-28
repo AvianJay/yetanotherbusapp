@@ -7,6 +7,7 @@ import '../app/bus_app.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../widgets/eta_badge.dart';
+import '../widgets/transit_drawer.dart';
 import 'database_settings_screen.dart';
 import 'favorites_screen.dart';
 import 'nearby_screen.dart';
@@ -15,7 +16,9 @@ import 'search_screen.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({required this.onModeChanged, super.key});
+
+  final ValueChanged<TransitMode> onModeChanged;
 
   Future<void> _openDatabaseSettings(
     BuildContext context,
@@ -36,6 +39,12 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('YABus'),
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu_rounded),
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
         actions: [
           IconButton(
             tooltip: '資料庫與下載',
@@ -64,6 +73,10 @@ class HomeScreen extends StatelessWidget {
           ),
         ],
       ),
+      drawer: TransitDrawer(
+        currentMode: TransitMode.bus,
+        onModeChanged: onModeChanged,
+      ),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -86,7 +99,7 @@ class HomeScreen extends StatelessWidget {
             _FeatureCard(
               icon: Icons.search_rounded,
               title: '搜尋路線',
-              subtitle: '輸入公車號碼或名稱，直接看即時到站資訊。',
+              subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(builder: (_) => const SearchScreen()),
@@ -377,6 +390,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildNeedDatabaseState(BuildContext context) {
     return const _SmartRecommendationShell(
       title: '智慧推薦',
@@ -385,6 +399,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildEmptyState(BuildContext context) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
@@ -450,6 +465,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     final controller = widget.controller;
     final theme = Theme.of(context);
     final nearestStop = suggestion.nearestStop;
+    // ignore: unused_local_variable
     final preferredHourLabel = suggestion.profile.preferredHour
         .toString()
         .padLeft(2, '0');
@@ -479,8 +495,12 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                     ),
                   ),
                   const SizedBox(height: 6),
+                  // Text(
+                  //   '你最常在 $preferredHourLabel:00 左右點開這條路線，累計 ${suggestion.profile.totalInteractions} 次。',
+                  //   style: theme.textTheme.bodyMedium,
+                  // ),
                   Text(
-                    '你最常在 $preferredHourLabel:00 左右點開這條路線，累計 ${suggestion.profile.totalInteractions} 次。',
+                    '根據使用習慣。',
                     style: theme.textTheme.bodyMedium,
                   ),
                   if (suggestion.nearestPath != null) ...[
@@ -508,7 +528,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                               const SizedBox(height: 2),
                               Text(
                                 suggestion.distanceMeters == null
-                                    ? '目前沒有位置資料，先用你的習慣推薦這條路線。'
+                                    ? ''
                                     : '距離你約 ${formatDistance(suggestion.distanceMeters!)}。',
                                 style: theme.textTheme.bodySmall,
                               ),
@@ -519,7 +539,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                     )
                   else
                     Text(
-                      '目前沒有位置資料，先只根據你的使用習慣推薦這條路線。',
+                      '',
                       style: theme.textTheme.bodySmall,
                     ),
                 ],
@@ -558,7 +578,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
 
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '這個時段還沒有學到明確偏好，先帶你看最近的站點。',
+      subtitle: '最近的站點。',
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -629,7 +649,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       return const SizedBox.shrink();
     }
     if (!controller.databaseReady) {
-      return _buildNeedDatabaseState(context);
+      return const SizedBox.shrink();
     }
 
     return FutureBuilder<_SmartCardData?>(
@@ -648,21 +668,23 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         }
 
         if (snapshot.hasError) {
-          return _SmartRecommendationShell(
-            title: '智慧推薦',
-            subtitle: '這個時段原本有學到偏好，但這次整理失敗了。',
-            trailing: IconButton(
-              tooltip: '重試',
-              onPressed: _refresh,
-              icon: const Icon(Icons.refresh_rounded),
-            ),
-            child: Text('推薦整理失敗：${snapshot.error}'),
-          );
+          // return _SmartRecommendationShell(
+          //   title: '智慧推薦',
+          //   subtitle: '這個時段原本有學到偏好，但這次整理失敗了。',
+          //   trailing: IconButton(
+          //     tooltip: '重試',
+          //     onPressed: _refresh,
+          //     icon: const Icon(Icons.refresh_rounded),
+          //   ),
+          //   child: Text('推薦整理失敗：${snapshot.error}'),
+          // );
+          return const SizedBox.shrink();
         }
 
         final cardData = snapshot.data;
         if (cardData == null) {
-          return _buildEmptyState(context);
+          // return _buildEmptyState(context);
+          return const SizedBox.shrink();
         }
         if (cardData.suggestion case final suggestion?) {
           return _buildSuggestionState(context, suggestion);
@@ -670,7 +692,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         if (cardData.nearby case final nearby?) {
           return _buildNearbyFallbackState(context, nearby);
         }
-        return _buildEmptyState(context);
+        // return _buildEmptyState(context);
+        return const SizedBox.shrink();
       },
     );
   }

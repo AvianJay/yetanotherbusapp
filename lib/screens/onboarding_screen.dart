@@ -410,7 +410,7 @@ class _DatabaseStep extends StatelessWidget {
                     child: Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: BusProvider.values.map((item) {
+                      children: downloadableBusProviders().map((item) {
                         return FilterChip(
                           label: Text(item.label),
                           selected: selectedProviders.contains(item),

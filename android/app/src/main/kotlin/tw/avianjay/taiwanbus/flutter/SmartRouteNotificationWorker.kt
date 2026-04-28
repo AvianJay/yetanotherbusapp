@@ -383,7 +383,7 @@ private object SmartRouteNotificationSupport {
         connection.readTimeout = ROUTE_REQUEST_TIMEOUT_MS
         connection.requestMethod = "GET"
         connection.setRequestProperty("Accept", "application/json")
-        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (YABus Android Smart Route)")
+        connection.setRequestProperty("User-Agent", NativeApiUserAgent.value())
         connection.doInput = true
         connection.useCaches = false
 

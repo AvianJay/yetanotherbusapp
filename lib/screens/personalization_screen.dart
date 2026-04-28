@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../app/bus_app.dart';
 
@@ -132,6 +135,45 @@ class PersonalizationScreen extends StatelessWidget {
                         : (v) {
                             controller.updateHomeBackgroundOpacity(v);
                           },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // ── 自訂背景圖片 ────────────────────────────
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '背景圖片',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '選擇一張圖片作為所有頁面的背景，AMOLED 模式下會自動隱藏',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  _BackgroundImageSection(
+                    imagePath: settings.backgroundImagePath,
+                    imageOpacity: settings.backgroundImageOpacity,
+                    isAmoled:
+                        settings.useAmoledDark &&
+                        settings.themeMode != ThemeMode.light,
+                    onImagePicked: (path) {
+                      controller.updateBackgroundImagePath(path);
+                    },
+                    onImageCleared: () {
+                      controller.updateBackgroundImagePath(null);
+                    },
+                    onOpacityChanged: (v) {
+                      controller.updateBackgroundImageOpacity(v);
+                    },
                   ),
                 ],
               ),
@@ -369,6 +411,124 @@ class _CustomColorPickerDialogState extends State<_CustomColorPickerDialog> {
           child: const Text('確定'),
         ),
       ],
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+// Background image picker section
+// ────────────────────────────────────────────────────────────────
+
+class _BackgroundImageSection extends StatelessWidget {
+  const _BackgroundImageSection({
+    required this.imagePath,
+    required this.imageOpacity,
+    required this.isAmoled,
+    required this.onImagePicked,
+    required this.onImageCleared,
+    required this.onOpacityChanged,
+  });
+
+  final String? imagePath;
+  final double imageOpacity;
+  final bool isAmoled;
+  final ValueChanged<String> onImagePicked;
+  final VoidCallback onImageCleared;
+  final ValueChanged<double> onOpacityChanged;
+
+  Future<void> _pickImage(BuildContext context) async {
+    final picker = ImagePicker();
+    final image = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (image != null) {
+      onImagePicked(image.path);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final hasImage = imagePath != null && imagePath!.isNotEmpty;
+
+    return Opacity(
+      opacity: isAmoled ? 0.4 : 1.0,
+      child: IgnorePointer(
+        ignoring: isAmoled,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Preview
+            if (hasImage) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 160),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Image.file(
+                        File(imagePath!),
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          height: 80,
+                          color: colorScheme.errorContainer,
+                          alignment: Alignment.center,
+                          child: Text(
+                            '無法載入圖片',
+                            style:
+                                TextStyle(color: colorScheme.onErrorContainer),
+                          ),
+                        ),
+                      ),
+                      // Opacity preview overlay
+                      Container(
+                        width: double.infinity,
+                        height: 160,
+                        color: Theme.of(context)
+                            .scaffoldBackgroundColor
+                            .withValues(alpha: 1.0 - imageOpacity),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            // Action buttons
+            Row(
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: () => _pickImage(context),
+                  icon: Icon(hasImage ? Icons.swap_horiz : Icons.add_photo_alternate_outlined),
+                  label: Text(hasImage ? '更換圖片' : '選擇圖片'),
+                ),
+                if (hasImage) ...[
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: onImageCleared,
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('移除'),
+                  ),
+                ],
+              ],
+            ),
+
+            // Opacity slider (only show when image is set)
+            if (hasImage) ...[
+              const SizedBox(height: 12),
+              _OpacitySlider(
+                label: '圖片透明度',
+                value: imageOpacity,
+                onChanged: onOpacityChanged,
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

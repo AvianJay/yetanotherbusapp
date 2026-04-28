@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
 import 'home_screen.dart';
 import 'metro_dashboard_screen.dart';
@@ -62,15 +63,17 @@ class _MainTransitShellState extends State<MainTransitShell> {
       ...screens.where((screen) => screen.mode == _currentMode),
     ];
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        for (final screen in orderedScreens)
-          KeyedSubtree(
-            key: ValueKey(screen.mode),
-            child: _buildModeLayer(mode: screen.mode, child: screen.child),
-          ),
-      ],
+    return BackgroundImageWrapper(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          for (final screen in orderedScreens)
+            KeyedSubtree(
+              key: ValueKey(screen.mode),
+              child: _buildModeLayer(mode: screen.mode, child: screen.child),
+            ),
+        ],
+      ),
     );
   }
 

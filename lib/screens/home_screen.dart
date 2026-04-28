@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/transit_drawer.dart';
 import 'database_settings_screen.dart';
@@ -77,32 +78,34 @@ class HomeScreen extends StatelessWidget {
         currentMode: TransitMode.bus,
         onModeChanged: onModeChanged,
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: _shouldShowGradient(controller)
-              ? LinearGradient(
-                  colors: [
-                    colorScheme.primaryContainer.withValues(
-                      alpha: controller.settings.homeBackgroundOpacity,
-                    ),
-                    Theme.of(context).scaffoldBackgroundColor,
-                    colorScheme.secondaryContainer.withValues(
-                      alpha: controller.settings.homeBackgroundOpacity * 0.38,
-                    ),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : null,
-        ),
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          children: [
-            if (controller.settings.enableSmartRecommendations) ...[
-              _SmartRecommendationCard(controller: controller),
-              const SizedBox(height: 16),
-            ],
-            _FeatureCard(
+      body: BackgroundImageWrapper(
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: _shouldShowGradient(controller)
+                ? LinearGradient(
+                    colors: [
+                      colorScheme.primaryContainer.withValues(
+                        alpha: controller.settings.homeBackgroundOpacity,
+                      ),
+                      Theme.of(context).scaffoldBackgroundColor,
+                      colorScheme.secondaryContainer.withValues(
+                        alpha:
+                            controller.settings.homeBackgroundOpacity * 0.38,
+                      ),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+          ),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            children: [
+              if (controller.settings.enableSmartRecommendations) ...[
+                _SmartRecommendationCard(controller: controller),
+                const SizedBox(height: 16),
+              ],
+              _FeatureCard(
               icon: Icons.search_rounded,
               title: '搜尋路線',
               subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
@@ -138,6 +141,7 @@ class HomeScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }

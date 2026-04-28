@@ -257,6 +257,22 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateBackgroundImagePath(String? path) async {
+    if (path != null) {
+      _settings = _settings.copyWith(backgroundImagePath: path);
+    } else {
+      _settings = _settings.copyWith(clearBackgroundImage: true);
+    }
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updateBackgroundImageOpacity(double value) async {
+    _settings = _settings.copyWith(backgroundImageOpacity: value);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
   Future<void> updateAlwaysShowSeconds(bool value) async {
     _settings = _settings.copyWith(alwaysShowSeconds: value);
     await storage.saveSettings(_settings);

@@ -19,6 +19,7 @@ class TransitDrawer extends StatelessWidget {
   static const _modes = [
     (TransitMode.bus, Icons.directions_bus_rounded, '公車'),
     (TransitMode.youbike, Icons.pedal_bike_rounded, 'YouBike'),
+    (TransitMode.metro, Icons.subway_rounded, '捷運'),
     (TransitMode.tra, Icons.tram_rounded, '台鐵'),
     (TransitMode.thsr, Icons.train_rounded, '高鐵'),
   ];
@@ -53,9 +54,9 @@ class TransitDrawer extends StatelessWidget {
                 Text(
                   'YABus',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: colorScheme.onPrimaryContainer,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    color: colorScheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ),

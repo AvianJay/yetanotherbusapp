@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../widgets/transit_drawer.dart';
 import 'home_screen.dart';
-import 'thsr_screen.dart';
+import 'metro_dashboard_screen.dart';
+import 'thsr_dashboard_screen.dart';
 import 'tra_screen.dart';
 import 'youbike_screen.dart';
 
@@ -22,6 +23,7 @@ class _MainTransitShellState extends State<MainTransitShell> {
 
   static const _visibleModes = [
     TransitMode.bus,
+    TransitMode.metro,
     TransitMode.thsr,
     TransitMode.tra,
     TransitMode.youbike,
@@ -30,7 +32,7 @@ class _MainTransitShellState extends State<MainTransitShell> {
   static const _hiddenOffset = Offset(0.035, 0);
 
   void _setMode(TransitMode mode) {
-    if (!_visibleModes.contains(mode) || mode == TransitMode.metro) {
+    if (!_visibleModes.contains(mode)) {
       mode = TransitMode.bus;
     }
     if (mode == _currentMode) {
@@ -66,10 +68,7 @@ class _MainTransitShellState extends State<MainTransitShell> {
         for (final screen in orderedScreens)
           KeyedSubtree(
             key: ValueKey(screen.mode),
-            child: _buildModeLayer(
-              mode: screen.mode,
-              child: screen.child,
-            ),
+            child: _buildModeLayer(mode: screen.mode, child: screen.child),
           ),
       ],
     );
@@ -78,10 +77,10 @@ class _MainTransitShellState extends State<MainTransitShell> {
   Widget _buildScreenForMode(TransitMode mode) {
     return switch (mode) {
       TransitMode.bus => HomeScreen(onModeChanged: _setMode),
+      TransitMode.metro => MetroScreen(onModeChanged: _setMode),
       TransitMode.thsr => ThsrScreen(onModeChanged: _setMode),
       TransitMode.tra => TraScreen(onModeChanged: _setMode),
       TransitMode.youbike => YouBikeScreen(onModeChanged: _setMode),
-      TransitMode.metro => HomeScreen(onModeChanged: _setMode),
     };
   }
 

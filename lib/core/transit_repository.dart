@@ -9,16 +9,15 @@ import 'api_user_agent.dart';
 /// Lightweight repository for non-bus transit data (Metro, THSR, TRA, Bike).
 /// All data comes from the API server — no local SQLite database needed.
 class TransitRepository {
-  TransitRepository({http.Client? client})
-      : _client = client ?? http.Client();
+  TransitRepository({http.Client? client}) : _client = client ?? http.Client();
 
   static const _apiBaseUrl = 'https://bus.avianjay.sbs';
 
   final http.Client _client;
   Map<String, String> get _headers => ApiUserAgent.applyTo(const {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-      });
+    'Accept': 'application/json',
+    'Accept-Encoding': 'gzip',
+  });
 
   // ── In-memory cache ─────────────────────────────────────────────────────
 
@@ -92,28 +91,36 @@ class TransitRepository {
   Future<List<MetroSystem>> getMetroSystems() async {
     return _cached('metro_systems', _metroStaticTtl, () async {
       final data = await _getJsonList('/api/v1/metro/systems');
-      return data.map((e) => MetroSystem.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => MetroSystem.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
   Future<List<MetroLine>> getMetroLines(String system) async {
     return _cached('metro_lines_$system', _metroStaticTtl, () async {
       final data = await _getJsonList('/api/v1/metro/$system/lines');
-      return data.map((e) => MetroLine.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => MetroLine.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
   Future<List<MetroStation>> getMetroStations(String system) async {
     return _cached('metro_stations_$system', _metroStaticTtl, () async {
       final data = await _getJsonList('/api/v1/metro/$system/stations');
-      return data.map((e) => MetroStation.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => MetroStation.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
   Future<List<MetroStationOfLine>> getMetroStationOfLine(String system) async {
     return _cached('metro_sol_$system', _metroStaticTtl, () async {
       final data = await _getJsonList('/api/v1/metro/$system/station-of-line');
-      return data.map((e) => MetroStationOfLine.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => MetroStationOfLine.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
@@ -122,15 +129,21 @@ class TransitRepository {
     String lineId,
   ) async {
     return _cached('metro_live_${system}_$lineId', _metroLiveTtl, () async {
-      final data = await _getJsonList('/api/v1/metro/$system/lines/$lineId/liveboard');
-      return data.map((e) => MetroLiveBoardEntry.fromJson(e as Map<String, dynamic>)).toList();
+      final data = await _getJsonList(
+        '/api/v1/metro/$system/lines/$lineId/liveboard',
+      );
+      return data
+          .map((e) => MetroLiveBoardEntry.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
   /// Get calculated ETA for metro line (uses timetable fallback if LiveBoard is unavailable/unreliable).
   Future<MetroEtaResponse> getMetroLineEta(String system, String lineId) async {
     return _cached('metro_eta_${system}_$lineId', _metroLiveTtl, () async {
-      final uri = Uri.parse('$_apiBaseUrl/api/v1/metro/$system/lines/$lineId/eta');
+      final uri = Uri.parse(
+        '$_apiBaseUrl/api/v1/metro/$system/lines/$lineId/eta',
+      );
       final response = await _client.get(uri, headers: _headers);
       if (response.statusCode != 200) {
         throw Exception('API error ${response.statusCode}: ${response.body}');
@@ -143,7 +156,9 @@ class TransitRepository {
   Future<List<MetroFrequencyInfo>> getMetroFrequency(String system) async {
     return _cached('metro_freq_$system', _metroStaticTtl, () async {
       final data = await _getJsonList('/api/v1/metro/$system/frequency');
-      return data.map((e) => MetroFrequencyInfo.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => MetroFrequencyInfo.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
@@ -158,7 +173,9 @@ class TransitRepository {
   Future<List<RailStation>> getThsrStations() async {
     return _cached('thsr_stations', _thsrStaticTtl, () async {
       final data = await _getJsonList('/api/v1/thsr/stations');
-      return data.map((e) => RailStation.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => RailStation.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
@@ -173,21 +190,27 @@ class TransitRepository {
       final data = await _getJsonList(
         '/api/v1/thsr/timetable/od?origin=$origin&dest=$dest$dateParam',
       );
-      return data.map((e) => ThsrOdTrain.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => ThsrOdTrain.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
   Future<List<ThsrSeatInfo>> getThsrSeats(String stationId) async {
     return _cached('thsr_seats_$stationId', _thsrSeatsTtl, () async {
       final data = await _getJsonList('/api/v1/thsr/seats/$stationId');
-      return data.map((e) => ThsrSeatInfo.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => ThsrSeatInfo.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
   Future<List<RailAlert>> getThsrAlerts() async {
     return _cached('thsr_alerts', const Duration(minutes: 5), () async {
       final data = await _getJsonList('/api/v1/thsr/alerts');
-      return data.map((e) => RailAlert.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => RailAlert.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
@@ -201,7 +224,9 @@ class TransitRepository {
   Future<List<RailStation>> getTraStations() async {
     return _cached('tra_stations', _traStaticTtl, () async {
       final data = await _getJsonList('/api/v1/tra/stations');
-      return data.map((e) => RailStation.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => RailStation.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
@@ -216,21 +241,42 @@ class TransitRepository {
       final data = await _getJsonList(
         '/api/v1/tra/timetable/od?origin=$origin&dest=$dest$dateParam',
       );
-      return data.map((e) => TraOdTrain.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => TraOdTrain.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
   Future<List<TraLiveBoardEntry>> getTraLiveBoard(String stationId) async {
     return _cached('tra_live_$stationId', _traLiveTtl, () async {
       final data = await _getJsonList('/api/v1/tra/liveboard/$stationId');
-      return data.map((e) => TraLiveBoardEntry.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => TraLiveBoardEntry.fromJson(e as Map<String, dynamic>))
+          .toList();
+    });
+  }
+
+  Future<List<TraTrainPosition>> getTraTrainPositions(String stationId) async {
+    return _cached('tra_positions_$stationId', _traLiveTtl, () async {
+      try {
+        final data = await _getJsonList(
+          '/api/v1/tra/train-positions/$stationId',
+        );
+        return data
+            .map((e) => TraTrainPosition.fromJson(e as Map<String, dynamic>))
+            .toList();
+      } catch (_) {
+        return const <TraTrainPosition>[];
+      }
     });
   }
 
   Future<List<RailAlert>> getTraAlerts() async {
     return _cached('tra_alerts', const Duration(minutes: 5), () async {
       final data = await _getJsonList('/api/v1/tra/alerts');
-      return data.map((e) => RailAlert.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => RailAlert.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
@@ -244,7 +290,9 @@ class TransitRepository {
   Future<List<BikeCity>> getBikeCities() async {
     return _cached('bike_cities', _bikeCitiesTtl, () async {
       final data = await _getJsonList('/api/v1/bike/cities');
-      return data.map((e) => BikeCity.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => BikeCity.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
@@ -263,8 +311,12 @@ class TransitRepository {
       if (radius > 0) {
         params.add('radius=$radius');
       }
-      final data = await _getJsonList('/api/v1/bike/stations?${params.join('&')}');
-      return data.map((e) => BikeStation.fromJson(e as Map<String, dynamic>)).toList();
+      final data = await _getJsonList(
+        '/api/v1/bike/stations?${params.join('&')}',
+      );
+      return data
+          .map((e) => BikeStation.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 
@@ -278,7 +330,9 @@ class TransitRepository {
       final data = await _getJsonList(
         '/api/v1/bike/nearby?lat=$lat&lon=$lon&radius=$radius',
       );
-      return data.map((e) => BikeStation.fromJson(e as Map<String, dynamic>)).toList();
+      return data
+          .map((e) => BikeStation.fromJson(e as Map<String, dynamic>))
+          .toList();
     });
   }
 }
@@ -293,8 +347,7 @@ class _TimedValue<T> {
   final T value;
   final DateTime _createdAt;
 
-  bool isExpired(Duration ttl) =>
-      DateTime.now().difference(_createdAt) > ttl;
+  bool isExpired(Duration ttl) => DateTime.now().difference(_createdAt) > ttl;
 }
 
 // ── Metro ──
@@ -308,11 +361,11 @@ class MetroSystem {
   });
 
   factory MetroSystem.fromJson(Map<String, dynamic> json) => MetroSystem(
-        system: json['system'] as String? ?? '',
-        city: json['city'] as String? ?? '',
-        name: json['name'] as String? ?? '',
-        nameEn: json['name_en'] as String? ?? '',
-      );
+    system: json['system'] as String? ?? '',
+    city: json['city'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    nameEn: json['name_en'] as String? ?? '',
+  );
 
   final String system;
   final String city;
@@ -330,12 +383,12 @@ class MetroLine {
   });
 
   factory MetroLine.fromJson(Map<String, dynamic> json) => MetroLine(
-        lineId: json['line_id'] as String? ?? '',
-        lineNo: json['line_no'] as String? ?? '',
-        name: json['name'] as String? ?? '',
-        nameEn: json['name_en'] as String? ?? '',
-        color: json['color'] as String? ?? '',
-      );
+    lineId: json['line_id'] as String? ?? '',
+    lineNo: json['line_no'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    nameEn: json['name_en'] as String? ?? '',
+    color: json['color'] as String? ?? '',
+  );
 
   final String lineId;
   final String lineNo;
@@ -355,13 +408,13 @@ class MetroStation {
   });
 
   factory MetroStation.fromJson(Map<String, dynamic> json) => MetroStation(
-        stationId: json['station_id'] as String? ?? '',
-        name: json['name'] as String? ?? '',
-        nameEn: json['name_en'] as String? ?? '',
-        lineId: json['line_id'] as String? ?? '',
-        lat: (json['lat'] as num?)?.toDouble() ?? 0,
-        lon: (json['lon'] as num?)?.toDouble() ?? 0,
-      );
+    stationId: json['station_id'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    nameEn: json['name_en'] as String? ?? '',
+    lineId: json['line_id'] as String? ?? '',
+    lat: (json['lat'] as num?)?.toDouble() ?? 0,
+    lon: (json['lon'] as num?)?.toDouble() ?? 0,
+  );
 
   final String stationId;
   final String name;
@@ -523,12 +576,12 @@ class MetroHeadway {
   });
 
   factory MetroHeadway.fromJson(Map<String, dynamic> json) => MetroHeadway(
-        peakFlag: json['peak_flag'] as String? ?? '',
-        startTime: json['start_time'] as String? ?? '',
-        endTime: json['end_time'] as String? ?? '',
-        minHeadway: (json['min_headway'] as num?)?.toInt() ?? 0,
-        maxHeadway: (json['max_headway'] as num?)?.toInt() ?? 0,
-      );
+    peakFlag: json['peak_flag'] as String? ?? '',
+    startTime: json['start_time'] as String? ?? '',
+    endTime: json['end_time'] as String? ?? '',
+    minHeadway: (json['min_headway'] as num?)?.toInt() ?? 0,
+    maxHeadway: (json['max_headway'] as num?)?.toInt() ?? 0,
+  );
 
   final String peakFlag;
   final String startTime;
@@ -550,13 +603,13 @@ class RailStation {
   });
 
   factory RailStation.fromJson(Map<String, dynamic> json) => RailStation(
-        stationId: json['station_id'] as String? ?? '',
-        name: json['name'] as String? ?? '',
-        nameEn: json['name_en'] as String? ?? '',
-        stationClass: json['station_class'] as String? ?? '',
-        lat: (json['lat'] as num?)?.toDouble() ?? 0,
-        lon: (json['lon'] as num?)?.toDouble() ?? 0,
-      );
+    stationId: json['station_id'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    nameEn: json['name_en'] as String? ?? '',
+    stationClass: json['station_class'] as String? ?? '',
+    lat: (json['lat'] as num?)?.toDouble() ?? 0,
+    lon: (json['lon'] as num?)?.toDouble() ?? 0,
+  );
 
   final String stationId;
   final String name;
@@ -578,16 +631,16 @@ class RailAlert {
   });
 
   factory RailAlert.fromJson(Map<String, dynamic> json) => RailAlert(
-        alertId: json['alert_id'] as String? ?? '',
-        title: json['title'] as String? ?? '',
-        description: json['description'] as String? ?? '',
-        status: json['status'] is num
-            ? (json['status'] as num).toInt()
-            : int.tryParse('${json['status']}') ?? 0,
-        publishTime: json['publish_time'] as String? ?? '',
-        startTime: json['start_time'] as String? ?? '',
-        endTime: json['end_time'] as String? ?? '',
-      );
+    alertId: json['alert_id'] as String? ?? '',
+    title: json['title'] as String? ?? '',
+    description: json['description'] as String? ?? '',
+    status: json['status'] is num
+        ? (json['status'] as num).toInt()
+        : int.tryParse('${json['status']}') ?? 0,
+    publishTime: json['publish_time'] as String? ?? '',
+    startTime: json['start_time'] as String? ?? '',
+    endTime: json['end_time'] as String? ?? '',
+  );
 
   final String alertId;
   final String title;
@@ -611,13 +664,13 @@ class ThsrOdTrain {
   });
 
   factory ThsrOdTrain.fromJson(Map<String, dynamic> json) => ThsrOdTrain(
-        trainNo: json['train_no'] as String? ?? '',
-        direction: (json['direction'] as num?)?.toInt() ?? 0,
-        startStation: json['start_station'] as String? ?? '',
-        endStation: json['end_station'] as String? ?? '',
-        originDeparture: json['origin_departure'] as String? ?? '',
-        destArrival: json['dest_arrival'] as String? ?? '',
-      );
+    trainNo: json['train_no'] as String? ?? '',
+    direction: (json['direction'] as num?)?.toInt() ?? 0,
+    startStation: json['start_station'] as String? ?? '',
+    endStation: json['end_station'] as String? ?? '',
+    originDeparture: json['origin_departure'] as String? ?? '',
+    destArrival: json['dest_arrival'] as String? ?? '',
+  );
 
   final String trainNo;
   final int direction;
@@ -665,11 +718,11 @@ class ThsrCarSeat {
   });
 
   factory ThsrCarSeat.fromJson(Map<String, dynamic> json) => ThsrCarSeat(
-        stationId: json['station_id'] as String? ?? '',
-        stationName: json['station_name'] as String? ?? '',
-        standardSeat: json['standard_seat'] as String? ?? '',
-        businessSeat: json['business_seat'] as String? ?? '',
-      );
+    stationId: json['station_id'] as String? ?? '',
+    stationName: json['station_name'] as String? ?? '',
+    standardSeat: json['standard_seat'] as String? ?? '',
+    businessSeat: json['business_seat'] as String? ?? '',
+  );
 
   final String stationId;
   final String stationName;
@@ -691,14 +744,14 @@ class TraOdTrain {
   });
 
   factory TraOdTrain.fromJson(Map<String, dynamic> json) => TraOdTrain(
-        trainNo: json['train_no'] as String? ?? '',
-        trainType: json['train_type'] as String? ?? '',
-        direction: (json['direction'] as num?)?.toInt() ?? 0,
-        startStation: json['start_station'] as String? ?? '',
-        endStation: json['end_station'] as String? ?? '',
-        originDeparture: json['origin_departure'] as String? ?? '',
-        destArrival: json['dest_arrival'] as String? ?? '',
-      );
+    trainNo: json['train_no'] as String? ?? '',
+    trainType: json['train_type'] as String? ?? '',
+    direction: (json['direction'] as num?)?.toInt() ?? 0,
+    startStation: json['start_station'] as String? ?? '',
+    endStation: json['end_station'] as String? ?? '',
+    originDeparture: json['origin_departure'] as String? ?? '',
+    destArrival: json['dest_arrival'] as String? ?? '',
+  );
 
   final String trainNo;
   final String trainType;
@@ -746,15 +799,70 @@ class TraLiveBoardEntry {
   final int delayMinutes;
 }
 
+class TraTrainPosition {
+  const TraTrainPosition({
+    required this.trainNo,
+    required this.trainType,
+    required this.direction,
+    required this.startingStationName,
+    required this.endingStationName,
+    required this.delayMinutes,
+    required this.status,
+    required this.progress,
+    required this.currentStationId,
+    required this.currentStationName,
+    required this.nextStationId,
+    required this.nextStationName,
+    required this.lat,
+    required this.lon,
+    required this.updatedAt,
+  });
+
+  factory TraTrainPosition.fromJson(Map<String, dynamic> json) =>
+      TraTrainPosition(
+        trainNo: json['train_no'] as String? ?? '',
+        trainType: json['train_type'] as String? ?? '',
+        direction: (json['direction'] as num?)?.toInt() ?? 0,
+        startingStationName: json['starting_station_name'] as String? ?? '',
+        endingStationName: json['ending_station_name'] as String? ?? '',
+        delayMinutes: (json['delay_minutes'] as num?)?.toInt() ?? 0,
+        status: json['status'] as String? ?? '',
+        progress: (json['progress'] as num?)?.toDouble() ?? 0,
+        currentStationId: json['current_station_id'] as String? ?? '',
+        currentStationName: json['current_station_name'] as String? ?? '',
+        nextStationId: json['next_station_id'] as String? ?? '',
+        nextStationName: json['next_station_name'] as String? ?? '',
+        lat: (json['lat'] as num?)?.toDouble() ?? 0,
+        lon: (json['lon'] as num?)?.toDouble() ?? 0,
+        updatedAt: json['updated_at'] as String? ?? '',
+      );
+
+  final String trainNo;
+  final String trainType;
+  final int direction;
+  final String startingStationName;
+  final String endingStationName;
+  final int delayMinutes;
+  final String status;
+  final double progress;
+  final String currentStationId;
+  final String currentStationName;
+  final String nextStationId;
+  final String nextStationName;
+  final double lat;
+  final double lon;
+  final String updatedAt;
+}
+
 // ── Bike ──
 
 class BikeCity {
   const BikeCity({required this.city, required this.name});
 
   factory BikeCity.fromJson(Map<String, dynamic> json) => BikeCity(
-        city: json['city'] as String? ?? '',
-        name: json['name'] as String? ?? '',
-      );
+    city: json['city'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+  );
 
   final String city;
   final String name;
@@ -780,22 +888,24 @@ class BikeStation {
   });
 
   factory BikeStation.fromJson(Map<String, dynamic> json) => BikeStation(
-        stationUid: json['station_uid'] as String? ?? '',
-        stationId: json['station_id'] as String? ?? '',
-        name: json['name'] as String? ?? '',
-        nameEn: json['name_en'] as String? ?? '',
-        address: json['address'] as String? ?? '',
-        lat: (json['lat'] as num?)?.toDouble() ?? 0,
-        lon: (json['lon'] as num?)?.toDouble() ?? 0,
-        availableRent: (json['available_rent'] as num?)?.toInt() ?? 0,
-        availableRentGeneral: (json['available_rent_general'] as num?)?.toInt() ?? 0,
-        availableRentElectric: (json['available_rent_electric'] as num?)?.toInt() ?? 0,
-        availableReturn: (json['available_return'] as num?)?.toInt() ?? 0,
-        serviceStatus: (json['service_status'] as num?)?.toInt() ?? 0,
-        updateTime: json['update_time'] as String? ?? '',
-        distanceMeters: (json['distance_meters'] as num?)?.toInt(),
-        city: json['city'] as String?,
-      );
+    stationUid: json['station_uid'] as String? ?? '',
+    stationId: json['station_id'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    nameEn: json['name_en'] as String? ?? '',
+    address: json['address'] as String? ?? '',
+    lat: (json['lat'] as num?)?.toDouble() ?? 0,
+    lon: (json['lon'] as num?)?.toDouble() ?? 0,
+    availableRent: (json['available_rent'] as num?)?.toInt() ?? 0,
+    availableRentGeneral:
+        (json['available_rent_general'] as num?)?.toInt() ?? 0,
+    availableRentElectric:
+        (json['available_rent_electric'] as num?)?.toInt() ?? 0,
+    availableReturn: (json['available_return'] as num?)?.toInt() ?? 0,
+    serviceStatus: (json['service_status'] as num?)?.toInt() ?? 0,
+    updateTime: json['update_time'] as String? ?? '',
+    distanceMeters: (json['distance_meters'] as num?)?.toInt(),
+    city: json['city'] as String?,
+  );
 
   final String stationUid;
   final String stationId;

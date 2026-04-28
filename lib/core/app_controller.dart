@@ -257,21 +257,59 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateBackgroundImagePath(String? path) async {
+  Future<void> updatePageBackgroundImagePath(
+    String pageKey,
+    String? path,
+  ) async {
+    final updated = Map<String, String>.from(_settings.pageBackgroundImagePaths);
     if (path != null) {
-      _settings = _settings.copyWith(backgroundImagePath: path);
+      updated[pageKey] = path;
     } else {
-      _settings = _settings.copyWith(clearBackgroundImage: true);
+      updated.remove(pageKey);
     }
+    _settings = _settings.copyWith(pageBackgroundImagePaths: updated);
     await storage.saveSettings(_settings);
     notifyListeners();
   }
 
-  Future<void> updateBackgroundImageOpacity(double value) async {
-    _settings = _settings.copyWith(backgroundImageOpacity: value);
+  Future<void> updatePageBackgroundImageOpacity(
+    String pageKey,
+    double opacity,
+  ) async {
+    final updated =
+        Map<String, double>.from(_settings.pageBackgroundImageOpacities);
+    updated[pageKey] = opacity;
+    _settings = _settings.copyWith(pageBackgroundImageOpacities: updated);
     await storage.saveSettings(_settings);
     notifyListeners();
   }
+
+  Future<void> applyBackgroundImageToAllPages(String path, double opacity) async {
+    final allKeys = _allPageKeys;
+    final updatedPaths = <String, String>{};
+    final updatedOpacities = <String, double>{};
+    for (final key in allKeys) {
+      updatedPaths[key] = path;
+      updatedOpacities[key] = opacity;
+    }
+    _settings = _settings.copyWith(
+      pageBackgroundImagePaths: updatedPaths,
+      pageBackgroundImageOpacities: updatedOpacities,
+    );
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> clearAllBackgroundImages() async {
+    _settings = _settings.copyWith(
+      pageBackgroundImagePaths: const {},
+      pageBackgroundImageOpacities: const {},
+    );
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  static const _allPageKeys = ['bus', 'metro', 'thsr', 'tra', 'youbike'];
 
   Future<void> updateAlwaysShowSeconds(bool value) async {
     _settings = _settings.copyWith(alwaysShowSeconds: value);

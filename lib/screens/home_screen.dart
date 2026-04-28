@@ -79,6 +79,7 @@ class HomeScreen extends StatelessWidget {
         onModeChanged: onModeChanged,
       ),
       body: BackgroundImageWrapper(
+        pageKey: 'bus',
         child: Container(
           decoration: BoxDecoration(
             gradient: _shouldShowGradient(controller)
@@ -147,9 +148,13 @@ class HomeScreen extends StatelessWidget {
   }
 
   /// In AMOLED dark mode, skip the gradient so the pure-black background shows.
+  /// Also skip gradient when a background image is set for the bus page.
   bool _shouldShowGradient(AppController controller) {
     final settings = controller.settings;
     if (settings.useAmoledDark && settings.themeMode != ThemeMode.light) {
+      return false;
+    }
+    if (settings.pageBackgroundImagePaths.containsKey('bus')) {
       return false;
     }
     return settings.homeBackgroundOpacity > 0;

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/transit_repository.dart';
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
 import '../widgets/transit_station_map.dart';
 
@@ -235,7 +236,9 @@ class _TraScreenState extends State<TraScreen> {
         currentMode: TransitMode.tra,
         onModeChanged: widget.onModeChanged,
       ),
-      body: _loadingStations
+      body: BackgroundImageWrapper(
+        pageKey: 'tra',
+        child: _loadingStations
           ? const Center(child: CircularProgressIndicator())
           : _pageError != null && _stations.isEmpty
           ? _ErrorState(message: _pageError!, onRetry: _loadInitialData)
@@ -265,6 +268,7 @@ class _TraScreenState extends State<TraScreen> {
                 ],
               ),
             ),
+      ),
     );
   }
 

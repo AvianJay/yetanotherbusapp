@@ -312,8 +312,8 @@ class AppSettings {
     required this.useDynamicColor,
     required this.seedColor,
     required this.homeBackgroundOpacity,
-    required this.backgroundImagePath,
-    required this.backgroundImageOpacity,
+    required this.pageBackgroundImagePaths,
+    required this.pageBackgroundImageOpacities,
     required this.alwaysShowSeconds,
     required this.enableSmartRecommendations,
     required this.enableSmartRouteNotifications,
@@ -340,8 +340,8 @@ class AppSettings {
       useDynamicColor: false,
       seedColor: null,
       homeBackgroundOpacity: 0.65,
-      backgroundImagePath: null,
-      backgroundImageOpacity: 0.25,
+      pageBackgroundImagePaths: const {},
+      pageBackgroundImageOpacities: const {},
       alwaysShowSeconds: false,
       enableSmartRecommendations: true,
       enableSmartRouteNotifications: false,
@@ -407,9 +407,19 @@ class AppSettings {
       seedColor: _colorFromJson(json['seedColor']),
       homeBackgroundOpacity:
           (json['homeBackgroundOpacity'] as num?)?.toDouble() ?? 0.65,
-      backgroundImagePath: json['backgroundImagePath'] as String?,
-      backgroundImageOpacity:
-          (json['backgroundImageOpacity'] as num?)?.toDouble() ?? 0.25,
+      pageBackgroundImagePaths:
+          (json['pageBackgroundImagePaths'] as Map?)?.map(
+            (k, v) => MapEntry(k.toString(), v.toString()),
+          ) ??
+          const {},
+      pageBackgroundImageOpacities:
+          (json['pageBackgroundImageOpacities'] as Map?)?.map(
+            (k, v) => MapEntry(
+              k.toString(),
+              v is num ? v.toDouble() : 0.25,
+            ),
+          ) ??
+          const {},
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
       enableSmartRecommendations:
           json['enableSmartRecommendations'] as bool? ?? true,
@@ -458,8 +468,8 @@ class AppSettings {
   final bool useDynamicColor;
   final Color? seedColor;
   final double homeBackgroundOpacity;
-  final String? backgroundImagePath;
-  final double backgroundImageOpacity;
+  final Map<String, String> pageBackgroundImagePaths;
+  final Map<String, double> pageBackgroundImageOpacities;
   final bool alwaysShowSeconds;
   final bool enableSmartRecommendations;
   final bool enableSmartRouteNotifications;
@@ -485,9 +495,8 @@ class AppSettings {
     Color? seedColor,
     bool clearSeedColor = false,
     double? homeBackgroundOpacity,
-    String? backgroundImagePath,
-    bool clearBackgroundImage = false,
-    double? backgroundImageOpacity,
+    Map<String, String>? pageBackgroundImagePaths,
+    Map<String, double>? pageBackgroundImageOpacities,
     bool? alwaysShowSeconds,
     bool? enableSmartRecommendations,
     bool? enableSmartRouteNotifications,
@@ -514,11 +523,10 @@ class AppSettings {
       seedColor: clearSeedColor ? null : (seedColor ?? this.seedColor),
       homeBackgroundOpacity:
           homeBackgroundOpacity ?? this.homeBackgroundOpacity,
-      backgroundImagePath: clearBackgroundImage
-          ? null
-          : (backgroundImagePath ?? this.backgroundImagePath),
-      backgroundImageOpacity:
-          backgroundImageOpacity ?? this.backgroundImageOpacity,
+      pageBackgroundImagePaths:
+          pageBackgroundImagePaths ?? this.pageBackgroundImagePaths,
+      pageBackgroundImageOpacities:
+          pageBackgroundImageOpacities ?? this.pageBackgroundImageOpacities,
       alwaysShowSeconds: alwaysShowSeconds ?? this.alwaysShowSeconds,
       enableSmartRecommendations:
           enableSmartRecommendations ?? this.enableSmartRecommendations,
@@ -558,8 +566,8 @@ class AppSettings {
       'useDynamicColor': useDynamicColor,
       'seedColor': _colorToJson(seedColor),
       'homeBackgroundOpacity': homeBackgroundOpacity,
-      'backgroundImagePath': backgroundImagePath,
-      'backgroundImageOpacity': backgroundImageOpacity,
+      'pageBackgroundImagePaths': pageBackgroundImagePaths,
+      'pageBackgroundImageOpacities': pageBackgroundImageOpacities,
       'alwaysShowSeconds': alwaysShowSeconds,
       'enableSmartRecommendations': enableSmartRecommendations,
       'enableSmartRouteNotifications': enableSmartRouteNotifications,

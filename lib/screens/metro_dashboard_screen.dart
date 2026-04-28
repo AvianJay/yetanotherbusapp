@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/transit_repository.dart';
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/transit_drawer.dart';
 import '../widgets/transit_station_map.dart';
@@ -413,7 +414,9 @@ class _MetroScreenState extends State<MetroScreen> {
         currentMode: TransitMode.metro,
         onModeChanged: widget.onModeChanged,
       ),
-      body: _loading
+      body: BackgroundImageWrapper(
+        pageKey: 'metro',
+        child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _pageError != null && _systems.isEmpty
           ? _ErrorState(message: _pageError!, onRetry: _loadSystems)
@@ -453,7 +456,8 @@ class _MetroScreenState extends State<MetroScreen> {
                 ],
               ),
             ),
-    );
+    ),
+      );
   }
 
   Widget _buildSystemSelector(ThemeData theme) {

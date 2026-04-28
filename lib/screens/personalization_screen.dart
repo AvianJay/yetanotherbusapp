@@ -142,7 +142,7 @@ class PersonalizationScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
-          // ── 自訂背景圖片 ────────────────────────────
+          // ── 背景圖片（各頁面） ────────────────────────────
           Card(
             child: Padding(
               padding: const EdgeInsets.all(18),
@@ -155,24 +155,27 @@ class PersonalizationScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '選擇一張圖片作為所有頁面的背景，AMOLED 模式下會自動隱藏',
+                    '每個頁面可以設定各自的背景圖片（支援 GIF），AMOLED 模式下會自動隱藏',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
-                  _BackgroundImageSection(
-                    imagePath: settings.backgroundImagePath,
-                    imageOpacity: settings.backgroundImageOpacity,
+                  _PerPageBackgroundSection(
+                    paths: settings.pageBackgroundImagePaths,
+                    opacities: settings.pageBackgroundImageOpacities,
                     isAmoled:
                         settings.useAmoledDark &&
                         settings.themeMode != ThemeMode.light,
-                    onImagePicked: (path) {
-                      controller.updateBackgroundImagePath(path);
+                    onPathChanged: (pageKey, path) {
+                      controller.updatePageBackgroundImagePath(pageKey, path);
                     },
-                    onImageCleared: () {
-                      controller.updateBackgroundImagePath(null);
+                    onOpacityChanged: (pageKey, opacity) {
+                      controller.updatePageBackgroundImageOpacity(pageKey, opacity);
                     },
-                    onOpacityChanged: (v) {
-                      controller.updateBackgroundImageOpacity(v);
+                    onApplyToAll: (path, opacity) {
+                      controller.applyBackgroundImageToAllPages(path, opacity);
+                    },
+                    onClearAll: () {
+                      controller.clearAllBackgroundImages();
                     },
                   ),
                 ],
@@ -416,41 +419,57 @@ class _CustomColorPickerDialogState extends State<_CustomColorPickerDialog> {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Background image picker section
+// Per-page background image section
 // ────────────────────────────────────────────────────────────────
 
-class _BackgroundImageSection extends StatelessWidget {
-  const _BackgroundImageSection({
-    required this.imagePath,
-    required this.imageOpacity,
+const _pageLabels = <String, String>{
+  'bus': '公車',
+  'metro': '捷運',
+  'thsr': '高鐵',
+  'tra': '火車',
+  'youbike': 'YouBike',
+};
+
+const _pageIcons = <String, IconData>{
+  'bus': Icons.directions_bus_outlined,
+  'metro': Icons.subway_outlined,
+  'thsr': Icons.train_outlined,
+  'tra': Icons.directions_railway_outlined,
+  'youbike': Icons.pedal_bike_outlined,
+};
+
+class _PerPageBackgroundSection extends StatelessWidget {
+  const _PerPageBackgroundSection({
+    required this.paths,
+    required this.opacities,
     required this.isAmoled,
-    required this.onImagePicked,
-    required this.onImageCleared,
+    required this.onPathChanged,
     required this.onOpacityChanged,
+    required this.onApplyToAll,
+    required this.onClearAll,
   });
 
-  final String? imagePath;
-  final double imageOpacity;
+  final Map<String, String> paths;
+  final Map<String, double> opacities;
   final bool isAmoled;
-  final ValueChanged<String> onImagePicked;
-  final VoidCallback onImageCleared;
-  final ValueChanged<double> onOpacityChanged;
+  final void Function(String pageKey, String? path) onPathChanged;
+  final void Function(String pageKey, double opacity) onOpacityChanged;
+  final void Function(String path, double opacity) onApplyToAll;
+  final VoidCallback onClearAll;
 
-  Future<void> _pickImage(BuildContext context) async {
+  Future<void> _pickImage(BuildContext context, String pageKey) async {
     final picker = ImagePicker();
     final image = await picker.pickImage(
       source: ImageSource.gallery,
-      imageQuality: 85,
     );
     if (image != null) {
-      onImagePicked(image.path);
+      onPathChanged(pageKey, image.path);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final hasImage = imagePath != null && imagePath!.isNotEmpty;
 
     return Opacity(
       opacity: isAmoled ? 0.4 : 1.0,
@@ -459,75 +478,186 @@ class _BackgroundImageSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Preview
-            if (hasImage) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 160),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Image.file(
-                        File(imagePath!),
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Container(
-                          height: 80,
-                          color: colorScheme.errorContainer,
-                          alignment: Alignment.center,
-                          child: Text(
-                            '無法載入圖片',
-                            style:
-                                TextStyle(color: colorScheme.onErrorContainer),
-                          ),
-                        ),
-                      ),
-                      // Opacity preview overlay
-                      Container(
-                        width: double.infinity,
-                        height: 160,
-                        color: Theme.of(context)
-                            .scaffoldBackgroundColor
-                            .withValues(alpha: 1.0 - imageOpacity),
-                      ),
-                    ],
+            // One-click apply all
+            if (paths.isNotEmpty) ...[
+              Row(
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: () {
+                      // Use the first available image as source
+                      final firstEntry = paths.entries.first;
+                      final opacity = opacities[firstEntry.key] ?? 0.25;
+                      onApplyToAll(firstEntry.value, opacity);
+                    },
+                    icon: const Icon(Icons.copy_all_rounded, size: 18),
+                    label: const Text('一鍵套用全部'),
                   ),
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-
-            // Action buttons
-            Row(
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: () => _pickImage(context),
-                  icon: Icon(hasImage ? Icons.swap_horiz : Icons.add_photo_alternate_outlined),
-                  label: Text(hasImage ? '更換圖片' : '選擇圖片'),
-                ),
-                if (hasImage) ...[
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
-                    onPressed: onImageCleared,
-                    icon: const Icon(Icons.close, size: 18),
-                    label: const Text('移除'),
+                    onPressed: onClearAll,
+                    icon: const Icon(Icons.clear_all, size: 18),
+                    label: const Text('清除全部'),
                   ),
                 ],
-              ],
-            ),
-
-            // Opacity slider (only show when image is set)
-            if (hasImage) ...[
-              const SizedBox(height: 12),
-              _OpacitySlider(
-                label: '圖片透明度',
-                value: imageOpacity,
-                onChanged: onOpacityChanged,
               ),
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 12),
             ],
+
+            // Per-page rows
+            for (final pageKey in _pageLabels.keys)
+              _PageBackgroundRow(
+                pageKey: pageKey,
+                label: _pageLabels[pageKey]!,
+                icon: _pageIcons[pageKey]!,
+                imagePath: paths[pageKey],
+                imageOpacity: opacities[pageKey] ?? 0.25,
+                onPick: () => _pickImage(context, pageKey),
+                onClear: () => onPathChanged(pageKey, null),
+                onOpacityChanged: (v) => onOpacityChanged(pageKey, v),
+                colorScheme: colorScheme,
+              ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PageBackgroundRow extends StatelessWidget {
+  const _PageBackgroundRow({
+    required this.pageKey,
+    required this.label,
+    required this.icon,
+    required this.imagePath,
+    required this.imageOpacity,
+    required this.onPick,
+    required this.onClear,
+    required this.onOpacityChanged,
+    required this.colorScheme,
+  });
+
+  final String pageKey;
+  final String label;
+  final IconData icon;
+  final String? imagePath;
+  final double imageOpacity;
+  final VoidCallback onPick;
+  final VoidCallback onClear;
+  final ValueChanged<double> onOpacityChanged;
+  final ColorScheme colorScheme;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = imagePath != null && imagePath!.isNotEmpty;
+    final isGif = hasImage && imagePath!.toLowerCase().endsWith('.gif');
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Page label + icon
+          Row(
+            children: [
+              Icon(icon, size: 20, color: colorScheme.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (isGif) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: colorScheme.tertiaryContainer,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'GIF',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: colorScheme.onTertiaryContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // Preview
+          if (hasImage) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 120),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Image.file(
+                      File(imagePath!),
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      gaplessPlayback: isGif,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        height: 60,
+                        color: colorScheme.errorContainer,
+                        alignment: Alignment.center,
+                        child: Text(
+                          '無法載入圖片',
+                          style: TextStyle(color: colorScheme.onErrorContainer),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: double.infinity,
+                      height: 120,
+                      color: Theme.of(context)
+                          .scaffoldBackgroundColor
+                          .withValues(alpha: 1.0 - imageOpacity),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          // Action buttons
+          Row(
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: onPick,
+                icon: Icon(hasImage ? Icons.swap_horiz : Icons.add_photo_alternate_outlined, size: 18),
+                label: Text(hasImage ? '更換' : '選擇圖片'),
+              ),
+              if (hasImage) ...[
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: onClear,
+                  icon: const Icon(Icons.close, size: 18),
+                  label: const Text('移除'),
+                ),
+              ],
+            ],
+          ),
+
+          // Opacity slider
+          if (hasImage) ...[
+            const SizedBox(height: 8),
+            _OpacitySlider(
+              label: '透明度',
+              value: imageOpacity,
+              onChanged: onOpacityChanged,
+            ),
+          ],
+        ],
       ),
     );
   }

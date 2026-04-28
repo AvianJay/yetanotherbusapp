@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../core/transit_repository.dart';
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
 
 class YouBikeScreen extends StatefulWidget {
@@ -419,7 +420,9 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
         currentMode: TransitMode.youbike,
         onModeChanged: widget.onModeChanged,
       ),
-      body: _locating
+      body: BackgroundImageWrapper(
+        pageKey: 'youbike',
+        child: _locating
           ? const Center(child: CircularProgressIndicator())
           : Stack(
               children: [
@@ -536,6 +539,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                   ),
               ],
             ),
+      ),
     );
   }
 

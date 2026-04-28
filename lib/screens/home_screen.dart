@@ -79,15 +79,21 @@ class HomeScreen extends StatelessWidget {
       ),
       body: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              colorScheme.primaryContainer.withValues(alpha: 0.65),
-              Theme.of(context).scaffoldBackgroundColor,
-              colorScheme.secondaryContainer.withValues(alpha: 0.25),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+          gradient: _shouldShowGradient(controller)
+              ? LinearGradient(
+                  colors: [
+                    colorScheme.primaryContainer.withValues(
+                      alpha: controller.settings.homeBackgroundOpacity,
+                    ),
+                    Theme.of(context).scaffoldBackgroundColor,
+                    colorScheme.secondaryContainer.withValues(
+                      alpha: controller.settings.homeBackgroundOpacity * 0.38,
+                    ),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
         ),
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
@@ -134,6 +140,15 @@ class HomeScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// In AMOLED dark mode, skip the gradient so the pure-black background shows.
+  bool _shouldShowGradient(AppController controller) {
+    final settings = controller.settings;
+    if (settings.useAmoledDark && settings.themeMode != ThemeMode.light) {
+      return false;
+    }
+    return settings.homeBackgroundOpacity > 0;
   }
 }
 

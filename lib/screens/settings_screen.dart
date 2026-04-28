@@ -7,6 +7,7 @@ import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../widgets/app_update_dialog.dart';
 import 'database_settings_screen.dart';
+import 'personalization_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -113,17 +114,20 @@ class SettingsScreen extends StatelessWidget {
                       }
                     },
                   ),
-                  const SizedBox(height: 4),
-                  SwitchListTile(
+                  const SizedBox(height: 12),
+                  ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('純黑 (AMOLED) 深色主題'),
-                    subtitle: const Text('深色模式下使用純黑背景，可省電並提升對比'),
-                    value: controller.settings.useAmoledDark,
-                    onChanged: controller.settings.themeMode == ThemeMode.light
-                        ? null
-                        : (value) {
-                            controller.updateUseAmoledDark(value);
-                          },
+                    leading: const Icon(Icons.palette_outlined),
+                    title: const Text('個人化'),
+                    subtitle: const Text('配色、背景透明度'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const PersonalizationScreen(),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),

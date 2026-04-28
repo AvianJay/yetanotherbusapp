@@ -139,6 +139,15 @@ ThemeMode themeModeFromString(String value) {
   );
 }
 
+int? _colorToJson(Color? color) {
+  return color?.toARGB32();
+}
+
+Color? _colorFromJson(dynamic value) {
+  if (value is int) return Color(value);
+  return null;
+}
+
 enum AppUpdateChannel {
   developer,
   nightly,
@@ -300,6 +309,9 @@ class AppSettings {
     required this.skipDownloadPromptProviders,
     required this.themeMode,
     required this.useAmoledDark,
+    required this.useDynamicColor,
+    required this.seedColor,
+    required this.homeBackgroundOpacity,
     required this.alwaysShowSeconds,
     required this.enableSmartRecommendations,
     required this.enableSmartRouteNotifications,
@@ -323,6 +335,9 @@ class AppSettings {
       skipDownloadPromptProviders: const [],
       themeMode: ThemeMode.system,
       useAmoledDark: false,
+      useDynamicColor: false,
+      seedColor: null,
+      homeBackgroundOpacity: 0.65,
       alwaysShowSeconds: false,
       enableSmartRecommendations: true,
       enableSmartRouteNotifications: false,
@@ -384,6 +399,10 @@ class AppSettings {
       skipDownloadPromptProviders: skipPromptProviders,
       themeMode: themeModeFromString(json['themeMode'] as String? ?? 'system'),
       useAmoledDark: json['useAmoledDark'] as bool? ?? false,
+      useDynamicColor: json['useDynamicColor'] as bool? ?? false,
+      seedColor: _colorFromJson(json['seedColor']),
+      homeBackgroundOpacity:
+          (json['homeBackgroundOpacity'] as num?)?.toDouble() ?? 0.65,
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
       enableSmartRecommendations:
           json['enableSmartRecommendations'] as bool? ?? true,
@@ -429,6 +448,9 @@ class AppSettings {
   final List<BusProvider> skipDownloadPromptProviders;
   final ThemeMode themeMode;
   final bool useAmoledDark;
+  final bool useDynamicColor;
+  final Color? seedColor;
+  final double homeBackgroundOpacity;
   final bool alwaysShowSeconds;
   final bool enableSmartRecommendations;
   final bool enableSmartRouteNotifications;
@@ -450,6 +472,10 @@ class AppSettings {
     List<BusProvider>? skipDownloadPromptProviders,
     ThemeMode? themeMode,
     bool? useAmoledDark,
+    bool? useDynamicColor,
+    Color? seedColor,
+    bool clearSeedColor = false,
+    double? homeBackgroundOpacity,
     bool? alwaysShowSeconds,
     bool? enableSmartRecommendations,
     bool? enableSmartRouteNotifications,
@@ -472,6 +498,10 @@ class AppSettings {
           skipDownloadPromptProviders ?? this.skipDownloadPromptProviders,
       themeMode: themeMode ?? this.themeMode,
       useAmoledDark: useAmoledDark ?? this.useAmoledDark,
+      useDynamicColor: useDynamicColor ?? this.useDynamicColor,
+      seedColor: clearSeedColor ? null : (seedColor ?? this.seedColor),
+      homeBackgroundOpacity:
+          homeBackgroundOpacity ?? this.homeBackgroundOpacity,
       alwaysShowSeconds: alwaysShowSeconds ?? this.alwaysShowSeconds,
       enableSmartRecommendations:
           enableSmartRecommendations ?? this.enableSmartRecommendations,
@@ -508,6 +538,9 @@ class AppSettings {
           .toList(),
       'themeMode': themeMode.name,
       'useAmoledDark': useAmoledDark,
+      'useDynamicColor': useDynamicColor,
+      'seedColor': _colorToJson(seedColor),
+      'homeBackgroundOpacity': homeBackgroundOpacity,
       'alwaysShowSeconds': alwaysShowSeconds,
       'enableSmartRecommendations': enableSmartRecommendations,
       'enableSmartRouteNotifications': enableSmartRouteNotifications,

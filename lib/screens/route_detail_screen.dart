@@ -2943,6 +2943,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final controller = AppControllerScope.of(context);
     final detail = _detail;
     final theme = Theme.of(context);
+    final settings = controller.settings;
+    final isAmoled =
+        settings.useAmoledDark && settings.themeMode != ThemeMode.light;
+    final hasBackgroundImage = settings.pageBackgroundImagePaths.isNotEmpty;
     final currentPathId = _currentPathId;
     final currentNearestStopId = currentPathId == null
         ? null
@@ -3019,7 +3023,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         ],
       ),
       bottomNavigationBar: Material(
-        color: theme.bottomAppBarTheme.color ?? theme.colorScheme.surface,
+        color: theme.bottomAppBarTheme.color ??
+            (hasBackgroundImage && !isAmoled
+                ? theme.colorScheme.surface.withValues(
+                    alpha: (theme.appBarTheme.backgroundColor?.a ?? 1.0))
+                : theme.colorScheme.surface),
         child: SafeArea(
           top: false,
           child: Column(

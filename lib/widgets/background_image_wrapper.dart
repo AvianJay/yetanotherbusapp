@@ -49,8 +49,13 @@ class BackgroundImageWrapper extends StatelessWidget {
       path = paths[pageKey!];
       opacity = opacities[pageKey!] ?? 0.25;
     } else if (pageKey != null && paths.isNotEmpty) {
-      // No image for this specific page → no background
-      return child;
+      // No image for this specific page → fall back to 'bus' (home) key
+      if (paths.containsKey('bus')) {
+        path = paths['bus'];
+        opacity = opacities['bus'] ?? 0.25;
+      } else {
+        return child;
+      }
     } else if (paths.isNotEmpty) {
       // No pageKey specified → use first available
       final first = paths.entries.first;

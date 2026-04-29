@@ -529,8 +529,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       bottomNavigationBar: groups.isEmpty
           ? null
           : Material(
-              color:
-                  Theme.of(context).bottomAppBarTheme.color ??
+              color: Theme.of(context).bottomAppBarTheme.color ??
                   Theme.of(context).colorScheme.surface,
               child: SafeArea(
                 top: false,

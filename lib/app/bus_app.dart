@@ -155,6 +155,11 @@ class BusApp extends StatelessWidget {
           borderSide: BorderSide(color: colorScheme.primary, width: 1.6),
         ),
       ),
+      bottomAppBarTheme: BottomAppBarThemeData(
+        color: hasBackgroundImage && !useAmoled
+            ? overlaySurface.withValues(alpha: overlayAlpha)
+            : null,
+      ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),

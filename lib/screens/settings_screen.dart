@@ -71,6 +71,10 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
     final buildInfo = controller.buildInfo;
+    final hasSettingsBackgroundImage = hasBackgroundImageForPage(
+      controller.settings,
+      pageKey: 'settings',
+    );
     final isAndroid =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
@@ -79,11 +83,12 @@ class SettingsScreen extends StatelessWidget {
         .map((provider) => provider.label)
         .join('、');
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('設定')),
-      body: BackgroundImageWrapper(
-        pageKey: 'settings',
-        child: ListView(
+    return BackgroundImageWrapper(
+      pageKey: 'settings',
+      child: Scaffold(
+        backgroundColor: hasSettingsBackgroundImage ? Colors.transparent : null,
+        appBar: AppBar(title: const Text('設定')),
+        body: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         children: [
           Card(

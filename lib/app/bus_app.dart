@@ -104,18 +104,18 @@ class BusApp extends StatelessWidget {
         ? settings.overlayOpacity.clamp(0.0, 1.0)
         : 1.0;
 
-    // Card/AppBar/BottomBar background tint: mix surface color with
-    // scaffold background at overlayAlpha so they become semi-transparent
-    // against background images.
-    final Color overlaySurface = Color.alphaBlend(
-      colorScheme.surface.withValues(alpha: overlayAlpha),
-      scaffoldBackground ?? colorScheme.surface,
-    );
-    final Color overlaySurfaceContainer = Color.alphaBlend(
-      (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surfaceContainer)
-          .withValues(alpha: overlayAlpha),
-      scaffoldBackground ?? colorScheme.surface,
-    );
+    // Use real alpha on component surfaces so the background image remains
+    // visible behind AppBar, cards, inputs, and bottom bars.
+    final Color overlaySurface = hasBackgroundImage && !useAmoled
+      ? colorScheme.surface.withValues(alpha: overlayAlpha)
+      : (scaffoldBackground ?? colorScheme.surface);
+    final Color overlaySurfaceContainer = hasBackgroundImage && !useAmoled
+      ? (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surfaceContainer)
+        .withValues(alpha: overlayAlpha)
+      : (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface);
+    final Color overlayInputFill = hasBackgroundImage && !useAmoled
+      ? colorScheme.surface.withValues(alpha: overlayAlpha)
+      : (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface);
 
     return ThemeData(
       useMaterial3: true,
@@ -124,7 +124,7 @@ class BusApp extends StatelessWidget {
       appBarTheme: AppBarTheme(
         centerTitle: false,
         backgroundColor: hasBackgroundImage && !useAmoled
-            ? overlaySurface.withValues(alpha: overlayAlpha)
+            ? overlaySurface
             : Colors.transparent,
         foregroundColor: colorScheme.onSurface,
         elevation: 0,
@@ -141,7 +141,7 @@ class BusApp extends StatelessWidget {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface,
+        fillColor: overlayInputFill,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
           borderSide: BorderSide(color: colorScheme.outlineVariant),
@@ -157,7 +157,7 @@ class BusApp extends StatelessWidget {
       ),
       bottomAppBarTheme: BottomAppBarThemeData(
         color: hasBackgroundImage && !useAmoled
-            ? overlaySurface.withValues(alpha: overlayAlpha)
+        ? overlaySurface
             : null,
       ),
       snackBarTheme: SnackBarThemeData(

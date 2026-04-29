@@ -3,6 +3,32 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
+import '../core/models.dart';
+
+bool hasBackgroundImageForPage(AppSettings settings, {String? pageKey}) {
+  final isAmoled =
+      settings.useAmoledDark && settings.themeMode != ThemeMode.light;
+  if (isAmoled) {
+    return false;
+  }
+
+  final paths = settings.pageBackgroundImagePaths;
+  if (paths.isEmpty) {
+    return false;
+  }
+
+  if (pageKey == null) {
+    return paths.values.any((path) => path.isNotEmpty);
+  }
+
+  final directPath = paths[pageKey];
+  if (directPath != null && directPath.isNotEmpty) {
+    return true;
+  }
+
+  final busPath = paths['bus'];
+  return busPath != null && busPath.isNotEmpty;
+}
 
 /// A wrapper that paints a user-selected background image behind its child,
 /// with configurable opacity. Supports static images and animated GIFs.

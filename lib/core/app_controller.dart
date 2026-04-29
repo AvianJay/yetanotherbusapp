@@ -284,6 +284,21 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateAllPageBackgroundImageOpacity(double opacity) async {
+    if (_settings.pageBackgroundImagePaths.isEmpty) {
+      return;
+    }
+
+    final updated =
+        Map<String, double>.from(_settings.pageBackgroundImageOpacities);
+    for (final key in _settings.pageBackgroundImagePaths.keys) {
+      updated[key] = opacity;
+    }
+    _settings = _settings.copyWith(pageBackgroundImageOpacities: updated);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
   Future<void> applyBackgroundImageToAllPages(String path, double opacity) async {
     final allKeys = _allPageKeys;
     final existingPaths = Map<String, String>.from(_settings.pageBackgroundImagePaths);

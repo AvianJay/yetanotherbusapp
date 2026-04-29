@@ -468,7 +468,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   }) {
     final theme = Theme.of(context);
     return Material(
-      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+      color:
+          theme.cardTheme.color ?? theme.colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(22),
       child: InkWell(
         borderRadius: BorderRadius.circular(22),

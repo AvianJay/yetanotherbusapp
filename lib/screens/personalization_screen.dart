@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 
 import '../app/bus_app.dart';
+import '../core/models.dart';
 
 /// Preset seed colors for quick selection.
 const _presetColors = <Color>[
@@ -46,6 +47,7 @@ class PersonalizationScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
     final settings = controller.settings;
+    final backgroundOpacity = _backgroundOpacityValue(settings);
     final isAmoled =
         settings.useAmoledDark && settings.themeMode != ThemeMode.light;
     final isAndroid12Plus = _isAndroid12Plus();
@@ -229,7 +231,7 @@ class PersonalizationScreen extends StatelessWidget {
                                   if (image != null) {
                                     controller.applyBackgroundImageToAllPages(
                                       image.path,
-                                      0.25,
+                                      backgroundOpacity,
                                     );
                                   }
                                 },
@@ -250,6 +252,25 @@ class PersonalizationScreen extends StatelessWidget {
                                 ),
                             ],
                           ),
+                            if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              _OpacitySlider(
+                                label: '背景透明度',
+                                value: backgroundOpacity,
+                                onChanged: isAmoled
+                                    ? null
+                                    : (value) {
+                                        controller.updateAllPageBackgroundImageOpacity(
+                                          value,
+                                        );
+                                      },
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '快速套用到目前已設定背景的頁面；各頁面設定內仍可個別微調。',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
                           const SizedBox(height: 12),
                           // Navigate to per-page settings
                           ListTile(
@@ -310,6 +331,29 @@ class PersonalizationScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  double _backgroundOpacityValue(AppSettings settings) {
+    final configuredKeys = settings.pageBackgroundImagePaths.entries
+        .where((entry) => entry.value.isNotEmpty)
+        .map((entry) => entry.key)
+        .toList();
+    if (configuredKeys.isEmpty) {
+      return 0.25;
+    }
+
+    final total = configuredKeys.fold<double>(
+      0,
+      (sum, key) => sum + (settings.pageBackgroundImageOpacities[key] ?? 0.25),
+    );
+    final average = total / configuredKeys.length;
+    if (average < 0) {
+      return 0;
+    }
+    if (average > 1) {
+      return 1;
+    }
+    return average;
   }
 
   /// Check if the current platform is Android 12+ (API 31+).
@@ -657,12 +701,6 @@ class _BackgroundPreviewCarousel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final scaffoldBg = Theme.of(context).scaffoldBackgroundColor;
-    final controller = AppControllerScope.of(context);
-    final settings = controller.settings;
-    final overlayAlpha = 1.0 - settings.overlayOpacity;
-
     final entries = paths.entries
         .where((e) => e.value.isNotEmpty && _pageLabels.containsKey(e.key))
         .toList();
@@ -670,131 +708,676 @@ class _BackgroundPreviewCarousel extends StatelessWidget {
     if (entries.isEmpty) return const SizedBox.shrink();
 
     return SizedBox(
-      height: 160,
+      height: 196,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 2),
         itemCount: entries.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
           final entry = entries[index];
-          final isGif = entry.value.toLowerCase().endsWith('.gif');
-          final opacity = opacities[entry.key] ?? 0.25;
-          final label = _pageLabels[entry.key] ?? entry.key;
-
-          return Column(
-            children: [
-              // Mockup of the page
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: SizedBox(
-                    width: 100,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        // Background image
-                        Image.file(
-                          File(entry.value),
-                          fit: BoxFit.cover,
-                          gaplessPlayback: isGif,
-                          errorBuilder: (_, _, _) => Container(
-                            color: colorScheme.errorContainer,
-                            alignment: Alignment.center,
-                            child: Icon(
-                              Icons.broken_image_outlined,
-                              color: colorScheme.onErrorContainer,
-                            ),
-                          ),
-                        ),
-                        // Image opacity
-                        Opacity(
-                          opacity: opacity.clamp(0.0, 1.0),
-                          child: Container(
-                            color: scaffoldBg,
-                          ),
-                        ),
-                        // Overlay scrim (same as theme overlay)
-                        if (overlayAlpha > 0)
-                          IgnorePointer(
-                            child: Container(
-                              color: colorScheme.surface
-                                  .withValues(alpha: 1.0 - overlayAlpha),
-                            ),
-                          ),
-                        // Mock AppBar
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          child: Container(
-                            height: 20,
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
-                            alignment: Alignment.centerLeft,
-                            color: colorScheme.surface
-                                .withValues(alpha: 1.0 - overlayAlpha),
-                            child: Container(
-                              width: 30,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: colorScheme.onSurface
-                                    .withValues(alpha: 0.3),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                          ),
-                        ),
-                        // Mock card
-                        Positioned(
-                          top: 28,
-                          left: 6,
-                          right: 6,
-                          child: Container(
-                            height: 24,
-                            decoration: BoxDecoration(
-                              color: colorScheme.surfaceContainerHigh
-                                  .withValues(alpha: 1.0 - overlayAlpha),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          top: 58,
-                          left: 6,
-                          right: 6,
-                          child: Container(
-                            height: 16,
-                            decoration: BoxDecoration(
-                              color: colorScheme.surfaceContainerHigh
-                                  .withValues(alpha: 1.0 - overlayAlpha),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                        ),
-                        // Mock bottom bar
-                        Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          child: Container(
-                            height: 16,
-                            color: colorScheme.surface
-                                .withValues(alpha: 1.0 - overlayAlpha),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
-            ],
+          return _PreviewPageCard(
+            pageKey: entry.key,
+            label: _pageLabels[entry.key] ?? entry.key,
+            imagePath: entry.value,
+            imageOpacity: opacities[entry.key] ?? 0.25,
           );
         },
+      ),
+    );
+  }
+}
+
+class _PreviewPageCard extends StatelessWidget {
+  const _PreviewPageCard({
+    required this.pageKey,
+    required this.label,
+    required this.imagePath,
+    required this.imageOpacity,
+  });
+
+  final String pageKey;
+  final String label;
+  final String imagePath;
+  final double imageOpacity;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isGif = imagePath.toLowerCase().endsWith('.gif');
+    final appBarColor =
+        theme.appBarTheme.backgroundColor ?? colorScheme.surface;
+    final cardColor =
+        theme.cardTheme.color ?? colorScheme.surfaceContainerHigh;
+    final inputColor = theme.inputDecorationTheme.fillColor ?? cardColor;
+    final bottomBarColor = theme.bottomAppBarTheme.color ?? appBarColor;
+    final lineColor = colorScheme.onSurface.withValues(alpha: 0.26);
+    final detailColor = colorScheme.onSurfaceVariant.withValues(alpha: 0.42);
+    final accentColor = colorScheme.primary.withValues(alpha: 0.88);
+    final badgeColor = theme.brightness == Brightness.dark
+        ? const Color(0xFF8B1A1A)
+        : Colors.red.shade800;
+
+    return Column(
+      children: [
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              width: 124,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ColoredBox(color: theme.scaffoldBackgroundColor),
+                  Image.file(
+                    File(imagePath),
+                    fit: BoxFit.cover,
+                    gaplessPlayback: isGif,
+                    opacity: AlwaysStoppedAnimation(
+                      imageOpacity.clamp(0.0, 1.0),
+                    ),
+                    errorBuilder: (_, _, _) => ColoredBox(
+                      color: colorScheme.errorContainer,
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: colorScheme.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                  _buildAppBar(appBarColor, accentColor, lineColor),
+                  Positioned.fill(
+                    top: 30,
+                    left: 7,
+                    right: 7,
+                    bottom: pageKey == 'favorites' ? 22 : 8,
+                    child: _buildPageContent(
+                      accentColor,
+                      cardColor,
+                      inputColor,
+                      lineColor,
+                      detailColor,
+                      badgeColor,
+                    ),
+                  ),
+                  if (pageKey == 'favorites')
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        height: 16,
+                        color: bottomBarColor,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        alignment: Alignment.centerLeft,
+                        child: _buildLine(
+                          lineColor,
+                          widthFactor: 0.34,
+                          height: 3,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelSmall,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAppBar(
+    Color backgroundColor,
+    Color accentColor,
+    Color lineColor,
+  ) {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        height: 24,
+        color: backgroundColor,
+        padding: const EdgeInsets.symmetric(horizontal: 7),
+        child: Row(
+          children: [
+            Container(
+              width: 11,
+              height: 11,
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _buildLine(
+                lineColor,
+                widthFactor: pageKey == 'settings' ? 0.32 : 0.48,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              width: 4,
+              height: 4,
+              decoration: BoxDecoration(
+                color: lineColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPageContent(
+    Color accentColor,
+    Color cardColor,
+    Color inputColor,
+    Color lineColor,
+    Color detailColor,
+    Color badgeColor,
+  ) {
+    return switch (pageKey) {
+      'bus' => _buildBusPreview(
+        accentColor,
+        cardColor,
+        lineColor,
+        detailColor,
+        badgeColor,
+      ),
+      'search' => _buildSearchPreview(
+        accentColor,
+        cardColor,
+        inputColor,
+        lineColor,
+        detailColor,
+      ),
+      'favorites' => _buildFavoritesPreview(
+        accentColor,
+        cardColor,
+        lineColor,
+        detailColor,
+        badgeColor,
+      ),
+      'nearby' => _buildNearbyPreview(
+        accentColor,
+        cardColor,
+        lineColor,
+        detailColor,
+      ),
+      'settings' => _buildSettingsPreview(
+        accentColor,
+        cardColor,
+        inputColor,
+        lineColor,
+        detailColor,
+      ),
+      _ => const SizedBox.shrink(),
+    };
+  }
+
+  Widget _buildBusPreview(
+    Color accentColor,
+    Color cardColor,
+    Color lineColor,
+    Color detailColor,
+    Color badgeColor,
+  ) {
+    return Column(
+      children: [
+        Expanded(
+          child: _buildCardShell(
+            cardColor,
+            child: Row(
+              children: [
+                _buildIconTile(accentColor),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildLine(lineColor, widthFactor: 0.72, height: 5),
+                      const SizedBox(height: 4),
+                      _buildLine(detailColor, widthFactor: 0.95, height: 3),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: _buildCardShell(
+            cardColor,
+            child: Row(
+              children: [
+                _buildIconTile(accentColor.withValues(alpha: 0.72)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildLine(lineColor, widthFactor: 0.6, height: 5),
+                      const SizedBox(height: 4),
+                      _buildLine(detailColor, widthFactor: 0.78, height: 3),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: _buildCardShell(
+            cardColor,
+            child: Row(
+              children: [
+                Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: badgeColor,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildLine(lineColor, widthFactor: 0.84, height: 5),
+                      const SizedBox(height: 4),
+                      _buildLine(detailColor, widthFactor: 0.62, height: 3),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchPreview(
+    Color accentColor,
+    Color cardColor,
+    Color inputColor,
+    Color lineColor,
+    Color detailColor,
+  ) {
+    return Column(
+      children: [
+        Container(
+          height: 22,
+          padding: const EdgeInsets.symmetric(horizontal: 7),
+          decoration: BoxDecoration(
+            color: inputColor,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _buildLine(lineColor, widthFactor: 0.72, height: 4),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: _buildListPreviewCard(
+            cardColor,
+            accentColor,
+            lineColor,
+            detailColor,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: _buildListPreviewCard(
+            cardColor,
+            accentColor.withValues(alpha: 0.78),
+            lineColor,
+            detailColor,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFavoritesPreview(
+    Color accentColor,
+    Color cardColor,
+    Color lineColor,
+    Color detailColor,
+    Color badgeColor,
+  ) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                height: 10,
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Container(
+                height: 10,
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          flex: 2,
+          child: _buildCardShell(
+            cardColor,
+            child: Row(
+              children: [
+                Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: badgeColor,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildLine(lineColor, widthFactor: 0.74, height: 5),
+                      const SizedBox(height: 4),
+                      _buildLine(detailColor, widthFactor: 0.9, height: 3),
+                      const SizedBox(height: 4),
+                      _buildLine(detailColor, widthFactor: 0.58, height: 3),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: _buildCardShell(
+            cardColor,
+            child: Row(
+              children: [
+                _buildIconTile(accentColor.withValues(alpha: 0.74), size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildLine(lineColor, widthFactor: 0.62, height: 4),
+                      const SizedBox(height: 4),
+                      _buildLine(detailColor, widthFactor: 0.52, height: 3),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNearbyPreview(
+    Color accentColor,
+    Color cardColor,
+    Color lineColor,
+    Color detailColor,
+  ) {
+    return Column(
+      children: [
+        Expanded(
+          child: _buildNearbyListCard(
+            accentColor,
+            cardColor,
+            lineColor,
+            detailColor,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: _buildNearbyListCard(
+            accentColor.withValues(alpha: 0.76),
+            cardColor,
+            lineColor,
+            detailColor,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSettingsPreview(
+    Color accentColor,
+    Color cardColor,
+    Color inputColor,
+    Color lineColor,
+    Color detailColor,
+  ) {
+    return Column(
+      children: [
+        Expanded(
+          child: _buildCardShell(
+            cardColor,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildLine(lineColor, widthFactor: 0.44, height: 5),
+                const Spacer(),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildLine(
+                        detailColor,
+                        widthFactor: 0.72,
+                        height: 4,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      width: 20,
+                      height: 11,
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.all(1),
+                      child: Container(
+                        width: 9,
+                        height: 9,
+                        decoration: BoxDecoration(
+                          color: accentColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildLine(
+                        detailColor,
+                        widthFactor: 0.58,
+                        height: 4,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    _buildIconTile(accentColor.withValues(alpha: 0.7), size: 14),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: _buildCardShell(
+            cardColor,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildLine(lineColor, widthFactor: 0.32, height: 5),
+                const SizedBox(height: 8),
+                Container(
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: inputColor,
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _buildLine(detailColor, widthFactor: 0.74, height: 3),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildListPreviewCard(
+    Color cardColor,
+    Color accentColor,
+    Color lineColor,
+    Color detailColor,
+  ) {
+    return _buildCardShell(
+      cardColor,
+      child: Row(
+        children: [
+          _buildIconTile(accentColor, size: 18),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildLine(lineColor, widthFactor: 0.7, height: 5),
+                const SizedBox(height: 4),
+                _buildLine(detailColor, widthFactor: 0.88, height: 3),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNearbyListCard(
+    Color accentColor,
+    Color cardColor,
+    Color lineColor,
+    Color detailColor,
+  ) {
+    return _buildCardShell(
+      cardColor,
+      child: Row(
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              color: accentColor.withValues(alpha: 0.24),
+              borderRadius: BorderRadius.circular(7),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildLine(lineColor, widthFactor: 0.76, height: 5),
+                const SizedBox(height: 4),
+                _buildLine(detailColor, widthFactor: 0.68, height: 3),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardShell(Color color, {required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(7),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildIconTile(Color color, {double size = 18}) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(6),
+      ),
+    );
+  }
+
+  Widget _buildLine(
+    Color color, {
+    required double widthFactor,
+    double height = 4,
+  }) {
+    return FractionallySizedBox(
+      alignment: Alignment.centerLeft,
+      widthFactor: widthFactor,
+      child: Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(height),
+        ),
       ),
     );
   }
@@ -893,7 +1476,7 @@ class _PageBackgroundRow extends StatelessWidget {
           if (hasImage) ...[
             const SizedBox(height: 8),
             _OpacitySlider(
-              label: '透明度',
+              label: '背景透明度',
               value: imageOpacity,
               onChanged: onOpacityChanged,
             ),

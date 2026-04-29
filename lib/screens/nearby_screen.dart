@@ -80,20 +80,25 @@ class _NearbyScreenState extends State<NearbyScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
+    final hasNearbyBackgroundImage = hasBackgroundImageForPage(
+      controller.settings,
+      pageKey: 'nearby',
+    );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('附近站牌'),
-        actions: [
-          IconButton(
-            onPressed: _loadNearbyStops,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
-      body: BackgroundImageWrapper(
-        pageKey: 'nearby',
-        child: _loading
+    return BackgroundImageWrapper(
+      pageKey: 'nearby',
+      child: Scaffold(
+        backgroundColor: hasNearbyBackgroundImage ? Colors.transparent : null,
+        appBar: AppBar(
+          title: const Text('附近站牌'),
+          actions: [
+            IconButton(
+              onPressed: _loadNearbyStops,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ],
+        ),
+        body: _loading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
             ? Center(

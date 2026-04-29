@@ -502,62 +502,68 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     final displayItems = currentGroupName == _loadedGroupName
         ? _items
         : const <FavoriteResolvedItem>[];
+    final hasFavoritesBackgroundImage = hasBackgroundImageForPage(
+      controller.settings,
+      pageKey: 'favorites',
+    );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('我的最愛'),
-        actions: [
-          IconButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const FavoriteGroupsScreen(),
+    return BackgroundImageWrapper(
+      pageKey: 'favorites',
+      child: Scaffold(
+        backgroundColor:
+            hasFavoritesBackgroundImage ? Colors.transparent : null,
+        appBar: AppBar(
+          title: const Text('我的最愛'),
+          actions: [
+            IconButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const FavoriteGroupsScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.folder_outlined),
+            ),
+          ],
+          bottom: groups.isEmpty
+              ? null
+              : TabBar(
+                  controller: _tabController,
+                  isScrollable: true,
+                  tabs: groups.map((group) => Tab(text: group)).toList(),
                 ),
-              );
-            },
-            icon: const Icon(Icons.folder_outlined),
-          ),
-        ],
-        bottom: groups.isEmpty
+        ),
+        bottomNavigationBar: groups.isEmpty
             ? null
-            : TabBar(
-                controller: _tabController,
-                isScrollable: true,
-                tabs: groups.map((group) => Tab(text: group)).toList(),
-              ),
-      ),
-      bottomNavigationBar: groups.isEmpty
-          ? null
-          : Material(
-              color: Theme.of(context).bottomAppBarTheme.color ??
-                  Theme.of(context).colorScheme.surface,
-              child: SafeArea(
-                top: false,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildBottomProgressIndicator(),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          _statusMessage ??
-                              (_remainingSeconds > 0
-                                  ? '$_remainingSeconds 秒後更新'
-                                  : '正在更新'),
-                          style: Theme.of(context).textTheme.bodySmall,
+            : Material(
+                color: Theme.of(context).bottomAppBarTheme.color ??
+                    Theme.of(context).colorScheme.surface,
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildBottomProgressIndicator(),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            _statusMessage ??
+                                (_remainingSeconds > 0
+                                    ? '$_remainingSeconds 秒後更新'
+                                    : '正在更新'),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-      body: BackgroundImageWrapper(
-        pageKey: 'favorites',
-        child: groups.isEmpty
+        body: groups.isEmpty
             ? const _EmptyFavoritesState()
             : _buildBody(
                 context,

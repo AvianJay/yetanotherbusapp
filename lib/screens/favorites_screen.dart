@@ -8,6 +8,7 @@ import '../core/models.dart';
 import '../widgets/eta_badge.dart';
 import 'favorite_groups_screen.dart';
 import 'route_detail_screen.dart';
+import '../widgets/background_image_wrapper.dart';
 
 class FavoritesScreen extends StatefulWidget {
   const FavoritesScreen({this.initialGroupName, super.key});
@@ -555,14 +556,17 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                 ),
               ),
             ),
-      body: groups.isEmpty
-          ? const _EmptyFavoritesState()
-          : _buildBody(
-              context,
-              controller,
-              currentGroupName: currentGroupName!,
-              items: displayItems,
-            ),
+      body: BackgroundImageWrapper(
+        pageKey: 'favorites',
+        child: groups.isEmpty
+            ? const _EmptyFavoritesState()
+            : _buildBody(
+                context,
+                controller,
+                currentGroupName: currentGroupName!,
+                items: displayItems,
+              ),
+      ),
     );
   }
 

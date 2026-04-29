@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 
 import '../app/bus_app.dart';
@@ -19,6 +21,34 @@ const _presetColors = <Color>[
   Color(0xFF00897B), // 青綠
 ];
 
+/// Page key → display label
+const _pageLabels = <String, String>{
+  'bus': '主頁',
+  'route': '路線',
+  'search': '搜尋',
+  'favorites': '最愛',
+  'nearby': '附近',
+  'settings': '設定',
+  'metro': '捷運',
+  'thsr': '高鐵',
+  'tra': '火車',
+  'youbike': 'YouBike',
+};
+
+/// Page key → icon
+const _pageIcons = <String, IconData>{
+  'bus': Icons.home_outlined,
+  'route': Icons.directions_bus_outlined,
+  'search': Icons.search_rounded,
+  'favorites': Icons.favorite_outline_rounded,
+  'nearby': Icons.near_me_outlined,
+  'settings': Icons.settings_outlined,
+  'metro': Icons.subway_outlined,
+  'thsr': Icons.train_outlined,
+  'tra': Icons.directions_railway_outlined,
+  'youbike': Icons.pedal_bike_outlined,
+};
+
 class PersonalizationScreen extends StatelessWidget {
   const PersonalizationScreen({super.key});
 
@@ -26,12 +56,24 @@ class PersonalizationScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
     final settings = controller.settings;
+    final isAmoled =
+        settings.useAmoledDark && settings.themeMode != ThemeMode.light;
+    final isAndroid12Plus = _isAndroid12Plus();
 
     return Scaffold(
       appBar: AppBar(title: const Text('個人化')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         children: [
+          // ── 背景圖片預覽滑動 ────────────────────────────
+          if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
+            _BackgroundPreviewCarousel(
+              paths: settings.pageBackgroundImagePaths,
+              opacities: settings.pageBackgroundImageOpacities,
+            ),
+            const SizedBox(height: 12),
+          ],
+
           // ── 配色 ──────────────────────────────────────
           Card(
             child: Padding(
@@ -42,21 +84,23 @@ class PersonalizationScreen extends StatelessWidget {
                   Text('配色', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 4),
                   Text(
-                    '選擇 App 整體色調，或跟隨系統桌布配色（Android 12+）',
+                    '選擇 App 整體色調',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    secondary: const Icon(Icons.wallpaper_outlined),
-                    title: const Text('跟隨系統配色'),
-                    subtitle: const Text('Material You · Android 12+ 以上可用'),
-                    value: settings.useDynamicColor,
-                    onChanged: (value) {
-                      controller.updateUseDynamicColor(value);
-                    },
-                  ),
-                  const SizedBox(height: 8),
+                  // Dynamic color toggle — only on Android 12+
+                  if (isAndroid12Plus)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(Icons.wallpaper_outlined),
+                      title: const Text('跟隨系統配色'),
+                      subtitle: const Text('Material You · Android 12+'),
+                      value: settings.useDynamicColor,
+                      onChanged: (value) {
+                        controller.updateUseDynamicColor(value);
+                      },
+                    ),
+                  if (isAndroid12Plus) const SizedBox(height: 8),
                   Text(
                     '自訂色調',
                     style: Theme.of(context).textTheme.labelLarge,
@@ -103,13 +147,23 @@ class PersonalizationScreen extends StatelessWidget {
                             controller.updateUseAmoledDark(value);
                           },
                   ),
+                  // When AMOLED is active, show disabled hints
+                  if (isAmoled) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'AMOLED 模式下：漸層、背景圖片與覆蓋層透明度已自動停用',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
           const SizedBox(height: 12),
 
-          // ── 背景透明度 ────────────────────────────────
+          // ── 主頁漸層 ──────────────────────────────────
           Card(
             child: Padding(
               padding: const EdgeInsets.all(18),
@@ -117,20 +171,19 @@ class PersonalizationScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '主頁背景',
+                    '主頁漸層',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '調整主頁漸層背景的透明度，AMOLED 模式下會自動關閉漸層',
+                    '調整主頁漸層背景的透明度',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
                   _OpacitySlider(
                     label: '漸層透明度',
                     value: settings.homeBackgroundOpacity,
-                    onChanged: settings.useAmoledDark &&
-                            settings.themeMode != ThemeMode.light
+                    onChanged: isAmoled
                         ? null
                         : (v) {
                             controller.updateHomeBackgroundOpacity(v);
@@ -155,16 +208,23 @@ class PersonalizationScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '每個頁面可以設定各自的背景圖片（支援 GIF），AMOLED 模式下會自動隱藏',
+                    '每個頁面可以設定各自的背景圖片（支援 GIF）',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
+                  if (isAmoled) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'AMOLED 模式下背景圖片已自動隱藏',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   _PerPageBackgroundSection(
                     paths: settings.pageBackgroundImagePaths,
                     opacities: settings.pageBackgroundImageOpacities,
-                    isAmoled:
-                        settings.useAmoledDark &&
-                        settings.themeMode != ThemeMode.light,
+                    isAmoled: isAmoled,
                     onPathChanged: (pageKey, path) {
                       controller.updatePageBackgroundImagePath(pageKey, path);
                     },
@@ -182,9 +242,66 @@ class PersonalizationScreen extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 12),
+
+          // ── 覆蓋層透明度 ──────────────────────────────
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '覆蓋層透明度',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '背景圖片上方的半透明覆蓋層，數值越高卡片和 AppBar 越清晰',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  _OpacitySlider(
+                    label: '覆蓋層',
+                    value: settings.overlayOpacity,
+                    onChanged: isAmoled
+                        ? null
+                        : (v) {
+                            controller.updateOverlayOpacity(v);
+                          },
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  /// Check if the current platform is Android 12+ (API 31+).
+  /// Falls back to `false` on non-Android platforms.
+  bool _isAndroid12Plus() {
+    if (kIsWeb) return false;
+    if (!Platform.isAndroid) return false;
+    // For precise SDK detection we need an async check via device_info_plus,
+    // but since this method is called in a sync build(), we use a cached
+    // static result that's initialized once.
+    return _androidSdkInt >= 31;
+  }
+
+  /// One-time async initialization of Android SDK version.
+  static int _androidSdkInt = 0;
+  static bool _sdkChecked = false;
+
+  static Future<void> ensureSdkChecked() async {
+    if (_sdkChecked) return;
+    _sdkChecked = true;
+    if (!kIsWeb && Platform.isAndroid) {
+      final deviceInfo = DeviceInfoPlugin();
+      final androidInfo = await deviceInfo.androidInfo;
+      _androidSdkInt = androidInfo.version.sdkInt;
+    }
   }
 }
 
@@ -422,22 +539,6 @@ class _CustomColorPickerDialogState extends State<_CustomColorPickerDialog> {
 // Per-page background image section
 // ────────────────────────────────────────────────────────────────
 
-const _pageLabels = <String, String>{
-  'bus': '公車',
-  'metro': '捷運',
-  'thsr': '高鐵',
-  'tra': '火車',
-  'youbike': 'YouBike',
-};
-
-const _pageIcons = <String, IconData>{
-  'bus': Icons.directions_bus_outlined,
-  'metro': Icons.subway_outlined,
-  'thsr': Icons.train_outlined,
-  'tra': Icons.directions_railway_outlined,
-  'youbike': Icons.pedal_bike_outlined,
-};
-
 class _PerPageBackgroundSection extends StatelessWidget {
   const _PerPageBackgroundSection({
     required this.paths,
@@ -457,14 +558,10 @@ class _PerPageBackgroundSection extends StatelessWidget {
   final void Function(String path, double opacity) onApplyToAll;
   final VoidCallback onClearAll;
 
-  Future<void> _pickImage(BuildContext context, String pageKey) async {
+  Future<String?> _pickImage() async {
     final picker = ImagePicker();
-    final image = await picker.pickImage(
-      source: ImageSource.gallery,
-    );
-    if (image != null) {
-      onPathChanged(pageKey, image.path);
-    }
+    final image = await picker.pickImage(source: ImageSource.gallery);
+    return image?.path;
   }
 
   @override
@@ -478,34 +575,33 @@ class _PerPageBackgroundSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // One-click apply all
-            if (paths.isNotEmpty) ...[
-              Row(
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: () {
-                      // Use the first available image as source
-                      final firstEntry = paths.entries.first;
-                      final opacity = opacities[firstEntry.key] ?? 0.25;
-                      onApplyToAll(firstEntry.value, opacity);
-                    },
-                    icon: const Icon(Icons.copy_all_rounded, size: 18),
-                    label: const Text('一鍵套用全部'),
-                  ),
-                  const SizedBox(width: 8),
+            // ── 套用全部 ──────────────────────────────
+            Row(
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: () async {
+                    final path = await _pickImage();
+                    if (path != null) {
+                      onApplyToAll(path, 0.25);
+                    }
+                  },
+                  icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
+                  label: const Text('選擇圖片並套用全部'),
+                ),
+                const SizedBox(width: 8),
+                if (paths.isNotEmpty)
                   OutlinedButton.icon(
                     onPressed: onClearAll,
                     icon: const Icon(Icons.clear_all, size: 18),
                     label: const Text('清除全部'),
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              const Divider(),
-              const SizedBox(height: 12),
-            ],
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 12),
 
-            // Per-page rows
+            // ── Per-page rows ──────────────────────────
             for (final pageKey in _pageLabels.keys)
               _PageBackgroundRow(
                 pageKey: pageKey,
@@ -513,13 +609,97 @@ class _PerPageBackgroundSection extends StatelessWidget {
                 icon: _pageIcons[pageKey]!,
                 imagePath: paths[pageKey],
                 imageOpacity: opacities[pageKey] ?? 0.25,
-                onPick: () => _pickImage(context, pageKey),
+                onPick: () async {
+                  final path = await _pickImage();
+                  if (path != null) onPathChanged(pageKey, path);
+                },
                 onClear: () => onPathChanged(pageKey, null),
                 onOpacityChanged: (v) => onOpacityChanged(pageKey, v),
                 colorScheme: colorScheme,
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+// Background preview carousel
+// ────────────────────────────────────────────────────────────────
+
+class _BackgroundPreviewCarousel extends StatelessWidget {
+  const _BackgroundPreviewCarousel({
+    required this.paths,
+    required this.opacities,
+  });
+
+  final Map<String, String> paths;
+  final Map<String, double> opacities;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final entries = paths.entries
+        .where((e) => e.value.isNotEmpty && _pageLabels.containsKey(e.key))
+        .toList();
+
+    if (entries.isEmpty) return const SizedBox.shrink();
+
+    return SizedBox(
+      height: 100,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        itemCount: entries.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final entry = entries[index];
+          final isGif = entry.value.toLowerCase().endsWith('.gif');
+          final opacity = opacities[entry.key] ?? 0.25;
+          final label = _pageLabels[entry.key] ?? entry.key;
+
+          return Column(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: SizedBox(
+                    width: 120,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.file(
+                          File(entry.value),
+                          fit: BoxFit.cover,
+                          gaplessPlayback: isGif,
+                          errorBuilder: (_, _, _) => Container(
+                            color: colorScheme.errorContainer,
+                            alignment: Alignment.center,
+                            child: Icon(
+                              Icons.broken_image_outlined,
+                              color: colorScheme.onErrorContainer,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          color: Theme.of(context)
+                              .scaffoldBackgroundColor
+                              .withValues(alpha: 1.0 - opacity),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -572,7 +752,8 @@ class _PageBackgroundRow extends StatelessWidget {
               if (isGif) ...[
                 const SizedBox(width: 6),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                   decoration: BoxDecoration(
                     color: colorScheme.tertiaryContainer,
                     borderRadius: BorderRadius.circular(6),
@@ -591,50 +772,15 @@ class _PageBackgroundRow extends StatelessWidget {
           ),
           const SizedBox(height: 8),
 
-          // Preview
-          if (hasImage) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 120),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Image.file(
-                      File(imagePath!),
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      gaplessPlayback: isGif,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        height: 60,
-                        color: colorScheme.errorContainer,
-                        alignment: Alignment.center,
-                        child: Text(
-                          '無法載入圖片',
-                          style: TextStyle(color: colorScheme.onErrorContainer),
-                        ),
-                      ),
-                    ),
-                    Container(
-                      width: double.infinity,
-                      height: 120,
-                      color: Theme.of(context)
-                          .scaffoldBackgroundColor
-                          .withValues(alpha: 1.0 - imageOpacity),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-
           // Action buttons
           Row(
             children: [
               FilledButton.tonalIcon(
                 onPressed: onPick,
-                icon: Icon(hasImage ? Icons.swap_horiz : Icons.add_photo_alternate_outlined, size: 18),
+                icon: Icon(
+                  hasImage ? Icons.swap_horiz : Icons.add_photo_alternate_outlined,
+                  size: 18,
+                ),
                 label: Text(hasImage ? '更換' : '選擇圖片'),
               ),
               if (hasImage) ...[

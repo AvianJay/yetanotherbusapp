@@ -6,7 +6,6 @@ import 'package:geolocator/geolocator.dart';
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
-import '../widgets/background_image_wrapper.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/transit_drawer.dart';
 import 'database_settings_screen.dart';
@@ -78,9 +77,7 @@ class HomeScreen extends StatelessWidget {
         currentMode: TransitMode.bus,
         onModeChanged: onModeChanged,
       ),
-      body: BackgroundImageWrapper(
-        pageKey: 'bus',
-        child: Container(
+      body: Container(
           decoration: BoxDecoration(
             gradient: _shouldShowGradient(controller)
                 ? LinearGradient(
@@ -142,7 +139,6 @@ class HomeScreen extends StatelessWidget {
             ),
           ],
         ),
-      ),
       ),
     );
   }

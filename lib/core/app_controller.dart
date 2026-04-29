@@ -286,15 +286,15 @@ class AppController extends ChangeNotifier {
 
   Future<void> applyBackgroundImageToAllPages(String path, double opacity) async {
     final allKeys = _allPageKeys;
-    final updatedPaths = <String, String>{};
-    final updatedOpacities = <String, double>{};
+    final existingPaths = Map<String, String>.from(_settings.pageBackgroundImagePaths);
+    final existingOpacities = Map<String, double>.from(_settings.pageBackgroundImageOpacities);
     for (final key in allKeys) {
-      updatedPaths[key] = path;
-      updatedOpacities[key] = opacity;
+      existingPaths[key] = path;
+      existingOpacities[key] = opacity;
     }
     _settings = _settings.copyWith(
-      pageBackgroundImagePaths: updatedPaths,
-      pageBackgroundImageOpacities: updatedOpacities,
+      pageBackgroundImagePaths: existingPaths,
+      pageBackgroundImageOpacities: existingOpacities,
     );
     await storage.saveSettings(_settings);
     notifyListeners();
@@ -309,7 +309,14 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  static const _allPageKeys = ['bus', 'metro', 'thsr', 'tra', 'youbike'];
+  static const _allPageKeys = ['bus', 'metro', 'thsr', 'tra', 'youbike',
+    'route', 'search', 'favorites', 'nearby', 'settings'];
+
+  Future<void> updateOverlayOpacity(double value) async {
+    _settings = _settings.copyWith(overlayOpacity: value);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
 
   Future<void> updateAlwaysShowSeconds(bool value) async {
     _settings = _settings.copyWith(alwaysShowSeconds: value);

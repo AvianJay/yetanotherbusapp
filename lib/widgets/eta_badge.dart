@@ -16,10 +16,12 @@ class EtaBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final eta = buildEtaPresentation(
       stop,
       alwaysShowSeconds: alwaysShowSeconds,
-      brightness: Theme.of(context).brightness,
+      brightness: theme.brightness,
+      colorScheme: theme.colorScheme,
     );
     final fontSize = size * 0.24;
 
@@ -61,10 +63,12 @@ class GenericEtaBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final eta = buildGenericEtaPresentation(
       seconds: seconds,
       message: message,
-      brightness: Theme.of(context).brightness,
+      brightness: theme.brightness,
+      colorScheme: theme.colorScheme,
     );
     final fontSize = size * 0.24;
 
@@ -95,30 +99,34 @@ EtaPresentation buildGenericEtaPresentation({
   required int? seconds,
   String? message,
   Brightness brightness = Brightness.light,
+  ColorScheme? colorScheme,
 }) {
   final isDark = brightness == Brightness.dark;
+  final cs = colorScheme;
 
   if (message != null && message.isNotEmpty) {
     return EtaPresentation(
       text: message,
-      backgroundColor: isDark ? const Color(0xFF16383D) : Colors.teal.shade50,
-      foregroundColor: isDark ? const Color(0xFFBEECEF) : Colors.teal.shade900,
+      backgroundColor: cs?.primaryContainer ??
+          (isDark ? const Color(0xFF16383D) : Colors.teal.shade50),
+      foregroundColor: cs?.onPrimaryContainer ??
+          (isDark ? const Color(0xFFBEECEF) : Colors.teal.shade900),
     );
   }
 
   if (seconds == null) {
-    return const EtaPresentation(
+    return EtaPresentation(
       text: '--',
-      backgroundColor: Color(0xFF364152),
-      foregroundColor: Color(0xFFD8E2F1),
+      backgroundColor: cs?.surfaceContainerHighest ?? const Color(0xFF364152),
+      foregroundColor: cs?.onSurfaceVariant ?? const Color(0xFFD8E2F1),
     );
   }
 
   if (seconds <= 0) {
     return EtaPresentation(
       text: '進站中',
-      backgroundColor: Colors.red.shade800,
-      foregroundColor: Colors.white,
+      backgroundColor: cs?.error ?? Colors.red.shade800,
+      foregroundColor: cs?.onError ?? Colors.white,
     );
   }
 
@@ -126,8 +134,8 @@ EtaPresentation buildGenericEtaPresentation({
     // For metro, show "即將到站" instead of exact seconds
     return EtaPresentation(
       text: '即將\n到站',
-      backgroundColor: Colors.red.shade600,
-      foregroundColor: Colors.white,
+      backgroundColor: cs?.error ?? Colors.red.shade600,
+      foregroundColor: cs?.onError ?? Colors.white,
     );
   }
 
@@ -137,10 +145,12 @@ EtaPresentation buildGenericEtaPresentation({
   return EtaPresentation(
     text: '$minutes分',
     backgroundColor: urgent
-        ? Colors.orange.shade700
-        : (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1)),
+        ? (cs?.tertiary ?? Colors.orange.shade700)
+        : (cs?.surfaceContainerHigh ??
+            (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1))),
     foregroundColor: urgent
-        ? Colors.white
-        : (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57)),
+        ? (cs?.onTertiary ?? Colors.white)
+        : (cs?.onSurface ??
+            (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57))),
   );
 }

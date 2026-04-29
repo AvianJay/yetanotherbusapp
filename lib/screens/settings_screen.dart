@@ -8,6 +8,7 @@ import '../core/models.dart';
 import '../widgets/app_update_dialog.dart';
 import 'database_settings_screen.dart';
 import 'personalization_screen.dart';
+import '../widgets/background_image_wrapper.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -80,8 +81,10 @@ class SettingsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('設定')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      body: BackgroundImageWrapper(
+        pageKey: 'settings',
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         children: [
           Card(
             child: Padding(
@@ -121,12 +124,15 @@ class SettingsScreen extends StatelessWidget {
                     title: const Text('個人化'),
                     subtitle: const Text('配色、背景透明度'),
                     trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const PersonalizationScreen(),
-                        ),
-                      );
+                    onTap: () async {
+                      await PersonalizationScreen.ensureSdkChecked();
+                      if (context.mounted) {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const PersonalizationScreen(),
+                          ),
+                        );
+                      }
                     },
                   ),
                 ],
@@ -465,7 +471,8 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -314,6 +314,7 @@ class AppSettings {
     required this.homeBackgroundOpacity,
     required this.pageBackgroundImagePaths,
     required this.pageBackgroundImageOpacities,
+    required this.overlayOpacity,
     required this.alwaysShowSeconds,
     required this.enableSmartRecommendations,
     required this.enableSmartRouteNotifications,
@@ -342,6 +343,7 @@ class AppSettings {
       homeBackgroundOpacity: 0.65,
       pageBackgroundImagePaths: const {},
       pageBackgroundImageOpacities: const {},
+      overlayOpacity: 0.85,
       alwaysShowSeconds: false,
       enableSmartRecommendations: true,
       enableSmartRouteNotifications: false,
@@ -420,6 +422,8 @@ class AppSettings {
             ),
           ) ??
           const {},
+      overlayOpacity:
+          (json['overlayOpacity'] as num?)?.toDouble() ?? 0.85,
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
       enableSmartRecommendations:
           json['enableSmartRecommendations'] as bool? ?? true,
@@ -470,6 +474,7 @@ class AppSettings {
   final double homeBackgroundOpacity;
   final Map<String, String> pageBackgroundImagePaths;
   final Map<String, double> pageBackgroundImageOpacities;
+  final double overlayOpacity;
   final bool alwaysShowSeconds;
   final bool enableSmartRecommendations;
   final bool enableSmartRouteNotifications;
@@ -497,6 +502,7 @@ class AppSettings {
     double? homeBackgroundOpacity,
     Map<String, String>? pageBackgroundImagePaths,
     Map<String, double>? pageBackgroundImageOpacities,
+    double? overlayOpacity,
     bool? alwaysShowSeconds,
     bool? enableSmartRecommendations,
     bool? enableSmartRouteNotifications,
@@ -527,6 +533,7 @@ class AppSettings {
           pageBackgroundImagePaths ?? this.pageBackgroundImagePaths,
       pageBackgroundImageOpacities:
           pageBackgroundImageOpacities ?? this.pageBackgroundImageOpacities,
+      overlayOpacity: overlayOpacity ?? this.overlayOpacity,
       alwaysShowSeconds: alwaysShowSeconds ?? this.alwaysShowSeconds,
       enableSmartRecommendations:
           enableSmartRecommendations ?? this.enableSmartRecommendations,
@@ -568,6 +575,7 @@ class AppSettings {
       'homeBackgroundOpacity': homeBackgroundOpacity,
       'pageBackgroundImagePaths': pageBackgroundImagePaths,
       'pageBackgroundImageOpacities': pageBackgroundImageOpacities,
+      'overlayOpacity': overlayOpacity,
       'alwaysShowSeconds': alwaysShowSeconds,
       'enableSmartRecommendations': enableSmartRecommendations,
       'enableSmartRouteNotifications': enableSmartRouteNotifications,
@@ -1194,8 +1202,10 @@ EtaPresentation buildEtaPresentation(
   StopInfo stop, {
   required bool alwaysShowSeconds,
   Brightness brightness = Brightness.light,
+  ColorScheme? colorScheme,
 }) {
   final isDark = brightness == Brightness.dark;
+  final cs = colorScheme;
   final message = stop.msg?.trim() ?? '';
   if (message.isNotEmpty) {
     return EtaPresentation(
@@ -1204,33 +1214,35 @@ EtaPresentation buildEtaPresentation(
           : message == '末班駛離'
           ? '末班\n駛離'
           : message,
-      backgroundColor: isDark ? const Color(0xFF16383D) : Colors.teal.shade50,
-      foregroundColor: isDark ? const Color(0xFFBEECEF) : Colors.teal.shade900,
+      backgroundColor: cs?.primaryContainer ??
+          (isDark ? const Color(0xFF16383D) : Colors.teal.shade50),
+      foregroundColor: cs?.onPrimaryContainer ??
+          (isDark ? const Color(0xFFBEECEF) : Colors.teal.shade900),
     );
   }
 
   final seconds = stop.sec;
   if (seconds == null) {
-    return const EtaPresentation(
+    return EtaPresentation(
       text: '--',
-      backgroundColor: Color(0xFF364152),
-      foregroundColor: Color(0xFFD8E2F1),
+      backgroundColor: cs?.surfaceContainerHighest ?? const Color(0xFF364152),
+      foregroundColor: cs?.onSurfaceVariant ?? const Color(0xFFD8E2F1),
     );
   }
 
   if (seconds <= 0) {
     return EtaPresentation(
       text: '進站中',
-      backgroundColor: Colors.red.shade800,
-      foregroundColor: Colors.white,
+      backgroundColor: cs?.error ?? Colors.red.shade800,
+      foregroundColor: cs?.onError ?? Colors.white,
     );
   }
 
   if (seconds < 60) {
     return EtaPresentation(
       text: '$seconds秒',
-      backgroundColor: Colors.red.shade600,
-      foregroundColor: Colors.white,
+      backgroundColor: cs?.error ?? Colors.red.shade600,
+      foregroundColor: cs?.onError ?? Colors.white,
     );
   }
 
@@ -1241,11 +1253,13 @@ EtaPresentation buildEtaPresentation(
   return EtaPresentation(
     text: alwaysShowSeconds ? '$minutes分\n$leftoverSeconds秒' : '$minutes分',
     backgroundColor: urgent
-        ? Colors.orange.shade700
-        : (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1)),
+        ? (cs?.tertiary ?? Colors.orange.shade700)
+        : (cs?.surfaceContainerHigh ??
+            (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1))),
     foregroundColor: urgent
-        ? Colors.white
-        : (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57)),
+        ? (cs?.onTertiary ?? Colors.white)
+        : (cs?.onSurface ??
+            (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57))),
   );
 }
 

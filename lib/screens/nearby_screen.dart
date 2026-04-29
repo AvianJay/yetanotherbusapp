@@ -5,6 +5,7 @@ import '../app/bus_app.dart';
 import '../core/models.dart';
 import 'route_detail_screen.dart';
 import 'settings_screen.dart';
+import '../widgets/background_image_wrapper.dart';
 
 class NearbyScreen extends StatefulWidget {
   const NearbyScreen({super.key});
@@ -90,45 +91,47 @@ class _NearbyScreenState extends State<NearbyScreen> {
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_error!, textAlign: TextAlign.center),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      alignment: WrapAlignment.center,
-                      children: [
-                        FilledButton(
-                          onPressed: _loadNearbyStops,
-                          child: const Text('重試'),
-                        ),
-                        OutlinedButton(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => const SettingsScreen(),
-                              ),
-                            );
-                          },
-                          child: const Text('前往設定'),
-                        ),
-                      ],
-                    ),
-                  ],
+      body: BackgroundImageWrapper(
+        pageKey: 'nearby',
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_error!, textAlign: TextAlign.center),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          FilledButton(
+                            onPressed: _loadNearbyStops,
+                            child: const Text('重試'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const SettingsScreen(),
+                                ),
+                              );
+                            },
+                            child: const Text('前往設定'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            )
-          : _results.isEmpty
-          ? const Center(child: Text('附近沒有找到站牌。'))
-          : ListView.separated(
+              )
+            : _results.isEmpty
+            ? const Center(child: Text('附近沒有找到站牌。'))
+            : ListView.separated(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
               itemCount: _results.length,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
@@ -186,6 +189,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                 );
               },
             ),
+      ),
     );
   }
 }

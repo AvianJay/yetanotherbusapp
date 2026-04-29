@@ -35,8 +35,11 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
     final colorScheme = Theme.of(context).colorScheme;
+    final hasBusBackgroundImage =
+        controller.settings.pageBackgroundImagePaths.containsKey('bus');
 
     return Scaffold(
+      backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YABus'),
         leading: Builder(

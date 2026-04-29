@@ -32,6 +32,7 @@ class BackgroundImageWrapper extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
     final settings = controller.settings;
+    final theme = Theme.of(context);
 
     // AMOLED mode: hide background image to preserve pure black
     final isAmoled = settings.useAmoledDark &&
@@ -73,16 +74,17 @@ class BackgroundImageWrapper extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Background image with opacity
-        Opacity(
-          opacity: opacity.clamp(0.0, 1.0),
-          child: Image.file(
-            file,
-            fit: BoxFit.cover,
-            gaplessPlayback: isGif,
-            errorBuilder: (context, error, stackTrace) =>
-                const SizedBox.shrink(),
-          ),
+        ColoredBox(color: theme.scaffoldBackgroundColor),
+        // Keep opacity on the image itself so we do not add a full-screen
+        // composited layer that can briefly read as a dark scrim while the
+        // file image is resolving.
+        Image.file(
+          file,
+          fit: BoxFit.cover,
+          gaplessPlayback: isGif,
+          opacity: AlwaysStoppedAnimation(opacity.clamp(0.0, 1.0)),
+          errorBuilder: (context, error, stackTrace) =>
+              const SizedBox.shrink(),
         ),
         // Content on top — Cards/AppBar/BottomBar get their own
         // semi-transparent tint via overlayOpacity applied through

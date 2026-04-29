@@ -1213,6 +1213,8 @@ EtaPresentation buildEtaPresentation(
           ? '即將\n進站'
           : message == '末班駛離'
           ? '末班\n駛離'
+          : message == '今日未營運'
+          ? '今日\n未營運'
           : message,
       backgroundColor: cs?.primaryContainer ??
           (isDark ? const Color(0xFF16383D) : Colors.teal.shade50),
@@ -1243,10 +1245,8 @@ EtaPresentation buildEtaPresentation(
   if (seconds < 60) {
     return EtaPresentation(
       text: '$seconds秒',
-      backgroundColor: isDark
-          ? (cs?.error ?? const Color(0xFF8B1A1A))
-          : (cs?.error ?? Colors.red.shade800),
-      foregroundColor: cs?.onError ?? Colors.white,
+      backgroundColor: Colors.red.shade600,
+      foregroundColor: Colors.white,
     );
   }
 
@@ -1257,14 +1257,12 @@ EtaPresentation buildEtaPresentation(
   return EtaPresentation(
     text: alwaysShowSeconds ? '$minutes分\n$leftoverSeconds秒' : '$minutes分',
     backgroundColor: urgent
-        ? (isDark
-            ? (cs?.error ?? const Color(0xFF8B1A1A))
-            : (cs?.error ?? Colors.red.shade800))
-        : (cs?.surfaceContainerHigh ??
-            (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1))),
+        ? Colors.orange.shade700
+        : cs?.primaryContainer ??
+            (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1)),
     foregroundColor: urgent
-        ? (cs?.onError ?? Colors.white)
-        : (cs?.onSurface ??
+        ? Colors.white
+        : (cs?.onPrimaryContainer ??
             (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57))),
   );
 }

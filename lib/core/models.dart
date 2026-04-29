@@ -1233,7 +1233,9 @@ EtaPresentation buildEtaPresentation(
   if (seconds <= 0) {
     return EtaPresentation(
       text: '進站中',
-      backgroundColor: cs?.error ?? Colors.red.shade800,
+      backgroundColor: isDark
+          ? (cs?.error ?? const Color(0xFF8B1A1A))
+          : (cs?.error ?? Colors.red.shade800),
       foregroundColor: cs?.onError ?? Colors.white,
     );
   }
@@ -1241,7 +1243,9 @@ EtaPresentation buildEtaPresentation(
   if (seconds < 60) {
     return EtaPresentation(
       text: '$seconds秒',
-      backgroundColor: cs?.error ?? Colors.red.shade600,
+      backgroundColor: isDark
+          ? (cs?.error ?? const Color(0xFF8B1A1A))
+          : (cs?.error ?? Colors.red.shade800),
       foregroundColor: cs?.onError ?? Colors.white,
     );
   }
@@ -1253,7 +1257,9 @@ EtaPresentation buildEtaPresentation(
   return EtaPresentation(
     text: alwaysShowSeconds ? '$minutes分\n$leftoverSeconds秒' : '$minutes分',
     backgroundColor: urgent
-        ? (cs?.error ?? Colors.red.shade700)
+        ? (isDark
+            ? (cs?.error ?? const Color(0xFF8B1A1A))
+            : (cs?.error ?? Colors.red.shade800))
         : (cs?.surfaceContainerHigh ??
             (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1))),
     foregroundColor: urgent

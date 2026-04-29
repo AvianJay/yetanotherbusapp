@@ -87,13 +87,9 @@ class _MainTransitShellState extends State<MainTransitShell> {
 
   Widget _buildModeLayer({required TransitMode mode, required Widget child}) {
     final isActive = mode == _currentMode;
-    final pageKey = switch (mode) {
-      TransitMode.bus => 'bus',
-      TransitMode.metro => 'metro',
-      TransitMode.thsr => 'thsr',
-      TransitMode.tra => 'tra',
-      TransitMode.youbike => 'youbike',
-    };
+    // All 5 transit modes share the 'bus' (main/home) page key
+    // so the background image is shared across the home page tabs.
+    const pageKey = 'bus';
 
     return IgnorePointer(
       ignoring: !isActive,

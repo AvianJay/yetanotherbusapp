@@ -97,18 +97,42 @@ class BusApp extends StatelessWidget {
       scaffoldBackground = null;
     }
 
+    // When background images are active, apply overlayOpacity to
+    // Cards, AppBar, and BottomBar so content remains readable.
+    final hasBackgroundImage = settings.pageBackgroundImagePaths.isNotEmpty;
+    final overlayAlpha = hasBackgroundImage && !useAmoled
+        ? settings.overlayOpacity.clamp(0.0, 1.0)
+        : 1.0;
+
+    // Card/AppBar/BottomBar background tint: mix surface color with
+    // scaffold background at overlayAlpha so they become semi-transparent
+    // against background images.
+    final Color overlaySurface = Color.alphaBlend(
+      colorScheme.surface.withValues(alpha: overlayAlpha),
+      scaffoldBackground ?? colorScheme.surface,
+    );
+    final Color overlaySurfaceContainer = Color.alphaBlend(
+      (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surfaceContainer)
+          .withValues(alpha: overlayAlpha),
+      scaffoldBackground ?? colorScheme.surface,
+    );
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: scaffoldBackground,
       appBarTheme: AppBarTheme(
         centerTitle: false,
-        backgroundColor: Colors.transparent,
+        backgroundColor: hasBackgroundImage && !useAmoled
+            ? overlaySurface.withValues(alpha: overlayAlpha)
+            : Colors.transparent,
         foregroundColor: colorScheme.onSurface,
         elevation: 0,
       ),
       cardTheme: CardThemeData(
-        color: useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface,
+        color: hasBackgroundImage && !useAmoled
+            ? overlaySurfaceContainer
+            : (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface),
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),

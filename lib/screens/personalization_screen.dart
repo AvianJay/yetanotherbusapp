@@ -24,29 +24,19 @@ const _presetColors = <Color>[
 /// Page key → display label
 const _pageLabels = <String, String>{
   'bus': '主頁',
-  'route': '路線',
   'search': '搜尋',
   'favorites': '最愛',
   'nearby': '附近',
   'settings': '設定',
-  'metro': '捷運',
-  'thsr': '高鐵',
-  'tra': '火車',
-  'youbike': 'YouBike',
 };
 
 /// Page key → icon
 const _pageIcons = <String, IconData>{
   'bus': Icons.home_outlined,
-  'route': Icons.directions_bus_outlined,
   'search': Icons.search_rounded,
   'favorites': Icons.favorite_outline_rounded,
   'nearby': Icons.near_me_outlined,
   'settings': Icons.settings_outlined,
-  'metro': Icons.subway_outlined,
-  'thsr': Icons.train_outlined,
-  'tra': Icons.directions_railway_outlined,
-  'youbike': Icons.pedal_bike_outlined,
 };
 
 class PersonalizationScreen extends StatelessWidget {
@@ -195,7 +185,7 @@ class PersonalizationScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
-          // ── 背景圖片（各頁面） ────────────────────────────
+          // ── 背景圖片 ────────────────────────────────
           Card(
             child: Padding(
               padding: const EdgeInsets.all(18),
@@ -208,7 +198,7 @@ class PersonalizationScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '每個頁面可以設定各自的背景圖片（支援 GIF）',
+                    '設定各頁面的背景圖片（支援 GIF），主頁包含公車/捷運/高鐵/台鐵/YouBike',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   if (isAmoled) ...[
@@ -221,22 +211,65 @@ class PersonalizationScreen extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 12),
-                  _PerPageBackgroundSection(
-                    paths: settings.pageBackgroundImagePaths,
-                    opacities: settings.pageBackgroundImageOpacities,
-                    isAmoled: isAmoled,
-                    onPathChanged: (pageKey, path) {
-                      controller.updatePageBackgroundImagePath(pageKey, path);
-                    },
-                    onOpacityChanged: (pageKey, opacity) {
-                      controller.updatePageBackgroundImageOpacity(pageKey, opacity);
-                    },
-                    onApplyToAll: (path, opacity) {
-                      controller.applyBackgroundImageToAllPages(path, opacity);
-                    },
-                    onClearAll: () {
-                      controller.clearAllBackgroundImages();
-                    },
+                  Opacity(
+                    opacity: isAmoled ? 0.4 : 1.0,
+                    child: IgnorePointer(
+                      ignoring: isAmoled,
+                      child: Column(
+                        children: [
+                          // Global: pick + clear
+                          Row(
+                            children: [
+                              FilledButton.tonalIcon(
+                                onPressed: () async {
+                                  final picker = ImagePicker();
+                                  final image = await picker.pickImage(
+                                    source: ImageSource.gallery,
+                                  );
+                                  if (image != null) {
+                                    controller.applyBackgroundImageToAllPages(
+                                      image.path,
+                                      0.25,
+                                    );
+                                  }
+                                },
+                                icon: const Icon(
+                                  Icons.add_photo_alternate_outlined,
+                                  size: 18,
+                                ),
+                                label: const Text('選擇圖片'),
+                              ),
+                              const SizedBox(width: 8),
+                              if (settings.pageBackgroundImagePaths.isNotEmpty)
+                                OutlinedButton.icon(
+                                  onPressed: () {
+                                    controller.clearAllBackgroundImages();
+                                  },
+                                  icon: const Icon(Icons.clear_all, size: 18),
+                                  label: const Text('清除'),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          // Navigate to per-page settings
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.tune_outlined),
+                            title: const Text('各頁面設定'),
+                            subtitle: const Text('分別設定每個頁面的背景圖片'),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) =>
+                                      const _PerPageBackgroundScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -257,7 +290,7 @@ class PersonalizationScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '背景圖片上方的半透明覆蓋層，數值越高卡片和 AppBar 越清晰',
+                    '背景圖片啟用時，卡片、AppBar 等元件的透明度，數值越高越不透明',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
@@ -536,89 +569,74 @@ class _CustomColorPickerDialogState extends State<_CustomColorPickerDialog> {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Per-page background image section
+// Per-page background settings screen (separate route)
 // ────────────────────────────────────────────────────────────────
 
-class _PerPageBackgroundSection extends StatelessWidget {
-  const _PerPageBackgroundSection({
-    required this.paths,
-    required this.opacities,
-    required this.isAmoled,
-    required this.onPathChanged,
-    required this.onOpacityChanged,
-    required this.onApplyToAll,
-    required this.onClearAll,
-  });
-
-  final Map<String, String> paths;
-  final Map<String, double> opacities;
-  final bool isAmoled;
-  final void Function(String pageKey, String? path) onPathChanged;
-  final void Function(String pageKey, double opacity) onOpacityChanged;
-  final void Function(String path, double opacity) onApplyToAll;
-  final VoidCallback onClearAll;
-
-  Future<String?> _pickImage() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
-    return image?.path;
-  }
+class _PerPageBackgroundScreen extends StatelessWidget {
+  const _PerPageBackgroundScreen();
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final controller = AppControllerScope.of(context);
+    final settings = controller.settings;
+    final isAmoled =
+        settings.useAmoledDark && settings.themeMode != ThemeMode.light;
 
-    return Opacity(
-      opacity: isAmoled ? 0.4 : 1.0,
-      child: IgnorePointer(
-        ignoring: isAmoled,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── 套用全部 ──────────────────────────────
-            Row(
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: () async {
-                    final path = await _pickImage();
-                    if (path != null) {
-                      onApplyToAll(path, 0.25);
-                    }
-                  },
-                  icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
-                  label: const Text('選擇圖片並套用全部'),
-                ),
-                const SizedBox(width: 8),
-                if (paths.isNotEmpty)
-                  OutlinedButton.icon(
-                    onPressed: onClearAll,
-                    icon: const Icon(Icons.clear_all, size: 18),
-                    label: const Text('清除全部'),
-                  ),
-              ],
+    return Scaffold(
+      appBar: AppBar(title: const Text('各頁面背景設定')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        children: [
+          // ── Preview carousel ─────────────────────────
+          if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
+            _BackgroundPreviewCarousel(
+              paths: settings.pageBackgroundImagePaths,
+              opacities: settings.pageBackgroundImageOpacities,
             ),
             const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 12),
-
-            // ── Per-page rows ──────────────────────────
-            for (final pageKey in _pageLabels.keys)
-              _PageBackgroundRow(
-                pageKey: pageKey,
-                label: _pageLabels[pageKey]!,
-                icon: _pageIcons[pageKey]!,
-                imagePath: paths[pageKey],
-                imageOpacity: opacities[pageKey] ?? 0.25,
-                onPick: () async {
-                  final path = await _pickImage();
-                  if (path != null) onPathChanged(pageKey, path);
-                },
-                onClear: () => onPathChanged(pageKey, null),
-                onOpacityChanged: (v) => onOpacityChanged(pageKey, v),
-                colorScheme: colorScheme,
-              ),
           ],
-        ),
+
+          // ── Per-page rows ────────────────────────────
+          Opacity(
+            opacity: isAmoled ? 0.4 : 1.0,
+            child: IgnorePointer(
+              ignoring: isAmoled,
+              child: Column(
+                children: [
+                  for (final pageKey in _pageLabels.keys)
+                    _PageBackgroundRow(
+                      pageKey: pageKey,
+                      label: _pageLabels[pageKey]!,
+                      icon: _pageIcons[pageKey]!,
+                      imagePath: settings.pageBackgroundImagePaths[pageKey],
+                      imageOpacity:
+                          settings.pageBackgroundImageOpacities[pageKey] ??
+                              0.25,
+                      onPick: () async {
+                        final picker = ImagePicker();
+                        final image = await picker.pickImage(
+                          source: ImageSource.gallery,
+                        );
+                        if (image != null) {
+                          controller.updatePageBackgroundImagePath(
+                            pageKey,
+                            image.path,
+                          );
+                        }
+                      },
+                      onClear: () {
+                        controller.updatePageBackgroundImagePath(pageKey, null);
+                      },
+                      onOpacityChanged: (v) {
+                        controller.updatePageBackgroundImageOpacity(pageKey, v);
+                      },
+                      colorScheme: Theme.of(context).colorScheme,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -640,6 +658,11 @@ class _BackgroundPreviewCarousel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final scaffoldBg = Theme.of(context).scaffoldBackgroundColor;
+    final controller = AppControllerScope.of(context);
+    final settings = controller.settings;
+    final overlayAlpha = 1.0 - settings.overlayOpacity;
+
     final entries = paths.entries
         .where((e) => e.value.isNotEmpty && _pageLabels.containsKey(e.key))
         .toList();
@@ -647,7 +670,7 @@ class _BackgroundPreviewCarousel extends StatelessWidget {
     if (entries.isEmpty) return const SizedBox.shrink();
 
     return SizedBox(
-      height: 100,
+      height: 160,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -661,14 +684,16 @@ class _BackgroundPreviewCarousel extends StatelessWidget {
 
           return Column(
             children: [
+              // Mockup of the page
               Expanded(
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(10),
                   child: SizedBox(
-                    width: 120,
+                    width: 100,
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
+                        // Background image
                         Image.file(
                           File(entry.value),
                           fit: BoxFit.cover,
@@ -682,10 +707,80 @@ class _BackgroundPreviewCarousel extends StatelessWidget {
                             ),
                           ),
                         ),
-                        Container(
-                          color: Theme.of(context)
-                              .scaffoldBackgroundColor
-                              .withValues(alpha: 1.0 - opacity),
+                        // Image opacity
+                        Opacity(
+                          opacity: opacity.clamp(0.0, 1.0),
+                          child: Container(
+                            color: scaffoldBg,
+                          ),
+                        ),
+                        // Overlay scrim (same as theme overlay)
+                        if (overlayAlpha > 0)
+                          IgnorePointer(
+                            child: Container(
+                              color: colorScheme.surface
+                                  .withValues(alpha: 1.0 - overlayAlpha),
+                            ),
+                          ),
+                        // Mock AppBar
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: Container(
+                            height: 20,
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            alignment: Alignment.centerLeft,
+                            color: colorScheme.surface
+                                .withValues(alpha: 1.0 - overlayAlpha),
+                            child: Container(
+                              width: 30,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: colorScheme.onSurface
+                                    .withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ),
+                        ),
+                        // Mock card
+                        Positioned(
+                          top: 28,
+                          left: 6,
+                          right: 6,
+                          child: Container(
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerHigh
+                                  .withValues(alpha: 1.0 - overlayAlpha),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          top: 58,
+                          left: 6,
+                          right: 6,
+                          child: Container(
+                            height: 16,
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerHigh
+                                  .withValues(alpha: 1.0 - overlayAlpha),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                        // Mock bottom bar
+                        Positioned(
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          child: Container(
+                            height: 16,
+                            color: colorScheme.surface
+                                .withValues(alpha: 1.0 - overlayAlpha),
+                          ),
                         ),
                       ],
                     ),

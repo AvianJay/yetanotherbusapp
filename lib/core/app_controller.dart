@@ -309,8 +309,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  static const _allPageKeys = ['bus', 'metro', 'thsr', 'tra', 'youbike',
-    'route', 'search', 'favorites', 'nearby', 'settings'];
+  static const _allPageKeys = ['bus', 'search', 'favorites', 'nearby', 'settings'];
 
   Future<void> updateOverlayOpacity(double value) async {
     _settings = _settings.copyWith(overlayOpacity: value);

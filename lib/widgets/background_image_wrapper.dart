@@ -79,15 +79,9 @@ class BackgroundImageWrapper extends StatelessWidget {
                 const SizedBox.shrink(),
           ),
         ),
-        // Semi-transparent overlay so AppBar & cards remain readable
-        if (settings.overlayOpacity < 1.0)
-          IgnorePointer(
-            child: Container(
-              color: Theme.of(context).scaffoldBackgroundColor
-                  .withValues(alpha: 1.0 - settings.overlayOpacity),
-            ),
-          ),
-        // Content on top
+        // Content on top — Cards/AppBar/BottomBar get their own
+        // semi-transparent tint via overlayOpacity applied through
+        // the theme in BusApp.
         child,
       ],
     );

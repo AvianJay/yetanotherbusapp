@@ -1253,11 +1253,11 @@ EtaPresentation buildEtaPresentation(
   return EtaPresentation(
     text: alwaysShowSeconds ? '$minutes分\n$leftoverSeconds秒' : '$minutes分',
     backgroundColor: urgent
-        ? (cs?.tertiary ?? Colors.orange.shade700)
+        ? (cs?.error ?? Colors.red.shade700)
         : (cs?.surfaceContainerHigh ??
             (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1))),
     foregroundColor: urgent
-        ? (cs?.onTertiary ?? Colors.white)
+        ? (cs?.onError ?? Colors.white)
         : (cs?.onSurface ??
             (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57))),
   );

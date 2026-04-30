@@ -33,10 +33,13 @@ class BusApp extends StatelessWidget {
             title: 'YetAnotherBusApp',
             debugShowCheckedModeBanner: false,
             themeMode: controller.settings.themeMode,
-            theme: _buildTheme(Brightness.light, amoled: false),
+            theme: _buildTheme(
+              Brightness.light,
+              settings: controller.settings,
+            ),
             darkTheme: _buildTheme(
               Brightness.dark,
-              amoled: controller.settings.useAmoledDark,
+              settings: controller.settings,
             ),
             navigatorObservers: [
               if (analytics.observer != null) analytics.observer!,
@@ -48,13 +51,30 @@ class BusApp extends StatelessWidget {
     );
   }
 
-  ThemeData _buildTheme(Brightness brightness, {required bool amoled}) {
+  ThemeData _buildTheme(Brightness brightness, {required AppSettings settings}) {
+    final useAmoled = settings.useAmoledDark && brightness == Brightness.dark;
+
+    // Pick seed color: custom > default
+    final seedColor = settings.seedColor ?? const Color(0xFF0B7285);
+
     var colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF0B7285),
+      seedColor: seedColor,
       brightness: brightness,
     );
 
-    final useAmoled = amoled && brightness == Brightness.dark;
+    // Dynamic color support (Android 12+)
+    if (settings.useDynamicColor && brightness == Brightness.dark) {
+      final dynamicColorScheme = _tryGetDynamicColorScheme(brightness);
+      if (dynamicColorScheme != null) {
+        colorScheme = dynamicColorScheme;
+      }
+    } else if (settings.useDynamicColor && brightness == Brightness.light) {
+      final dynamicColorScheme = _tryGetDynamicColorScheme(brightness);
+      if (dynamicColorScheme != null) {
+        colorScheme = dynamicColorScheme;
+      }
+    }
+
     if (useAmoled) {
       colorScheme = colorScheme.copyWith(
         surface: Colors.black,
@@ -77,18 +97,42 @@ class BusApp extends StatelessWidget {
       scaffoldBackground = null;
     }
 
+    // When background images are active, apply overlayOpacity to
+    // Cards, AppBar, and BottomBar so content remains readable.
+    final hasBackgroundImage = settings.pageBackgroundImagePaths.isNotEmpty;
+    final overlayAlpha = hasBackgroundImage && !useAmoled
+        ? settings.overlayOpacity.clamp(0.0, 1.0)
+        : 1.0;
+
+    // Use real alpha on component surfaces so the background image remains
+    // visible behind AppBar, cards, inputs, and bottom bars.
+    final Color overlaySurface = hasBackgroundImage && !useAmoled
+      ? colorScheme.surface.withValues(alpha: overlayAlpha)
+      : (scaffoldBackground ?? colorScheme.surface);
+    final Color overlaySurfaceContainer = hasBackgroundImage && !useAmoled
+      ? (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surfaceContainer)
+        .withValues(alpha: overlayAlpha)
+      : (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface);
+    final Color overlayInputFill = hasBackgroundImage && !useAmoled
+      ? colorScheme.surface.withValues(alpha: overlayAlpha)
+      : (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface);
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: scaffoldBackground,
       appBarTheme: AppBarTheme(
         centerTitle: false,
-        backgroundColor: Colors.transparent,
+        backgroundColor: hasBackgroundImage && !useAmoled
+            ? overlaySurface
+            : Colors.transparent,
         foregroundColor: colorScheme.onSurface,
         elevation: 0,
       ),
       cardTheme: CardThemeData(
-        color: useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface,
+        color: hasBackgroundImage && !useAmoled
+            ? overlaySurfaceContainer
+            : (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface),
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
@@ -97,7 +141,7 @@ class BusApp extends StatelessWidget {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface,
+        fillColor: overlayInputFill,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
           borderSide: BorderSide(color: colorScheme.outlineVariant),
@@ -111,11 +155,26 @@ class BusApp extends StatelessWidget {
           borderSide: BorderSide(color: colorScheme.primary, width: 1.6),
         ),
       ),
+      bottomAppBarTheme: BottomAppBarThemeData(
+        color: hasBackgroundImage && !useAmoled
+        ? overlaySurface
+            : null,
+      ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
     );
+  }
+
+  /// Attempt to get the system's dynamic color scheme on Android 12+.
+  /// Returns `null` if not available (e.g. pre-Android 12, iOS, desktop).
+  ColorScheme? _tryGetDynamicColorScheme(Brightness brightness) {
+    // Dynamic color requires the `dynamic_color` package or platform channel.
+    // For now we return null; this will be wired up when the platform plugin
+    // is integrated. The personalization UI already offers the toggle so
+    // users can enable it once the native side is ready.
+    return null;
   }
 }
 

@@ -262,7 +262,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
                 ],
               ),
             ),
-    );
+      );
   }
 
   Widget _buildSeatOverview(ThemeData theme) {

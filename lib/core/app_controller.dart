@@ -235,6 +235,103 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateUseDynamicColor(bool value) async {
+    _settings = _settings.copyWith(useDynamicColor: value);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updateSeedColor(Color? color) async {
+    if (color != null) {
+      _settings = _settings.copyWith(seedColor: color);
+    } else {
+      _settings = _settings.copyWith(clearSeedColor: true);
+    }
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updateHomeBackgroundOpacity(double value) async {
+    _settings = _settings.copyWith(homeBackgroundOpacity: value);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updatePageBackgroundImagePath(
+    String pageKey,
+    String? path,
+  ) async {
+    final updated = Map<String, String>.from(_settings.pageBackgroundImagePaths);
+    if (path != null) {
+      updated[pageKey] = path;
+    } else {
+      updated.remove(pageKey);
+    }
+    _settings = _settings.copyWith(pageBackgroundImagePaths: updated);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updatePageBackgroundImageOpacity(
+    String pageKey,
+    double opacity,
+  ) async {
+    final updated =
+        Map<String, double>.from(_settings.pageBackgroundImageOpacities);
+    updated[pageKey] = opacity;
+    _settings = _settings.copyWith(pageBackgroundImageOpacities: updated);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updateAllPageBackgroundImageOpacity(double opacity) async {
+    if (_settings.pageBackgroundImagePaths.isEmpty) {
+      return;
+    }
+
+    final updated =
+        Map<String, double>.from(_settings.pageBackgroundImageOpacities);
+    for (final key in _settings.pageBackgroundImagePaths.keys) {
+      updated[key] = opacity;
+    }
+    _settings = _settings.copyWith(pageBackgroundImageOpacities: updated);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> applyBackgroundImageToAllPages(String path, double opacity) async {
+    final allKeys = _allPageKeys;
+    final existingPaths = Map<String, String>.from(_settings.pageBackgroundImagePaths);
+    final existingOpacities = Map<String, double>.from(_settings.pageBackgroundImageOpacities);
+    for (final key in allKeys) {
+      existingPaths[key] = path;
+      existingOpacities[key] = opacity;
+    }
+    _settings = _settings.copyWith(
+      pageBackgroundImagePaths: existingPaths,
+      pageBackgroundImageOpacities: existingOpacities,
+    );
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> clearAllBackgroundImages() async {
+    _settings = _settings.copyWith(
+      pageBackgroundImagePaths: const {},
+      pageBackgroundImageOpacities: const {},
+    );
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  static const _allPageKeys = ['bus', 'search', 'favorites', 'nearby', 'settings'];
+
+  Future<void> updateOverlayOpacity(double value) async {
+    _settings = _settings.copyWith(overlayOpacity: value);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
   Future<void> updateAlwaysShowSeconds(bool value) async {
     _settings = _settings.copyWith(alwaysShowSeconds: value);
     await storage.saveSettings(_settings);

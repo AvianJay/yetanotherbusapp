@@ -265,7 +265,7 @@ class _TraScreenState extends State<TraScreen> {
                 ],
               ),
             ),
-    );
+      );
   }
 
   Widget _buildLiveOverview(ThemeData theme) {

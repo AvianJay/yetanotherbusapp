@@ -6,6 +6,7 @@ import '../app/bus_app.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
 import 'route_detail_screen.dart';
+import '../widgets/background_image_wrapper.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -152,14 +153,21 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     final busController = AppControllerScope.of(context);
     final selectedProviders = busController.selectedProviders;
+    final hasSearchBackgroundImage = hasBackgroundImageForPage(
+      busController.settings,
+      pageKey: 'search',
+    );
     final missingProviders = selectedProviders
         .where((provider) => !busController.isDatabaseReady(provider))
         .toList();
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('搜尋路線')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+    return BackgroundImageWrapper(
+      pageKey: 'search',
+      child: Scaffold(
+        backgroundColor: hasSearchBackgroundImage ? Colors.transparent : null,
+        appBar: AppBar(title: const Text('搜尋路線')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         children: [
           TextField(
             controller: _controller,
@@ -263,7 +271,8 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }

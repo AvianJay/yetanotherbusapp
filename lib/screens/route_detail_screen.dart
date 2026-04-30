@@ -16,6 +16,7 @@ import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
 import '../core/trip_monitor_notifications.dart';
 import '../core/twbusforum.dart';
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/route_bus_map_sheet.dart';
 
@@ -2943,172 +2944,185 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final controller = AppControllerScope.of(context);
     final detail = _detail;
     final theme = Theme.of(context);
+    final settings = controller.settings;
+    final isAmoled =
+        settings.useAmoledDark && settings.themeMode != ThemeMode.light;
+    final hasBusBackgroundImage =
+        settings.pageBackgroundImagePaths.containsKey('bus');
     final currentPathId = _currentPathId;
     final currentNearestStopId = currentPathId == null
         ? null
         : _nearestStopByPath[currentPathId];
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(detail?.route.routeName ?? '公車資訊'),
-        actions: [
-          if (detail != null && currentPathId != null)
-            IconButton(
-              onPressed: () => unawaited(_openBusMapSheet()),
-              tooltip: '公車地圖',
-              icon: const Icon(Icons.map_outlined),
-            ),
-          if (currentPathId != null && currentNearestStopId != null)
-            IconButton(
-              onPressed: () =>
-                  unawaited(_scrollToStop(currentPathId, currentNearestStopId)),
-              icon: const Icon(Icons.gps_fixed_rounded),
-            ),
-          if (controller.settings.enableRouteBackgroundMonitor &&
-              _currentPathStops.isNotEmpty)
-            IconButton(
-              onPressed: () => unawaited(
-                _setBackgroundTripMonitorPaused(
-                  !_backgroundTripMonitorPaused,
-                  reason: 'user',
-                ),
+    return BackgroundImageWrapper(
+      pageKey: 'bus',
+      child: Scaffold(
+        backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
+        appBar: AppBar(
+          title: Text(detail?.route.routeName ?? '公車資訊'),
+          actions: [
+            if (detail != null && currentPathId != null)
+              IconButton(
+                onPressed: () => unawaited(_openBusMapSheet()),
+                tooltip: '公車地圖',
+                icon: const Icon(Icons.map_outlined),
               ),
-              tooltip: _backgroundTripMonitorPaused ? '恢復背景乘車提醒' : '暫時停止背景乘車提醒',
-              icon: Icon(
-                _backgroundTripMonitorPaused
-                    ? Icons.play_circle_outline_rounded
-                    : Icons.pause_circle_outline_rounded,
+            if (currentPathId != null && currentNearestStopId != null)
+              IconButton(
+                onPressed: () =>
+                    unawaited(_scrollToStop(currentPathId, currentNearestStopId)),
+                icon: const Icon(Icons.gps_fixed_rounded),
               ),
-            ),
-          if (_currentPathStops.isNotEmpty)
-            IconButton(
-              onPressed: () => _destinationStopId == null
-                  ? unawaited(_pickDestinationStop())
-                  : unawaited(_clearDestinationStop()),
-              icon: Icon(
-                _destinationStopId == null
-                    ? Icons.flag_outlined
-                    : Icons.flag_rounded,
-              ),
-            ),
-          IconButton(
-            onPressed: detail == null
-                ? null
-                : () {
-                    if (_alerts.isNotEmpty && !_alertsRead) {
-                      setState(() { _alertsRead = true; });
-                    }
-                    showDialog<void>(
-                      context: context,
-                      builder: (dialogContext) {
-                        return _RouteInfoDialog(
-                          detail: detail,
-                          alerts: _alerts,
-                          repository: AppControllerScope.read(context).repository,
-                        );
-                      },
-                    );
-                  },
-            icon: _alerts.isNotEmpty && !_alertsRead
-                ? const Badge(
-                    smallSize: 8,
-                    child: Icon(Icons.info_outline_rounded),
-                  )
-                : const Icon(Icons.info_outline_rounded),
-          ),
-        ],
-      ),
-      bottomNavigationBar: Material(
-        color: theme.bottomAppBarTheme.color ?? theme.colorScheme.surface,
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildBottomProgressIndicator(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    _statusMessage ??
-                        (_remainingSeconds > 0
-                            ? '$_remainingSeconds 秒後更新'
-                            : '正在更新'),
-                    style: theme.textTheme.bodySmall,
+            if (controller.settings.enableRouteBackgroundMonitor &&
+                _currentPathStops.isNotEmpty)
+              IconButton(
+                onPressed: () => unawaited(
+                  _setBackgroundTripMonitorPaused(
+                    !_backgroundTripMonitorPaused,
+                    reason: 'user',
                   ),
                 ),
+                tooltip: _backgroundTripMonitorPaused ? '恢復背景乘車提醒' : '暫時停止背景乘車提醒',
+                icon: Icon(
+                  _backgroundTripMonitorPaused
+                      ? Icons.play_circle_outline_rounded
+                      : Icons.pause_circle_outline_rounded,
+                ),
               ),
-            ],
-          ),
+            if (_currentPathStops.isNotEmpty)
+              IconButton(
+                onPressed: () => _destinationStopId == null
+                    ? unawaited(_pickDestinationStop())
+                    : unawaited(_clearDestinationStop()),
+                icon: Icon(
+                  _destinationStopId == null
+                      ? Icons.flag_outlined
+                      : Icons.flag_rounded,
+                ),
+              ),
+            IconButton(
+              onPressed: detail == null
+                  ? null
+                  : () {
+                      if (_alerts.isNotEmpty && !_alertsRead) {
+                        setState(() { _alertsRead = true; });
+                      }
+                      showDialog<void>(
+                        context: context,
+                        builder: (dialogContext) {
+                          return _RouteInfoDialog(
+                            detail: detail,
+                            alerts: _alerts,
+                            repository: AppControllerScope.read(context).repository,
+                          );
+                        },
+                      );
+                    },
+              icon: _alerts.isNotEmpty && !_alertsRead
+                  ? const Badge(
+                      smallSize: 8,
+                      child: Icon(Icons.info_outline_rounded),
+                    )
+                  : const Icon(Icons.info_outline_rounded),
+            ),
+          ],
         ),
-      ),
-      body: _isLoading && detail == null
-          ? const Center(child: CircularProgressIndicator())
-          : detail == null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(_error ?? '目前無法載入公車資訊'),
-              ),
-            )
-          : Column(
+        bottomNavigationBar: Material(
+          color: theme.bottomAppBarTheme.color ??
+              (hasBusBackgroundImage && !isAmoled
+                  ? theme.colorScheme.surface.withValues(
+                      alpha: (theme.appBarTheme.backgroundColor?.a ?? 1.0))
+                  : theme.colorScheme.surface),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (_tabController != null)
-                  TabBar(
-                    controller: _tabController,
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.center,
-                    tabs: detail.paths
-                        .map((path) => Tab(text: path.name))
-                        .toList(),
+                _buildBottomProgressIndicator(),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _statusMessage ??
+                          (_remainingSeconds > 0
+                              ? '$_remainingSeconds 秒後更新'
+                              : '正在更新'),
+                      style: theme.textTheme.bodySmall,
+                    ),
                   ),
-                Expanded(
-                  child: _tabController == null
-                      ? const Center(child: Text('目前沒有可顯示的方向'))
-                      : TabBarView(
-                          controller: _tabController,
-                          children: detail.paths.map((path) {
-                            final pathStops =
-                                detail.stopsByPath[path.pathId] ?? const [];
-                            return ListView.separated(
-                              controller: _scrollControllerForPath(path.pathId),
-                              padding: const EdgeInsets.fromLTRB(
-                                16,
-                                12,
-                                16,
-                                20,
-                              ),
-                              itemCount: pathStops.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 18),
-                              itemBuilder: (context, index) {
-                                final stop = pathStops[index];
-                                final key = _stopKeys.putIfAbsent(
-                                  _keyForStop(path.pathId, stop.stopId),
-                                  GlobalKey.new,
-                                );
-                                return Container(
-                                  key: key,
-                                  child: _buildStopTile(
-                                    context,
-                                    theme,
-                                    stop,
-                                    alwaysShowSeconds:
-                                        controller.settings.alwaysShowSeconds,
-                                    isHighlighted: _isInitialStop(stop),
-                                    isNearest: _isNearestStop(stop),
-                                    isDestination: _isDestinationStop(stop),
-                                  ),
-                                );
-                              },
-                            );
-                          }).toList(),
-                        ),
                 ),
               ],
             ),
+          ),
+        ),
+        body: _isLoading && detail == null
+            ? const Center(child: CircularProgressIndicator())
+            : detail == null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(_error ?? '目前無法載入公車資訊'),
+                ),
+              )
+            : Column(
+                children: [
+                  if (_tabController != null)
+                    TabBar(
+                      controller: _tabController,
+                      isScrollable: true,
+                      tabAlignment: TabAlignment.center,
+                      tabs: detail.paths
+                          .map((path) => Tab(text: path.name))
+                          .toList(),
+                    ),
+                  Expanded(
+                    child: _tabController == null
+                        ? const Center(child: Text('目前沒有可顯示的方向'))
+                        : TabBarView(
+                            controller: _tabController,
+                            children: detail.paths.map((path) {
+                              final pathStops =
+                                  detail.stopsByPath[path.pathId] ?? const [];
+                              return ListView.separated(
+                                controller: _scrollControllerForPath(path.pathId),
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  12,
+                                  16,
+                                  20,
+                                ),
+                                itemCount: pathStops.length,
+                                separatorBuilder: (_, _) =>
+                                    const SizedBox(height: 18),
+                                itemBuilder: (context, index) {
+                                  final stop = pathStops[index];
+                                  final key = _stopKeys.putIfAbsent(
+                                    _keyForStop(path.pathId, stop.stopId),
+                                    GlobalKey.new,
+                                  );
+                                  return Container(
+                                    key: key,
+                                    child: _buildStopTile(
+                                      context,
+                                      theme,
+                                      stop,
+                                      alwaysShowSeconds:
+                                          controller.settings.alwaysShowSeconds,
+                                      isHighlighted: _isInitialStop(stop),
+                                      isNearest: _isNearestStop(stop),
+                                      isDestination: _isDestinationStop(stop),
+                                    ),
+                                  );
+                                },
+                              );
+                            }).toList(),
+                          ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }

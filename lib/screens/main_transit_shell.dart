@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
 import 'home_screen.dart';
 import 'metro_dashboard_screen.dart';
@@ -86,6 +87,9 @@ class _MainTransitShellState extends State<MainTransitShell> {
 
   Widget _buildModeLayer({required TransitMode mode, required Widget child}) {
     final isActive = mode == _currentMode;
+    // All 5 transit modes share the 'bus' (main/home) page key
+    // so the background image is shared across the home page tabs.
+    const pageKey = 'bus';
 
     return IgnorePointer(
       ignoring: !isActive,
@@ -101,7 +105,10 @@ class _MainTransitShellState extends State<MainTransitShell> {
               duration: _switchDuration,
               curve: Curves.easeOutCubic,
               opacity: isActive ? 1 : 0,
-              child: child,
+              child: BackgroundImageWrapper(
+                pageKey: pageKey,
+                child: child,
+              ),
             ),
           ),
         ),

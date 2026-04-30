@@ -35,8 +35,11 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
     final colorScheme = Theme.of(context).colorScheme;
+    final hasBusBackgroundImage =
+        controller.settings.pageBackgroundImagePaths.containsKey('bus');
 
     return Scaffold(
+      backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YABus'),
         leading: Builder(
@@ -78,25 +81,32 @@ class HomeScreen extends StatelessWidget {
         onModeChanged: onModeChanged,
       ),
       body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              colorScheme.primaryContainer.withValues(alpha: 0.65),
-              Theme.of(context).scaffoldBackgroundColor,
-              colorScheme.secondaryContainer.withValues(alpha: 0.25),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+          decoration: BoxDecoration(
+            gradient: _shouldShowGradient(controller)
+                ? LinearGradient(
+                    colors: [
+                      colorScheme.primaryContainer.withValues(
+                        alpha: controller.settings.homeBackgroundOpacity,
+                      ),
+                      Theme.of(context).scaffoldBackgroundColor,
+                      colorScheme.secondaryContainer.withValues(
+                        alpha:
+                            controller.settings.homeBackgroundOpacity * 0.38,
+                      ),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
           ),
-        ),
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          children: [
-            if (controller.settings.enableSmartRecommendations) ...[
-              _SmartRecommendationCard(controller: controller),
-              const SizedBox(height: 16),
-            ],
-            _FeatureCard(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            children: [
+              if (controller.settings.enableSmartRecommendations) ...[
+                _SmartRecommendationCard(controller: controller),
+                const SizedBox(height: 16),
+              ],
+              _FeatureCard(
               icon: Icons.search_rounded,
               title: '搜尋路線',
               subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
@@ -134,6 +144,19 @@ class HomeScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// In AMOLED dark mode, skip the gradient so the pure-black background shows.
+  /// Also skip gradient when a background image is set for the bus page.
+  bool _shouldShowGradient(AppController controller) {
+    final settings = controller.settings;
+    if (settings.useAmoledDark && settings.themeMode != ThemeMode.light) {
+      return false;
+    }
+    if (settings.pageBackgroundImagePaths.containsKey('bus')) {
+      return false;
+    }
+    return settings.homeBackgroundOpacity > 0;
   }
 }
 
@@ -445,7 +468,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   }) {
     final theme = Theme.of(context);
     return Material(
-      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+      color:
+          theme.cardTheme.color ?? theme.colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(22),
       child: InkWell(
         borderRadius: BorderRadius.circular(22),
@@ -494,22 +518,22 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  // const SizedBox(height: 6),
+                  // // Text(
+                  // //   '你最常在 $preferredHourLabel:00 左右點開這條路線，累計 ${suggestion.profile.totalInteractions} 次。',
+                  // //   style: theme.textTheme.bodyMedium,
+                  // // ),
                   // Text(
-                  //   '你最常在 $preferredHourLabel:00 左右點開這條路線，累計 ${suggestion.profile.totalInteractions} 次。',
+                  //   '根據使用習慣。',
                   //   style: theme.textTheme.bodyMedium,
                   // ),
-                  Text(
-                    '根據使用習慣。',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                  if (suggestion.nearestPath != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      '方向：${suggestion.nearestPath!.name}',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
+                  // if (suggestion.nearestPath != null) ...[
+                  //   const SizedBox(height: 8),
+                  //   Text(
+                  //     '方向：${suggestion.nearestPath!.name}',
+                  //     style: theme.textTheme.bodySmall,
+                  //   ),
+                  // ],
                   const SizedBox(height: 10),
                   if (nearestStop != null)
                     Row(

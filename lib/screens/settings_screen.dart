@@ -7,6 +7,8 @@ import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../widgets/app_update_dialog.dart';
 import 'database_settings_screen.dart';
+import 'personalization_screen.dart';
+import '../widgets/background_image_wrapper.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -69,18 +71,25 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
     final buildInfo = controller.buildInfo;
+    final hasSettingsBackgroundImage = hasBackgroundImageForPage(
+      controller.settings,
+      pageKey: 'settings',
+    );
     final isAndroid =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     final supportsRouteBackgroundMonitor = isAndroid || isIOS;
-    final databaseProviders = controller.selectedProviders
-        .map((provider) => provider.label)
-        .join('、');
+    // final databaseProviders = controller.selectedProviders
+    //     .map((provider) => provider.label)
+    //     .join('、');
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('設定')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+    return BackgroundImageWrapper(
+      pageKey: 'settings',
+      child: Scaffold(
+        backgroundColor: hasSettingsBackgroundImage ? Colors.transparent : null,
+        appBar: AppBar(title: const Text('設定')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         children: [
           Card(
             child: Padding(
@@ -113,17 +122,23 @@ class SettingsScreen extends StatelessWidget {
                       }
                     },
                   ),
-                  const SizedBox(height: 4),
-                  SwitchListTile(
+                  const SizedBox(height: 12),
+                  ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('純黑 (AMOLED) 深色主題'),
-                    subtitle: const Text('深色模式下使用純黑背景，可省電並提升對比'),
-                    value: controller.settings.useAmoledDark,
-                    onChanged: controller.settings.themeMode == ThemeMode.light
-                        ? null
-                        : (value) {
-                            controller.updateUseAmoledDark(value);
-                          },
+                    leading: const Icon(Icons.palette_outlined),
+                    title: const Text('個人化'),
+                    subtitle: const Text('配色、背景透明度'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () async {
+                      await PersonalizationScreen.ensureSdkChecked();
+                      if (context.mounted) {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const PersonalizationScreen(),
+                          ),
+                        );
+                      }
+                    },
                   ),
                 ],
               ),
@@ -145,16 +160,11 @@ class SettingsScreen extends StatelessWidget {
                     '目前地區：${controller.settings.provider.label}',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '已選地區：$databaseProviders',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '公路客運固定走線上查詢，不提供下載。',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
+                  // const SizedBox(height: 4),
+                  // Text(
+                  //   '已選地區：$databaseProviders',
+                  //   style: Theme.of(context).textTheme.bodyMedium,
+                  // ),
                   const SizedBox(height: 4),
                   Text(
                     '啟動更新：${controller.settings.databaseAutoUpdateMode.label}',
@@ -197,7 +207,7 @@ class SettingsScreen extends StatelessWidget {
                   const SizedBox(height: 16),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('顯示秒數'),
+                    title: const Text('強制顯示秒數'),
                     value: controller.settings.alwaysShowSeconds,
                     onChanged: controller.updateAlwaysShowSeconds,
                   ),
@@ -461,7 +471,8 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }

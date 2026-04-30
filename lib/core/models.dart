@@ -139,6 +139,15 @@ ThemeMode themeModeFromString(String value) {
   );
 }
 
+int? _colorToJson(Color? color) {
+  return color?.toARGB32();
+}
+
+Color? _colorFromJson(dynamic value) {
+  if (value is int) return Color(value);
+  return null;
+}
+
 enum AppUpdateChannel {
   developer,
   nightly,
@@ -300,6 +309,12 @@ class AppSettings {
     required this.skipDownloadPromptProviders,
     required this.themeMode,
     required this.useAmoledDark,
+    required this.useDynamicColor,
+    required this.seedColor,
+    required this.homeBackgroundOpacity,
+    required this.pageBackgroundImagePaths,
+    required this.pageBackgroundImageOpacities,
+    required this.overlayOpacity,
     required this.alwaysShowSeconds,
     required this.enableSmartRecommendations,
     required this.enableSmartRouteNotifications,
@@ -323,6 +338,12 @@ class AppSettings {
       skipDownloadPromptProviders: const [],
       themeMode: ThemeMode.system,
       useAmoledDark: false,
+      useDynamicColor: false,
+      seedColor: null,
+      homeBackgroundOpacity: 0.65,
+      pageBackgroundImagePaths: const {},
+      pageBackgroundImageOpacities: const {},
+      overlayOpacity: 0.85,
       alwaysShowSeconds: false,
       enableSmartRecommendations: true,
       enableSmartRouteNotifications: false,
@@ -384,6 +405,25 @@ class AppSettings {
       skipDownloadPromptProviders: skipPromptProviders,
       themeMode: themeModeFromString(json['themeMode'] as String? ?? 'system'),
       useAmoledDark: json['useAmoledDark'] as bool? ?? false,
+      useDynamicColor: json['useDynamicColor'] as bool? ?? false,
+      seedColor: _colorFromJson(json['seedColor']),
+      homeBackgroundOpacity:
+          (json['homeBackgroundOpacity'] as num?)?.toDouble() ?? 0.65,
+      pageBackgroundImagePaths:
+          (json['pageBackgroundImagePaths'] as Map?)?.map(
+            (k, v) => MapEntry(k.toString(), v.toString()),
+          ) ??
+          const {},
+      pageBackgroundImageOpacities:
+          (json['pageBackgroundImageOpacities'] as Map?)?.map(
+            (k, v) => MapEntry(
+              k.toString(),
+              v is num ? v.toDouble() : 0.25,
+            ),
+          ) ??
+          const {},
+      overlayOpacity:
+          (json['overlayOpacity'] as num?)?.toDouble() ?? 0.85,
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
       enableSmartRecommendations:
           json['enableSmartRecommendations'] as bool? ?? true,
@@ -429,6 +469,12 @@ class AppSettings {
   final List<BusProvider> skipDownloadPromptProviders;
   final ThemeMode themeMode;
   final bool useAmoledDark;
+  final bool useDynamicColor;
+  final Color? seedColor;
+  final double homeBackgroundOpacity;
+  final Map<String, String> pageBackgroundImagePaths;
+  final Map<String, double> pageBackgroundImageOpacities;
+  final double overlayOpacity;
   final bool alwaysShowSeconds;
   final bool enableSmartRecommendations;
   final bool enableSmartRouteNotifications;
@@ -450,6 +496,13 @@ class AppSettings {
     List<BusProvider>? skipDownloadPromptProviders,
     ThemeMode? themeMode,
     bool? useAmoledDark,
+    bool? useDynamicColor,
+    Color? seedColor,
+    bool clearSeedColor = false,
+    double? homeBackgroundOpacity,
+    Map<String, String>? pageBackgroundImagePaths,
+    Map<String, double>? pageBackgroundImageOpacities,
+    double? overlayOpacity,
     bool? alwaysShowSeconds,
     bool? enableSmartRecommendations,
     bool? enableSmartRouteNotifications,
@@ -472,6 +525,15 @@ class AppSettings {
           skipDownloadPromptProviders ?? this.skipDownloadPromptProviders,
       themeMode: themeMode ?? this.themeMode,
       useAmoledDark: useAmoledDark ?? this.useAmoledDark,
+      useDynamicColor: useDynamicColor ?? this.useDynamicColor,
+      seedColor: clearSeedColor ? null : (seedColor ?? this.seedColor),
+      homeBackgroundOpacity:
+          homeBackgroundOpacity ?? this.homeBackgroundOpacity,
+      pageBackgroundImagePaths:
+          pageBackgroundImagePaths ?? this.pageBackgroundImagePaths,
+      pageBackgroundImageOpacities:
+          pageBackgroundImageOpacities ?? this.pageBackgroundImageOpacities,
+      overlayOpacity: overlayOpacity ?? this.overlayOpacity,
       alwaysShowSeconds: alwaysShowSeconds ?? this.alwaysShowSeconds,
       enableSmartRecommendations:
           enableSmartRecommendations ?? this.enableSmartRecommendations,
@@ -508,6 +570,12 @@ class AppSettings {
           .toList(),
       'themeMode': themeMode.name,
       'useAmoledDark': useAmoledDark,
+      'useDynamicColor': useDynamicColor,
+      'seedColor': _colorToJson(seedColor),
+      'homeBackgroundOpacity': homeBackgroundOpacity,
+      'pageBackgroundImagePaths': pageBackgroundImagePaths,
+      'pageBackgroundImageOpacities': pageBackgroundImageOpacities,
+      'overlayOpacity': overlayOpacity,
       'alwaysShowSeconds': alwaysShowSeconds,
       'enableSmartRecommendations': enableSmartRecommendations,
       'enableSmartRouteNotifications': enableSmartRouteNotifications,
@@ -1134,8 +1202,10 @@ EtaPresentation buildEtaPresentation(
   StopInfo stop, {
   required bool alwaysShowSeconds,
   Brightness brightness = Brightness.light,
+  ColorScheme? colorScheme,
 }) {
   final isDark = brightness == Brightness.dark;
+  final cs = colorScheme;
   final message = stop.msg?.trim() ?? '';
   if (message.isNotEmpty) {
     return EtaPresentation(
@@ -1143,25 +1213,29 @@ EtaPresentation buildEtaPresentation(
           ? '即將\n進站'
           : message == '末班駛離'
           ? '末班\n駛離'
+          : message == '今日未營運'
+          ? '今日\n未營運'
           : message,
-      backgroundColor: isDark ? const Color(0xFF16383D) : Colors.teal.shade50,
-      foregroundColor: isDark ? const Color(0xFFBEECEF) : Colors.teal.shade900,
+      backgroundColor: cs?.primaryContainer ??
+          (isDark ? const Color(0xFF16383D) : Colors.teal.shade50),
+      foregroundColor: cs?.onPrimaryContainer ??
+          (isDark ? const Color(0xFFBEECEF) : Colors.teal.shade900),
     );
   }
 
   final seconds = stop.sec;
   if (seconds == null) {
-    return const EtaPresentation(
+    return EtaPresentation(
       text: '--',
-      backgroundColor: Color(0xFF364152),
-      foregroundColor: Color(0xFFD8E2F1),
+      backgroundColor: cs?.surfaceContainerHighest ?? const Color(0xFF364152),
+      foregroundColor: cs?.onSurfaceVariant ?? const Color(0xFFD8E2F1),
     );
   }
 
   if (seconds <= 0) {
     return EtaPresentation(
       text: '進站中',
-      backgroundColor: Colors.red.shade800,
+      backgroundColor: const Color(0xFF8B1A1A),
       foregroundColor: Colors.white,
     );
   }
@@ -1182,10 +1256,12 @@ EtaPresentation buildEtaPresentation(
     text: alwaysShowSeconds ? '$minutes分\n$leftoverSeconds秒' : '$minutes分',
     backgroundColor: urgent
         ? Colors.orange.shade700
-        : (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1)),
+        : cs?.primaryContainer ??
+            (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1)),
     foregroundColor: urgent
         ? Colors.white
-        : (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57)),
+        : (cs?.onPrimaryContainer ??
+            (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57))),
   );
 }
 

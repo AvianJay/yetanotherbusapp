@@ -453,7 +453,7 @@ class _MetroScreenState extends State<MetroScreen> {
                 ],
               ),
             ),
-    );
+      );
   }
 
   Widget _buildSystemSelector(ThemeData theme) {

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_controller.dart';
@@ -26,54 +27,55 @@ class BusApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppControllerScope(
       controller: controller,
-      child: AnimatedBuilder(
-        animation: controller,
-        builder: (context, _) {
-          return MaterialApp(
-            title: 'YetAnotherBusApp',
-            debugShowCheckedModeBanner: false,
-            themeMode: controller.settings.themeMode,
-            theme: _buildTheme(
-              Brightness.light,
-              settings: controller.settings,
-            ),
-            darkTheme: _buildTheme(
-              Brightness.dark,
-              settings: controller.settings,
-            ),
-            navigatorObservers: [
-              if (analytics.observer != null) analytics.observer!,
-            ],
-            home: _AppHome(controller: controller),
+      child: DynamicColorBuilder(
+        builder: (lightDynamic, darkDynamic) {
+          return AnimatedBuilder(
+            animation: controller,
+            builder: (context, _) {
+              return MaterialApp(
+                title: 'YetAnotherBusApp',
+                debugShowCheckedModeBanner: false,
+                themeMode: controller.settings.themeMode,
+                theme: _buildTheme(
+                  Brightness.light,
+                  settings: controller.settings,
+                  dynamicColorScheme: lightDynamic,
+                ),
+                darkTheme: _buildTheme(
+                  Brightness.dark,
+                  settings: controller.settings,
+                  dynamicColorScheme: darkDynamic,
+                ),
+                navigatorObservers: [
+                  if (analytics.observer != null) analytics.observer!,
+                ],
+                home: _AppHome(controller: controller),
+              );
+            },
           );
         },
       ),
     );
   }
 
-  ThemeData _buildTheme(Brightness brightness, {required AppSettings settings}) {
+  ThemeData _buildTheme(
+    Brightness brightness, {
+    required AppSettings settings,
+    ColorScheme? dynamicColorScheme,
+  }) {
     final useAmoled = settings.useAmoledDark && brightness == Brightness.dark;
 
-    // Pick seed color: custom > default
-    final seedColor = settings.seedColor ?? const Color(0xFF0B7285);
-
-    var colorScheme = ColorScheme.fromSeed(
-      seedColor: seedColor,
-      brightness: brightness,
-    );
-
-    // Dynamic color support (Android 12+)
-    if (settings.useDynamicColor && brightness == Brightness.dark) {
-      final dynamicColorScheme = _tryGetDynamicColorScheme(brightness);
-      if (dynamicColorScheme != null) {
-        colorScheme = dynamicColorScheme;
-      }
-    } else if (settings.useDynamicColor && brightness == Brightness.light) {
-      final dynamicColorScheme = _tryGetDynamicColorScheme(brightness);
-      if (dynamicColorScheme != null) {
-        colorScheme = dynamicColorScheme;
-      }
-    }
+    // Color priority: manual seed override > system dynamic color > fallback seed.
+    var colorScheme = settings.seedColor != null
+        ? ColorScheme.fromSeed(
+            seedColor: settings.seedColor!,
+            brightness: brightness,
+          )
+        : (dynamicColorScheme ??
+              ColorScheme.fromSeed(
+                seedColor: const Color(0xFF0B7285),
+                brightness: brightness,
+              ));
 
     if (useAmoled) {
       colorScheme = colorScheme.copyWith(
@@ -165,16 +167,6 @@ class BusApp extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
     );
-  }
-
-  /// Attempt to get the system's dynamic color scheme on Android 12+.
-  /// Returns `null` if not available (e.g. pre-Android 12, iOS, desktop).
-  ColorScheme? _tryGetDynamicColorScheme(Brightness brightness) {
-    // Dynamic color requires the `dynamic_color` package or platform channel.
-    // For now we return null; this will be wired up when the platform plugin
-    // is integrated. The personalization UI already offers the toggle so
-    // users can enable it once the native side is ready.
-    return null;
   }
 }
 

@@ -235,12 +235,6 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateUseDynamicColor(bool value) async {
-    _settings = _settings.copyWith(useDynamicColor: value);
-    await storage.saveSettings(_settings);
-    notifyListeners();
-  }
-
   Future<void> updateSeedColor(Color? color) async {
     if (color != null) {
       _settings = _settings.copyWith(seedColor: color);

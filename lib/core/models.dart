@@ -309,7 +309,6 @@ class AppSettings {
     required this.skipDownloadPromptProviders,
     required this.themeMode,
     required this.useAmoledDark,
-    required this.useDynamicColor,
     required this.seedColor,
     required this.homeBackgroundOpacity,
     required this.pageBackgroundImagePaths,
@@ -338,7 +337,6 @@ class AppSettings {
       skipDownloadPromptProviders: const [],
       themeMode: ThemeMode.system,
       useAmoledDark: false,
-      useDynamicColor: false,
       seedColor: null,
       homeBackgroundOpacity: 0.65,
       pageBackgroundImagePaths: const {},
@@ -405,7 +403,6 @@ class AppSettings {
       skipDownloadPromptProviders: skipPromptProviders,
       themeMode: themeModeFromString(json['themeMode'] as String? ?? 'system'),
       useAmoledDark: json['useAmoledDark'] as bool? ?? false,
-      useDynamicColor: json['useDynamicColor'] as bool? ?? false,
       seedColor: _colorFromJson(json['seedColor']),
       homeBackgroundOpacity:
           (json['homeBackgroundOpacity'] as num?)?.toDouble() ?? 0.65,
@@ -469,7 +466,6 @@ class AppSettings {
   final List<BusProvider> skipDownloadPromptProviders;
   final ThemeMode themeMode;
   final bool useAmoledDark;
-  final bool useDynamicColor;
   final Color? seedColor;
   final double homeBackgroundOpacity;
   final Map<String, String> pageBackgroundImagePaths;
@@ -496,7 +492,6 @@ class AppSettings {
     List<BusProvider>? skipDownloadPromptProviders,
     ThemeMode? themeMode,
     bool? useAmoledDark,
-    bool? useDynamicColor,
     Color? seedColor,
     bool clearSeedColor = false,
     double? homeBackgroundOpacity,
@@ -525,7 +520,6 @@ class AppSettings {
           skipDownloadPromptProviders ?? this.skipDownloadPromptProviders,
       themeMode: themeMode ?? this.themeMode,
       useAmoledDark: useAmoledDark ?? this.useAmoledDark,
-      useDynamicColor: useDynamicColor ?? this.useDynamicColor,
       seedColor: clearSeedColor ? null : (seedColor ?? this.seedColor),
       homeBackgroundOpacity:
           homeBackgroundOpacity ?? this.homeBackgroundOpacity,
@@ -570,7 +564,6 @@ class AppSettings {
           .toList(),
       'themeMode': themeMode.name,
       'useAmoledDark': useAmoledDark,
-      'useDynamicColor': useDynamicColor,
       'seedColor': _colorToJson(seedColor),
       'homeBackgroundOpacity': homeBackgroundOpacity,
       'pageBackgroundImagePaths': pageBackgroundImagePaths,

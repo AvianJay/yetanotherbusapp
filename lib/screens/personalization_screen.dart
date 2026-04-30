@@ -1,8 +1,6 @@
 import 'dart:io';
 
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 
 import '../app/bus_app.dart';
@@ -50,7 +48,6 @@ class PersonalizationScreen extends StatelessWidget {
     final backgroundOpacity = _backgroundOpacityValue(settings);
     final isAmoled =
         settings.useAmoledDark && settings.themeMode != ThemeMode.light;
-    final isAndroid12Plus = _isAndroid12Plus();
 
     return Scaffold(
       appBar: AppBar(title: const Text('個人化')),
@@ -68,48 +65,53 @@ class PersonalizationScreen extends StatelessWidget {
 
           // ── 配色 ──────────────────────────────────────
           Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('配色', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 4),
-                  Text(
-                    '選擇 App 整體色調',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 12),
-                  // Dynamic color toggle — only on Android 12+
-                  if (isAndroid12Plus)
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(Icons.wallpaper_outlined),
-                      title: const Text('跟隨系統配色'),
-                      subtitle: const Text('Material You · Android 12+'),
-                      value: settings.useDynamicColor,
-                      onChanged: (value) {
-                        controller.updateUseDynamicColor(value);
-                      },
+            child: InkWell(
+              borderRadius: BorderRadius.circular(24),
+              onTap: () {
+                _showColorSettingsDialog(context);
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.palette_outlined,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
-                  if (isAndroid12Plus) const SizedBox(height: 8),
-                  Text(
-                    '自訂色調',
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  _SeedColorPicker(
-                    selectedColor: settings.seedColor,
-                    presetColors: _presetColors,
-                    enabled: !settings.useDynamicColor,
-                    onColorSelected: (color) {
-                      controller.updateSeedColor(color);
-                    },
-                    onClear: () {
-                      controller.updateSeedColor(null);
-                    },
-                  ),
-                ],
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '配色',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _colorSubtitle(settings),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (settings.seedColor != null) ...[
+                      Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: settings.seedColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
               ),
             ),
           ),
@@ -337,29 +339,66 @@ class PersonalizationScreen extends StatelessWidget {
     return average;
   }
 
-  /// Check if the current platform is Android 12+ (API 31+).
-  /// Falls back to `false` on non-Android platforms.
-  bool _isAndroid12Plus() {
-    if (kIsWeb) return false;
-    if (!Platform.isAndroid) return false;
-    // For precise SDK detection we need an async check via device_info_plus,
-    // but since this method is called in a sync build(), we use a cached
-    // static result that's initialized once.
-    return _androidSdkInt >= 31;
+  String _colorSubtitle(AppSettings settings) {
+    final seedColor = settings.seedColor;
+    if (seedColor == null) {
+      return '支援時自動跟隨系統配色，否則使用預設色';
+    }
+    return '目前自訂：${_formatColorValue(seedColor)}';
   }
 
-  /// One-time async initialization of Android SDK version.
-  static int _androidSdkInt = 0;
-  static bool _sdkChecked = false;
+  String _formatColorValue(Color color) {
+    return '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+  }
 
-  static Future<void> ensureSdkChecked() async {
-    if (_sdkChecked) return;
-    _sdkChecked = true;
-    if (!kIsWeb && Platform.isAndroid) {
-      final deviceInfo = DeviceInfoPlugin();
-      final androidInfo = await deviceInfo.androidInfo;
-      _androidSdkInt = androidInfo.version.sdkInt;
-    }
+  Future<void> _showColorSettingsDialog(BuildContext context) {
+    final controller = AppControllerScope.of(context);
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) {
+            final settings = controller.settings;
+            return AlertDialog(
+              title: const Text('配色'),
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '支援系統配色的裝置會自動套用系統色；選擇自訂色後會覆蓋自動配色。',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      _SeedColorPicker(
+                        selectedColor: settings.seedColor,
+                        presetColors: _presetColors,
+                        onColorSelected: (color) {
+                          controller.updateSeedColor(color);
+                        },
+                        onClear: () {
+                          controller.updateSeedColor(null);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('關閉'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 }
 
@@ -371,14 +410,12 @@ class _SeedColorPicker extends StatelessWidget {
   const _SeedColorPicker({
     required this.selectedColor,
     required this.presetColors,
-    required this.enabled,
     required this.onColorSelected,
     required this.onClear,
   });
 
   final Color? selectedColor;
   final List<Color> presetColors;
-  final bool enabled;
   final ValueChanged<Color> onColorSelected;
   final VoidCallback onClear;
 
@@ -386,50 +423,42 @@ class _SeedColorPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.4,
-      child: IgnorePointer(
-        ignoring: !enabled,
-        child: Column(
+    return Column(
+      children: [
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
           children: [
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                // "Default" chip – clears seed color
-                _colorChip(
+            _colorChip(
+              context,
+              color: null,
+              label: '自動',
+              selected: selectedColor == null,
+            ),
+            for (final c in presetColors)
+              _colorChip(
+                context,
+                color: c,
+                selected: selectedColor == c,
+              ),
+            ActionChip(
+              avatar: Icon(
+                Icons.colorize_outlined,
+                size: 18,
+                color: colorScheme.onSurfaceVariant,
+              ),
+              label: const Text('自訂'),
+              onPressed: () async {
+                final picked = await _showColorPickerDialog(
                   context,
-                  color: null,
-                  label: '預設',
-                  selected: selectedColor == null,
-                ),
-                for (final c in presetColors)
-                  _colorChip(
-                    context,
-                    color: c,
-                    selected: selectedColor == c,
-                  ),
-                // Custom picker
-                ActionChip(
-                  avatar: Icon(
-                    Icons.colorize_outlined,
-                    size: 18,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                  label: const Text('自訂'),
-                  onPressed: () async {
-                    final picked = await _showColorPickerDialog(
-                      context,
-                      selectedColor ?? presetColors.first,
-                    );
-                    if (picked != null) onColorSelected(picked);
-                  },
-                ),
-              ],
+                  selectedColor ?? presetColors.first,
+                );
+                if (picked != null) onColorSelected(picked);
+              },
             ),
           ],
         ),
-      ),
+      ],
     );
   }
 
@@ -461,8 +490,8 @@ class _SeedColorPicker extends StatelessWidget {
   }
 
   String _colorName(Color? color) {
-    if (color == null) return '預設';
-    return '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}';
+    if (color == null) return '自動';
+    return '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
   }
 
   Future<Color?> _showColorPickerDialog(BuildContext context, Color initial) {

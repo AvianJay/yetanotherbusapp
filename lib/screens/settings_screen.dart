@@ -129,15 +129,12 @@ class SettingsScreen extends StatelessWidget {
                     title: const Text('個人化'),
                     subtitle: const Text('配色、背景透明度'),
                     trailing: const Icon(Icons.chevron_right),
-                    onTap: () async {
-                      await PersonalizationScreen.ensureSdkChecked();
-                      if (context.mounted) {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const PersonalizationScreen(),
-                          ),
-                        );
-                      }
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const PersonalizationScreen(),
+                        ),
+                      );
                     },
                   ),
                 ],

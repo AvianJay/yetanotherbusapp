@@ -26,6 +26,7 @@ Future<void> main() async {
     final controller = AppController(
       repository: BusRepository(),
       storage: StorageService(),
+      analytics: analytics,
       buildInfo: buildInfo,
       appUpdateService: AppUpdateService(buildInfo: buildInfo),
       appUpdateInstaller: createAppUpdateInstaller(),

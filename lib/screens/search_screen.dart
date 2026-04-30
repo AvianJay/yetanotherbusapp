@@ -217,16 +217,16 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          if (missingProviders.isNotEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  '尚未下載：${missingProviders.map((provider) => provider.label).join('、')}。\n'
-                  '搜尋時會自動改走線上 API；公路客運固定使用線上查詢。',
-                ),
-              ),
-            ),
+          // if (missingProviders.isNotEmpty)
+          //   Card(
+          //     child: Padding(
+          //       padding: const EdgeInsets.all(16),
+          //       child: Text(
+          //         '尚未下載：${missingProviders.map((provider) => provider.label).join('、')}。\n'
+          //         '搜尋時會自動改走線上 API；公路客運固定使用線上查詢。',
+          //       ),
+          //     ),
+          //   ),
           if (_controller.text.trim().isEmpty)
             _HistorySection(
               history: busController.history,

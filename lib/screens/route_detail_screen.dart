@@ -2783,12 +2783,171 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
   }
 
+  String _displayStopName(StopInfo stop) {
+    return stop.stopName.replaceAll('(', '\n(');
+  }
+
+  String _vehicleStatusLabel(StopInfo stop) {
+    if (stop.buses.length > 1) {
+      return '${stop.buses.length} 輛公車';
+    }
+    return stop.buses.first.id;
+  }
+
+  IconData _vehicleStatusIcon(StopInfo stop, {required bool isNearest}) {
+    if (isNearest) {
+      return Icons.gps_fixed_rounded;
+    }
+    return stop.buses.first.type == '1'
+        ? Icons.accessible_rounded
+        : Icons.directions_bus_rounded;
+  }
+
+  Color _vehicleStatusBackgroundColor(
+    ThemeData theme,
+    StopInfo stop, {
+    required bool isNearest,
+  }) {
+    final vehicle = stop.buses.first;
+    if (isNearest) {
+      return Colors.cyan.shade400;
+    }
+    if (vehicle.id.startsWith('E') || vehicle.id.endsWith('FV')) {
+      return Colors.amber.shade600;
+    }
+    return theme.colorScheme.primary;
+  }
+
+  double _measureMaxLineWidth(
+    BuildContext context,
+    String text,
+    TextStyle? style,
+  ) {
+    final textDirection = Directionality.of(context);
+    var maxWidth = 0.0;
+    for (final line in text.split('\n')) {
+      final painter = TextPainter(
+        text: TextSpan(text: line, style: style),
+        maxLines: 1,
+        textDirection: textDirection,
+      )..layout();
+      maxWidth = math.max(maxWidth, painter.width);
+    }
+    return maxWidth;
+  }
+
+  double _estimateRouteStatusPillWidth(
+    BuildContext context, {
+    required IconData icon,
+    String? label,
+  }) {
+    final hasLabel = label != null && label.trim().isNotEmpty;
+    final labelWidth = hasLabel
+        ? _measureMaxLineWidth(
+            context,
+            label,
+            const TextStyle(fontWeight: FontWeight.w700),
+          )
+        : 0.0;
+    final horizontalPadding = hasLabel ? 28.0 : 20.0;
+    final gap = hasLabel ? 8.0 : 0.0;
+    return horizontalPadding + 18.0 + gap + labelWidth;
+  }
+
+  bool _shouldUseCompactVehicleStatus(
+    BuildContext context,
+    ThemeData theme,
+    StopInfo stop, {
+    required bool isNearest,
+    required double availableWidth,
+  }) {
+    if (stop.buses.isEmpty) {
+      return false;
+    }
+
+    final stopNameWidth = _measureMaxLineWidth(
+      context,
+      _displayStopName(stop),
+      theme.textTheme.headlineSmall?.copyWith(
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        color: theme.colorScheme.primary,
+        height: 1.2,
+      ),
+    );
+    final fullPillWidth = _estimateRouteStatusPillWidth(
+      context,
+      icon: _vehicleStatusIcon(stop, isNearest: isNearest),
+      label: _vehicleStatusLabel(stop),
+    );
+    final hasAlert = _stopHasAlert(stop);
+    final alertWidth = hasAlert ? 16.0 : 0.0;
+    final alertSpacing = hasAlert ? 6.0 : 0.0;
+    const dividerSpacing = 8.0;
+    const dividerMinWidth = 28.0;
+    const trailingSpacing = 12.0;
+
+    final requiredWidth =
+        stopNameWidth +
+        alertSpacing +
+        alertWidth +
+        dividerSpacing +
+        dividerMinWidth +
+        trailingSpacing +
+        fullPillWidth;
+    return requiredWidth > availableWidth;
+  }
+
+  Widget _buildVehicleMenuItem(BuildContext context, BusVehicle vehicle) {
+    final theme = Theme.of(context);
+    final details = <String>[
+      if (vehicle.note.trim().isNotEmpty) vehicle.note.trim(),
+      if (vehicle.full) '滿載',
+      if (vehicle.carOnStop) '進站中',
+      '搜尋 TWBusforum',
+    ];
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          vehicle.type == '1'
+              ? Icons.accessible_rounded
+              : Icons.directions_bus_rounded,
+          size: 18,
+          color: theme.colorScheme.primary,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                vehicle.id,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                details.join(' · '),
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget? _buildTrailingStatus(
     BuildContext context,
     ThemeData theme,
     StopInfo stop, {
     required bool isNearest,
     required bool isDestination,
+    bool compact = false,
   }) {
     if (isDestination) {
       return _RouteStatusPill(
@@ -2800,36 +2959,36 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     if (stop.buses.isNotEmpty) {
-      final vehicle = stop.buses.first;
-      final backgroundColor = isNearest
-          ? Colors.cyan.shade400
-          : (vehicle.id.startsWith('E') || vehicle.id.endsWith('FV'))
-          ? Colors.amber.shade600
-          : theme.colorScheme.primary;
+      final backgroundColor = _vehicleStatusBackgroundColor(
+        theme,
+        stop,
+        isNearest: isNearest,
+      );
       final foregroundColor = backgroundColor.computeLuminance() > 0.6
           ? Colors.black87
           : Colors.white;
+      final label = _vehicleStatusLabel(stop);
+      final tooltip = stop.buses.length == 1
+          ? stop.buses.first.id
+          : stop.buses.map((vehicle) => vehicle.id).join('、');
 
-      return PopupMenuButton<_VehicleAction>(
+      return PopupMenuButton<BusVehicle>(
         padding: EdgeInsets.zero,
-        tooltip: vehicle.id,
-        onSelected: (action) =>
-            unawaited(_handleVehicleAction(vehicle, action)),
+        tooltip: tooltip,
+        onSelected: (vehicle) =>
+            unawaited(_handleVehicleAction(vehicle, _VehicleAction.twBusForum)),
         itemBuilder: (context) {
           return [
-            const PopupMenuItem<_VehicleAction>(
-              value: _VehicleAction.twBusForum,
-              child: Text('搜尋 TWBusforum'),
-            ),
+            for (final vehicle in stop.buses)
+              PopupMenuItem<BusVehicle>(
+                value: vehicle,
+                child: _buildVehicleMenuItem(context, vehicle),
+              ),
           ];
         },
         child: _RouteStatusPill(
-          icon: isNearest
-              ? Icons.gps_fixed_rounded
-              : vehicle.type == '1'
-              ? Icons.accessible_rounded
-              : Icons.directions_bus_rounded,
-          label: vehicle.id,
+          icon: _vehicleStatusIcon(stop, isNearest: isNearest),
+          label: compact ? null : label,
           backgroundColor: backgroundColor,
           foregroundColor: foregroundColor,
         ),
@@ -2857,13 +3016,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     required bool isNearest,
     required bool isDestination,
   }) {
-    final trailingStatus = _buildTrailingStatus(
-      context,
-      theme,
-      stop,
-      isNearest: isNearest,
-      isDestination: isDestination,
+    final stopNameStyle = theme.textTheme.headlineSmall?.copyWith(
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
+      color: theme.colorScheme.primary,
+      height: 1.2,
     );
+    final stopName = _displayStopName(stop);
+    final hasAlert = _stopHasAlert(stop);
 
     return Material(
       color: isHighlighted
@@ -2887,49 +3047,70 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               ),
               const SizedBox(width: 16),
               Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      stop.stopName.replaceAll('(', '\n('),
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.primary,
-                        height: 1.2,
-                      ),
-                    ),
-                    if (_stopHasAlert(stop)) ...[
-                      const SizedBox(width: 6),
-                      GestureDetector(
-                        onTap: _showAlertsDialog,
-                        child: Container(
-                          width: 10,
-                          height: 10,
-                          decoration: BoxDecoration(
-                            color: _alertColorForStop(stop),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: theme.colorScheme.surface,
-                              width: 1,
-                            ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final useCompactVehicleStatus = stop.buses.isNotEmpty &&
+                        _shouldUseCompactVehicleStatus(
+                          context,
+                          theme,
+                          stop,
+                          isNearest: isNearest,
+                          availableWidth: constraints.maxWidth,
+                        );
+                    final trailingStatus = _buildTrailingStatus(
+                      context,
+                      theme,
+                      stop,
+                      isNearest: isNearest,
+                      isDestination: isDestination,
+                      compact: useCompactVehicleStatus,
+                    );
+
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          fit: FlexFit.loose,
+                          child: Text(
+                            stopName,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: stopNameStyle,
                           ),
                         ),
-                      ),
-                    ],
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Container(
-                        height: 1,
-                        color: theme.colorScheme.outlineVariant,
-                      ),
-                    ),
-                    if (trailingStatus != null) ...[
-                      const SizedBox(width: 12),
-                      trailingStatus,
-                    ],
-                  ],
+                        if (hasAlert) ...[
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                            onTap: _showAlertsDialog,
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: _alertColorForStop(stop),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: theme.colorScheme.surface,
+                                  width: 1,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Container(
+                            height: 1,
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                        ),
+                        if (trailingStatus != null) ...[
+                          const SizedBox(width: 12),
+                          trailingStatus,
+                        ],
+                      ],
+                    );
+                  },
                 ),
               ),
             ],
@@ -3130,20 +3311,24 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 class _RouteStatusPill extends StatelessWidget {
   const _RouteStatusPill({
     required this.icon,
-    required this.label,
+    this.label,
     required this.backgroundColor,
     required this.foregroundColor,
   });
 
   final IconData icon;
-  final String label;
+  final String? label;
   final Color backgroundColor;
   final Color foregroundColor;
 
   @override
   Widget build(BuildContext context) {
+    final hasLabel = label != null && label!.trim().isNotEmpty;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: EdgeInsets.symmetric(
+        horizontal: hasLabel ? 14 : 10,
+        vertical: 10,
+      ),
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(999),
@@ -3152,14 +3337,16 @@ class _RouteStatusPill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 18, color: foregroundColor),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: foregroundColor,
-              fontWeight: FontWeight.w700,
+          if (hasLabel) ...[
+            const SizedBox(width: 8),
+            Text(
+              label!,
+              style: TextStyle(
+                color: foregroundColor,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );

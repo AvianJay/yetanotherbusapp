@@ -510,8 +510,9 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     return BackgroundImageWrapper(
       pageKey: 'favorites',
       child: Scaffold(
-        backgroundColor:
-            hasFavoritesBackgroundImage ? Colors.transparent : null,
+        backgroundColor: hasFavoritesBackgroundImage
+            ? Colors.transparent
+            : null,
         appBar: AppBar(
           title: const Text('我的最愛'),
           actions: [
@@ -537,7 +538,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
         bottomNavigationBar: groups.isEmpty
             ? null
             : Material(
-                color: Theme.of(context).bottomAppBarTheme.color ??
+                color:
+                    Theme.of(context).bottomAppBarTheme.color ??
                     Theme.of(context).colorScheme.surface,
                 child: SafeArea(
                   top: false,
@@ -658,37 +660,40 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   '${destinationSummary == null ? "" : "\n目的地：$destinationSummary"}',
                 ),
               ),
-              trailing: PopupMenuButton<_FavoriteDestinationAction>(
-                tooltip: '目的地設定',
-                icon: Icon(
-                  item.reference.destinationStopId == null
-                      ? Icons.flag_outlined
-                      : Icons.flag_rounded,
-                ),
-                onSelected: (action) {
-                  unawaited(
-                    _handleFavoriteDestinationAction(
-                      controller,
-                      currentGroupName,
-                      item,
-                      action,
-                    ),
-                  );
-                },
-                itemBuilder: (context) {
-                  return [
-                    const PopupMenuItem(
-                      value: _FavoriteDestinationAction.setDestination,
-                      child: Text('設定目的地'),
-                    ),
-                    if (item.reference.destinationStopId != null)
-                      const PopupMenuItem(
-                        value: _FavoriteDestinationAction.clearDestination,
-                        child: Text('清除目的地'),
+              trailing: controller.settings.enableRouteBackgroundMonitor
+                  ? PopupMenuButton<_FavoriteDestinationAction>(
+                      tooltip: '目的地設定',
+                      icon: Icon(
+                        item.reference.destinationStopId == null
+                            ? Icons.flag_outlined
+                            : Icons.flag_rounded,
                       ),
-                  ];
-                },
-              ),
+                      onSelected: (action) {
+                        unawaited(
+                          _handleFavoriteDestinationAction(
+                            controller,
+                            currentGroupName,
+                            item,
+                            action,
+                          ),
+                        );
+                      },
+                      itemBuilder: (context) {
+                        return [
+                          const PopupMenuItem(
+                            value: _FavoriteDestinationAction.setDestination,
+                            child: Text('設定目的地'),
+                          ),
+                          if (item.reference.destinationStopId != null)
+                            const PopupMenuItem(
+                              value:
+                                  _FavoriteDestinationAction.clearDestination,
+                              child: Text('清除目的地'),
+                            ),
+                        ];
+                      },
+                    )
+                  : null,
               onTap: () async {
                 await controller.recordRouteSelection(
                   provider: item.reference.provider,

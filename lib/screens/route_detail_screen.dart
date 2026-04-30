@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../app/bus_app.dart';
@@ -48,6 +49,7 @@ class RouteDetailScreen extends StatefulWidget {
 
 class _RouteDetailScreenState extends State<RouteDetailScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final RouteDetailLaunchHandler _launchHandler;
   late final ValueNotifier<int?> _selectedMapPathId;
   bool _isLoading = true;
@@ -2666,7 +2668,40 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     await _setDestinationStop(stop);
   }
 
+  bool _canOpenStopInGoogleMaps(StopInfo stop) {
+    return !(stop.lat == 0 && stop.lon == 0);
+  }
+
+  Uri _buildGoogleMapsStopUri(StopInfo stop) {
+    return Uri.https('www.google.com', '/maps/search/', <String, String>{
+      'api': '1',
+      'query': '${stop.lat},${stop.lon}',
+    });
+  }
+
+  Future<void> _openStopInGoogleMaps(StopInfo stop) async {
+    if (!_canOpenStopInGoogleMaps(stop)) {
+      return;
+    }
+
+    final didLaunch = await launchUrl(
+      _buildGoogleMapsStopUri(stop),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!mounted || didLaunch) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('無法開啟 Google Maps。')),
+    );
+  }
+
   Future<void> _openStopActionsWithShortcut(StopInfo stop) async {
+    final showDestinationAction =
+        AppControllerScope.read(context).settings.enableRouteBackgroundMonitor &&
+        _currentPathStops.isNotEmpty;
+    final showShortcutAction = _isAndroid;
+    final showGoogleMapsAction = _canOpenStopInGoogleMaps(stop);
     final action = await showDialog<_StopAction>(
       context: context,
       builder: (context) {
@@ -2677,12 +2712,19 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               onPressed: () => Navigator.of(context).pop(_StopAction.favorite),
               child: const Text('加入最愛'),
             ),
-            SimpleDialogOption(
-              onPressed: () =>
-                  Navigator.of(context).pop(_StopAction.destination),
-              child: Text(_isDestinationStop(stop) ? '清除下車提醒' : '設為下車提醒'),
-            ),
-            if (defaultTargetPlatform == TargetPlatform.android)
+            if (showDestinationAction)
+              SimpleDialogOption(
+                onPressed: () =>
+                    Navigator.of(context).pop(_StopAction.destination),
+                child: Text(_isDestinationStop(stop) ? '清除下車提醒' : '設為下車提醒'),
+              ),
+            if (showGoogleMapsAction)
+              SimpleDialogOption(
+                onPressed: () =>
+                    Navigator.of(context).pop(_StopAction.googleMaps),
+                child: const Text('在 Google Maps 開啟'),
+              ),
+            if (showShortcutAction)
               SimpleDialogOption(
                 onPressed: () =>
                     Navigator.of(context).pop(_StopAction.shortcut),
@@ -2704,9 +2746,106 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       await _handleFavorite(stop);
     } else if (action == _StopAction.destination) {
       await _handleDestinationAction(stop);
+    } else if (action == _StopAction.googleMaps) {
+      await _openStopInGoogleMaps(stop);
     } else if (action == _StopAction.shortcut) {
       await _handlePinnedShortcut(stop);
     }
+  }
+
+  Widget _buildBackgroundTripMonitorDrawer(BuildContext context) {
+    final theme = Theme.of(context);
+    final destinationName = _destinationStopName?.trim();
+    final destinationSubtitle =
+        destinationName != null && destinationName.isNotEmpty
+        ? '目前站點：$destinationName'
+        : '選擇一個站牌作為下車提醒。';
+
+    return Drawer(
+      width: math.min(MediaQuery.sizeOf(context).width * 0.88, 360),
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '背景乘車提醒',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '關閉',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Text(
+                '把背景追蹤與下車提醒控制集中在這裡。',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: Icon(
+                _backgroundTripMonitorPaused
+                    ? Icons.play_circle_outline_rounded
+                    : Icons.pause_circle_outline_rounded,
+              ),
+              title: Text(
+                _backgroundTripMonitorPaused
+                    ? '恢復背景乘車提醒'
+                    : '暫時停止背景乘車提醒',
+              ),
+              subtitle: Text(
+                _backgroundTripMonitorPaused
+                    ? '重新開始背景追蹤與提醒。'
+                    : '保留設定，但先停止背景追蹤與提醒。',
+              ),
+              onTap: () {
+                Navigator.of(context).pop();
+                unawaited(
+                  _setBackgroundTripMonitorPaused(
+                    !_backgroundTripMonitorPaused,
+                    reason: 'user',
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                _destinationStopId == null
+                    ? Icons.flag_outlined
+                    : Icons.flag_rounded,
+              ),
+              title: Text(
+                _destinationStopId == null ? '設定下車提醒' : '清除下車提醒',
+              ),
+              subtitle: Text(destinationSubtitle),
+              onTap: () {
+                Navigator.of(context).pop();
+                if (_destinationStopId == null) {
+                  unawaited(_pickDestinationStop());
+                } else {
+                  unawaited(_clearDestinationStop());
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<String?> _showGroupPicker(List<String> groups) {
@@ -3134,11 +3273,17 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final currentNearestStopId = currentPathId == null
         ? null
         : _nearestStopByPath[currentPathId];
+    final canOpenBackgroundTripMonitorDrawer =
+        settings.enableRouteBackgroundMonitor && _currentPathStops.isNotEmpty;
 
     return BackgroundImageWrapper(
       pageKey: 'bus',
       child: Scaffold(
+        key: _scaffoldKey,
         backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
+        endDrawer: canOpenBackgroundTripMonitorDrawer
+            ? _buildBackgroundTripMonitorDrawer(context)
+            : null,
         appBar: AppBar(
           title: Text(detail?.route.routeName ?? '公車資訊'),
           actions: [
@@ -3154,31 +3299,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     unawaited(_scrollToStop(currentPathId, currentNearestStopId)),
                 icon: const Icon(Icons.gps_fixed_rounded),
               ),
-            if (controller.settings.enableRouteBackgroundMonitor &&
-                _currentPathStops.isNotEmpty)
+            if (canOpenBackgroundTripMonitorDrawer)
               IconButton(
-                onPressed: () => unawaited(
-                  _setBackgroundTripMonitorPaused(
-                    !_backgroundTripMonitorPaused,
-                    reason: 'user',
-                  ),
-                ),
-                tooltip: _backgroundTripMonitorPaused ? '恢復背景乘車提醒' : '暫時停止背景乘車提醒',
+                onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+                tooltip: '背景乘車提醒',
                 icon: Icon(
                   _backgroundTripMonitorPaused
-                      ? Icons.play_circle_outline_rounded
-                      : Icons.pause_circle_outline_rounded,
-                ),
-              ),
-            if (_currentPathStops.isNotEmpty)
-              IconButton(
-                onPressed: () => _destinationStopId == null
-                    ? unawaited(_pickDestinationStop())
-                    : unawaited(_clearDestinationStop()),
-                icon: Icon(
-                  _destinationStopId == null
-                      ? Icons.flag_outlined
-                      : Icons.flag_rounded,
+                      ? Icons.notifications_paused_outlined
+                      : Icons.notifications_active_outlined,
                 ),
               ),
             IconButton(
@@ -3600,6 +3728,6 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
   }
 }
 
-enum _StopAction { favorite, destination, shortcut }
+enum _StopAction { favorite, destination, googleMaps, shortcut }
 
 enum _VehicleAction { twBusForum }

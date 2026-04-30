@@ -702,17 +702,22 @@ class FavoriteStop {
 }
 
 class RouteUsageProfile {
+  static const Duration selectionHistoryRetention = Duration(days: 7);
+
   const RouteUsageProfile({
     required this.provider,
     required this.routeKey,
     required this.routeName,
     required this.totalOpens,
     required this.lastOpenedAtMs,
-    this.totalSelections = 0,
-    this.lastSelectedAtMs = 0,
+    int totalSelections = 0,
+    int lastSelectedAtMs = 0,
     this.hourlyOpens = const <int, int>{},
-    this.hourlySelections = const <int, int>{},
-  });
+    Map<int, int> hourlySelections = const <int, int>{},
+    this.selectionTimestampsMs = const <int>[],
+  }) : _legacyTotalSelections = totalSelections,
+       _legacyLastSelectedAtMs = lastSelectedAtMs,
+       _legacyHourlySelections = hourlySelections;
 
   factory RouteUsageProfile.fromJson(Map<String, dynamic> json) {
     final rawHourlyOpens = json['hourlyOpens'];
@@ -737,10 +742,10 @@ class RouteUsageProfile {
       routeName: json['routeName'] as String? ?? '',
       totalOpens: (json['totalOpens'] as num?)?.toInt() ?? 0,
       lastOpenedAtMs: (json['lastOpenedAtMs'] as num?)?.toInt() ?? 0,
-      totalSelections: (json['totalSelections'] as num?)?.toInt() ?? 0,
-      lastSelectedAtMs: (json['lastSelectedAtMs'] as num?)?.toInt() ?? 0,
       hourlyOpens: hourlyOpens,
-      hourlySelections: _decodeHourlyCounts(json['hourlySelections']),
+      selectionTimestampsMs: _decodeRecentSelectionTimestamps(
+        json['selectionTimestampsMs'],
+      ),
     );
   }
 
@@ -749,42 +754,93 @@ class RouteUsageProfile {
   final String routeName;
   final int totalOpens;
   final int lastOpenedAtMs;
-  final int totalSelections;
-  final int lastSelectedAtMs;
   final Map<int, int> hourlyOpens;
-  final Map<int, int> hourlySelections;
+  final List<int> selectionTimestampsMs;
+  final int _legacyTotalSelections;
+  final int _legacyLastSelectedAtMs;
+  final Map<int, int> _legacyHourlySelections;
+
+  int get totalSelections => totalSelectionsAt();
+  int get lastSelectedAtMs => lastSelectedAtMsAt();
+  Map<int, int> get hourlySelections => hourlySelectionsAt();
 
   Map<String, dynamic> toJson() {
+    final prunedSelectionTimestamps = selectionTimestampsWithin();
     return {
       'provider': provider.name,
       'routeKey': routeKey,
       'routeName': routeName,
       'totalOpens': totalOpens,
       'lastOpenedAtMs': lastOpenedAtMs,
-      'totalSelections': totalSelections,
-      'lastSelectedAtMs': lastSelectedAtMs,
+      'totalSelections': prunedSelectionTimestamps.length,
+      'lastSelectedAtMs':
+          prunedSelectionTimestamps.isEmpty ? 0 : prunedSelectionTimestamps.last,
       'hourlyOpens': hourlyOpens.map(
         (key, value) => MapEntry(key.toString(), value),
       ),
-      'hourlySelections': hourlySelections.map(
+      'hourlySelections': hourlySelectionsAt().map(
         (key, value) => MapEntry(key.toString(), value),
       ),
+      'selectionTimestampsMs': prunedSelectionTimestamps,
     };
   }
 
   int countAtHour(int hour) => hourlyOpens[hour] ?? 0;
-  int selectionCountAtHour(int hour) => hourlySelections[hour] ?? 0;
-  int combinedCountAtHour(int hour) =>
-      countAtHour(hour) + selectionCountAtHour(hour);
+  int selectionCountAtHour(int hour, {DateTime? now}) =>
+      hourlySelectionsAt(now: now)[hour] ?? 0;
+  int combinedCountAtHour(int hour, {DateTime? now}) =>
+      countAtHour(hour) + selectionCountAtHour(hour, now: now);
+  int totalSelectionsAt({DateTime? now}) {
+    if (selectionTimestampsMs.isEmpty) {
+      return _legacyTotalSelections;
+    }
+    return selectionTimestampsWithin(now: now).length;
+  }
+
+  int lastSelectedAtMsAt({DateTime? now}) {
+    if (selectionTimestampsMs.isEmpty) {
+      return _legacyLastSelectedAtMs;
+    }
+    final timestamps = selectionTimestampsWithin(now: now);
+    return timestamps.isEmpty ? 0 : timestamps.last;
+  }
+
+  Map<int, int> hourlySelectionsAt({DateTime? now}) {
+    if (selectionTimestampsMs.isEmpty) {
+      return _legacyHourlySelections;
+    }
+    final counts = <int, int>{};
+    for (final timestamp in selectionTimestampsWithin(now: now)) {
+      final hour = DateTime.fromMillisecondsSinceEpoch(timestamp).hour;
+      counts[hour] = (counts[hour] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  List<int> selectionTimestampsWithin({DateTime? now}) {
+    if (selectionTimestampsMs.isEmpty) {
+      return const <int>[];
+    }
+    final referenceTime = now ?? DateTime.now();
+    final cutoffMs = referenceTime
+        .subtract(selectionHistoryRetention)
+        .millisecondsSinceEpoch;
+    final pruned = selectionTimestampsMs
+        .where((timestamp) => timestamp >= cutoffMs)
+        .toList()
+      ..sort();
+    return pruned;
+  }
+
   int get totalInteractions => totalOpens + totalSelections;
   int get latestInteractionAtMs =>
       lastOpenedAtMs > lastSelectedAtMs ? lastOpenedAtMs : lastSelectedAtMs;
 
-  int get preferredHour {
+  int preferredHourAt({DateTime? now}) {
     var bestHour = 0;
     var bestCount = -1;
     for (var hour = 0; hour < 24; hour++) {
-      final count = combinedCountAtHour(hour);
+      final count = combinedCountAtHour(hour, now: now);
       if (count > bestCount) {
         bestHour = hour;
         bestCount = count;
@@ -792,6 +848,8 @@ class RouteUsageProfile {
     }
     return bestHour;
   }
+
+  int get preferredHour => preferredHourAt();
 
   RouteUsageProfile recordOpen(DateTime openedAt, {String? routeName}) {
     final hour = openedAt.hour;
@@ -805,17 +863,17 @@ class RouteUsageProfile {
           : this.routeName,
       totalOpens: totalOpens + 1,
       lastOpenedAtMs: openedAt.millisecondsSinceEpoch,
-      totalSelections: totalSelections,
-      lastSelectedAtMs: lastSelectedAtMs,
       hourlyOpens: nextHourlyOpens,
-      hourlySelections: hourlySelections,
+      selectionTimestampsMs: selectionTimestampsMs,
     );
   }
 
   RouteUsageProfile recordSelection(DateTime selectedAt, {String? routeName}) {
-    final hour = selectedAt.hour;
-    final nextHourlySelections = <int, int>{...hourlySelections};
-    nextHourlySelections[hour] = (nextHourlySelections[hour] ?? 0) + 1;
+    final nextSelectionTimestamps = <int>[
+      ...selectionTimestampsWithin(now: selectedAt),
+      selectedAt.millisecondsSinceEpoch,
+    ]
+      ..sort();
     return RouteUsageProfile(
       provider: provider,
       routeKey: routeKey,
@@ -824,10 +882,8 @@ class RouteUsageProfile {
           : this.routeName,
       totalOpens: totalOpens,
       lastOpenedAtMs: lastOpenedAtMs,
-      totalSelections: totalSelections + 1,
-      lastSelectedAtMs: selectedAt.millisecondsSinceEpoch,
       hourlyOpens: hourlyOpens,
-      hourlySelections: nextHourlySelections,
+      selectionTimestampsMs: nextSelectionTimestamps,
     );
   }
 
@@ -842,23 +898,32 @@ class RouteUsageProfile {
     );
   }
 
-  static Map<int, int> _decodeHourlyCounts(Object? rawCounts) {
-    final counts = <int, int>{};
-    if (rawCounts is! Map) {
-      return counts;
+  RouteUsageProfile pruneSelectionHistory({DateTime? now}) {
+    return RouteUsageProfile(
+      provider: provider,
+      routeKey: routeKey,
+      routeName: routeName,
+      totalOpens: totalOpens,
+      lastOpenedAtMs: lastOpenedAtMs,
+      hourlyOpens: hourlyOpens,
+      selectionTimestampsMs: selectionTimestampsWithin(now: now),
+    );
+  }
+
+  static List<int> _decodeRecentSelectionTimestamps(Object? rawTimestamps) {
+    if (rawTimestamps is! List) {
+      return const <int>[];
     }
-    rawCounts.forEach((key, value) {
-      final hour = int.tryParse(key.toString());
-      final count = (value as num?)?.toInt();
-      if (hour != null &&
-          hour >= 0 &&
-          hour < 24 &&
-          count != null &&
-          count > 0) {
-        counts[hour] = count;
-      }
-    });
-    return counts;
+    final cutoffMs = DateTime.now()
+        .subtract(selectionHistoryRetention)
+        .millisecondsSinceEpoch;
+    final timestamps = rawTimestamps
+        .whereType<num>()
+        .map((value) => value.toInt())
+        .where((timestamp) => timestamp >= cutoffMs)
+        .toList()
+      ..sort();
+    return timestamps;
   }
 }
 

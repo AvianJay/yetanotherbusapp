@@ -37,9 +37,30 @@ void main() {
       routeName: '307',
     );
 
-    expect(updated.totalSelections, 1);
-    expect(updated.selectionCountAtHour(18), 1);
-    expect(updated.preferredHour, 18);
+    final now = DateTime(2026, 4, 4, 18, 10);
+    expect(updated.totalSelectionsAt(now: now), 1);
+    expect(updated.selectionCountAtHour(18, now: now), 1);
+    expect(updated.preferredHourAt(now: now), 18);
+  });
+
+  test('recordSelection prunes entries older than seven days', () {
+    final now = DateTime(2026, 4, 10, 18, 10);
+    final profile = RouteUsageProfile(
+      provider: BusProvider.nwt,
+      routeKey: 12,
+      routeName: '307',
+      totalOpens: 0,
+      lastOpenedAtMs: 0,
+      selectionTimestampsMs: <int>[
+        now.subtract(const Duration(days: 8)).millisecondsSinceEpoch,
+        now.subtract(const Duration(days: 2)).millisecondsSinceEpoch,
+      ],
+    );
+
+    final updated = profile.recordSelection(now, routeName: '307');
+
+    expect(updated.totalSelectionsAt(now: now), 2);
+    expect(updated.selectionCountAtHour(18, now: now), 2);
   });
 
   test('chooseProfileForTime prefers the route used in this time window', () {
@@ -112,6 +133,28 @@ void main() {
     ], DateTime(2026, 4, 4, 18, 15));
 
     expect(result?.routeKey, 202);
+  });
+
+  test('chooseProfileForTime ignores expired selection history', () {
+    final now = DateTime(2026, 4, 10, 18, 15);
+    final expiredSelectionRoute = RouteUsageProfile(
+      provider: BusProvider.nwt,
+      routeKey: 202,
+      routeName: '綠3',
+      totalOpens: 3,
+      lastOpenedAtMs: now.subtract(const Duration(days: 1)).millisecondsSinceEpoch,
+      hourlyOpens: const <int, int>{9: 3},
+      selectionTimestampsMs: <int>[
+        now.subtract(const Duration(days: 8)).millisecondsSinceEpoch,
+        now.subtract(const Duration(days: 8, minutes: 5)).millisecondsSinceEpoch,
+      ],
+    );
+
+    final result = SmartRouteService.chooseProfileForTime([
+      expiredSelectionRoute,
+    ], now);
+
+    expect(result, isNull);
   });
 
   test('chooseProfileForTime requires enough actual opens', () {

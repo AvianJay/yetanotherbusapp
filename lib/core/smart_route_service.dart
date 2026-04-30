@@ -42,9 +42,9 @@ class SmartRouteService {
     final previousHour = (currentHour + 23) % 24;
     final nextHour = (currentHour + 1) % 24;
     final relevantInteractions =
-        profile.combinedCountAtHour(currentHour) +
-        profile.combinedCountAtHour(previousHour) +
-        profile.combinedCountAtHour(nextHour);
+      profile.combinedCountAtHour(currentHour, now: now) +
+      profile.combinedCountAtHour(previousHour, now: now) +
+      profile.combinedCountAtHour(nextHour, now: now);
     return relevantInteractions >= minRelevantInteractionsForRecommendation;
   }
 
@@ -53,13 +53,19 @@ class SmartRouteService {
     final previousHour = (currentHour + 23) % 24;
     final nextHour = (currentHour + 1) % 24;
     final currentOpenCount = profile.countAtHour(currentHour);
-    final currentSelectionCount = profile.selectionCountAtHour(currentHour);
+    final currentSelectionCount = profile.selectionCountAtHour(
+      currentHour,
+      now: now,
+    );
     final adjacentOpenCount =
         profile.countAtHour(previousHour) + profile.countAtHour(nextHour);
     final adjacentSelectionCount =
-        profile.selectionCountAtHour(previousHour) +
-        profile.selectionCountAtHour(nextHour);
-    final preferredCount = profile.combinedCountAtHour(profile.preferredHour);
+        profile.selectionCountAtHour(previousHour, now: now) +
+        profile.selectionCountAtHour(nextHour, now: now);
+    final preferredCount = profile.combinedCountAtHour(
+      profile.preferredHourAt(now: now),
+      now: now,
+    );
     final recencyDays = profile.latestInteractionAtMs <= 0
         ? 365
         : now

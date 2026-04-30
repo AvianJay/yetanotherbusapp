@@ -339,7 +339,7 @@ class PersonalizationScreen extends StatelessWidget {
     if (seedColor == null) {
       return '自動';
     }
-    return '${_formatColorValue(seedColor)}';
+    return _formatColorValue(seedColor);
   }
 
   String _formatColorValue(Color color) {

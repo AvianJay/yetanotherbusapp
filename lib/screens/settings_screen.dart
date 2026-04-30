@@ -205,6 +205,7 @@ class SettingsScreen extends StatelessWidget {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('強制顯示秒數'),
+                    subtitle: const Text('這個通常不太準', style: TextStyle(decoration: TextDecoration.lineThrough)),
                     value: controller.settings.alwaysShowSeconds,
                     onChanged: controller.updateAlwaysShowSeconds,
                   ),

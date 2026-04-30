@@ -192,7 +192,7 @@ class PersonalizationScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '設定各頁面的背景圖片，主頁包含公車/捷運/高鐵/台鐵/YouBike',
+                    '設定各頁面的背景圖片。',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
@@ -247,11 +247,6 @@ class PersonalizationScreen extends StatelessWidget {
                                           value,
                                         );
                                       },
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '快速套用到目前已設定背景的頁面；各頁面設定內仍可個別微調。',
-                                style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ],
                           const SizedBox(height: 12),
@@ -342,9 +337,9 @@ class PersonalizationScreen extends StatelessWidget {
   String _colorSubtitle(AppSettings settings) {
     final seedColor = settings.seedColor;
     if (seedColor == null) {
-      return '支援時自動跟隨系統配色，否則使用預設色';
+      return '自動';
     }
-    return '目前自訂：${_formatColorValue(seedColor)}';
+    return '${_formatColorValue(seedColor)}';
   }
 
   String _formatColorValue(Color color) {

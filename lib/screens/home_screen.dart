@@ -626,7 +626,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '最近站點：${nearby.result.stop.stopName}',
+                    nearby.result.stop.stopName,
                     style: theme.textTheme.titleMedium,
                   ),
                   const SizedBox(height: 4),

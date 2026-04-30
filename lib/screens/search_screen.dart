@@ -58,6 +58,16 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _search(String query) async {
     final busController = AppControllerScope.read(context);
+    final trimmedQuery = query.trim();
+    final providerCount = busController.searchProviders.length;
+    final localProviderCount = busController.searchProviders
+        .where(
+          (provider) =>
+              provider.supportsLocalDatabase &&
+              busController.isDatabaseReady(provider),
+        )
+        .length;
+    final remoteProviderCount = providerCount - localProviderCount;
     setState(() {
       _isLoading = true;
       _error = null;
@@ -99,6 +109,15 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         _results = results;
       });
+      unawaited(
+        busController.analytics.logSearchExecuted(
+          queryLength: trimmedQuery.length,
+          resultsCount: results.length,
+          providerCount: providerCount,
+          localProviderCount: localProviderCount,
+          remoteProviderCount: remoteProviderCount,
+        ),
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -106,6 +125,12 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         _error = '$error';
       });
+      unawaited(
+        busController.analytics.logSearchFailed(
+          queryLength: trimmedQuery.length,
+          providerCount: providerCount,
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -123,6 +148,7 @@ class _SearchScreenState extends State<SearchScreen> {
     int? initialPathId,
     RouteSummary? route,
     bool saveHistory = false,
+    String source = 'search_result',
   }) async {
     final busController = AppControllerScope.read(context);
     if (saveHistory && route != null) {
@@ -132,6 +158,7 @@ class _SearchScreenState extends State<SearchScreen> {
       provider: provider,
       routeKey: routeKey,
       routeName: routeName,
+      source: source,
     );
     if (!mounted) {
       return;
@@ -211,6 +238,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     routeKey: entry.routeKey,
                     routeName: entry.routeName,
                     routeIdHint: entry.routeId,
+                    source: 'search_history',
                   ),
                 );
               },

@@ -173,6 +173,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                         provider: routeProvider,
                         routeKey: item.route.routeKey,
                         routeName: item.route.routeName,
+                        source: 'nearby',
                       );
                       if (!context.mounted) {
                         return;

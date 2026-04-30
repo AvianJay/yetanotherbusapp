@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 
 import 'android_home_integration.dart';
 import 'android_trip_monitor.dart';
+import 'app_analytics.dart';
 import 'app_build_info.dart';
 import 'app_update_installer.dart';
 import 'app_update_service.dart';
@@ -18,6 +19,7 @@ class AppController extends ChangeNotifier {
   AppController({
     required this.repository,
     required this.storage,
+    required this.analytics,
     required this.buildInfo,
     required this.appUpdateService,
     required this.appUpdateInstaller,
@@ -27,6 +29,7 @@ class AppController extends ChangeNotifier {
 
   final BusRepository repository;
   final StorageService storage;
+  final AppAnalytics analytics;
   final AppBuildInfo buildInfo;
   final AppUpdateService appUpdateService;
   final AppUpdateInstaller appUpdateInstaller;
@@ -163,6 +166,10 @@ class AppController extends ChangeNotifier {
       selectedProviders: selected.toList(),
     );
     await storage.saveSettings(_settings);
+    await analytics.logProviderChanged(
+      provider: provider,
+      selectedCount: _settings.selectedProviders.length,
+    );
     notifyListeners();
     await refreshDatabaseState();
   }
@@ -186,6 +193,10 @@ class AppController extends ChangeNotifier {
       selectedProviders: normalized,
     );
     await storage.saveSettings(_settings);
+    await analytics.logSelectedProvidersChanged(
+      currentProvider: provider,
+      selectedCount: normalized.length,
+    );
     notifyListeners();
     await refreshDatabaseState();
   }
@@ -226,12 +237,14 @@ class AppController extends ChangeNotifier {
   Future<void> updateThemeMode(ThemeMode themeMode) async {
     _settings = _settings.copyWith(themeMode: themeMode);
     await storage.saveSettings(_settings);
+    await analytics.logThemeModeChanged(themeMode);
     notifyListeners();
   }
 
   Future<void> updateUseAmoledDark(bool value) async {
     _settings = _settings.copyWith(useAmoledDark: value);
     await storage.saveSettings(_settings);
+    await analytics.logAmoledPreferenceChanged(value);
     notifyListeners();
   }
 
@@ -242,6 +255,7 @@ class AppController extends ChangeNotifier {
       _settings = _settings.copyWith(clearSeedColor: true);
     }
     await storage.saveSettings(_settings);
+    await analytics.logSeedColorChanged(usesCustomColor: color != null);
     notifyListeners();
   }
 
@@ -263,6 +277,10 @@ class AppController extends ChangeNotifier {
     }
     _settings = _settings.copyWith(pageBackgroundImagePaths: updated);
     await storage.saveSettings(_settings);
+    await analytics.logPageBackgroundChanged(
+      pageKey: pageKey,
+      hasImage: path != null,
+    );
     notifyListeners();
   }
 
@@ -306,6 +324,7 @@ class AppController extends ChangeNotifier {
       pageBackgroundImageOpacities: existingOpacities,
     );
     await storage.saveSettings(_settings);
+    await analytics.logBackgroundImagesApplied(pageCount: allKeys.length);
     notifyListeners();
   }
 
@@ -315,6 +334,7 @@ class AppController extends ChangeNotifier {
       pageBackgroundImageOpacities: const {},
     );
     await storage.saveSettings(_settings);
+    await analytics.logBackgroundImagesCleared();
     notifyListeners();
   }
 
@@ -501,6 +521,10 @@ class AppController extends ChangeNotifier {
         channel ?? _settings.appUpdateChannel,
       );
       _lastAppUpdateResult = result;
+      await analytics.logAppUpdateChecked(
+        channel: (channel ?? _settings.appUpdateChannel).name,
+        status: result.status.name,
+      );
       return result;
     } finally {
       _checkingAppUpdate = false;
@@ -581,6 +605,10 @@ class AppController extends ChangeNotifier {
             if (entry.key != provider) entry.key: entry.value,
         };
       }
+      await analytics.logDatabasesDownloaded(
+        providerCount: targets.length,
+        includesCurrentProvider: targets.contains(_settings.provider),
+      );
     } finally {
       _downloadingDatabase = false;
       notifyListeners();
@@ -730,6 +758,7 @@ class AppController extends ChangeNotifier {
     required int routeKey,
     required String routeName,
     DateTime? selectedAt,
+    String source = 'unknown',
   }) async {
     final timestamp = selectedAt ?? DateTime.now();
     await _recordRouteActivity(
@@ -747,6 +776,11 @@ class AppController extends ChangeNotifier {
         lastSelectedAtMs: timestamp.millisecondsSinceEpoch,
         hourlySelections: <int, int>{timestamp.hour: 1},
       ),
+    );
+    await analytics.logRouteSelected(
+      provider: provider,
+      routeKey: routeKey,
+      source: source,
     );
   }
 
@@ -769,6 +803,10 @@ class AppController extends ChangeNotifier {
         lastOpenedAtMs: timestamp.millisecondsSinceEpoch,
         hourlyOpens: <int, int>{timestamp.hour: 1},
       ),
+    );
+    await analytics.logRouteVisit(
+      provider: provider,
+      routeKey: route.routeKey,
     );
   }
 
@@ -854,6 +892,7 @@ class AppController extends ChangeNotifier {
     await storage.saveFavoriteGroups(_favoriteGroups);
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await analytics.logFavoriteGroupCreated(groupCount: _favoriteGroups.length);
     notifyListeners();
   }
 
@@ -864,6 +903,7 @@ class AppController extends ChangeNotifier {
     await storage.saveFavoriteGroups(_favoriteGroups);
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await analytics.logFavoriteGroupDeleted(groupCount: _favoriteGroups.length);
     notifyListeners();
   }
 
@@ -885,6 +925,7 @@ class AppController extends ChangeNotifier {
     final existingIndex = next[targetGroup]!.indexWhere(
       (item) => item.sameAs(favorite),
     );
+    final replacedExisting = existingIndex != -1;
     if (existingIndex == -1) {
       next[targetGroup]!.add(favorite);
     } else {
@@ -928,6 +969,16 @@ class AppController extends ChangeNotifier {
     await storage.saveFavoriteGroups(_favoriteGroups);
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    final savedFavorite = next[targetGroup]!.firstWhere(
+      (item) => item.sameAs(favorite),
+      orElse: () => favorite,
+    );
+    await analytics.logFavoriteStopSaved(
+      provider: favorite.provider,
+      routeKey: favorite.routeKey,
+      replacedExisting: replacedExisting,
+      hasDestination: savedFavorite.destinationStopId != null,
+    );
     notifyListeners();
     return targetGroup;
   }
@@ -1011,6 +1062,11 @@ class AppController extends ChangeNotifier {
     await storage.saveFavoriteGroups(_favoriteGroups);
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await analytics.logFavoriteStopRemoved(
+      provider: favorite.provider,
+      routeKey: favorite.routeKey,
+      hadDestination: favorite.destinationStopId != null,
+    );
     notifyListeners();
   }
 

@@ -694,6 +694,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   provider: item.reference.provider,
                   routeKey: item.reference.routeKey,
                   routeName: item.route.routeName,
+                  source: 'favorite',
                 );
                 if (!context.mounted) {
                   return;

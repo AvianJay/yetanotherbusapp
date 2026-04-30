@@ -324,6 +324,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       provider: suggestion.profile.provider,
       routeKey: suggestion.profile.routeKey,
       routeName: suggestion.profile.routeName,
+      source: 'smart_suggestion',
     );
     if (!mounted) {
       return;
@@ -346,6 +347,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       provider: controller.settings.provider,
       routeKey: nearby.result.route.routeKey,
       routeName: nearby.result.route.routeName,
+      source: 'nearby_fallback',
     );
     if (!mounted) {
       return;

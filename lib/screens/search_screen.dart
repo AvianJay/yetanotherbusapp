@@ -184,6 +184,7 @@ class _SearchScreenState extends State<SearchScreen> {
       busController.settings,
       pageKey: 'search',
     );
+    // ignore: unused_local_variable
     final missingProviders = selectedProviders
         .where((provider) => !busController.isDatabaseReady(provider))
         .toList();

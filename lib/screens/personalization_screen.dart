@@ -139,16 +139,6 @@ class PersonalizationScreen extends StatelessWidget {
                             controller.updateUseAmoledDark(value);
                           },
                   ),
-                  // When AMOLED is active, show disabled hints
-                  if (isAmoled) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      'AMOLED 模式下：漸層、背景圖片與覆蓋層透明度已自動停用',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -200,18 +190,9 @@ class PersonalizationScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '設定各頁面的背景圖片（支援 GIF），主頁包含公車/捷運/高鐵/台鐵/YouBike',
+                    '設定各頁面的背景圖片，主頁包含公車/捷運/高鐵/台鐵/YouBike',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
-                  if (isAmoled) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      'AMOLED 模式下背景圖片已自動隱藏',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ],
                   const SizedBox(height: 12),
                   Opacity(
                     opacity: isAmoled ? 0.4 : 1.0,
@@ -310,10 +291,10 @@ class PersonalizationScreen extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    '背景圖片啟用時，卡片、AppBar 等元件的透明度，數值越高越不透明',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+                  // Text(
+                  //   '背景圖片啟用時，卡片、AppBar 等元件的透明度，數值越高越不透明',
+                  //   style: Theme.of(context).textTheme.bodySmall,
+                  // ),
                   const SizedBox(height: 12),
                   _OpacitySlider(
                     label: '覆蓋層',

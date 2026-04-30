@@ -79,9 +79,9 @@ class SettingsScreen extends StatelessWidget {
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     final supportsRouteBackgroundMonitor = isAndroid || isIOS;
-    final databaseProviders = controller.selectedProviders
-        .map((provider) => provider.label)
-        .join('、');
+    // final databaseProviders = controller.selectedProviders
+    //     .map((provider) => provider.label)
+    //     .join('、');
 
     return BackgroundImageWrapper(
       pageKey: 'settings',
@@ -160,16 +160,11 @@ class SettingsScreen extends StatelessWidget {
                     '目前地區：${controller.settings.provider.label}',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '已選地區：$databaseProviders',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '公路客運固定走線上查詢，不提供下載。',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
+                  // const SizedBox(height: 4),
+                  // Text(
+                  //   '已選地區：$databaseProviders',
+                  //   style: Theme.of(context).textTheme.bodyMedium,
+                  // ),
                   const SizedBox(height: 4),
                   Text(
                     '啟動更新：${controller.settings.databaseAutoUpdateMode.label}',
@@ -212,7 +207,7 @@ class SettingsScreen extends StatelessWidget {
                   const SizedBox(height: 16),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('顯示秒數'),
+                    title: const Text('強制顯示秒數'),
                     value: controller.settings.alwaysShowSeconds,
                     onChanged: controller.updateAlwaysShowSeconds,
                   ),

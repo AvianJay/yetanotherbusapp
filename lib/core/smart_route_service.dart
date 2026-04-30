@@ -86,14 +86,15 @@ class SmartRouteService {
   }
 
   static String buildReason(RouteUsageProfile profile, DateTime now) {
-    final currentCount = profile.combinedCountAtHour(now.hour);
-    if (currentCount > 0) {
-      return '你常在這個時段點開這條路線。';
-    }
+    // final currentCount = profile.combinedCountAtHour(now.hour);
+    // if (currentCount > 0) {
+    //   return '你常在這個時段點開這條路線。';
+    // }
 
-    final preferredHour = profile.preferredHour;
-    final label = preferredHour.toString().padLeft(2, '0');
-    return '你通常會在 $label:00 左右點開這條路線。';
+    // final preferredHour = profile.preferredHour;
+    // final label = preferredHour.toString().padLeft(2, '0');
+    // return '你通常會在 $label:00 左右點開這條路線。';
+    return '根據你的使用習慣。';
   }
 
   static SmartRouteSuggestion buildSuggestion({

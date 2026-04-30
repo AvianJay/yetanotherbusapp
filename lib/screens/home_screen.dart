@@ -518,22 +518,22 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  // const SizedBox(height: 6),
+                  // // Text(
+                  // //   '你最常在 $preferredHourLabel:00 左右點開這條路線，累計 ${suggestion.profile.totalInteractions} 次。',
+                  // //   style: theme.textTheme.bodyMedium,
+                  // // ),
                   // Text(
-                  //   '你最常在 $preferredHourLabel:00 左右點開這條路線，累計 ${suggestion.profile.totalInteractions} 次。',
+                  //   '根據使用習慣。',
                   //   style: theme.textTheme.bodyMedium,
                   // ),
-                  Text(
-                    '根據使用習慣。',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                  if (suggestion.nearestPath != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      '方向：${suggestion.nearestPath!.name}',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
+                  // if (suggestion.nearestPath != null) ...[
+                  //   const SizedBox(height: 8),
+                  //   Text(
+                  //     '方向：${suggestion.nearestPath!.name}',
+                  //     style: theme.textTheme.bodySmall,
+                  //   ),
+                  // ],
                   const SizedBox(height: 10),
                   if (nearestStop != null)
                     Row(

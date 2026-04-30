@@ -182,12 +182,12 @@ class DatabaseSettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('共用路線資料庫', style: theme.textTheme.titleMedium),
+                  Text('路線資料庫', style: theme.textTheme.titleMedium),
                   const SizedBox(height: 8),
-                  Text(
-                    '這份資料庫保存所有路線與方向資料，會在下載任一地區資料庫時一併更新。',
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  // Text(
+                  //   '這份資料庫保存所有路線與方向資料，會在下載任一地區資料庫時一併更新。',
+                  //   style: theme.textTheme.bodyMedium,
+                  // ),
                   const SizedBox(height: 12),
                   FutureBuilder<bool>(
                     future: controller.isRouteMetadataDatabaseReady(),
@@ -204,12 +204,12 @@ class DatabaseSettingsScreen extends StatelessWidget {
                             label: Text(ready ? '已下載' : '尚未下載'),
                           ),
                           const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              '檔名：routes_metadata_v1.sqlite',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ),
+                          // Expanded(
+                          //   child: Text(
+                          //     '檔名：routes_metadata_v1.sqlite',
+                          //     style: theme.textTheme.bodySmall,
+                          //   ),
+                          // ),
                         ],
                       );
                     },
@@ -246,7 +246,7 @@ class DatabaseSettingsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    '選取要保留在本機的縣市資料庫。若未下載，搜尋與詳細頁會自動改走線上 API。公路客運固定使用線上查詢，不提供下載。',
+                    '選取要保留在本機的縣市資料庫。',
                     style: theme.textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 12),

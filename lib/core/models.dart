@@ -1235,10 +1235,8 @@ EtaPresentation buildEtaPresentation(
   if (seconds <= 0) {
     return EtaPresentation(
       text: '進站中',
-      backgroundColor: isDark
-          ? (cs?.error ?? const Color(0xFF8B1A1A))
-          : (cs?.error ?? Colors.red.shade800),
-      foregroundColor: cs?.onError ?? Colors.white,
+      backgroundColor: const Color(0xFF8B1A1A),
+      foregroundColor: Colors.white,
     );
   }
 

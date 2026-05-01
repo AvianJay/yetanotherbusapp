@@ -90,8 +90,7 @@ BusProvider nearestBusProvider({
   if (contained.length == 1) return contained.first;
 
   // Phase 2: Ambiguous or no bounding-box match → nearest center.
-  final candidates =
-    contained.isNotEmpty ? contained : locationProviders;
+  final candidates = contained.isNotEmpty ? contained : locationProviders;
   BusProvider best = candidates.first;
   var bestDistance = double.infinity;
   for (final provider in candidates) {
@@ -130,7 +129,6 @@ const _providerBounds = <BusProvider, _LatLngBounds>{
   BusProvider.tnn: _LatLngBounds(22.8563, 120.0390, 23.4390, 120.6530),
   BusProvider.khh: _LatLngBounds(22.4705, 120.1800, 23.4710, 120.8595),
 };
-
 
 ThemeMode themeModeFromString(String value) {
   return ThemeMode.values.firstWhere(
@@ -242,8 +240,7 @@ enum DatabaseAutoUpdateMode {
     DatabaseAutoUpdateMode.checkNotify => '啟動時檢查更新，若有新版本就顯示提示。',
     DatabaseAutoUpdateMode.always => '啟動時有新版本就直接下載並更新。',
     DatabaseAutoUpdateMode.wifiOnly => '僅在 Wi‑Fi 連線時自動更新，其他網路只保留提示。',
-    DatabaseAutoUpdateMode.cellularOnly =>
-      '僅在行動數據連線時自動更新，其他網路只保留提示。',
+    DatabaseAutoUpdateMode.cellularOnly => '僅在行動數據連線時自動更新，其他網路只保留提示。',
   };
 }
 
@@ -254,13 +251,7 @@ DatabaseAutoUpdateMode databaseAutoUpdateModeFromString(String value) {
   );
 }
 
-enum DatabaseConnectionKind {
-  wifi,
-  cellular,
-  other,
-  offline,
-  unknown;
-}
+enum DatabaseConnectionKind { wifi, cellular, other, offline, unknown }
 
 class DatabaseStartupCheckResult {
   const DatabaseStartupCheckResult({
@@ -328,6 +319,10 @@ class AppSettings {
     required this.databaseAutoUpdateMode,
     required this.appUpdateChannel,
     required this.appUpdateCheckMode,
+    required this.desktopDiscordPresenceEnabled,
+    required this.desktopDiscordShowProvider,
+    required this.desktopDiscordShowScreen,
+    required this.desktopDiscordShowRouteName,
   });
 
   factory AppSettings.defaults() {
@@ -363,13 +358,15 @@ class AppSettings {
               'developer'
           ? AppUpdateCheckMode.off
           : AppUpdateCheckMode.popup,
+      desktopDiscordPresenceEnabled: true,
+      desktopDiscordShowProvider: true,
+      desktopDiscordShowScreen: true,
+      desktopDiscordShowRouteName: true,
     );
   }
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
-    var provider = busProviderFromString(
-      json['provider'] as String? ?? 'tpe',
-    );
+    var provider = busProviderFromString(json['provider'] as String? ?? 'tpe');
     final selectedProvidersRaw = json['selectedProviders'];
     final selectedProviders = selectedProvidersRaw is List
         ? selectedProvidersRaw
@@ -413,14 +410,10 @@ class AppSettings {
           const {},
       pageBackgroundImageOpacities:
           (json['pageBackgroundImageOpacities'] as Map?)?.map(
-            (k, v) => MapEntry(
-              k.toString(),
-              v is num ? v.toDouble() : 0.25,
-            ),
+            (k, v) => MapEntry(k.toString(), v is num ? v.toDouble() : 0.25),
           ) ??
           const {},
-      overlayOpacity:
-          (json['overlayOpacity'] as num?)?.toDouble() ?? 0.85,
+      overlayOpacity: (json['overlayOpacity'] as num?)?.toDouble() ?? 0.85,
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
       enableSmartRecommendations:
           json['enableSmartRecommendations'] as bool? ?? true,
@@ -458,6 +451,14 @@ class AppSettings {
                 ? 'off'
                 : 'popup'),
       ),
+      desktopDiscordPresenceEnabled:
+          json['desktopDiscordPresenceEnabled'] as bool? ?? true,
+      desktopDiscordShowProvider:
+          json['desktopDiscordShowProvider'] as bool? ?? true,
+      desktopDiscordShowScreen:
+          json['desktopDiscordShowScreen'] as bool? ?? true,
+      desktopDiscordShowRouteName:
+          json['desktopDiscordShowRouteName'] as bool? ?? true,
     );
   }
 
@@ -485,6 +486,10 @@ class AppSettings {
   final DatabaseAutoUpdateMode databaseAutoUpdateMode;
   final AppUpdateChannel appUpdateChannel;
   final AppUpdateCheckMode appUpdateCheckMode;
+  final bool desktopDiscordPresenceEnabled;
+  final bool desktopDiscordShowProvider;
+  final bool desktopDiscordShowScreen;
+  final bool desktopDiscordShowRouteName;
 
   AppSettings copyWith({
     BusProvider? provider,
@@ -512,6 +517,10 @@ class AppSettings {
     DatabaseAutoUpdateMode? databaseAutoUpdateMode,
     AppUpdateChannel? appUpdateChannel,
     AppUpdateCheckMode? appUpdateCheckMode,
+    bool? desktopDiscordPresenceEnabled,
+    bool? desktopDiscordShowProvider,
+    bool? desktopDiscordShowScreen,
+    bool? desktopDiscordShowRouteName,
   }) {
     return AppSettings(
       provider: provider ?? this.provider,
@@ -552,6 +561,14 @@ class AppSettings {
           databaseAutoUpdateMode ?? this.databaseAutoUpdateMode,
       appUpdateChannel: appUpdateChannel ?? this.appUpdateChannel,
       appUpdateCheckMode: appUpdateCheckMode ?? this.appUpdateCheckMode,
+      desktopDiscordPresenceEnabled:
+          desktopDiscordPresenceEnabled ?? this.desktopDiscordPresenceEnabled,
+      desktopDiscordShowProvider:
+          desktopDiscordShowProvider ?? this.desktopDiscordShowProvider,
+      desktopDiscordShowScreen:
+          desktopDiscordShowScreen ?? this.desktopDiscordShowScreen,
+      desktopDiscordShowRouteName:
+          desktopDiscordShowRouteName ?? this.desktopDiscordShowRouteName,
     );
   }
 
@@ -584,6 +601,10 @@ class AppSettings {
       'databaseAutoUpdateMode': databaseAutoUpdateMode.name,
       'appUpdateChannel': appUpdateChannel.name,
       'appUpdateCheckMode': appUpdateCheckMode.name,
+      'desktopDiscordPresenceEnabled': desktopDiscordPresenceEnabled,
+      'desktopDiscordShowProvider': desktopDiscordShowProvider,
+      'desktopDiscordShowScreen': desktopDiscordShowScreen,
+      'desktopDiscordShowRouteName': desktopDiscordShowRouteName,
     };
   }
 }
@@ -773,8 +794,9 @@ class RouteUsageProfile {
       'totalOpens': totalOpens,
       'lastOpenedAtMs': lastOpenedAtMs,
       'totalSelections': prunedSelectionTimestamps.length,
-      'lastSelectedAtMs':
-          prunedSelectionTimestamps.isEmpty ? 0 : prunedSelectionTimestamps.last,
+      'lastSelectedAtMs': prunedSelectionTimestamps.isEmpty
+          ? 0
+          : prunedSelectionTimestamps.last,
       'hourlyOpens': hourlyOpens.map(
         (key, value) => MapEntry(key.toString(), value),
       ),
@@ -825,10 +847,11 @@ class RouteUsageProfile {
     final cutoffMs = referenceTime
         .subtract(selectionHistoryRetention)
         .millisecondsSinceEpoch;
-    final pruned = selectionTimestampsMs
-        .where((timestamp) => timestamp >= cutoffMs)
-        .toList()
-      ..sort();
+    final pruned =
+        selectionTimestampsMs
+            .where((timestamp) => timestamp >= cutoffMs)
+            .toList()
+          ..sort();
     return pruned;
   }
 
@@ -872,8 +895,7 @@ class RouteUsageProfile {
     final nextSelectionTimestamps = <int>[
       ...selectionTimestampsWithin(now: selectedAt),
       selectedAt.millisecondsSinceEpoch,
-    ]
-      ..sort();
+    ]..sort();
     return RouteUsageProfile(
       provider: provider,
       routeKey: routeKey,
@@ -917,12 +939,13 @@ class RouteUsageProfile {
     final cutoffMs = DateTime.now()
         .subtract(selectionHistoryRetention)
         .millisecondsSinceEpoch;
-    final timestamps = rawTimestamps
-        .whereType<num>()
-        .map((value) => value.toInt())
-        .where((timestamp) => timestamp >= cutoffMs)
-        .toList()
-      ..sort();
+    final timestamps =
+        rawTimestamps
+            .whereType<num>()
+            .map((value) => value.toInt())
+            .where((timestamp) => timestamp >= cutoffMs)
+            .toList()
+          ..sort();
     return timestamps;
   }
 }
@@ -1009,10 +1032,7 @@ class PathInfo {
 }
 
 class RoutePathPoint {
-  const RoutePathPoint({
-    required this.lat,
-    required this.lon,
-  });
+  const RoutePathPoint({required this.lat, required this.lon});
 
   final double lat;
   final double lon;
@@ -1274,9 +1294,11 @@ EtaPresentation buildEtaPresentation(
           : message == '今日未營運'
           ? '今日\n未營運'
           : message,
-      backgroundColor: cs?.primaryContainer ??
+      backgroundColor:
+          cs?.primaryContainer ??
           (isDark ? const Color(0xFF16383D) : Colors.teal.shade50),
-      foregroundColor: cs?.onPrimaryContainer ??
+      foregroundColor:
+          cs?.onPrimaryContainer ??
           (isDark ? const Color(0xFFBEECEF) : Colors.teal.shade900),
     );
   }
@@ -1315,11 +1337,11 @@ EtaPresentation buildEtaPresentation(
     backgroundColor: urgent
         ? Colors.orange.shade700
         : cs?.primaryContainer ??
-            (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1)),
+              (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1)),
     foregroundColor: urgent
         ? Colors.white
         : (cs?.onPrimaryContainer ??
-            (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57))),
+              (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57))),
   );
 }
 
@@ -1381,7 +1403,8 @@ class RouteAlert {
       effect: (json['effect'] as num?)?.toInt(),
       direction: (json['direction'] as num?)?.toInt(),
       scope: json['scope']?.toString(),
-      stopIds: (json['stop_ids'] as List<dynamic>?)
+      stopIds:
+          (json['stop_ids'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
           const <String>[],
@@ -1407,46 +1430,46 @@ class RouteAlert {
   final int? updatedTime;
 
   String get statusText => switch (status) {
-        0 => '全部營運停止',
-        1 => '全部營運正常',
-        2 => '有異常狀況',
-        _ => '未知',
-      };
+    0 => '全部營運停止',
+    1 => '全部營運正常',
+    2 => '有異常狀況',
+    _ => '未知',
+  };
 
   Color get statusColor => switch (status) {
-        0 => const Color(0xFFD32F2F),
-        1 => const Color(0xFF388E3C),
-        2 => const Color(0xFFF57C00),
-        _ => const Color(0xFF757575),
-      };
+    0 => const Color(0xFFD32F2F),
+    1 => const Color(0xFF388E3C),
+    2 => const Color(0xFFF57C00),
+    _ => const Color(0xFF757575),
+  };
 
   String get causeText => switch (cause) {
-        1 => '事故',
-        2 => '維護檢修',
-        3 => '技術問題',
-        4 => '施工',
-        5 => '醫療緊急狀況',
-        6 => '氣候',
-        7 => '示威遊行',
-        8 => '政治活動/維安',
-        9 => '假日/節慶',
-        10 => '罷工',
-        11 => '活動',
-        254 => '其他',
-        _ => '',
-      };
+    1 => '事故',
+    2 => '維護檢修',
+    3 => '技術問題',
+    4 => '施工',
+    5 => '醫療緊急狀況',
+    6 => '氣候',
+    7 => '示威遊行',
+    8 => '政治活動/維安',
+    9 => '假日/節慶',
+    10 => '罷工',
+    11 => '活動',
+    254 => '其他',
+    _ => '',
+  };
 
   String get effectText => switch (effect) {
-        1 => '車輛改道/站牌不停靠',
-        2 => '班次增加',
-        3 => '班次減少',
-        4 => '班次取消',
-        5 => '班次改變',
-        6 => '站點異動',
-        7 => '重大延遲',
-        254 => '其他影響',
-        _ => '',
-      };
+    1 => '車輛改道/站牌不停靠',
+    2 => '班次增加',
+    3 => '班次減少',
+    4 => '班次取消',
+    5 => '班次改變',
+    6 => '站點異動',
+    7 => '重大延遲',
+    254 => '其他影響',
+    _ => '',
+  };
 
   bool get isNegative =>
       status == 0 ||
@@ -1477,14 +1500,14 @@ class RouteOperator {
   });
 
   factory RouteOperator.fromJson(Map<String, dynamic> json) => RouteOperator(
-        operatorId: json['operator_id'] as String? ?? '',
-        name: json['name'] as String? ?? '',
-        nameEn: json['name_en'] as String?,
-        code: json['code'] as String?,
-        phone: json['phone'] as String?,
-        email: json['email'] as String?,
-        url: json['url'] as String?,
-      );
+    operatorId: json['operator_id'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    nameEn: json['name_en'] as String?,
+    code: json['code'] as String?,
+    phone: json['phone'] as String?,
+    email: json['email'] as String?,
+    url: json['url'] as String?,
+  );
 }
 
 class RouteScheduleEntry {

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -8,15 +9,17 @@ import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/transit_drawer.dart';
+import 'adaptive_settings_presenter.dart';
 import 'database_settings_screen.dart';
 import 'favorites_screen.dart';
 import 'nearby_screen.dart';
 import 'route_detail_screen.dart';
 import 'search_screen.dart';
-import 'settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({required this.onModeChanged, super.key});
+
+  static const _desktopSidebarBreakpoint = 1100.0;
 
   final ValueChanged<TransitMode> onModeChanged;
 
@@ -26,8 +29,143 @@ class HomeScreen extends StatelessWidget {
   ) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'database_settings'),
         builder: (_) => const DatabaseSettingsScreen(),
       ),
+    );
+  }
+
+  Widget _buildFeatureList(
+    BuildContext context,
+    AppController controller, {
+    required bool showSmartRecommendation,
+  }) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      children: [
+        if (showSmartRecommendation &&
+            controller.settings.enableSmartRecommendations) ...[
+          _SmartRecommendationCard(controller: controller),
+          const SizedBox(height: 16),
+        ],
+        _FeatureCard(
+          icon: Icons.search_rounded,
+          title: '搜尋路線',
+          subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'search'),
+                builder: (_) => const SearchScreen(),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        _FeatureCard(
+          icon: Icons.favorite_outline_rounded,
+          title: '我的最愛',
+          subtitle: '整理常用站牌與群組，快速跳回指定站點。',
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'favorites'),
+                builder: (_) => const FavoritesScreen(),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        _FeatureCard(
+          icon: Icons.near_me_outlined,
+          title: '附近站牌',
+          subtitle: '依照你目前位置找附近的公車站牌。',
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'nearby'),
+                builder: (_) => const NearbyScreen(),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopSidebar(BuildContext context, AppController controller) {
+    final theme = Theme.of(context);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(0, 12, 20, 24),
+      children: [
+        _SmartRecommendationCard(controller: controller),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '桌面總覽',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '左邊保留主要操作，右邊集中顯示推薦、設定與狀態摘要。',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    Chip(
+                      avatar: const Icon(Icons.location_on_outlined),
+                      label: Text(controller.settings.provider.label),
+                    ),
+                    Chip(
+                      avatar: const Icon(Icons.layers_outlined),
+                      label: Text(
+                        '已選 ${controller.selectedProviders.length} 個地區',
+                      ),
+                    ),
+                    Chip(
+                      avatar: const Icon(Icons.history_rounded),
+                      label: Text('搜尋紀錄 ${controller.history.length} 筆'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                FilledButton.tonalIcon(
+                  onPressed: () => openAdaptiveSettingsScreen(context),
+                  icon: const Icon(Icons.tune_rounded),
+                  label: const Text('開啟設定'),
+                ),
+                if (!kIsWeb) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => _openDatabaseSettings(context, controller),
+                    icon: const Icon(Icons.storage_rounded),
+                    label: const Text('資料庫與下載'),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    '網頁版不提供資料庫下載與 App 更新功能，避免顯示不可用的本機流程。',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -35,8 +173,15 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
     final colorScheme = Theme.of(context).colorScheme;
-    final hasBusBackgroundImage =
-        controller.settings.pageBackgroundImagePaths.containsKey('bus');
+    final hasBusBackgroundImage = controller.settings.pageBackgroundImagePaths
+        .containsKey('bus');
+    final isWideLayout =
+        MediaQuery.sizeOf(context).width >= _desktopSidebarBreakpoint;
+    final featureList = _buildFeatureList(
+      context,
+      controller,
+      showSmartRecommendation: !isWideLayout,
+    );
 
     return Scaffold(
       backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
@@ -49,29 +194,26 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
         actions: [
-          IconButton(
-            tooltip: '資料庫與下載',
-            onPressed: () => _openDatabaseSettings(context, controller),
-            icon: controller.downloadingDatabase
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Badge(
-                    isLabelVisible: controller.hasPendingDatabaseUpdates,
-                    child: Icon(
-                      controller.databaseReady
-                          ? Icons.storage_rounded
-                          : Icons.cloud_download_outlined,
+          if (!kIsWeb)
+            IconButton(
+              tooltip: '資料庫與下載',
+              onPressed: () => _openDatabaseSettings(context, controller),
+              icon: controller.downloadingDatabase
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Badge(
+                      isLabelVisible: controller.hasPendingDatabaseUpdates,
+                      child: Icon(
+                        controller.databaseReady
+                            ? Icons.storage_rounded
+                            : Icons.cloud_download_outlined,
+                      ),
                     ),
-                  ),
-          ),
+            ),
           IconButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
-              );
-            },
+            onPressed: () => openAdaptiveSettingsScreen(context),
             icon: const Icon(Icons.settings_outlined),
           ),
         ],
@@ -81,67 +223,35 @@ class HomeScreen extends StatelessWidget {
         onModeChanged: onModeChanged,
       ),
       body: Container(
-          decoration: BoxDecoration(
-            gradient: _shouldShowGradient(controller)
-                ? LinearGradient(
-                    colors: [
-                      colorScheme.primaryContainer.withValues(
-                        alpha: controller.settings.homeBackgroundOpacity,
-                      ),
-                      Theme.of(context).scaffoldBackgroundColor,
-                      colorScheme.secondaryContainer.withValues(
-                        alpha:
-                            controller.settings.homeBackgroundOpacity * 0.38,
-                      ),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  )
-                : null,
-          ),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            children: [
-              if (controller.settings.enableSmartRecommendations) ...[
-                _SmartRecommendationCard(controller: controller),
-                const SizedBox(height: 16),
-              ],
-              _FeatureCard(
-              icon: Icons.search_rounded,
-              title: '搜尋路線',
-              subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const SearchScreen()),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _FeatureCard(
-              icon: Icons.favorite_outline_rounded,
-              title: '我的最愛',
-              subtitle: '整理常用站牌與群組，快速跳回指定站點。',
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const FavoritesScreen(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _FeatureCard(
-              icon: Icons.near_me_outlined,
-              title: '附近站牌',
-              subtitle: '依照你目前位置找附近的公車站牌。',
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const NearbyScreen()),
-                );
-              },
-            ),
-          ],
+        decoration: BoxDecoration(
+          gradient: _shouldShowGradient(controller)
+              ? LinearGradient(
+                  colors: [
+                    colorScheme.primaryContainer.withValues(
+                      alpha: controller.settings.homeBackgroundOpacity,
+                    ),
+                    Theme.of(context).scaffoldBackgroundColor,
+                    colorScheme.secondaryContainer.withValues(
+                      alpha: controller.settings.homeBackgroundOpacity * 0.38,
+                    ),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
         ),
+        child: isWideLayout
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: featureList),
+                  SizedBox(
+                    width: 380,
+                    child: _buildDesktopSidebar(context, controller),
+                  ),
+                ],
+              )
+            : featureList,
       ),
     );
   }
@@ -311,9 +421,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   }
 
   Future<void> _openSettings() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
+    await openAdaptiveSettingsScreen(context);
   }
 
   Future<void> _openSuggestion(SmartRouteSuggestion suggestion) async {
@@ -331,6 +439,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'route_detail'),
         builder: (_) => RouteDetailScreen(
           routeKey: suggestion.profile.routeKey,
           provider: suggestion.profile.provider,
@@ -354,6 +463,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'route_detail'),
         builder: (_) => RouteDetailScreen(
           routeKey: nearby.result.route.routeKey,
           provider: controller.settings.provider,
@@ -470,8 +580,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   }) {
     final theme = Theme.of(context);
     return Material(
-      color:
-          theme.cardTheme.color ?? theme.colorScheme.surfaceContainerHighest,
+      color: theme.cardTheme.color ?? theme.colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(22),
       child: InkWell(
         borderRadius: BorderRadius.circular(22),
@@ -564,10 +673,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                       ],
                     )
                   else
-                    Text(
-                      '',
-                      style: theme.textTheme.bodySmall,
-                    ),
+                    Text('', style: theme.textTheme.bodySmall),
                 ],
               ),
             ),

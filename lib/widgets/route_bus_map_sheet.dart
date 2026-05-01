@@ -25,6 +25,7 @@ class RouteBusMapSheet extends StatefulWidget {
     required this.refreshIntervalSeconds,
     this.dragScrollController,
     this.onSelectedPathChanged,
+    this.embedded = false,
     super.key,
   });
 
@@ -40,6 +41,7 @@ class RouteBusMapSheet extends StatefulWidget {
   final int refreshIntervalSeconds;
   final ScrollController? dragScrollController;
   final ValueChanged<int>? onSelectedPathChanged;
+  final bool embedded;
 
   @override
   State<RouteBusMapSheet> createState() => _RouteBusMapSheetState();
@@ -521,17 +523,18 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-            child: Container(
-              width: 42,
-              height: 4,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.outlineVariant,
-                borderRadius: BorderRadius.circular(999),
+          if (!widget.embedded)
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(999),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
+          SizedBox(height: widget.embedded ? 4 : 12),
           Row(
             children: [
               Expanded(
@@ -894,13 +897,16 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final borderRadius = widget.embedded
+        ? BorderRadius.circular(28)
+        : const BorderRadius.vertical(top: Radius.circular(28));
 
     return Material(
       clipBehavior: Clip.antiAlias,
       color: theme.colorScheme.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: borderRadius,
       child: SafeArea(
-        top: true,
+        top: !widget.embedded,
         bottom: false,
         child: CustomScrollView(
           controller: widget.dragScrollController,

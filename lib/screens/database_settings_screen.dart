@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
@@ -69,6 +70,11 @@ class DatabaseSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
     final theme = Theme.of(context);
+    final supportsDesktopDiscordPresence =
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.macOS);
 
     return Scaffold(
       appBar: AppBar(title: const Text('資料庫與下載')),
@@ -127,7 +133,8 @@ class DatabaseSettingsScreen extends StatelessWidget {
                           Text(
                             controller.pendingDatabaseUpdates.entries
                                 .map(
-                                  (entry) => '${entry.key.label} v${entry.value}',
+                                  (entry) =>
+                                      '${entry.key.label} v${entry.value}',
                                 )
                                 .join('、'),
                             style: theme.textTheme.bodySmall,
@@ -156,7 +163,8 @@ class DatabaseSettingsScreen extends StatelessWidget {
                             : () => _downloadProviders(
                                 context,
                                 controller,
-                                providers: controller.pendingDatabaseUpdates.keys,
+                                providers:
+                                    controller.pendingDatabaseUpdates.keys,
                                 successMessage: '已更新所有有新版本的資料庫。',
                               ),
                         icon: controller.downloadingDatabase
@@ -245,10 +253,7 @@ class DatabaseSettingsScreen extends StatelessWidget {
                     },
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    '選取要保留在本機的縣市資料庫。',
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  Text('選取要保留在本機的縣市資料庫。', style: theme.textTheme.bodyMedium),
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 8,
@@ -256,7 +261,9 @@ class DatabaseSettingsScreen extends StatelessWidget {
                     children: downloadableBusProviders().map((provider) {
                       return FilterChip(
                         label: Text(provider.label),
-                        selected: controller.selectedProviders.contains(provider),
+                        selected: controller.selectedProviders.contains(
+                          provider,
+                        ),
                         onSelected: (value) {
                           controller.toggleSelectedProvider(provider, value);
                         },
@@ -284,6 +291,63 @@ class DatabaseSettingsScreen extends StatelessWidget {
                         : const Icon(Icons.download_for_offline_outlined),
                     label: const Text('下載已選地區資料庫'),
                   ),
+                  if (supportsDesktopDiscordPresence) ...[
+                    const SizedBox(height: 20),
+                    const Divider(height: 1),
+                    const SizedBox(height: 18),
+                    Text(
+                      'Discord Rich Presence',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '桌面版可把目前操作內容同步到 Discord 狀態，下面可以控制顯示哪些欄位。',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('啟用 Discord Rich Presence'),
+                      subtitle: const Text(
+                        '使用 Application ID 1499482667429920959。',
+                      ),
+                      value: controller.settings.desktopDiscordPresenceEnabled,
+                      onChanged: controller.updateDesktopDiscordPresenceEnabled,
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilterChip(
+                          label: const Text('目前頁面'),
+                          selected:
+                              controller.settings.desktopDiscordShowScreen,
+                          onSelected:
+                              controller.settings.desktopDiscordPresenceEnabled
+                              ? controller.updateDesktopDiscordShowScreen
+                              : null,
+                        ),
+                        FilterChip(
+                          label: const Text('地區'),
+                          selected:
+                              controller.settings.desktopDiscordShowProvider,
+                          onSelected:
+                              controller.settings.desktopDiscordPresenceEnabled
+                              ? controller.updateDesktopDiscordShowProvider
+                              : null,
+                        ),
+                        FilterChip(
+                          label: const Text('路線名稱'),
+                          selected:
+                              controller.settings.desktopDiscordShowRouteName,
+                          onSelected:
+                              controller.settings.desktopDiscordPresenceEnabled
+                              ? controller.updateDesktopDiscordShowRouteName
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -309,7 +373,9 @@ class DatabaseSettingsScreen extends StatelessWidget {
                           if (controller.pendingDatabaseUpdates[provider]
                               case final version?)
                             Chip(
-                              avatar: const Icon(Icons.system_update_alt_rounded),
+                              avatar: const Icon(
+                                Icons.system_update_alt_rounded,
+                              ),
                               label: Text('可更新 v$version'),
                             )
                           else
@@ -356,7 +422,9 @@ class DatabaseSettingsScreen extends StatelessWidget {
                                   ),
                             icon: const Icon(Icons.download_rounded),
                             label: Text(
-                              controller.isDatabaseReady(provider) ? '重新下載' : '下載',
+                              controller.isDatabaseReady(provider)
+                                  ? '重新下載'
+                                  : '下載',
                             ),
                           ),
                           OutlinedButton.icon(

@@ -7,6 +7,8 @@ import '../core/app_controller.dart';
 import '../core/app_analytics.dart';
 import '../core/app_launch_service.dart';
 import '../core/android_home_integration.dart';
+import '../core/desktop_discord_presence_service.dart';
+import '../core/desktop_discord_route_observer.dart';
 import '../core/ios_widget_integration.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
@@ -47,6 +49,7 @@ class BusApp extends StatelessWidget {
                   dynamicColorScheme: darkDynamic,
                 ),
                 navigatorObservers: [
+                  DesktopDiscordRouteObserver(controller),
                   if (analytics.observer != null) analytics.observer!,
                 ],
                 home: _AppHome(controller: controller),
@@ -109,15 +112,15 @@ class BusApp extends StatelessWidget {
     // Use real alpha on component surfaces so the background image remains
     // visible behind AppBar, cards, inputs, and bottom bars.
     final Color overlaySurface = hasBackgroundImage && !useAmoled
-      ? colorScheme.surface.withValues(alpha: overlayAlpha)
-      : (scaffoldBackground ?? colorScheme.surface);
+        ? colorScheme.surface.withValues(alpha: overlayAlpha)
+        : (scaffoldBackground ?? colorScheme.surface);
     final Color overlaySurfaceContainer = hasBackgroundImage && !useAmoled
-      ? (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surfaceContainer)
-        .withValues(alpha: overlayAlpha)
-      : (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface);
+        ? (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surfaceContainer)
+              .withValues(alpha: overlayAlpha)
+        : (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface);
     final Color overlayInputFill = hasBackgroundImage && !useAmoled
-      ? colorScheme.surface.withValues(alpha: overlayAlpha)
-      : (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface);
+        ? colorScheme.surface.withValues(alpha: overlayAlpha)
+        : (useAmoled ? const Color(0xFF0A0A0A) : colorScheme.surface);
 
     return ThemeData(
       useMaterial3: true,
@@ -158,9 +161,7 @@ class BusApp extends StatelessWidget {
         ),
       ),
       bottomAppBarTheme: BottomAppBarThemeData(
-        color: hasBackgroundImage && !useAmoled
-        ? overlaySurface
-            : null,
+        color: hasBackgroundImage && !useAmoled ? overlaySurface : null,
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
@@ -201,6 +202,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   @override
   void dispose() {
     unawaited(AndroidHomeIntegration.setApplicationInForeground(false));
+    unawaited(desktopDiscordPresenceService.dispose());
     WidgetsBinding.instance.removeObserver(this);
     _launchSubscription?.cancel();
     super.dispose();
@@ -324,15 +326,13 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
 
   Future<void> _runStartupCheck() async {
     try {
-      final databasePlan =
-          await widget.controller.maybeCheckForDatabaseUpdatesOnLaunch();
+      final databasePlan = await widget.controller
+          .maybeCheckForDatabaseUpdatesOnLaunch();
       if (mounted && databasePlan != null && databasePlan.hasUpdates) {
         if (databasePlan.shouldAutoDownload) {
           final providers = databasePlan.updates.keys.toList();
           final messenger = ScaffoldMessenger.maybeOf(context);
-          messenger?.showSnackBar(
-            const SnackBar(content: Text('正在更新資料庫...')),
-          );
+          messenger?.showSnackBar(const SnackBar(content: Text('正在更新資料庫...')));
           try {
             await widget.controller.downloadProviderDatabases(providers);
             if (!mounted) {
@@ -366,16 +366,16 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
               if (!mounted) {
                 return;
               }
-              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                const SnackBar(content: Text('資料庫更新完成。')),
-              );
+              ScaffoldMessenger.maybeOf(
+                context,
+              )?.showSnackBar(const SnackBar(content: Text('資料庫更新完成。')));
             } catch (error) {
               if (!mounted) {
                 return;
               }
-              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                SnackBar(content: Text('資料庫更新失敗：$error')),
-              );
+              ScaffoldMessenger.maybeOf(
+                context,
+              )?.showSnackBar(SnackBar(content: Text('資料庫更新失敗：$error')));
             }
           }
         } else if (databasePlan.shouldShowNotification) {
@@ -402,16 +402,16 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
                     if (!mounted) {
                       return;
                     }
-                    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                      const SnackBar(content: Text('資料庫更新完成。')),
-                    );
+                    ScaffoldMessenger.maybeOf(
+                      context,
+                    )?.showSnackBar(const SnackBar(content: Text('資料庫更新完成。')));
                   } catch (error) {
                     if (!mounted) {
                       return;
                     }
-                    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                      SnackBar(content: Text('資料庫更新失敗：$error')),
-                    );
+                    ScaffoldMessenger.maybeOf(
+                      context,
+                    )?.showSnackBar(SnackBar(content: Text('資料庫更新失敗：$error')));
                   }
                 },
               ),

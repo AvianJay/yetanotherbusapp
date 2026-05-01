@@ -96,7 +96,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
   @override
   void dispose() {
-    widget.selectedPathIdListenable.removeListener(_handleExternalPathSelection);
+    widget.selectedPathIdListenable.removeListener(
+      _handleExternalPathSelection,
+    );
     _refreshTimer?.cancel();
     _simulationTimer?.cancel();
     _userLocationSubscription?.cancel();
@@ -296,29 +298,43 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         return;
       }
 
-      final nextLocation = LatLng(resolved.latitude, resolved.longitude);
+      final nextLocation = _toLatLngIfValid(
+        resolved.latitude,
+        resolved.longitude,
+      );
+      if (nextLocation == null) {
+        return;
+      }
       setState(() {
         _userLocation = nextLocation;
       });
 
       _userLocationSubscription?.cancel();
-      _userLocationSubscription = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 8,
-        ),
-      ).listen((position) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _userLocation = LatLng(position.latitude, position.longitude);
-        });
-        final geometry = _geometry;
-        if (geometry != null && !_didFitCurrentPathWithUserLocation) {
-          _fitCameraToGeometry(geometry);
-        }
-      });
+      _userLocationSubscription =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 8,
+            ),
+          ).listen((position) {
+            final nextLocation = _toLatLngIfValid(
+              position.latitude,
+              position.longitude,
+            );
+            if (nextLocation == null || !mounted) {
+              return;
+            }
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _userLocation = nextLocation;
+            });
+            final geometry = _geometry;
+            if (geometry != null && !_didFitCurrentPathWithUserLocation) {
+              _fitCameraToGeometry(geometry);
+            }
+          });
 
       final geometry = _geometry;
       if (geometry != null && !_didFitCurrentPathWithUserLocation) {
@@ -335,15 +351,34 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         return;
       }
       try {
-        final fitPoints = <LatLng>[...geometry.points, ?_userLocation];
+        final fitPoints = <LatLng>[
+          ...geometry.points.where(
+            (p) => p.latitude.abs() <= 90 && p.longitude.abs() <= 180,
+          ),
+          ?_userLocation,
+        ];
+        if (fitPoints.isEmpty) {
+          return;
+        }
         if (fitPoints.length == 1) {
           _mapController.move(fitPoints.first, 16);
           _didFitCurrentPathWithUserLocation = _userLocation != null;
           return;
         }
+        final bounds = LatLngBounds.fromPoints(fitPoints);
+        final clampedBounds = LatLngBounds(
+          LatLng(
+            bounds.south.clamp(-85.0, 85.0),
+            bounds.west.clamp(-180.0, 180.0),
+          ),
+          LatLng(
+            bounds.north.clamp(-85.0, 85.0),
+            bounds.east.clamp(-180.0, 180.0),
+          ),
+        );
         _mapController.fitCamera(
           CameraFit.bounds(
-            bounds: LatLngBounds.fromPoints(fitPoints),
+            bounds: clampedBounds,
             padding: _userLocation != null
                 ? const EdgeInsets.fromLTRB(20, 20, 20, 168)
                 : _cameraPadding,
@@ -387,7 +422,10 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     final nextStates = <String, _AnimatedBusState>{};
 
     for (final bus in buses) {
-      final rawPoint = LatLng(bus.lat, bus.lon);
+      final rawPoint = _toLatLngIfValid(bus.lat, bus.lon);
+      if (rawPoint == null) {
+        continue;
+      }
       final projection = geometry.project(rawPoint);
       final previous = previousStates[bus.id];
       final speedMps = (((bus.speedKph ?? 0) / 3.6).clamp(0, 36)).toDouble();
@@ -573,7 +611,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                   Icons.directions_bus_rounded,
                   color: _showBuses
                       ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                      : theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.4,
+                        ),
                 ),
                 visualDensity: VisualDensity.compact,
               ),
@@ -591,7 +631,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                   Icons.signpost_rounded,
                   color: _showStops
                       ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                      : theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.4,
+                        ),
                 ),
                 visualDensity: VisualDensity.compact,
               ),
@@ -667,30 +709,30 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
     if (geometry.points.isEmpty) {
       return Center(
-        child: Text(
-          '目前沒有可顯示的路線地圖資料',
-          style: theme.textTheme.bodyMedium,
-        ),
+        child: Text('目前沒有可顯示的路線地圖資料', style: theme.textTheme.bodyMedium),
       );
     }
 
     final now = DateTime.now();
     final displayBuses = _busStates.values
-        .map(
-          (busState) => _DisplayedBus(
-            state: busState,
-            point: busState.positionAt(now, geometry: geometry),
-          ),
-        )
+        .map((busState) {
+          final point = busState.positionAt(now, geometry: geometry);
+          if (!_isValidLatLng(point)) {
+            return null;
+          }
+          return _DisplayedBus(state: busState, point: point);
+        })
+        .whereType<_DisplayedBus>()
         .toList();
     final displayStops = _activePathStops
-        .where((stop) => stop.lat != 0 || stop.lon != 0)
-        .map(
-          (stop) => _DisplayedStop(
-            stop: stop,
-            point: LatLng(stop.lat, stop.lon),
-          ),
-        )
+        .map((stop) {
+          final point = _toLatLngIfValid(stop.lat, stop.lon);
+          if (point == null) {
+            return null;
+          }
+          return _DisplayedStop(stop: stop, point: point);
+        })
+        .whereType<_DisplayedStop>()
         .toList();
     final selectedBus = _selectedBusState;
     _DisplayedBus? selectedDisplayBus;
@@ -947,10 +989,7 @@ class _BusMarker extends StatelessWidget {
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,
-          border: Border.all(
-            color: Colors.white,
-            width: selected ? 3 : 2,
-          ),
+          border: Border.all(color: Colors.white, width: selected ? 3 : 2),
           boxShadow: const [
             BoxShadow(
               color: Color(0x33000000),
@@ -991,10 +1030,7 @@ class _StopMarker extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: Colors.white,
-            width: selected ? 2.5 : 1.8,
-          ),
+          border: Border.all(color: Colors.white, width: selected ? 2.5 : 1.8),
           boxShadow: const [
             BoxShadow(
               color: Color(0x33000000),
@@ -1039,9 +1075,7 @@ class _UserLocationMarker extends StatelessWidget {
 }
 
 class _BusInfoPopup extends StatelessWidget {
-  const _BusInfoPopup({
-    required this.busState,
-  });
+  const _BusInfoPopup({required this.busState});
 
   final _AnimatedBusState busState;
 
@@ -1142,10 +1176,7 @@ class _BusInfoPopup extends StatelessWidget {
 }
 
 class _StopInfoPopup extends StatelessWidget {
-  const _StopInfoPopup({
-    required this.stop,
-    required this.alwaysShowSeconds,
-  });
+  const _StopInfoPopup({required this.stop, required this.alwaysShowSeconds});
 
   final StopInfo stop;
   final bool alwaysShowSeconds;
@@ -1193,10 +1224,7 @@ class _StopInfoPopup extends StatelessWidget {
                     spacing: 6,
                     runSpacing: 6,
                     children: [
-                      _InfoChip(
-                        label: '站序',
-                        value: '${stop.sequence}',
-                      ),
+                      _InfoChip(label: '站序', value: '${stop.sequence}'),
                       _InfoChip(
                         label: '到站',
                         value: eta.text.replaceAll('\n', ''),
@@ -1214,9 +1242,7 @@ class _StopInfoPopup extends StatelessWidget {
 }
 
 class _BusInfoPopupCompact extends StatelessWidget {
-  const _BusInfoPopupCompact({
-    required this.busState,
-  });
+  const _BusInfoPopupCompact({required this.busState});
 
   final _AnimatedBusState busState;
 
@@ -1322,10 +1348,7 @@ class _BusInfoPopupCompact extends StatelessWidget {
 }
 
 class _InfoChip extends StatelessWidget {
-  const _InfoChip({
-    required this.label,
-    required this.value,
-  });
+  const _InfoChip({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -1369,10 +1392,7 @@ class _InfoChip extends StatelessWidget {
 }
 
 class _CompactInfoCell extends StatelessWidget {
-  const _CompactInfoCell({
-    required this.label,
-    required this.value,
-  });
+  const _CompactInfoCell({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -1414,20 +1434,14 @@ class _CompactInfoCell extends StatelessWidget {
 }
 
 class _DisplayedBus {
-  const _DisplayedBus({
-    required this.state,
-    required this.point,
-  });
+  const _DisplayedBus({required this.state, required this.point});
 
   final _AnimatedBusState state;
   final LatLng point;
 }
 
 class _DisplayedStop {
-  const _DisplayedStop({
-    required this.stop,
-    required this.point,
-  });
+  const _DisplayedStop({required this.stop, required this.point});
 
   final StopInfo stop;
   final LatLng point;
@@ -1458,10 +1472,7 @@ class _AnimatedBusState {
   final double? azimuth;
   final double distanceToRouteMeters;
 
-  LatLng positionAt(
-    DateTime now, {
-    required _RouteGeometry geometry,
-  }) {
+  LatLng positionAt(DateTime now, {required _RouteGeometry geometry}) {
     if (mode == _BusMotionMode.snappedToRoute &&
         routeDistanceAtSampleMeters != null) {
       return geometry.pointAtDistance(
@@ -1486,14 +1497,14 @@ class _AnimatedBusState {
       return null;
     }
     final advanceMeters = math.min(speedMps * _elapsedSeconds(now), 280.0);
-    return (baseDistance + advanceMeters).clamp(0.0, geometry.totalLengthMeters);
+    return (baseDistance + advanceMeters).clamp(
+      0.0,
+      geometry.totalLengthMeters,
+    );
   }
 
   double _elapsedSeconds(DateTime now) {
-    return math.max(
-      0,
-      now.difference(sampledAt).inMilliseconds / 1000.0,
-    );
+    return math.max(0, now.difference(sampledAt).inMilliseconds / 1000.0);
   }
 }
 
@@ -1506,7 +1517,10 @@ class _RouteGeometry {
   });
 
   factory _RouteGeometry.fromPoints(List<RoutePathPoint> points) {
-    final latLngs = points.map((point) => LatLng(point.lat, point.lon)).toList();
+    final latLngs = points
+        .map((point) => _toLatLngIfValid(point.lat, point.lon))
+        .whereType<LatLng>()
+        .toList();
     if (latLngs.length <= 1) {
       return _RouteGeometry._(
         points: latLngs,
@@ -1604,6 +1618,24 @@ class _RouteGeometry {
   }
 }
 
+bool _isValidCoordinate(double latitude, double longitude) {
+  return latitude.isFinite &&
+      longitude.isFinite &&
+      latitude.abs() <= 90 &&
+      longitude.abs() <= 180;
+}
+
+bool _isValidLatLng(LatLng point) {
+  return _isValidCoordinate(point.latitude, point.longitude);
+}
+
+LatLng? _toLatLngIfValid(double latitude, double longitude) {
+  if (!_isValidCoordinate(latitude, longitude)) {
+    return null;
+  }
+  return LatLng(latitude, longitude);
+}
+
 class _RouteProjection {
   const _RouteProjection({
     required this.snappedPoint,
@@ -1683,10 +1715,7 @@ LatLng _advanceOffRoutePoint({
         cosAngular - sinLat1 * math.sin(lat2),
       );
 
-  return LatLng(
-    lat2 * 180 / math.pi,
-    lon2 * 180 / math.pi,
-  );
+  return LatLng(lat2 * 180 / math.pi, lon2 * 180 / math.pi);
 }
 
 double _distanceMetersBetween(LatLng left, LatLng right) {

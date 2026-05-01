@@ -3212,7 +3212,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Flexible(
                           fit: FlexFit.loose,
@@ -3249,7 +3248,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                           ),
                         ),
                         if (trailingStatus != null) ...[
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 8),
                           trailingStatus,
                         ],
                       ],
@@ -3519,7 +3518,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                   }
 
                   final mapPaneWidth = math
-                      .min(math.max(constraints.maxWidth * 0.36, 360), 520)
+                      .min(math.max(constraints.maxWidth * 0.42, 400), 640)
                       .toDouble();
                   return Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,

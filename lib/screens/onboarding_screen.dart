@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -23,6 +24,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   String? _permissionMessage;
   BusProvider? _suggestedProvider;
 
+  bool get _hasDatabaseStep => !kIsWeb;
+  int get _effectiveStepCount => _hasDatabaseStep ? _stepCount : _stepCount - 1;
+
   @override
   void dispose() {
     _pageController.dispose();
@@ -38,7 +42,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _nextStep() async {
-    if (_stepIndex >= _stepCount - 1) {
+    if (_stepIndex >= _effectiveStepCount - 1) {
       final controller = AppControllerScope.read(context);
       await controller.completeOnboarding();
       return;
@@ -158,12 +162,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: Column(
             children: [
               Row(
-                children: List.generate(_stepCount, (index) {
+                children: List.generate(_effectiveStepCount, (index) {
                   final active = index <= _stepIndex;
                   return Expanded(
                     child: Padding(
                       padding: EdgeInsets.only(
-                        right: index == _stepCount - 1 ? 0 : 8,
+                        right: index == _effectiveStepCount - 1 ? 0 : 8,
                       ),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 220),
@@ -200,23 +204,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       onSkip: _nextStep,
                       onBack: () => _goToStep(_stepIndex - 1),
                     ),
-                    _DatabaseStep(
-                      controller: controller,
-                      suggestedProvider: _suggestedProvider,
-                      onProviderToggled: (provider, selected) async {
-                        _manualProviderSelection = true;
-                        if (selected) {
-                          await controller.updateProvider(provider);
-                        } else {
-                          await controller.toggleSelectedProvider(
-                            provider,
-                            false,
-                          );
-                        }
-                      },
-                      onBack: () => _goToStep(_stepIndex - 1),
-                      onFinish: _nextStep,
-                    ),
+                    if (_hasDatabaseStep)
+                      _DatabaseStep(
+                        controller: controller,
+                        suggestedProvider: _suggestedProvider,
+                        onProviderToggled: (provider, selected) async {
+                          _manualProviderSelection = true;
+                          if (selected) {
+                            await controller.updateProvider(provider);
+                          } else {
+                            await controller.toggleSelectedProvider(
+                              provider,
+                              false,
+                            );
+                          }
+                        },
+                        onBack: () => _goToStep(_stepIndex - 1),
+                        onFinish: _nextStep,
+                      ),
                   ],
                 ),
               ),

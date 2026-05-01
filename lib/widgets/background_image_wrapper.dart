@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
@@ -28,6 +29,33 @@ bool hasBackgroundImageForPage(AppSettings settings, {String? pageKey}) {
 
   final busPath = paths['bus'];
   return busPath != null && busPath.isNotEmpty;
+}
+
+Widget buildStoredBackgroundImage({
+  required String path,
+  required BoxFit fit,
+  required double opacity,
+  bool gaplessPlayback = false,
+  Widget Function(BuildContext, Object, StackTrace?)? errorBuilder,
+}) {
+  final resolvedOpacity = AlwaysStoppedAnimation(opacity.clamp(0.0, 1.0));
+  if (kIsWeb) {
+    return Image.network(
+      path,
+      fit: fit,
+      gaplessPlayback: gaplessPlayback,
+      opacity: resolvedOpacity,
+      errorBuilder: errorBuilder,
+    );
+  }
+
+  return Image.file(
+    File(path),
+    fit: fit,
+    gaplessPlayback: gaplessPlayback,
+    opacity: resolvedOpacity,
+    errorBuilder: errorBuilder,
+  );
 }
 
 /// A wrapper that paints a user-selected background image behind its child,
@@ -94,7 +122,6 @@ class BackgroundImageWrapper extends StatelessWidget {
 
     if (path == null || path.isEmpty) return child;
 
-    final file = File(path);
     final isGif = path.toLowerCase().endsWith('.gif');
 
     return Stack(
@@ -104,11 +131,11 @@ class BackgroundImageWrapper extends StatelessWidget {
         // Keep opacity on the image itself so we do not add a full-screen
         // composited layer that can briefly read as a dark scrim while the
         // file image is resolving.
-        Image.file(
-          file,
+        buildStoredBackgroundImage(
+          path: path,
           fit: BoxFit.cover,
           gaplessPlayback: isGif,
-          opacity: AlwaysStoppedAnimation(opacity.clamp(0.0, 1.0)),
+          opacity: opacity,
           errorBuilder: (context, error, stackTrace) =>
               const SizedBox.shrink(),
         ),

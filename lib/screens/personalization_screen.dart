@@ -1,10 +1,12 @@
-import 'dart:io';
+import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../app/bus_app.dart';
 import '../core/models.dart';
+import '../widgets/background_image_wrapper.dart';
 
 /// Preset seed colors for quick selection.
 const _presetColors = <Color>[
@@ -37,6 +39,44 @@ const _pageIcons = <String, IconData>{
   'nearby': Icons.near_me_outlined,
   'settings': Icons.settings_outlined,
 };
+
+Future<String?> _pickBackgroundImageValue(ImagePicker picker) async {
+  final image = await picker.pickImage(
+    source: ImageSource.gallery,
+    maxWidth: 1920,
+    imageQuality: 85,
+  );
+  if (image == null) {
+    return null;
+  }
+  if (!kIsWeb) {
+    return image.path;
+  }
+
+  try {
+    final bytes = await image.readAsBytes();
+    if (bytes.isEmpty) {
+      return image.path;
+    }
+    return 'data:${_guessPickedImageMimeType(image)};base64,${base64Encode(bytes)}';
+  } catch (_) {
+    return image.path;
+  }
+}
+
+String _guessPickedImageMimeType(XFile image) {
+  final lowerName = image.name.toLowerCase();
+  if (lowerName.endsWith('.png')) {
+    return 'image/png';
+  }
+  if (lowerName.endsWith('.gif')) {
+    return 'image/gif';
+  }
+  if (lowerName.endsWith('.webp')) {
+    return 'image/webp';
+  }
+  return 'image/jpeg';
+}
 
 class PersonalizationScreen extends StatelessWidget {
   const PersonalizationScreen({super.key});
@@ -208,12 +248,12 @@ class PersonalizationScreen extends StatelessWidget {
                               FilledButton.tonalIcon(
                                 onPressed: () async {
                                   final picker = ImagePicker();
-                                  final image = await picker.pickImage(
-                                    source: ImageSource.gallery,
+                                  final imagePath = await _pickBackgroundImageValue(
+                                    picker,
                                   );
-                                  if (image != null) {
+                                  if (imagePath != null) {
                                     controller.applyBackgroundImageToAllPages(
-                                      image.path,
+                                      imagePath,
                                       backgroundOpacity,
                                     );
                                   }
@@ -663,13 +703,13 @@ class _PerPageBackgroundScreen extends StatelessWidget {
                               0.25,
                       onPick: () async {
                         final picker = ImagePicker();
-                        final image = await picker.pickImage(
-                          source: ImageSource.gallery,
+                        final imagePath = await _pickBackgroundImageValue(
+                          picker,
                         );
-                        if (image != null) {
+                        if (imagePath != null) {
                           controller.updatePageBackgroundImagePath(
                             pageKey,
-                            image.path,
+                            imagePath,
                           );
                         }
                       },
@@ -775,13 +815,11 @@ class _PreviewPageCard extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   ColoredBox(color: theme.scaffoldBackgroundColor),
-                  Image.file(
-                    File(imagePath),
+                  buildStoredBackgroundImage(
+                    path: imagePath,
                     fit: BoxFit.cover,
                     gaplessPlayback: isGif,
-                    opacity: AlwaysStoppedAnimation(
-                      imageOpacity.clamp(0.0, 1.0),
-                    ),
+                    opacity: imageOpacity,
                     errorBuilder: (_, _, _) => ColoredBox(
                       color: colorScheme.errorContainer,
                       child: Icon(

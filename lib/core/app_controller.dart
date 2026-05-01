@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:geolocator/geolocator.dart';
@@ -81,6 +82,9 @@ class AppController extends ChangeNotifier {
       .where((provider) => _databaseReadyByProvider[provider] ?? false)
       .toList();
   List<BusProvider> get searchProviders {
+    if (kIsWeb) {
+      return List.unmodifiable(BusProvider.values);
+    }
     final ordered = <BusProvider>[];
     final currentProvider = _settings.provider.supportsLocalDatabase
         ? _settings.provider
@@ -598,7 +602,7 @@ class AppController extends ChangeNotifier {
 
   Future<DatabaseStartupCheckResult?>
   maybeCheckForDatabaseUpdatesOnLaunch() async {
-    if (_startupDatabaseUpdateChecked) {
+    if (_startupDatabaseUpdateChecked || kIsWeb) {
       return null;
     }
     _startupDatabaseUpdateChecked = true;
@@ -697,6 +701,15 @@ class AppController extends ChangeNotifier {
   }
 
   Future<List<RouteSummary>> searchRoutesAcrossSelected(String query) async {
+    if (kIsWeb) {
+      try {
+        return await repository.searchRoutesAcrossApi(query);
+      } catch (_) {
+        // Fall back to per-provider API search until the global route search
+        // endpoint is available everywhere.
+      }
+    }
+
     final results = <RouteSummary>[];
     for (final provider in searchProviders) {
       if (isDatabaseReady(provider)) {
@@ -742,17 +755,18 @@ class AppController extends ChangeNotifier {
     required double latitude,
     required double longitude,
     BusProvider? provider,
+    double radiusMeters = 500,
+    int limit = 20,
   }) async {
     final targetProvider =
         provider ??
         nearestBusProvider(latitude: latitude, longitude: longitude);
-    if (!isDatabaseReady(targetProvider)) {
-      throw StateError('目前定位為 ${targetProvider.label}，尚未下載該縣市資料庫。');
-    }
     return repository.fetchNearbyStops(
       provider: targetProvider,
       latitude: latitude,
       longitude: longitude,
+      radiusMeters: radiusMeters,
+      limit: limit,
     );
   }
 

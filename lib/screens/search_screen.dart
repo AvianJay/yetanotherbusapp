@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
@@ -46,6 +47,9 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   int _providerPriority(AppController busController, BusProvider provider) {
+    if (kIsWeb) {
+      return 0;
+    }
     final currentProvider = busController.settings.provider;
     if (provider == currentProvider) {
       return 0;
@@ -74,19 +78,7 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      final results = <RouteSummary>[];
-      for (final provider in busController.searchProviders) {
-        if (provider.supportsLocalDatabase &&
-            busController.isDatabaseReady(provider)) {
-          results.addAll(
-            await busController.searchRoutes(query, provider: provider),
-          );
-        } else {
-          results.addAll(
-            await busController.searchRoutesViaApi(query, provider: provider),
-          );
-        }
-      }
+      final results = await busController.searchRoutesAcrossSelected(query);
 
       results.sort((left, right) {
         final leftProvider = busProviderFromString(left.sourceProvider);

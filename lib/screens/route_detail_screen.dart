@@ -2930,7 +2930,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   String _displayStopName(StopInfo stop) {
-    return stop.stopName.replaceAll('(', '\n(');
+    return stop.stopName;
   }
 
   String _vehicleStatusLabel(StopInfo stop) {
@@ -3234,10 +3234,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       _ => 0.0,
                     };
                     final minimumDividerWidth = trailingStatus == null
-                        ? 220.0
+                        ? 48.0
                         : useCompactVehicleStatus
-                        ? 156.0
-                        : 124.0;
+                        ? 36.0
+                        : 28.0;
                     final stopNameMaxWidth = math.max(
                       96.0,
                       constraints.maxWidth -

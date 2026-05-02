@@ -16,18 +16,20 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="Yet Another Taiwan Bus App.">
+  <meta name="description" content="Yet Another Taiwan Bus App – 台灣公車即時動態查詢">
+  <meta name="theme-color" content="#0B7285">
 
-  <!-- iOS meta tags & icons -->
+  <!-- PWA / iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="YABus">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png">
 
-  <title>YetAnotherBusApp</title>
+  <title>YABus</title>
   <link rel="manifest" href="manifest.json">
   <style id="splash-screen-style">
     html {
@@ -118,5 +120,17 @@
   -->
   <script src="flutter_bootstrap.js" async=""></script>
 
+  <!-- PWA Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').then(function (reg) {
+          console.log('[YABus] Service Worker registered, scope:', reg.scope);
+        }).catch(function (err) {
+          console.warn('[YABus] Service Worker registration failed:', err);
+        });
+      });
+    }
+  </script>
 
 </body></html>

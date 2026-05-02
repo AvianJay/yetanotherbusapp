@@ -3,11 +3,13 @@
     "short_name": "YABus",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#ff6f1f",
-    "theme_color": "#ff6f1f",
-    "description": "Yet Another Taiwan Bus App.",
-    "orientation": "portrait-primary",
+    "background_color": "#F5F7F2",
+    "theme_color": "#0B7285",
+    "description": "Yet Another Taiwan Bus App – 台灣公車即時動態查詢",
+    "orientation": "any",
+    "scope": ".",
     "prefer_related_applications": false,
+    "categories": ["navigation", "travel", "utilities"],
     "icons": [
         {
             "src": "icons/Icon-192.png",
@@ -31,5 +33,7 @@
             "type": "image/png",
             "purpose": "maskable"
         }
-    ]
+    ],
+    "screenshots": [],
+    "shortcuts": []
 }

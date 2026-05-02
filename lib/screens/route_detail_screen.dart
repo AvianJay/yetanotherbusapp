@@ -3030,8 +3030,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final alertWidth = hasAlert ? 16.0 : 0.0;
     final alertSpacing = hasAlert ? 6.0 : 0.0;
     const dividerSpacing = 8.0;
-    const dividerMinWidth = 28.0;
-    const trailingSpacing = 12.0;
+    const dividerMinWidth = 96.0;
+    const trailingSpacing = 8.0;
 
     final requiredWidth =
         stopNameWidth +
@@ -3209,48 +3209,110 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       isDestination: isDestination,
                       compact: useCompactVehicleStatus,
                     );
+                    final trailingStatusWidth = switch ((
+                      isDestination,
+                      stop.buses.isNotEmpty,
+                      isNearest,
+                    )) {
+                      (true, _, _) => _estimateRouteStatusPillWidth(
+                        context,
+                        icon: Icons.flag_rounded,
+                        label: '下車站',
+                      ),
+                      (false, true, _) => _estimateRouteStatusPillWidth(
+                        context,
+                        icon: _vehicleStatusIcon(stop, isNearest: isNearest),
+                        label: useCompactVehicleStatus
+                            ? null
+                            : _vehicleStatusLabel(stop),
+                      ),
+                      (false, false, true) => _estimateRouteStatusPillWidth(
+                        context,
+                        icon: Icons.gps_fixed_rounded,
+                        label: '目前位置',
+                      ),
+                      _ => 0.0,
+                    };
+                    final minimumDividerWidth = trailingStatus == null
+                        ? 220.0
+                        : useCompactVehicleStatus
+                        ? 156.0
+                        : 124.0;
+                    final stopNameMaxWidth = math.max(
+                      96.0,
+                      constraints.maxWidth -
+                          minimumDividerWidth -
+                          trailingStatusWidth -
+                          (trailingStatus == null ? 0.0 : 8.0) -
+                          (hasAlert ? 16.0 : 0.0) -
+                          (hasAlert ? 6.0 : 0.0) -
+                          6.0,
+                    );
+                    final stopNameWidth = math.min(
+                      _measureMaxLineWidth(context, stopName, stopNameStyle),
+                      math.min(stopNameMaxWidth, constraints.maxWidth),
+                    );
+                    final dividerLeftOffset =
+                        stopNameWidth +
+                        6.0 +
+                        (hasAlert ? 16.0 + 6.0 : 0.0);
+                    final dividerRightOffset =
+                        trailingStatus == null ? 0.0 : trailingStatusWidth + 8.0;
+                    final showDivider =
+                        constraints.maxWidth -
+                            dividerLeftOffset -
+                            dividerRightOffset >=
+                        24.0;
 
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
+                    return Stack(
+                      alignment: Alignment.centerLeft,
                       children: [
-                        Flexible(
-                          fit: FlexFit.loose,
-                          child: Text(
-                            stopName,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: stopNameStyle,
-                          ),
-                        ),
-                        if (hasAlert) ...[
-                          const SizedBox(width: 6),
-                          GestureDetector(
-                            onTap: _showAlertsDialog,
+                        if (showDivider)
+                          Positioned(
+                            left: dividerLeftOffset,
+                            right: dividerRightOffset,
                             child: Container(
-                              width: 10,
-                              height: 10,
-                              decoration: BoxDecoration(
-                                color: _alertColorForStop(stop),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: theme.colorScheme.surface,
-                                  width: 1,
-                                ),
-                              ),
+                              height: 1,
+                              color: theme.colorScheme.outlineVariant,
                             ),
                           ),
-                        ],
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Container(
-                            height: 1,
-                            color: theme.colorScheme.outlineVariant,
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: stopNameWidth,
+                              child: Text(
+                                stopName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: stopNameStyle,
+                              ),
+                            ),
+                            if (hasAlert) ...[
+                              const SizedBox(width: 6),
+                              GestureDetector(
+                                onTap: _showAlertsDialog,
+                                child: Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                    color: _alertColorForStop(stop),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: theme.colorScheme.surface,
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const Spacer(),
+                            if (trailingStatus != null) ...[
+                              const SizedBox(width: 8),
+                              trailingStatus,
+                            ],
+                          ],
                         ),
-                        if (trailingStatus != null) ...[
-                          const SizedBox(width: 8),
-                          trailingStatus,
-                        ],
                       ],
                     );
                   },
@@ -3517,8 +3579,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     return stopsPane;
                   }
 
+                  final maxMapPaneWidth = math.max(
+                    400.0,
+                    constraints.maxWidth - 420.0,
+                  );
                   final mapPaneWidth = math
-                      .min(math.max(constraints.maxWidth * 0.42, 400), 640)
+                      .min(
+                        math.max(constraints.maxWidth * 0.55, 520),
+                        maxMapPaneWidth,
+                      )
                       .toDouble();
                   return Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,

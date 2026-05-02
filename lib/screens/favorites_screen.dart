@@ -732,7 +732,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
 enum _FavoriteDestinationAction { setDestination, clearDestination }
 
 class _EmptyFavoritesState extends StatelessWidget {
-  const _EmptyFavoritesState({this.message = '還沒有任何已收藏的站牌。'});
+  const _EmptyFavoritesState({this.message = '還沒有任何已收藏的站牌 :('});
 
   final String message;
 

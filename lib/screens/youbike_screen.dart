@@ -24,6 +24,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   static const _defaultCenter = LatLng(25.033, 121.565); // Taipei
   static const _defaultZoom = 15.0;
   static const _searchRadius = 1500; // metres
+  static const _splitLayoutBreakpoint = 1080.0;
 
   LatLng _center = _defaultCenter;
   LatLng? _userLocation;
@@ -115,7 +116,11 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   void _onMapMoved() {
     final c = _mapController.camera.center;
     if (Geolocator.distanceBetween(
-            _center.latitude, _center.longitude, c.latitude, c.longitude) >
+          _center.latitude,
+          _center.longitude,
+          c.latitude,
+          c.longitude,
+        ) >
         800) {
       _loadNearby(c);
     }
@@ -127,7 +132,9 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       LatLng(station.lat, station.lon),
       _mapController.camera.zoom,
     );
-    _showStationDetail(station);
+    if (MediaQuery.sizeOf(context).width < _splitLayoutBreakpoint) {
+      _showStationDetail(station);
+    }
   }
 
   void _recenterToUser() {
@@ -174,8 +181,10 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                     children: [
                       Text('附近站點', style: theme.textTheme.titleMedium),
                       const Spacer(),
-                      Text('${_stations.length} 站',
-                          style: theme.textTheme.bodySmall),
+                      Text(
+                        '${_stations.length} 站',
+                        style: theme.textTheme.bodySmall,
+                      ),
                     ],
                   ),
                 ),
@@ -185,14 +194,17 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                       ? Center(
                           child: Text(
                             '附近沒有站點',
-                            style: theme.textTheme.bodyLarge
-                                ?.copyWith(color: theme.colorScheme.outline),
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: theme.colorScheme.outline,
+                            ),
                           ),
                         )
                       : ListView.separated(
                           controller: scrollController,
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 4),
+                            horizontal: 16,
+                            vertical: 4,
+                          ),
                           itemCount: _stations.length,
                           separatorBuilder: (_, _) => const Divider(height: 1),
                           itemBuilder: (context, index) {
@@ -204,7 +216,9 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                                 _selectStation(station);
                               },
                               contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 4, vertical: 2),
+                                horizontal: 4,
+                                vertical: 2,
+                              ),
                               leading: CircleAvatar(
                                 backgroundColor: color,
                                 radius: 18,
@@ -219,8 +233,9 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                               ),
                               title: Text(
                                 station.name,
-                                style: theme.textTheme.bodyMedium
-                                    ?.copyWith(fontWeight: FontWeight.w600),
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -231,11 +246,13 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                               trailing: station.distanceMeters != null
                                   ? Text(
                                       _formatDist(
-                                          station.distanceMeters!.toDouble()),
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: theme.colorScheme.primary,
-                                        fontWeight: FontWeight.w600,
+                                        station.distanceMeters!.toDouble(),
                                       ),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme.colorScheme.primary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                     )
                                   : null,
                             );
@@ -252,7 +269,6 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
 
   void _showStationDetail(BikeStation station) {
     final theme = Theme.of(context);
-    final color = _availabilityColor(station);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -268,7 +284,6 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Handle
               Center(
                 child: Container(
                   width: 40,
@@ -280,110 +295,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Station name and availability badge
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CircleAvatar(
-                    backgroundColor: color,
-                    radius: 24,
-                    child: Text(
-                      '${station.availableRent}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 18,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          station.name,
-                          style: theme.textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                        if (station.address.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            station.address,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              // Availability info
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _StatItem(
-                        icon: Icons.pedal_bike_rounded,
-                        color: Colors.green.shade600,
-                        label: '可借',
-                        value: '${station.availableRent}',
-                      ),
-                    ),
-                    Container(
-                      width: 1,
-                      height: 40,
-                      color: theme.colorScheme.outlineVariant,
-                    ),
-                    Expanded(
-                      child: _StatItem(
-                        icon: Icons.local_parking_rounded,
-                        color: Colors.blue.shade600,
-                        label: '可還',
-                        value: '${station.availableReturn}',
-                      ),
-                    ),
-                    Container(
-                      width: 1,
-                      height: 40,
-                      color: theme.colorScheme.outlineVariant,
-                    ),
-                    Expanded(
-                      child: _StatItem(
-                        icon: Icons.grid_view_rounded,
-                        color: theme.colorScheme.onSurfaceVariant,
-                        label: '當前總計',
-                        value: '${station.availableRent + station.availableReturn}',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (station.distanceMeters != null) ...[
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Icon(Icons.near_me_outlined,
-                        size: 18, color: theme.colorScheme.primary),
-                    const SizedBox(width: 6),
-                    Text(
-                      '距離 ${_formatDist(station.distanceMeters!.toDouble())}',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+              _buildStationDetailContent(theme, station),
               const SizedBox(height: 8),
             ],
           ),
@@ -392,8 +304,390 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     );
   }
 
+  Widget _buildStationDetailContent(ThemeData theme, BikeStation station) {
+    final color = _availabilityColor(station);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              backgroundColor: color,
+              radius: 24,
+              child: Text(
+                '${station.availableRent}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    station.name,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (station.address.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      station.address,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: _StatItem(
+                  icon: Icons.pedal_bike_rounded,
+                  color: Colors.green.shade600,
+                  label: '可借',
+                  value: '${station.availableRent}',
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 40,
+                color: theme.colorScheme.outlineVariant,
+              ),
+              Expanded(
+                child: _StatItem(
+                  icon: Icons.local_parking_rounded,
+                  color: Colors.blue.shade600,
+                  label: '可還',
+                  value: '${station.availableReturn}',
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 40,
+                color: theme.colorScheme.outlineVariant,
+              ),
+              Expanded(
+                child: _StatItem(
+                  icon: Icons.grid_view_rounded,
+                  color: theme.colorScheme.onSurfaceVariant,
+                  label: '當前總計',
+                  value: '${station.availableRent + station.availableReturn}',
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (station.distanceMeters != null) ...[
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Icon(
+                Icons.near_me_outlined,
+                size: 18,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '距離 ${_formatDist(station.distanceMeters!.toDouble())}',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSplitStationSidebar(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: _selectedStation == null
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '站點資訊',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '點選左側站點或地圖上的標記後，這裡會顯示可借、可還與距離資訊。',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            Chip(
+                              avatar: const Icon(Icons.pedal_bike_rounded),
+                              label: Text('附近 ${_stations.length} 站'),
+                            ),
+                            if (_userLocation != null)
+                              const Chip(
+                                avatar: Icon(Icons.my_location_rounded),
+                                label: Text('已取得目前位置'),
+                              ),
+                          ],
+                        ),
+                      ],
+                    )
+                  : _buildStationDetailContent(theme, _selectedStation!),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: Card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '附近站點',
+                            style: theme.textTheme.titleMedium,
+                          ),
+                        ),
+                        Text(
+                          '${_stations.length} 站',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: _stations.isEmpty
+                        ? Center(
+                            child: Text(
+                              '附近沒有站點',
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                color: theme.colorScheme.outline,
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            itemCount: _stations.length,
+                            separatorBuilder: (_, _) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final station = _stations[index];
+                              final color = _availabilityColor(station);
+                              final selected =
+                                  _selectedStation?.name == station.name;
+                              return ListTile(
+                                selected: selected,
+                                selectedTileColor: theme
+                                    .colorScheme
+                                    .primaryContainer
+                                    .withValues(alpha: 0.28),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                onTap: () => _selectStation(station),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                leading: CircleAvatar(
+                                  backgroundColor: color,
+                                  radius: 18,
+                                  child: Text(
+                                    '${station.availableRent}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                                title: Text(
+                                  station.name,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  '可借 ${station.availableRent}  可還 ${station.availableReturn}',
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                                trailing: station.distanceMeters != null
+                                    ? Text(
+                                        _formatDist(
+                                          station.distanceMeters!.toDouble(),
+                                        ),
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: theme.colorScheme.primary,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      )
+                                    : null,
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMapContent() {
+    return Stack(
+      children: [
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: _center,
+            initialZoom: _defaultZoom,
+            onMapEvent: (event) {
+              if (event is MapEventMoveEnd) {
+                _onMapMoved();
+              }
+            },
+            interactionOptions: const InteractionOptions(
+              flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+            ),
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
+            ),
+            if (_userLocation != null)
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: _userLocation!,
+                    width: 20,
+                    height: 20,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.blue,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 3),
+                        boxShadow: [
+                          BoxShadow(
+                            blurRadius: 6,
+                            color: Colors.black.withValues(alpha: 0.3),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            MarkerLayer(
+              markers: _stations.map((station) {
+                final color = _availabilityColor(station);
+                final selected = _selectedStation?.name == station.name;
+                return Marker(
+                  point: LatLng(station.lat, station.lon),
+                  width: selected ? 44 : 36,
+                  height: selected ? 44 : 36,
+                  child: GestureDetector(
+                    onTap: () => _selectStation(station),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: selected ? Colors.white : Colors.white70,
+                          width: selected ? 3 : 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            blurRadius: selected ? 8 : 4,
+                            color: Colors.black.withValues(alpha: 0.3),
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${station.availableRent}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+        if (_loadingStations)
+          const Positioned(
+            top: 8,
+            left: 0,
+            right: 0,
+            child: LinearProgressIndicator(),
+          ),
+        if (_userLocation != null)
+          Positioned(
+            right: 16,
+            bottom: 24,
+            child: FloatingActionButton.small(
+              heroTag: 'recenter',
+              onPressed: _recenterToUser,
+              child: const Icon(Icons.my_location_rounded),
+            ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final useSplitLayout =
+        MediaQuery.sizeOf(context).width >= _splitLayoutBreakpoint;
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('YABike'),
@@ -404,15 +698,16 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
           ),
         ),
         actions: [
-          IconButton(
-            tooltip: '附近站點',
-            onPressed: _showNearbyStationsSheet,
-            icon: Badge(
-              isLabelVisible: _stations.isNotEmpty,
-              label: Text('${_stations.length}'),
-              child: const Icon(Icons.list_alt_rounded),
+          if (!useSplitLayout)
+            IconButton(
+              tooltip: '附近站點',
+              onPressed: _showNearbyStationsSheet,
+              icon: Badge(
+                isLabelVisible: _stations.isNotEmpty,
+                label: Text('${_stations.length}'),
+                child: const Icon(Icons.list_alt_rounded),
+              ),
             ),
-          ),
         ],
       ),
       drawer: TransitDrawer(
@@ -421,121 +716,20 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       ),
       body: _locating
           ? const Center(child: CircularProgressIndicator())
-          : Stack(
+          : useSplitLayout
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Map
-                FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: _center,
-                    initialZoom: _defaultZoom,
-                    onMapEvent: (event) {
-                      if (event is MapEventMoveEnd) {
-                        _onMapMoved();
-                      }
-                    },
-                    interactionOptions: const InteractionOptions(
-                      flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-                    ),
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate:
-                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
-                    ),
-                    // User location
-                    if (_userLocation != null)
-                      MarkerLayer(
-                        markers: [
-                          Marker(
-                            point: _userLocation!,
-                            width: 20,
-                            height: 20,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.blue,
-                                shape: BoxShape.circle,
-                                border:
-                                    Border.all(color: Colors.white, width: 3),
-                                boxShadow: [
-                                  BoxShadow(
-                                    blurRadius: 6,
-                                    color: Colors.black.withValues(alpha: 0.3),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    // Bike stations
-                    MarkerLayer(
-                      markers: _stations.map((station) {
-                        final color = _availabilityColor(station);
-                        final selected = _selectedStation?.name == station.name;
-                        return Marker(
-                          point: LatLng(station.lat, station.lon),
-                          width: selected ? 44 : 36,
-                          height: selected ? 44 : 36,
-                          child: GestureDetector(
-                            onTap: () => _selectStation(station),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: color,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color:
-                                      selected ? Colors.white : Colors.white70,
-                                  width: selected ? 3 : 2,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    blurRadius: selected ? 8 : 4,
-                                    color: Colors.black.withValues(alpha: 0.3),
-                                  ),
-                                ],
-                              ),
-                              child: Center(
-                                child: Text(
-                                  '${station.availableRent}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
+                SizedBox(width: 380, child: _buildSplitStationSidebar(theme)),
+                VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: theme.colorScheme.outlineVariant,
                 ),
-
-                // Loading indicator
-                if (_loadingStations)
-                  const Positioned(
-                    top: 8,
-                    left: 0,
-                    right: 0,
-                    child: LinearProgressIndicator(),
-                  ),
-
-                // Recenter FAB
-                if (_userLocation != null)
-                  Positioned(
-                    right: 16,
-                    bottom: 24,
-                    child: FloatingActionButton.small(
-                      heroTag: 'recenter',
-                      onPressed: _recenterToUser,
-                      child: const Icon(Icons.my_location_rounded),
-                    ),
-                  ),
+                Expanded(child: _buildMapContent()),
               ],
-            ),
+            )
+          : _buildMapContent(),
     );
   }
 
@@ -568,13 +762,15 @@ class _StatItem extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           value,
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w700),
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
         ),
         Text(
           label,
-          style: theme.textTheme.bodySmall
-              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
       ],
     );

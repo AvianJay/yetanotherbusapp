@@ -3,8 +3,8 @@ import 'package:geolocator/geolocator.dart';
 
 import '../app/bus_app.dart';
 import '../core/models.dart';
+import 'adaptive_settings_presenter.dart';
 import 'route_detail_screen.dart';
-import 'settings_screen.dart';
 import '../widgets/background_image_wrapper.dart';
 
 class NearbyScreen extends StatefulWidget {
@@ -120,11 +120,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                           ),
                           OutlinedButton(
                             onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => const SettingsScreen(),
-                                ),
-                              );
+                              openAdaptiveSettingsScreen(context);
                             },
                             child: const Text('前往設定'),
                           ),
@@ -137,64 +133,65 @@ class _NearbyScreenState extends State<NearbyScreen> {
             : _results.isEmpty
             ? const Center(child: Text('附近沒有找到站牌。'))
             : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              itemCount: _results.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 10),
-              itemBuilder: (context, index) {
-                final item = _results[index];
-                return Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(14),
-                    leading: Container(
-                      width: 58,
-                      height: 58,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Text(
-                        formatDistance(item.distanceMeters),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    title: Text(item.stop.stopName),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        '${busProviderFromString(item.route.sourceProvider).label} · ${item.route.routeName}',
-                      ),
-                    ),
-                    onTap: () async {
-                      final routeProvider = busProviderFromString(
-                        item.route.sourceProvider,
-                      );
-                      await controller.recordRouteSelection(
-                        provider: routeProvider,
-                        routeKey: item.route.routeKey,
-                        routeName: item.route.routeName,
-                        source: 'nearby',
-                      );
-                      if (!context.mounted) {
-                        return;
-                      }
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => RouteDetailScreen(
-                            routeKey: item.route.routeKey,
-                            provider: routeProvider,
-                            routeIdHint: item.route.routeId,
-                            routeNameHint: item.route.routeName,
-                            initialPathId: item.stop.pathId,
-                            initialStopId: item.stop.stopId,
-                          ),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                itemCount: _results.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final item = _results[index];
+                  return Card(
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(14),
+                      leading: Container(
+                        width: 58,
+                        height: 58,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(18),
                         ),
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
+                        child: Text(
+                          formatDistance(item.distanceMeters),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      title: Text(item.stop.stopName),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          '${busProviderFromString(item.route.sourceProvider).label} · ${item.route.routeName}',
+                        ),
+                      ),
+                      onTap: () async {
+                        final routeProvider = busProviderFromString(
+                          item.route.sourceProvider,
+                        );
+                        await controller.recordRouteSelection(
+                          provider: routeProvider,
+                          routeKey: item.route.routeKey,
+                          routeName: item.route.routeName,
+                          source: 'nearby',
+                        );
+                        if (!context.mounted) {
+                          return;
+                        }
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            settings: const RouteSettings(name: 'route_detail'),
+                            builder: (_) => RouteDetailScreen(
+                              routeKey: item.route.routeKey,
+                              provider: routeProvider,
+                              routeIdHint: item.route.routeId,
+                              routeNameHint: item.route.routeName,
+                              initialPathId: item.stop.pathId,
+                              initialStopId: item.stop.stopId,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
       ),
     );
   }

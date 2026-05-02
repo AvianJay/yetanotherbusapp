@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,6 +10,7 @@ import 'app_build_info.dart';
 import 'app_update_installer.dart';
 import 'app_update_service.dart';
 import 'bus_repository.dart';
+import 'desktop_discord_presence_service.dart';
 import 'ios_widget_integration.dart';
 import 'live_activity_service.dart';
 import 'models.dart';
@@ -80,9 +82,13 @@ class AppController extends ChangeNotifier {
       .where((provider) => _databaseReadyByProvider[provider] ?? false)
       .toList();
   List<BusProvider> get searchProviders {
+    if (kIsWeb) {
+      return List.unmodifiable(BusProvider.values);
+    }
     final ordered = <BusProvider>[];
-    final currentProvider =
-        _settings.provider.supportsLocalDatabase ? _settings.provider : null;
+    final currentProvider = _settings.provider.supportsLocalDatabase
+        ? _settings.provider
+        : null;
     if (currentProvider != null) {
       ordered.add(currentProvider);
     }
@@ -95,6 +101,7 @@ class AppController extends ChangeNotifier {
     }
     return List.unmodifiable(ordered);
   }
+
   bool get checkingDatabase => _checkingDatabase;
   bool get downloadingDatabase => _downloadingDatabase;
   bool get needsOnboarding => !_settings.hasCompletedOnboarding;
@@ -136,6 +143,7 @@ class AppController extends ChangeNotifier {
       _settings.enableSmartRouteNotifications,
     );
     await refreshDatabaseState();
+    await desktopDiscordPresenceService.refresh(settings: _settings);
     _initialized = true;
     notifyListeners();
   }
@@ -170,6 +178,7 @@ class AppController extends ChangeNotifier {
       provider: provider,
       selectedCount: _settings.selectedProviders.length,
     );
+    await desktopDiscordPresenceService.refresh(settings: _settings);
     notifyListeners();
     await refreshDatabaseState();
   }
@@ -197,6 +206,7 @@ class AppController extends ChangeNotifier {
       currentProvider: provider,
       selectedCount: normalized.length,
     );
+    await desktopDiscordPresenceService.refresh(settings: _settings);
     notifyListeners();
     await refreshDatabaseState();
   }
@@ -269,7 +279,9 @@ class AppController extends ChangeNotifier {
     String pageKey,
     String? path,
   ) async {
-    final updated = Map<String, String>.from(_settings.pageBackgroundImagePaths);
+    final updated = Map<String, String>.from(
+      _settings.pageBackgroundImagePaths,
+    );
     if (path != null) {
       updated[pageKey] = path;
     } else {
@@ -288,8 +300,9 @@ class AppController extends ChangeNotifier {
     String pageKey,
     double opacity,
   ) async {
-    final updated =
-        Map<String, double>.from(_settings.pageBackgroundImageOpacities);
+    final updated = Map<String, double>.from(
+      _settings.pageBackgroundImageOpacities,
+    );
     updated[pageKey] = opacity;
     _settings = _settings.copyWith(pageBackgroundImageOpacities: updated);
     await storage.saveSettings(_settings);
@@ -301,8 +314,9 @@ class AppController extends ChangeNotifier {
       return;
     }
 
-    final updated =
-        Map<String, double>.from(_settings.pageBackgroundImageOpacities);
+    final updated = Map<String, double>.from(
+      _settings.pageBackgroundImageOpacities,
+    );
     for (final key in _settings.pageBackgroundImagePaths.keys) {
       updated[key] = opacity;
     }
@@ -311,10 +325,17 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> applyBackgroundImageToAllPages(String path, double opacity) async {
+  Future<void> applyBackgroundImageToAllPages(
+    String path,
+    double opacity,
+  ) async {
     final allKeys = _allPageKeys;
-    final existingPaths = Map<String, String>.from(_settings.pageBackgroundImagePaths);
-    final existingOpacities = Map<String, double>.from(_settings.pageBackgroundImageOpacities);
+    final existingPaths = Map<String, String>.from(
+      _settings.pageBackgroundImagePaths,
+    );
+    final existingOpacities = Map<String, double>.from(
+      _settings.pageBackgroundImageOpacities,
+    );
     for (final key in allKeys) {
       existingPaths[key] = path;
       existingOpacities[key] = opacity;
@@ -338,7 +359,13 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  static const _allPageKeys = ['bus', 'search', 'favorites', 'nearby', 'settings'];
+  static const _allPageKeys = [
+    'bus',
+    'search',
+    'favorites',
+    'nearby',
+    'settings',
+  ];
 
   Future<void> updateOverlayOpacity(double value) async {
     _settings = _settings.copyWith(overlayOpacity: value);
@@ -427,9 +454,39 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateDatabaseAutoUpdateMode(DatabaseAutoUpdateMode value) async {
+  Future<void> updateDatabaseAutoUpdateMode(
+    DatabaseAutoUpdateMode value,
+  ) async {
     _settings = _settings.copyWith(databaseAutoUpdateMode: value);
     await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updateDesktopDiscordPresenceEnabled(bool value) async {
+    _settings = _settings.copyWith(desktopDiscordPresenceEnabled: value);
+    await storage.saveSettings(_settings);
+    await desktopDiscordPresenceService.refresh(settings: _settings);
+    notifyListeners();
+  }
+
+  Future<void> updateDesktopDiscordShowProvider(bool value) async {
+    _settings = _settings.copyWith(desktopDiscordShowProvider: value);
+    await storage.saveSettings(_settings);
+    await desktopDiscordPresenceService.refresh(settings: _settings);
+    notifyListeners();
+  }
+
+  Future<void> updateDesktopDiscordShowScreen(bool value) async {
+    _settings = _settings.copyWith(desktopDiscordShowScreen: value);
+    await storage.saveSettings(_settings);
+    await desktopDiscordPresenceService.refresh(settings: _settings);
+    notifyListeners();
+  }
+
+  Future<void> updateDesktopDiscordShowRouteName(bool value) async {
+    _settings = _settings.copyWith(desktopDiscordShowRouteName: value);
+    await storage.saveSettings(_settings);
+    await desktopDiscordPresenceService.refresh(settings: _settings);
     notifyListeners();
   }
 
@@ -488,7 +545,9 @@ class AppController extends ChangeNotifier {
     final targetProviders = (providers ?? _settings.selectedProviders)
         .where((provider) => provider.supportsLocalDatabase)
         .toList();
-    final updates = await repository.checkForUpdates(providers: targetProviders);
+    final updates = await repository.checkForUpdates(
+      providers: targetProviders,
+    );
     final nextPending = {..._pendingDatabaseUpdates};
     for (final provider in targetProviders) {
       final version = updates[provider];
@@ -541,8 +600,9 @@ class AppController extends ChangeNotifier {
     return checkForAppUpdate();
   }
 
-  Future<DatabaseStartupCheckResult?> maybeCheckForDatabaseUpdatesOnLaunch() async {
-    if (_startupDatabaseUpdateChecked) {
+  Future<DatabaseStartupCheckResult?>
+  maybeCheckForDatabaseUpdatesOnLaunch() async {
+    if (_startupDatabaseUpdateChecked || kIsWeb) {
       return null;
     }
     _startupDatabaseUpdateChecked = true;
@@ -583,7 +643,9 @@ class AppController extends ChangeNotifier {
     await downloadProviderDatabases(_settings.selectedProviders);
   }
 
-  Future<void> downloadProviderDatabases(Iterable<BusProvider> providers) async {
+  Future<void> downloadProviderDatabases(
+    Iterable<BusProvider> providers,
+  ) async {
     final targets = providers
         .where((provider) => provider.supportsLocalDatabase)
         .toSet()
@@ -639,6 +701,15 @@ class AppController extends ChangeNotifier {
   }
 
   Future<List<RouteSummary>> searchRoutesAcrossSelected(String query) async {
+    if (kIsWeb) {
+      try {
+        return await repository.searchRoutesAcrossApi(query);
+      } catch (_) {
+        // Fall back to per-provider API search until the global route search
+        // endpoint is available everywhere.
+      }
+    }
+
     final results = <RouteSummary>[];
     for (final provider in searchProviders) {
       if (isDatabaseReady(provider)) {
@@ -684,17 +755,18 @@ class AppController extends ChangeNotifier {
     required double latitude,
     required double longitude,
     BusProvider? provider,
+    double radiusMeters = 500,
+    int limit = 20,
   }) async {
     final targetProvider =
         provider ??
         nearestBusProvider(latitude: latitude, longitude: longitude);
-    if (!isDatabaseReady(targetProvider)) {
-      throw StateError('目前定位為 ${targetProvider.label}，尚未下載該縣市資料庫。');
-    }
     return repository.fetchNearbyStops(
       provider: targetProvider,
       latitude: latitude,
       longitude: longitude,
+      radiusMeters: radiusMeters,
+      limit: limit,
     );
   }
 
@@ -715,7 +787,9 @@ class AppController extends ChangeNotifier {
         routeKey: route.routeKey,
         routeName: route.routeName,
         routeId: route.routeId,
-        pathName: route.description.trim().isNotEmpty ? route.description.trim() : null,
+        pathName: route.description.trim().isNotEmpty
+            ? route.description.trim()
+            : null,
         timestampMs: DateTime.now().millisecondsSinceEpoch,
       ),
     );
@@ -804,10 +878,7 @@ class AppController extends ChangeNotifier {
         hourlyOpens: <int, int>{timestamp.hour: 1},
       ),
     );
-    await analytics.logRouteVisit(
-      provider: provider,
-      routeKey: route.routeKey,
-    );
+    await analytics.logRouteVisit(provider: provider, routeKey: route.routeKey);
   }
 
   Future<void> _recordRouteActivity({

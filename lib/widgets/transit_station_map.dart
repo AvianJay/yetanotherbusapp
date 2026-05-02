@@ -21,7 +21,12 @@ class TransitMapPoint {
   final String? badge;
   final Color? color;
 
-  bool get hasValidLocation => latitude != 0 || longitude != 0;
+  bool get hasValidLocation =>
+      latitude.isFinite &&
+      longitude.isFinite &&
+      (latitude != 0 || longitude != 0) &&
+      latitude.abs() <= 90 &&
+      longitude.abs() <= 180;
 
   LatLng get latLng => LatLng(latitude, longitude);
 }
@@ -86,7 +91,12 @@ class _TransitStationMapState extends State<TransitStationMap> {
         _mapController.fitCamera(
           CameraFit.bounds(
             bounds: LatLngBounds.fromPoints(
-              _validPoints.map((point) => point.latLng).toList(growable: false),
+              _validPoints
+                  .map((point) => point.latLng)
+                  .where(
+                    (p) => p.latitude.abs() <= 90 && p.longitude.abs() <= 180,
+                  )
+                  .toList(growable: false),
             ),
             padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
           ),
@@ -149,21 +159,23 @@ class _TransitStationMapState extends State<TransitStationMap> {
                   userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
                 ),
                 MarkerLayer(
-                  markers: _validPoints.map((point) {
-                    final selected = point.id == widget.selectedPointId;
-                    return Marker(
-                      point: point.latLng,
-                      width: selected ? 92 : 72,
-                      height: selected ? 66 : 58,
-                      child: GestureDetector(
-                        onTap: () => widget.onPointSelected?.call(point),
-                        child: _TransitPointMarker(
-                          point: point,
-                          selected: selected,
-                        ),
-                      ),
-                    );
-                  }).toList(growable: false),
+                  markers: _validPoints
+                      .map((point) {
+                        final selected = point.id == widget.selectedPointId;
+                        return Marker(
+                          point: point.latLng,
+                          width: selected ? 92 : 72,
+                          height: selected ? 66 : 58,
+                          child: GestureDetector(
+                            onTap: () => widget.onPointSelected?.call(point),
+                            child: _TransitPointMarker(
+                              point: point,
+                              selected: selected,
+                            ),
+                          ),
+                        );
+                      })
+                      .toList(growable: false),
                 ),
               ],
             ),
@@ -201,7 +213,9 @@ class _TransitPointMarker extends StatelessWidget {
           duration: const Duration(milliseconds: 160),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surface.withValues(alpha: selected ? 0.96 : 0.9),
+            color: theme.colorScheme.surface.withValues(
+              alpha: selected ? 0.96 : 0.9,
+            ),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: selected ? markerColor : theme.colorScheme.outlineVariant,
@@ -230,7 +244,9 @@ class _TransitPointMarker extends StatelessWidget {
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 120),
                 child: Text(
-                  point.badge?.isNotEmpty == true ? '${point.badge} ${point.label}' : point.label,
+                  point.badge?.isNotEmpty == true
+                      ? '${point.badge} ${point.label}'
+                      : point.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelLarge?.copyWith(
@@ -241,11 +257,7 @@ class _TransitPointMarker extends StatelessWidget {
             ],
           ),
         ),
-        Container(
-          width: 2,
-          height: 10,
-          color: markerColor,
-        ),
+        Container(width: 2, height: 10, color: markerColor),
         Container(
           width: 10,
           height: 10,

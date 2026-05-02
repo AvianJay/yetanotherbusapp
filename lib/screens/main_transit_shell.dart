@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../app/bus_app.dart';
+import '../core/desktop_discord_presence_service.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
 import 'home_screen.dart';
@@ -32,6 +36,12 @@ class _MainTransitShellState extends State<MainTransitShell> {
   static const _switchDuration = Duration(milliseconds: 220);
   static const _hiddenOffset = Offset(0.035, 0);
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    unawaited(_syncDesktopPresenceForMode(_currentMode));
+  }
+
   void _setMode(TransitMode mode) {
     if (!_visibleModes.contains(mode)) {
       mode = TransitMode.bus;
@@ -42,6 +52,7 @@ class _MainTransitShellState extends State<MainTransitShell> {
 
     if (_loadedModes.contains(mode)) {
       setState(() => _currentMode = mode);
+      unawaited(_syncDesktopPresenceForMode(mode));
       return;
     }
 
@@ -49,7 +60,28 @@ class _MainTransitShellState extends State<MainTransitShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() => _currentMode = mode);
+      unawaited(_syncDesktopPresenceForMode(mode));
     });
+  }
+
+  Future<void> _syncDesktopPresenceForMode(TransitMode mode) async {
+    final controller = AppControllerScope.read(context);
+    final screenLabel = switch (mode) {
+      TransitMode.bus => '公車首頁',
+      TransitMode.metro => '捷運',
+      TransitMode.thsr => '高鐵',
+      TransitMode.tra => '台鐵',
+      TransitMode.youbike => 'YouBike',
+    };
+    final provider = switch (mode) {
+      TransitMode.bus => controller.settings.provider,
+      _ => null,
+    };
+    await desktopDiscordPresenceService.updateScreen(
+      settings: controller.settings,
+      screenLabel: screenLabel,
+      provider: provider,
+    );
   }
 
   @override
@@ -105,10 +137,7 @@ class _MainTransitShellState extends State<MainTransitShell> {
               duration: _switchDuration,
               curve: Curves.easeOutCubic,
               opacity: isActive ? 1 : 0,
-              child: BackgroundImageWrapper(
-                pageKey: pageKey,
-                child: child,
-              ),
+              child: BackgroundImageWrapper(pageKey: pageKey, child: child),
             ),
           ),
         ),

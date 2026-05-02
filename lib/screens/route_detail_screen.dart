@@ -10,8 +10,10 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../app/bus_app.dart';
 import '../core/android_home_integration.dart';
 import '../core/android_trip_monitor.dart';
+import '../core/app_controller.dart';
 import '../core/app_launch_service.dart';
 import '../core/bus_repository.dart';
+import '../core/desktop_discord_presence_service.dart';
 import '../core/live_activity_service.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
@@ -49,6 +51,8 @@ class RouteDetailScreen extends StatefulWidget {
 
 class _RouteDetailScreenState extends State<RouteDetailScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  static const double _wideLayoutBreakpoint = 1080;
+
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final RouteDetailLaunchHandler _launchHandler;
   late final ValueNotifier<int?> _selectedMapPathId;
@@ -76,6 +80,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _awaitingBackgroundLocationPermission = false;
   bool _destinationPromptShown = false;
   bool _liveActivityActive = false;
+  bool _showWideMapPanel = true;
   int? _liveActivityStopId;
   int? _liveActivityPathId;
   bool _liveActivityBoardingWindowOpen = false;
@@ -245,10 +250,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           final detail = _detail;
           if (detail == null) return;
           unawaited(
-            AppControllerScope.read(context).recordRouteVisit(
-              detail.route,
-              provider: widget.provider,
-            ),
+            AppControllerScope.read(
+              context,
+            ).recordRouteVisit(detail.route, provider: widget.provider),
           );
         });
       }
@@ -289,12 +293,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _alerts = alerts;
         if (alerts.isNotEmpty) _alertsRead = false;
       });
-      final unseenAlerts = alerts.where(
-        (a) => !_shownAlertIds.contains(a.alertId),
-      ).toList();
+      final unseenAlerts = alerts
+          .where((a) => !_shownAlertIds.contains(a.alertId))
+          .toList();
       if (unseenAlerts.isNotEmpty) {
         _shownAlertIds.addAll(unseenAlerts.map((a) => a.alertId));
-        setState(() { _alertsRead = true; });
+        setState(() {
+          _alertsRead = true;
+        });
         _showAlertsDialog();
       }
     } catch (_) {
@@ -311,8 +317,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         return AlertDialog(
           title: Row(
             children: [
-              Icon(Icons.warning_amber_rounded,
-                  color: theme.colorScheme.error, size: 22),
+              Icon(
+                Icons.warning_amber_rounded,
+                color: theme.colorScheme.error,
+                size: 22,
+              ),
               const SizedBox(width: 8),
               const Expanded(child: Text('營運通知')),
             ],
@@ -359,10 +368,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                alert.title,
-                style: theme.textTheme.titleSmall,
-              ),
+              child: Text(alert.title, style: theme.textTheme.titleSmall),
             ),
           ],
         ),
@@ -394,10 +400,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         if (alert.description.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 4, left: 16),
-            child: Text(
-              alert.description,
-              style: theme.textTheme.bodySmall,
-            ),
+            child: Text(alert.description, style: theme.textTheme.bodySmall),
           ),
       ],
     );
@@ -961,7 +964,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (detail == null || tabController == null) {
       return;
     }
-    final targetIndex = detail.paths.indexWhere((path) => path.pathId == pathId);
+    final targetIndex = detail.paths.indexWhere(
+      (path) => path.pathId == pathId,
+    );
     if (targetIndex == -1 || tabController.index == targetIndex) {
       return;
     }
@@ -1052,8 +1057,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (_alerts.isEmpty) return false;
     final stopIdStr = stop.stopId.toString();
     for (final alert in _alerts) {
-      if (alert.stopIds.isNotEmpty &&
-          alert.stopIds.contains(stopIdStr)) {
+      if (alert.stopIds.isNotEmpty && alert.stopIds.contains(stopIdStr)) {
         return true;
       }
     }
@@ -1064,8 +1068,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final stopIdStr = stop.stopId.toString();
     Color color = const Color(0xFFF57C00); // default orange
     for (final alert in _alerts) {
-      if (alert.stopIds.isNotEmpty &&
-          alert.stopIds.contains(stopIdStr)) {
+      if (alert.stopIds.isNotEmpty && alert.stopIds.contains(stopIdStr)) {
         if (alert.status == 0) return const Color(0xFFD32F2F);
         if (alert.status == 2) color = const Color(0xFFF57C00);
       }
@@ -2173,7 +2176,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final explicitBoardingIndex = _boardingStopId == null
           ? null
           : pathStops.indexWhere((stop) => stop.stopId == _boardingStopId);
-        final boardingIndex = explicitBoardingIndex != null && explicitBoardingIndex != -1
+      final boardingIndex =
+          explicitBoardingIndex != null && explicitBoardingIndex != -1
           ? explicitBoardingIndex
           : nearestIndex;
       final boardingStop = pathStops[boardingIndex];
@@ -2198,7 +2202,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           anchorIndex: busIndex ?? boardingIndex,
           highlightedIndex: boardingIndex,
         );
-        final adjacentStops = _adjacentStopNames(pathStops, boardingStop.stopId);
+        final adjacentStops = _adjacentStopNames(
+          pathStops,
+          boardingStop.stopId,
+        );
         return LiveActivityDisplayState(
           stopId: boardingStop.stopId,
           stopName: boardingStop.stopName,
@@ -2226,7 +2233,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         );
       }
 
-      final currentProgress = math.min((busIndex ?? nearestIndex) + 1, pathStops.length);
+      final currentProgress = math.min(
+        (busIndex ?? nearestIndex) + 1,
+        pathStops.length,
+      );
       final stopLine = _buildLiveActivityStopLine(
         pathStops,
         anchorIndex: busIndex ?? nearestIndex,
@@ -2382,8 +2392,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     final openedAt = _liveActivityBoardingWindowOpenedAt;
     if (openedAt == null ||
-        DateTime.now().difference(openedAt) <
-            const Duration(seconds: 45)) {
+        DateTime.now().difference(openedAt) < const Duration(seconds: 45)) {
       return;
     }
     final boardingStopName =
@@ -2691,14 +2700,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (!mounted || didLaunch) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('無法開啟 Google Maps。')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('無法開啟 Google Maps。')));
   }
 
   Future<void> _openStopActionsWithShortcut(StopInfo stop) async {
     final showDestinationAction =
-        AppControllerScope.read(context).settings.enableRouteBackgroundMonitor &&
+        AppControllerScope.read(
+          context,
+        ).settings.enableRouteBackgroundMonitor &&
         _currentPathStops.isNotEmpty;
     final showShortcutAction = _isAndroid;
     final showGoogleMapsAction = _canOpenStopInGoogleMaps(stop);
@@ -2804,9 +2815,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     : Icons.pause_circle_outline_rounded,
               ),
               title: Text(
-                _backgroundTripMonitorPaused
-                    ? '恢復背景乘車提醒'
-                    : '暫時停止背景乘車提醒',
+                _backgroundTripMonitorPaused ? '恢復背景乘車提醒' : '暫時停止背景乘車提醒',
               ),
               subtitle: Text(
                 _backgroundTripMonitorPaused
@@ -2829,9 +2838,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     ? Icons.flag_outlined
                     : Icons.flag_rounded,
               ),
-              title: Text(
-                _destinationStopId == null ? '設定下車提醒' : '清除下車提醒',
-              ),
+              title: Text(_destinationStopId == null ? '設定下車提醒' : '清除下車提醒'),
               subtitle: Text(destinationSubtitle),
               onTap: () {
                 Navigator.of(context).pop();
@@ -2923,7 +2930,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   String _displayStopName(StopInfo stop) {
-    return stop.stopName.replaceAll('(', '\n(');
+    return stop.stopName;
   }
 
   String _vehicleStatusLabel(StopInfo stop) {
@@ -3023,8 +3030,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final alertWidth = hasAlert ? 16.0 : 0.0;
     final alertSpacing = hasAlert ? 6.0 : 0.0;
     const dividerSpacing = 8.0;
-    const dividerMinWidth = 28.0;
-    const trailingSpacing = 12.0;
+    const dividerMinWidth = 96.0;
+    const trailingSpacing = 8.0;
 
     final requiredWidth =
         stopNameWidth +
@@ -3069,10 +3076,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 ),
               ),
               const SizedBox(height: 2),
-              Text(
-                details.join(' · '),
-                style: theme.textTheme.bodySmall,
-              ),
+              Text(details.join(' · '), style: theme.textTheme.bodySmall),
             ],
           ),
         ),
@@ -3188,7 +3192,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final useCompactVehicleStatus = stop.buses.isNotEmpty &&
+                    final useCompactVehicleStatus =
+                        stop.buses.isNotEmpty &&
                         _shouldUseCompactVehicleStatus(
                           context,
                           theme,
@@ -3204,49 +3209,110 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       isDestination: isDestination,
                       compact: useCompactVehicleStatus,
                     );
+                    final trailingStatusWidth = switch ((
+                      isDestination,
+                      stop.buses.isNotEmpty,
+                      isNearest,
+                    )) {
+                      (true, _, _) => _estimateRouteStatusPillWidth(
+                        context,
+                        icon: Icons.flag_rounded,
+                        label: '下車站',
+                      ),
+                      (false, true, _) => _estimateRouteStatusPillWidth(
+                        context,
+                        icon: _vehicleStatusIcon(stop, isNearest: isNearest),
+                        label: useCompactVehicleStatus
+                            ? null
+                            : _vehicleStatusLabel(stop),
+                      ),
+                      (false, false, true) => _estimateRouteStatusPillWidth(
+                        context,
+                        icon: Icons.gps_fixed_rounded,
+                        label: '目前位置',
+                      ),
+                      _ => 0.0,
+                    };
+                    final minimumDividerWidth = trailingStatus == null
+                        ? 48.0
+                        : useCompactVehicleStatus
+                        ? 36.0
+                        : 28.0;
+                    final stopNameMaxWidth = math.max(
+                      96.0,
+                      constraints.maxWidth -
+                          minimumDividerWidth -
+                          trailingStatusWidth -
+                          (trailingStatus == null ? 0.0 : 8.0) -
+                          (hasAlert ? 16.0 : 0.0) -
+                          (hasAlert ? 6.0 : 0.0) -
+                          6.0,
+                    );
+                    final stopNameWidth = math.min(
+                      _measureMaxLineWidth(context, stopName, stopNameStyle),
+                      math.min(stopNameMaxWidth, constraints.maxWidth),
+                    );
+                    final dividerLeftOffset =
+                        stopNameWidth +
+                        6.0 +
+                        (hasAlert ? 16.0 + 6.0 : 0.0);
+                    final dividerRightOffset =
+                        trailingStatus == null ? 0.0 : trailingStatusWidth + 8.0;
+                    final showDivider =
+                        constraints.maxWidth -
+                            dividerLeftOffset -
+                            dividerRightOffset >=
+                        24.0;
 
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
+                    return Stack(
+                      alignment: Alignment.centerLeft,
                       children: [
-                        Flexible(
-                          fit: FlexFit.loose,
-                          child: Text(
-                            stopName,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: stopNameStyle,
-                          ),
-                        ),
-                        if (hasAlert) ...[
-                          const SizedBox(width: 6),
-                          GestureDetector(
-                            onTap: _showAlertsDialog,
+                        if (showDivider)
+                          Positioned(
+                            left: dividerLeftOffset,
+                            right: dividerRightOffset,
                             child: Container(
-                              width: 10,
-                              height: 10,
-                              decoration: BoxDecoration(
-                                color: _alertColorForStop(stop),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: theme.colorScheme.surface,
-                                  width: 1,
-                                ),
-                              ),
+                              height: 1,
+                              color: theme.colorScheme.outlineVariant,
                             ),
                           ),
-                        ],
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Container(
-                            height: 1,
-                            color: theme.colorScheme.outlineVariant,
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: stopNameWidth,
+                              child: Text(
+                                stopName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: stopNameStyle,
+                              ),
+                            ),
+                            if (hasAlert) ...[
+                              const SizedBox(width: 6),
+                              GestureDetector(
+                                onTap: _showAlertsDialog,
+                                child: Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                    color: _alertColorForStop(stop),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: theme.colorScheme.surface,
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const Spacer(),
+                            if (trailingStatus != null) ...[
+                              const SizedBox(width: 8),
+                              trailingStatus,
+                            ],
+                          ],
                         ),
-                        if (trailingStatus != null) ...[
-                          const SizedBox(width: 12),
-                          trailingStatus,
-                        ],
                       ],
                     );
                   },
@@ -3259,6 +3325,92 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     );
   }
 
+  Widget _buildStopsPane(
+    BuildContext context,
+    ThemeData theme,
+    AppController controller,
+    RouteDetailData detail,
+  ) {
+    return Column(
+      children: [
+        if (_tabController != null)
+          TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            tabAlignment: TabAlignment.center,
+            tabs: detail.paths.map((path) => Tab(text: path.name)).toList(),
+          ),
+        Expanded(
+          child: _tabController == null
+              ? const Center(child: Text('目前沒有可顯示的方向'))
+              : TabBarView(
+                  controller: _tabController,
+                  children: detail.paths.map((path) {
+                    final pathStops =
+                        detail.stopsByPath[path.pathId] ?? const <StopInfo>[];
+                    return ListView.separated(
+                      controller: _scrollControllerForPath(path.pathId),
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                      itemCount: pathStops.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 18),
+                      itemBuilder: (context, index) {
+                        final stop = pathStops[index];
+                        final key = _stopKeys.putIfAbsent(
+                          _keyForStop(path.pathId, stop.stopId),
+                          GlobalKey.new,
+                        );
+                        return Container(
+                          key: key,
+                          child: _buildStopTile(
+                            context,
+                            theme,
+                            stop,
+                            alwaysShowSeconds:
+                                controller.settings.alwaysShowSeconds,
+                            isHighlighted: _isInitialStop(stop),
+                            isNearest: _isNearestStop(stop),
+                            isDestination: _isDestinationStop(stop),
+                          ),
+                        );
+                      },
+                    );
+                  }).toList(),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInlineMapPane(
+    BuildContext context,
+    AppController controller,
+    RouteDetailData detail,
+  ) {
+    final routeId = detail.route.routeId.trim();
+    final currentPathId = _currentPathId;
+    if (routeId.isEmpty || currentPathId == null) {
+      return const ColoredBox(
+        color: Colors.transparent,
+        child: Center(child: Text('目前沒有可顯示的地圖資料')),
+      );
+    }
+
+    return RouteBusMapSheet(
+      routeKey: widget.routeKey,
+      provider: widget.provider,
+      routeId: routeId,
+      routeIdHint: widget.routeIdHint,
+      routeName: detail.route.routeName,
+      paths: detail.paths,
+      stopsByPath: detail.stopsByPath,
+      alwaysShowSeconds: controller.settings.alwaysShowSeconds,
+      selectedPathIdListenable: _selectedMapPathId,
+      refreshIntervalSeconds: controller.settings.busUpdateTime,
+      onSelectedPathChanged: _handleMapPathSelection,
+      embedded: true,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
@@ -3267,14 +3419,29 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final settings = controller.settings;
     final isAmoled =
         settings.useAmoledDark && settings.themeMode != ThemeMode.light;
-    final hasBusBackgroundImage =
-        settings.pageBackgroundImagePaths.containsKey('bus');
+    final hasBusBackgroundImage = settings.pageBackgroundImagePaths.containsKey(
+      'bus',
+    );
     final currentPathId = _currentPathId;
     final currentNearestStopId = currentPathId == null
         ? null
         : _nearestStopByPath[currentPathId];
     final canOpenBackgroundTripMonitorDrawer =
         settings.enableRouteBackgroundMonitor && _currentPathStops.isNotEmpty;
+    final isWideLayout =
+        MediaQuery.sizeOf(context).width >= _wideLayoutBreakpoint;
+    final canShowInlineMap =
+        isWideLayout && detail != null && currentPathId != null;
+    final showInlineMap = canShowInlineMap && _showWideMapPanel;
+
+    unawaited(
+      desktopDiscordPresenceService.updateScreen(
+        settings: settings,
+        screenLabel: '查看路線',
+        provider: widget.provider,
+        routeName: detail?.route.routeName,
+      ),
+    );
 
     return BackgroundImageWrapper(
       pageKey: 'bus',
@@ -3289,14 +3456,27 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           actions: [
             if (detail != null && currentPathId != null)
               IconButton(
-                onPressed: () => unawaited(_openBusMapSheet()),
-                tooltip: '公車地圖',
-                icon: const Icon(Icons.map_outlined),
+                onPressed: () {
+                  if (isWideLayout) {
+                    setState(() {
+                      _showWideMapPanel = !_showWideMapPanel;
+                    });
+                    return;
+                  }
+                  unawaited(_openBusMapSheet());
+                },
+                tooltip: isWideLayout
+                    ? (showInlineMap ? '隱藏地圖' : '顯示地圖')
+                    : '公車地圖',
+                icon: Icon(
+                  showInlineMap ? Icons.map_rounded : Icons.map_outlined,
+                ),
               ),
             if (currentPathId != null && currentNearestStopId != null)
               IconButton(
-                onPressed: () =>
-                    unawaited(_scrollToStop(currentPathId, currentNearestStopId)),
+                onPressed: () => unawaited(
+                  _scrollToStop(currentPathId, currentNearestStopId),
+                ),
                 icon: const Icon(Icons.gps_fixed_rounded),
               ),
             if (canOpenBackgroundTripMonitorDrawer)
@@ -3314,7 +3494,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                   ? null
                   : () {
                       if (_alerts.isNotEmpty && !_alertsRead) {
-                        setState(() { _alertsRead = true; });
+                        setState(() {
+                          _alertsRead = true;
+                        });
                       }
                       showDialog<void>(
                         context: context,
@@ -3322,7 +3504,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                           return _RouteInfoDialog(
                             detail: detail,
                             alerts: _alerts,
-                            repository: AppControllerScope.read(context).repository,
+                            repository: AppControllerScope.read(
+                              context,
+                            ).repository,
                           );
                         },
                       );
@@ -3337,10 +3521,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           ],
         ),
         bottomNavigationBar: Material(
-          color: theme.bottomAppBarTheme.color ??
+          color:
+              theme.bottomAppBarTheme.color ??
               (hasBusBackgroundImage && !isAmoled
                   ? theme.colorScheme.surface.withValues(
-                      alpha: (theme.appBarTheme.backgroundColor?.a ?? 1.0))
+                      alpha: (theme.appBarTheme.backgroundColor?.a ?? 1.0),
+                    )
                   : theme.colorScheme.surface),
           child: SafeArea(
             top: false,
@@ -3375,61 +3561,57 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                   child: Text(_error ?? '目前無法載入公車資訊'),
                 ),
               )
-            : Column(
-                children: [
-                  if (_tabController != null)
-                    TabBar(
-                      controller: _tabController,
-                      isScrollable: true,
-                      tabAlignment: TabAlignment.center,
-                      tabs: detail.paths
-                          .map((path) => Tab(text: path.name))
-                          .toList(),
-                    ),
-                  Expanded(
-                    child: _tabController == null
-                        ? const Center(child: Text('目前沒有可顯示的方向'))
-                        : TabBarView(
-                            controller: _tabController,
-                            children: detail.paths.map((path) {
-                              final pathStops =
-                                  detail.stopsByPath[path.pathId] ?? const [];
-                              return ListView.separated(
-                                controller: _scrollControllerForPath(path.pathId),
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  12,
-                                  16,
-                                  20,
-                                ),
-                                itemCount: pathStops.length,
-                                separatorBuilder: (_, _) =>
-                                    const SizedBox(height: 18),
-                                itemBuilder: (context, index) {
-                                  final stop = pathStops[index];
-                                  final key = _stopKeys.putIfAbsent(
-                                    _keyForStop(path.pathId, stop.stopId),
-                                    GlobalKey.new,
-                                  );
-                                  return Container(
-                                    key: key,
-                                    child: _buildStopTile(
-                                      context,
-                                      theme,
-                                      stop,
-                                      alwaysShowSeconds:
-                                          controller.settings.alwaysShowSeconds,
-                                      isHighlighted: _isInitialStop(stop),
-                                      isNearest: _isNearestStop(stop),
-                                      isDestination: _isDestinationStop(stop),
-                                    ),
-                                  );
-                                },
-                              );
-                            }).toList(),
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  final canUseWideLayout =
+                      constraints.maxWidth >= _wideLayoutBreakpoint;
+                  final showWideMap =
+                      canUseWideLayout &&
+                      _showWideMapPanel &&
+                      currentPathId != null;
+                  final stopsPane = _buildStopsPane(
+                    context,
+                    theme,
+                    controller,
+                    detail,
+                  );
+                  if (!showWideMap) {
+                    return stopsPane;
+                  }
+
+                  final maxMapPaneWidth = math.max(
+                    400.0,
+                    constraints.maxWidth - 420.0,
+                  );
+                  final mapPaneWidth = math
+                      .min(
+                        math.max(constraints.maxWidth * 0.55, 520),
+                        maxMapPaneWidth,
+                      )
+                      .toDouble();
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: stopsPane),
+                      VerticalDivider(
+                        width: 1,
+                        thickness: 1,
+                        color: theme.colorScheme.outlineVariant,
+                      ),
+                      SizedBox(
+                        width: mapPaneWidth,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                          child: _buildInlineMapPane(
+                            context,
+                            controller,
+                            detail,
                           ),
-                  ),
-                ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
       ),
     );
@@ -3551,12 +3733,18 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
             if (widget.alerts.isNotEmpty) ...[
               Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded,
-                      color: theme.colorScheme.error, size: 18),
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: theme.colorScheme.error,
+                    size: 18,
+                  ),
                   const SizedBox(width: 6),
-                  Text('營運通知',
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(color: theme.colorScheme.error)),
+                  Text(
+                    '營運通知',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 4),
@@ -3573,9 +3761,12 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: Text('載入失敗：$_error',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: theme.colorScheme.error)),
+                  child: Text(
+                    '載入失敗：$_error',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
                 ),
               if (_operators != null && _operators!.isNotEmpty) ...[
                 Text('營運業者', style: theme.textTheme.titleSmall),
@@ -3631,8 +3822,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(alert.title,
-                      style: theme.textTheme.bodySmall),
+                  child: Text(alert.title, style: theme.textTheme.bodySmall),
                 ),
                 Icon(
                   expanded ? Icons.expand_less : Icons.expand_more,
@@ -3672,8 +3862,10 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
               if (alert.description.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4, left: 16),
-                  child: Text(alert.description,
-                      style: theme.textTheme.bodySmall),
+                  child: Text(
+                    alert.description,
+                    style: theme.textTheme.bodySmall,
+                  ),
                 ),
             ],
           ],
@@ -3688,9 +3880,12 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(op.name, style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          )),
+          Text(
+            op.name,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           if (op.phone != null && op.phone!.isNotEmpty)
             Text('電話：${op.phone}', style: theme.textTheme.bodySmall),
           if (op.url != null && op.url!.isNotEmpty)
@@ -3709,19 +3904,27 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
 
     final widgets = <Widget>[];
     for (final entry in grouped.entries) {
-      widgets.add(Padding(
-        padding: const EdgeInsets.only(top: 4, bottom: 2),
-        child: Text('星期${entry.key}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                )),
-      ));
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 2),
+          child: Text(
+            '星期${entry.key}',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+        ),
+      );
       for (final item in entry.value) {
-        widgets.add(Padding(
-          padding: const EdgeInsets.only(left: 8, bottom: 2),
-          child: Text(item.displayText,
-              style: Theme.of(context).textTheme.bodySmall),
-        ));
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.only(left: 8, bottom: 2),
+            child: Text(
+              item.displayText,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        );
       }
     }
     return widgets;

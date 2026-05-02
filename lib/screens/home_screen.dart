@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -7,16 +8,19 @@ import '../app/bus_app.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../widgets/eta_badge.dart';
+import '../widgets/transit_station_map.dart';
 import '../widgets/transit_drawer.dart';
+import 'adaptive_settings_presenter.dart';
 import 'database_settings_screen.dart';
 import 'favorites_screen.dart';
 import 'nearby_screen.dart';
 import 'route_detail_screen.dart';
 import 'search_screen.dart';
-import 'settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({required this.onModeChanged, super.key});
+
+  static const _desktopSidebarBreakpoint = 1100.0;
 
   final ValueChanged<TransitMode> onModeChanged;
 
@@ -26,8 +30,137 @@ class HomeScreen extends StatelessWidget {
   ) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'database_settings'),
         builder: (_) => const DatabaseSettingsScreen(),
       ),
+    );
+  }
+
+  Widget _buildFeatureList(
+    BuildContext context,
+    AppController controller, {
+    required bool showSmartRecommendation,
+  }) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      children: [
+        if (showSmartRecommendation &&
+            controller.settings.enableSmartRecommendations) ...[
+          _SmartRecommendationCard(controller: controller),
+          const SizedBox(height: 16),
+        ],
+        _FeatureCard(
+          icon: Icons.search_rounded,
+          title: '搜尋路線',
+          subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'search'),
+                builder: (_) => const SearchScreen(),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        _FeatureCard(
+          icon: Icons.favorite_outline_rounded,
+          title: '我的最愛',
+          subtitle: '整理常用站牌與群組，快速跳回指定站點。',
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'favorites'),
+                builder: (_) => const FavoritesScreen(),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        _FeatureCard(
+          icon: Icons.near_me_outlined,
+          title: '附近站牌',
+          subtitle: '依照你目前位置找附近的公車站牌。',
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'nearby'),
+                builder: (_) => const NearbyScreen(),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopSidebar(BuildContext context, AppController controller) {
+    final theme = Theme.of(context);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(0, 12, 20, 24),
+      children: [
+        _DesktopNearbyMapPanel(controller: controller),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '總覽',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                // const SizedBox(height: 6),
+                // Text(
+                //   '左邊保留主要操作，右邊集中顯示推薦、設定與狀態摘要。',
+                //   style: theme.textTheme.bodyMedium,
+                // ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (kIsWeb)
+                      const Chip(
+                        avatar: Icon(Icons.public_rounded),
+                        label: Text('(*/ω＼*)'),
+                      )
+                    else
+                      Chip(
+                        avatar: const Icon(Icons.location_on_outlined),
+                        label: Text(controller.settings.provider.label),
+                      ),
+                    Chip(
+                      avatar: const Icon(Icons.layers_outlined),
+                      label: Text(
+                        '已選 ${controller.selectedProviders.length} 個地區',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                FilledButton.tonalIcon(
+                  onPressed: () => openAdaptiveSettingsScreen(context),
+                  icon: const Icon(Icons.tune_rounded),
+                  label: const Text('開啟設定'),
+                ),
+                if (!kIsWeb) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => _openDatabaseSettings(context, controller),
+                    icon: const Icon(Icons.storage_rounded),
+                    label: const Text('資料庫與下載'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -35,8 +168,15 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
     final colorScheme = Theme.of(context).colorScheme;
-    final hasBusBackgroundImage =
-        controller.settings.pageBackgroundImagePaths.containsKey('bus');
+    final hasBusBackgroundImage = controller.settings.pageBackgroundImagePaths
+        .containsKey('bus');
+    final isWideLayout =
+        MediaQuery.sizeOf(context).width >= _desktopSidebarBreakpoint;
+    final featureList = _buildFeatureList(
+      context,
+      controller,
+      showSmartRecommendation: !isWideLayout,
+    );
 
     return Scaffold(
       backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
@@ -49,29 +189,26 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
         actions: [
-          IconButton(
-            tooltip: '資料庫與下載',
-            onPressed: () => _openDatabaseSettings(context, controller),
-            icon: controller.downloadingDatabase
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Badge(
-                    isLabelVisible: controller.hasPendingDatabaseUpdates,
-                    child: Icon(
-                      controller.databaseReady
-                          ? Icons.storage_rounded
-                          : Icons.cloud_download_outlined,
+          if (!kIsWeb)
+            IconButton(
+              tooltip: '資料庫與下載',
+              onPressed: () => _openDatabaseSettings(context, controller),
+              icon: controller.downloadingDatabase
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Badge(
+                      isLabelVisible: controller.hasPendingDatabaseUpdates,
+                      child: Icon(
+                        controller.databaseReady
+                            ? Icons.storage_rounded
+                            : Icons.cloud_download_outlined,
+                      ),
                     ),
-                  ),
-          ),
+            ),
           IconButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
-              );
-            },
+            onPressed: () => openAdaptiveSettingsScreen(context),
             icon: const Icon(Icons.settings_outlined),
           ),
         ],
@@ -81,67 +218,35 @@ class HomeScreen extends StatelessWidget {
         onModeChanged: onModeChanged,
       ),
       body: Container(
-          decoration: BoxDecoration(
-            gradient: _shouldShowGradient(controller)
-                ? LinearGradient(
-                    colors: [
-                      colorScheme.primaryContainer.withValues(
-                        alpha: controller.settings.homeBackgroundOpacity,
-                      ),
-                      Theme.of(context).scaffoldBackgroundColor,
-                      colorScheme.secondaryContainer.withValues(
-                        alpha:
-                            controller.settings.homeBackgroundOpacity * 0.38,
-                      ),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  )
-                : null,
-          ),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            children: [
-              if (controller.settings.enableSmartRecommendations) ...[
-                _SmartRecommendationCard(controller: controller),
-                const SizedBox(height: 16),
-              ],
-              _FeatureCard(
-              icon: Icons.search_rounded,
-              title: '搜尋路線',
-              subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const SearchScreen()),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _FeatureCard(
-              icon: Icons.favorite_outline_rounded,
-              title: '我的最愛',
-              subtitle: '整理常用站牌與群組，快速跳回指定站點。',
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const FavoritesScreen(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _FeatureCard(
-              icon: Icons.near_me_outlined,
-              title: '附近站牌',
-              subtitle: '依照你目前位置找附近的公車站牌。',
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const NearbyScreen()),
-                );
-              },
-            ),
-          ],
+        decoration: BoxDecoration(
+          gradient: _shouldShowGradient(controller)
+              ? LinearGradient(
+                  colors: [
+                    colorScheme.primaryContainer.withValues(
+                      alpha: controller.settings.homeBackgroundOpacity,
+                    ),
+                    Theme.of(context).scaffoldBackgroundColor,
+                    colorScheme.secondaryContainer.withValues(
+                      alpha: controller.settings.homeBackgroundOpacity * 0.38,
+                    ),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
         ),
+        child: isWideLayout
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: featureList),
+                  SizedBox(
+                    width: 380,
+                    child: _buildDesktopSidebar(context, controller),
+                  ),
+                ],
+              )
+            : featureList,
       ),
     );
   }
@@ -211,7 +316,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     final nextKey = [
       widget.controller.settings.provider.name,
       widget.controller.settings.enableSmartRecommendations,
-      widget.controller.databaseReady,
       widget.controller.smartRouteSignature,
     ].join('|');
     if (_reloadKey == nextKey) {
@@ -263,13 +367,15 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
 
   Future<_SmartCardData?> _loadSuggestion() async {
     final controller = widget.controller;
-    if (!controller.settings.enableSmartRecommendations ||
-        !controller.databaseReady) {
+    if (!controller.settings.enableSmartRecommendations) {
       return null;
     }
 
-    final position = await _resolvePosition();
-    if (controller.routeUsageProfiles.isNotEmpty) {
+    // Smart route suggestions require local database for usage profiles.
+    // On web (or when DB not ready), skip to nearby fallback if location is available.
+    if (controller.databaseReady &&
+        controller.routeUsageProfiles.isNotEmpty) {
+      final position = await _resolvePosition();
       final suggestion = await controller.getSmartRouteSuggestion(
         position: position,
       );
@@ -278,6 +384,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       }
     }
 
+    // Nearby fallback via API — works on both native and web.
+    final position = await _resolvePosition();
     if (position == null) {
       return null;
     }
@@ -292,9 +400,10 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       }
 
       final nearest = nearbyStops.first;
+      final routeProvider = busProviderFromString(nearest.route.sourceProvider);
       final detail = await controller.getRouteDetail(
         nearest.route.routeKey,
-        provider: controller.settings.provider,
+        provider: routeProvider,
       );
       final liveStop = _findStopInDetail(
         detail,
@@ -311,9 +420,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   }
 
   Future<void> _openSettings() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
+    await openAdaptiveSettingsScreen(context);
   }
 
   Future<void> _openSuggestion(SmartRouteSuggestion suggestion) async {
@@ -331,6 +438,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'route_detail'),
         builder: (_) => RouteDetailScreen(
           routeKey: suggestion.profile.routeKey,
           provider: suggestion.profile.provider,
@@ -343,8 +451,9 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
 
   Future<void> _openNearbyFallback(_NearbyFallbackData nearby) async {
     final controller = widget.controller;
+    final routeProvider = busProviderFromString(nearby.result.route.sourceProvider);
     await controller.recordRouteSelection(
-      provider: controller.settings.provider,
+      provider: routeProvider,
       routeKey: nearby.result.route.routeKey,
       routeName: nearby.result.route.routeName,
       source: 'nearby_fallback',
@@ -354,9 +463,12 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'route_detail'),
         builder: (_) => RouteDetailScreen(
           routeKey: nearby.result.route.routeKey,
-          provider: controller.settings.provider,
+          provider: routeProvider,
+          routeIdHint: nearby.result.route.routeId,
+          routeNameHint: nearby.result.route.routeName,
           initialPathId: nearby.result.stop.pathId,
           initialStopId: nearby.result.stop.stopId,
         ),
@@ -470,8 +582,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   }) {
     final theme = Theme.of(context);
     return Material(
-      color:
-          theme.cardTheme.color ?? theme.colorScheme.surfaceContainerHighest,
+      color: theme.cardTheme.color ?? theme.colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(22),
       child: InkWell(
         borderRadius: BorderRadius.circular(22),
@@ -564,10 +675,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                       ],
                     )
                   else
-                    Text(
-                      '',
-                      style: theme.textTheme.bodySmall,
-                    ),
+                    Text('', style: theme.textTheme.bodySmall),
                 ],
               ),
             ),
@@ -674,9 +782,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     if (!controller.settings.enableSmartRecommendations) {
       return const SizedBox.shrink();
     }
-    if (!controller.databaseReady) {
-      return const SizedBox.shrink();
-    }
 
     return FutureBuilder<_SmartCardData?>(
       future: _future,
@@ -721,6 +826,348 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         // return _buildEmptyState(context);
         return const SizedBox.shrink();
       },
+    );
+  }
+}
+
+class _DesktopNearbyMapPanel extends StatefulWidget {
+  const _DesktopNearbyMapPanel({required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<_DesktopNearbyMapPanel> createState() => _DesktopNearbyMapPanelState();
+}
+
+class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
+  bool _loading = true;
+  String? _error;
+  List<NearbyStopResult> _results = const [];
+  String? _selectedPointId;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadNearby());
+    });
+  }
+
+  String _pointIdForResult(NearbyStopResult result) {
+    return [
+      result.route.sourceProvider,
+      result.route.routeKey,
+      result.stop.pathId,
+      result.stop.stopId,
+    ].join(':');
+  }
+
+  NearbyStopResult? get _selectedResult {
+    final selectedPointId = _selectedPointId;
+    if (selectedPointId == null) {
+      return _results.isEmpty ? null : _results.first;
+    }
+    for (final result in _results) {
+      if (_pointIdForResult(result) == selectedPointId) {
+        return result;
+      }
+    }
+    return _results.isEmpty ? null : _results.first;
+  }
+
+  List<TransitMapPoint> get _mapPoints => _results
+      .map((result) {
+        final provider = busProviderFromString(result.route.sourceProvider);
+        return TransitMapPoint(
+          id: _pointIdForResult(result),
+          label: result.stop.stopName,
+          subtitle: '${provider.label} · ${result.route.routeName}',
+          badge: formatDistance(result.distanceMeters),
+          latitude: result.stop.lat,
+          longitude: result.stop.lon,
+        );
+      })
+      .toList(growable: false);
+
+  Future<void> _loadNearby() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw StateError('定位服務尚未開啟。');
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw StateError('沒有取得定位權限。');
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 5),
+        ),
+      );
+      final results = await widget.controller.getNearbyStops(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        limit: 12,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      String? nextSelectedPointId = _selectedPointId;
+      if (results.isEmpty ||
+          !results.any(
+            (result) => _pointIdForResult(result) == nextSelectedPointId,
+          )) {
+        nextSelectedPointId = results.isEmpty
+            ? null
+            : _pointIdForResult(results.first);
+      }
+
+      setState(() {
+        _results = results;
+        _selectedPointId = nextSelectedPointId;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _results = const [];
+        _selectedPointId = null;
+        _error = '$error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openSelectedResult() async {
+    final selected = _selectedResult;
+    if (selected == null) {
+      return;
+    }
+
+    final routeProvider = busProviderFromString(selected.route.sourceProvider);
+    await widget.controller.recordRouteSelection(
+      provider: routeProvider,
+      routeKey: selected.route.routeKey,
+      routeName: selected.route.routeName,
+      source: 'home_nearby_map',
+    );
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'route_detail'),
+        builder: (_) => RouteDetailScreen(
+          routeKey: selected.route.routeKey,
+          provider: routeProvider,
+          routeIdHint: selected.route.routeId,
+          routeNameHint: selected.route.routeName,
+          initialPathId: selected.stop.pathId,
+          initialStopId: selected.stop.stopId,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openNearbyScreen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'nearby'),
+        builder: (_) => const NearbyScreen(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final selected = _selectedResult;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('附近地圖', style: theme.textTheme.headlineSmall),
+                      const SizedBox(height: 6),
+                      Text(
+                        '今天想去哪搭公車？',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: '重整附近站牌',
+                  onPressed: _loading ? null : _loadNearby,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (_loading)
+              const SizedBox(
+                height: 320,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_error != null)
+              _DesktopNearbyMessage(
+                message: _error!,
+                primaryLabel: '重試',
+                onPrimaryPressed: _loadNearby,
+                secondaryLabel: '附近站牌',
+                onSecondaryPressed: _openNearbyScreen,
+              )
+            else if (_mapPoints.isEmpty)
+              _DesktopNearbyMessage(
+                message: '附近暫時沒有可顯示的站牌。',
+                primaryLabel: '附近站牌',
+                onPrimaryPressed: _openNearbyScreen,
+              )
+            else ...[
+              TransitStationMap(
+                points: _mapPoints,
+                selectedPointId: _selectedPointId,
+                onPointSelected: (point) {
+                  setState(() {
+                    _selectedPointId = point.id;
+                  });
+                },
+                height: 320,
+                emptyLabel: '目前沒有可顯示的站點位置。',
+              ),
+              const SizedBox(height: 12),
+              if (selected != null)
+                Material(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(18),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(18),
+                    onTap: _openSelectedResult,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              formatDistance(selected.distanceMeters),
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.labelMedium,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  selected.stop.stopName,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${busProviderFromString(selected.route.sourceProvider).label} · ${selected.route.routeName}',
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Icon(Icons.chevron_right_rounded),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopNearbyMessage extends StatelessWidget {
+  const _DesktopNearbyMessage({
+    required this.message,
+    required this.primaryLabel,
+    required this.onPrimaryPressed,
+    this.secondaryLabel,
+    this.onSecondaryPressed,
+  });
+
+  final String message;
+  final String primaryLabel;
+  final VoidCallback onPrimaryPressed;
+  final String? secondaryLabel;
+  final VoidCallback? onSecondaryPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 320,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(message, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                alignment: WrapAlignment.center,
+                children: [
+                  FilledButton(
+                    onPressed: onPrimaryPressed,
+                    child: Text(primaryLabel),
+                  ),
+                  if (secondaryLabel != null && onSecondaryPressed != null)
+                    OutlinedButton(
+                      onPressed: onSecondaryPressed,
+                      child: Text(secondaryLabel!),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

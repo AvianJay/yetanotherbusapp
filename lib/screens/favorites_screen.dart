@@ -520,6 +520,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
+                    settings: const RouteSettings(name: 'favorite_groups'),
                     builder: (_) => const FavoriteGroupsScreen(),
                   ),
                 );
@@ -706,6 +707,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                 }
                 await Navigator.of(context).push(
                   MaterialPageRoute<void>(
+                    settings: const RouteSettings(name: 'route_detail'),
                     builder: (_) => RouteDetailScreen(
                       routeKey: item.reference.routeKey,
                       provider: item.reference.provider,
@@ -730,7 +732,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
 enum _FavoriteDestinationAction { setDestination, clearDestination }
 
 class _EmptyFavoritesState extends StatelessWidget {
-  const _EmptyFavoritesState({this.message = '還沒有任何已收藏的站牌。'});
+  const _EmptyFavoritesState({this.message = '還沒有任何已收藏的站牌 :('});
 
   final String message;
 

@@ -45,6 +45,7 @@ class BusRepository {
   static const _routeDetailCacheTtl = Duration(seconds: 2);
   static const _searchApiCacheTtl = Duration(seconds: 2);
   static const _realtimeCacheTtl = Duration(seconds: 2);
+  static const _routeStopsApiCacheTtl = Duration(minutes: 30);
   static const _routePathGeometryCacheTtl = Duration(minutes: 30);
   static const _routeRealtimeBusesCacheTtl = Duration(seconds: 2);
   final Map<String, _TimedValue<RouteDetailData>> _routeDetailCache =
@@ -59,6 +60,10 @@ class BusRepository {
       <String, _TimedValue<Map<String, _LiveStopPayload>>>{};
   final Map<String, Future<Map<String, _LiveStopPayload>>> _realtimeInFlight =
       <String, Future<Map<String, _LiveStopPayload>>>{};
+    final Map<String, _TimedValue<Map<String, dynamic>>> _routeStopsApiCache =
+      <String, _TimedValue<Map<String, dynamic>>>{};
+    final Map<String, Future<Map<String, dynamic>>> _routeStopsApiInFlight =
+      <String, Future<Map<String, dynamic>>>{};
   final Map<String, _TimedValue<List<RoutePathPoint>>> _routePathGeometryCache =
       <String, _TimedValue<List<RoutePathPoint>>>{};
   final Map<String, Future<List<RoutePathPoint>>> _routePathGeometryInFlight =
@@ -279,6 +284,9 @@ class BusRepository {
       }
     }
 
+    if (!_supportsLocalDatabase) {
+      throw DatabaseNotReadyException('Web 版不支援本機資料庫。');
+    }
     final database = await _openMetadataDatabase();
     try {
       return _queryMetadataPathRows(
@@ -349,6 +357,9 @@ class BusRepository {
       }
     }
 
+    if (!_supportsLocalDatabase) {
+      throw DatabaseNotReadyException('Web 版不支援本機資料庫。');
+    }
     final database = await _openCityDatabase(provider);
     try {
       return await _queryCityStopRows(
@@ -475,6 +486,41 @@ class BusRepository {
     }
   }
 
+  Future<List<RouteSummary>> searchRoutesAcrossApi(
+    String query, {
+    int limit = 120,
+  }) async {
+    final normalizedQuery = query.trim();
+    final cacheKey = 'all:${normalizedQuery.toLowerCase()}:$limit';
+    final cached = _readFreshCache(
+      _searchRoutesApiCache,
+      cacheKey,
+      _searchApiCacheTtl,
+    );
+    if (cached != null) {
+      return cached;
+    }
+
+    final inFlight = _searchRoutesApiInFlight[cacheKey];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _loadSearchRoutesAcrossApi(normalizedQuery, limit: limit);
+    _searchRoutesApiInFlight[cacheKey] = future;
+    try {
+      final summaries = await future;
+      _searchRoutesApiCache[cacheKey] = _TimedValue<List<RouteSummary>>(
+        summaries,
+      );
+      return summaries;
+    } finally {
+      if (identical(_searchRoutesApiInFlight[cacheKey], future)) {
+        _searchRoutesApiInFlight.remove(cacheKey);
+      }
+    }
+  }
+
   Future<List<RouteSummary>> _loadSearchRoutesFromApi(
     String query, {
     required BusProvider provider,
@@ -514,6 +560,55 @@ class BusRepository {
     return _collapseRouteSummariesByRouteId(summaries);
   }
 
+  Future<List<RouteSummary>> _loadSearchRoutesAcrossApi(
+    String query, {
+    required int limit,
+  }) async {
+    final uri = Uri.parse(
+      '$_apiBaseUrl/api/v1/routes'
+      '?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
+    );
+    final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode != 200) {
+      throw HttpException('無法查詢全部路線 (${response.statusCode})。');
+    }
+
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
+    final summaries = decoded
+        .whereType<Map>()
+        .map((row) {
+          final provider = _providerFromRouteSearchRow(row);
+          return _routeSummaryFromPathRow(
+            provider: provider,
+            routeId: row['routeid']?.toString() ?? '',
+            routeName: row['route_name']?.toString() ?? '',
+            routeNameEn: row['route_name_en']?.toString() ?? '',
+            pathId: _nullableInt(row['pathid']) ?? 0,
+            pathName: row['path_name']?.toString() ?? '',
+          );
+        })
+        .where((summary) => summary.routeId.isNotEmpty)
+        .toList();
+    return _collapseRouteSummariesByRouteId(summaries);
+  }
+
+  BusProvider _providerFromRouteSearchRow(
+    Map<dynamic, dynamic> row, {
+    BusProvider fallback = BusProvider.tpe,
+  }) {
+    final providerCode =
+        (row['source_provider'] ?? row['city_code'])?.toString().trim() ?? '';
+    if (providerCode.isNotEmpty) {
+      return busProviderFromString(providerCode);
+    }
+
+    final routeId = row['routeid']?.toString().trim() ?? '';
+    if (routeId.length >= 3) {
+      return busProviderFromString(routeId.substring(0, 3));
+    }
+    return fallback;
+  }
+
   Future<RouteSummary?> getRoute(
     int routeKey, {
     required BusProvider provider,
@@ -526,18 +621,19 @@ class BusRepository {
       return null;
     }
 
-    final routeRows = await _loadMetadataPathRows(
-      provider: provider,
-      routeId: routeId,
-    );
-    if (routeRows.isEmpty) {
-      return null;
-    }
+    try {
+      final routeRows = await _loadMetadataPathRows(
+        provider: provider,
+        routeId: routeId,
+      );
+      if (routeRows.isEmpty) {
+        return null;
+      }
 
-    final pickedPath = preferredPathId == null
-        ? routeRows.firstOrNull
-        : routeRows.firstWhere(
-            (row) => row.pathId == preferredPathId,
+      final pickedPath = preferredPathId == null
+          ? routeRows.firstOrNull
+          : routeRows.firstWhere(
+              (row) => row.pathId == preferredPathId,
             orElse: () =>
                 routeRows.firstOrNull ??
                 const _MetadataPathRow(
@@ -560,6 +656,62 @@ class BusRepository {
       pathId: routeRow.pathId,
       pathName: routeRow.pathName,
     );
+    } on DatabaseNotReadyException {
+      return _getRouteFromApi(
+        routeKey,
+        provider: provider,
+        routeId: routeId,
+        preferredPathId: preferredPathId,
+      );
+    }
+  }
+
+  Future<RouteSummary?> _getRouteFromApi(
+    int routeKey, {
+    required BusProvider provider,
+    required String routeId,
+    int? preferredPathId,
+  }) async {
+    final city = _providerDatabaseName(provider);
+    final uri = Uri.parse(
+      '$_apiBaseUrl/api/v1/cities/${Uri.encodeComponent(city)}/routes'
+      '?query=${Uri.encodeQueryComponent(routeId)}&limit=10',
+    );
+    final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode != 200) {
+      return null;
+    }
+    final decoded =
+        jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
+    final rows = decoded.whereType<Map>().map((row) {
+      return _MetadataPathRow(
+        routeId: row['routeid']?.toString() ?? '',
+        routeName: row['route_name']?.toString() ?? '',
+        routeNameEn: row['route_name_en']?.toString() ?? '',
+        pathId: _nullableInt(row['pathid']) ?? 0,
+        routeSummaryPathName: '',
+        pathName: row['path_name']?.toString() ?? '',
+        pathNameEn: '',
+      );
+    }).where((row) => row.routeId == routeId).toList();
+    if (rows.isEmpty) {
+      return null;
+    }
+    final pickedPath = preferredPathId == null
+        ? rows.firstOrNull
+        : rows.firstWhere(
+            (row) => row.pathId == preferredPathId,
+            orElse: () => rows.first,
+          );
+    final routeRow = pickedPath ?? rows.first;
+    return _routeSummaryFromPathRow(
+      provider: provider,
+      routeId: routeRow.routeId,
+      routeName: routeRow.routeName,
+      routeNameEn: routeRow.routeNameEn,
+      pathId: routeRow.pathId,
+      pathName: routeRow.pathName,
+    );
   }
 
   Future<List<PathInfo>> getPaths(
@@ -573,18 +725,49 @@ class BusRepository {
       return const [];
     }
 
-    final rows = await _loadMetadataPathRows(
-      provider: provider,
-      routeId: routeId,
+    try {
+      final rows = await _loadMetadataPathRows(
+        provider: provider,
+        routeId: routeId,
+      );
+      return rows
+          .map(
+            (row) => PathInfo(
+              routeKey: routeKey,
+              pathId: row.pathId,
+              name: row.pathName,
+            ),
+          )
+          .toList();
+    } on DatabaseNotReadyException {
+      return _getPathsFromApi(routeKey, provider: provider, routeId: routeId);
+    }
+  }
+
+  Future<List<PathInfo>> _getPathsFromApi(
+    int routeKey, {
+    required BusProvider provider,
+    required String routeId,
+  }) async {
+    final city = _providerDatabaseName(provider);
+    final uri = Uri.parse(
+      '$_apiBaseUrl/api/v1/cities/${Uri.encodeComponent(city)}/routes'
+      '?query=${Uri.encodeQueryComponent(routeId)}&limit=10',
     );
-    return rows
-        .map(
-          (row) => PathInfo(
-            routeKey: routeKey,
-            pathId: row.pathId,
-            name: row.pathName,
-          ),
-        )
+    final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode != 200) {
+      return const [];
+    }
+    final decoded =
+        jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
+    return decoded
+        .whereType<Map>()
+        .where((row) => (row['routeid']?.toString() ?? '') == routeId)
+        .map((row) => PathInfo(
+              routeKey: routeKey,
+              pathId: _nullableInt(row['pathid']) ?? 0,
+              name: row['path_name']?.toString() ?? '',
+            ))
         .toList();
   }
 
@@ -599,20 +782,57 @@ class BusRepository {
       return const [];
     }
 
-    final rows = await _loadCityStopRows(provider: provider, routeId: routeId);
-    return rows
-        .map(
-          (row) => StopInfo(
-            routeKey: routeKey,
-            pathId: row.pathId,
-            stopId: _parseStopId(row.stopId),
-            stopName: row.stopName,
-            sequence: row.sequence,
-            lon: row.lon,
-            lat: row.lat,
-          ),
-        )
-        .toList();
+    try {
+      final rows =
+          await _loadCityStopRows(provider: provider, routeId: routeId);
+      return rows
+          .map(
+            (row) => StopInfo(
+              routeKey: routeKey,
+              pathId: row.pathId,
+              stopId: _parseStopId(row.stopId),
+              stopName: row.stopName,
+              sequence: row.sequence,
+              lon: row.lon,
+              lat: row.lat,
+            ),
+          )
+          .toList();
+    } on DatabaseNotReadyException {
+      return _getStopsByRouteFromApi(
+        routeKey,
+        provider: provider,
+        routeId: routeId,
+      );
+    }
+  }
+
+  Future<List<StopInfo>> _getStopsByRouteFromApi(
+    int routeKey, {
+    required BusProvider provider,
+    required String routeId,
+  }) async {
+    final decoded = await _loadRouteStopsPayload(routeId);
+    final rawPaths = decoded['paths'] as List<dynamic>? ?? const [];
+    final stops = <StopInfo>[];
+    for (final rawPath in rawPaths) {
+      if (rawPath is! Map) continue;
+      final pathId = _toInt(rawPath['pathid']);
+      for (final stop
+          in (rawPath['stops'] as List<dynamic>? ?? const [])
+              .whereType<Map>()) {
+        stops.add(StopInfo(
+          routeKey: routeKey,
+          pathId: pathId,
+          stopId: _parseStopId(stop['stopid']),
+          stopName: stop['name']?.toString() ?? '',
+          sequence: _toInt(stop['seq']),
+          lon: _toDouble(stop['lon']),
+          lat: _toDouble(stop['lat']),
+        ));
+      }
+    }
+    return stops;
   }
 
   Future<List<RoutePathPoint>> getRoutePathPoints(
@@ -770,6 +990,52 @@ class BusRepository {
     }
   }
 
+  Future<Map<String, dynamic>> _loadRouteStopsPayload(String routeId) async {
+    final cached = _readFreshCache(
+      _routeStopsApiCache,
+      routeId,
+      _routeStopsApiCacheTtl,
+    );
+    if (cached != null) {
+      return cached;
+    }
+
+    final inFlight = _routeStopsApiInFlight[routeId];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _fetchRouteStopsPayload(routeId);
+    _routeStopsApiInFlight[routeId] = future;
+    try {
+      final payload = await future;
+      _routeStopsApiCache[routeId] = _TimedValue<Map<String, dynamic>>(payload);
+      return payload;
+    } finally {
+      if (identical(_routeStopsApiInFlight[routeId], future)) {
+        _routeStopsApiInFlight.remove(routeId);
+      }
+    }
+  }
+
+  Future<Map<String, dynamic>> _fetchRouteStopsPayload(String routeId) async {
+    final response = await _client.get(
+      Uri.parse(
+        '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/stops',
+      ),
+      headers: _apiJsonHeaders,
+    );
+    if (response.statusCode != 200) {
+      throw HttpException('無法取得 $routeId 的路線站牌 (${response.statusCode})。');
+    }
+
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Route stop payload is invalid.');
+    }
+    return decoded;
+  }
+
   Future<List<NearbyStopResult>> fetchNearbyStops({
     required BusProvider provider,
     required double latitude,
@@ -777,72 +1043,143 @@ class BusRepository {
     double radiusMeters = 500,
     int limit = 20,
   }) async {
-    final latDelta = radiusMeters / 111320;
-    final lonDelta =
-        radiusMeters / (111320 * math.cos(latitude * math.pi / 180)).abs();
-    final rows = await _loadCityStopRows(
-      provider: provider,
-      latitude: latitude,
-      longitude: longitude,
-      latDelta: latDelta,
-      lonDelta: lonDelta,
-      limit: 500,
-    );
-
-    final results = <NearbyStopResult>[];
-    final seen = <String>{};
-    final routeMetadata = await _loadRouteMetadataMapFromLocalStore(
-      provider: provider,
-      routeIds: rows.map((row) => row.routeId).where((id) => id.isNotEmpty).toSet(),
-    );
-
-    for (final row in rows) {
-      final routeId = row.routeId;
-      final pathId = row.pathId;
-      final stopId = _parseStopId(row.stopId);
-      final stop = StopInfo(
-        routeKey: _routeKeyForRouteId(routeId),
-        pathId: pathId,
-        stopId: stopId,
-        stopName: row.stopName,
-        sequence: row.sequence,
-        lon: row.lon,
-        lat: row.lat,
-      );
-
-      final distance = calculateDistanceMeters(
-        latitude,
-        longitude,
-        stop.lat,
-        stop.lon,
-      );
-      if (distance > radiusMeters) {
-        continue;
-      }
-
-      final dedupeKey = '$routeId:$pathId:${stop.stopId}';
-      if (!seen.add(dedupeKey)) {
-        continue;
-      }
-
-      final routeMetadataEntry = routeMetadata['$routeId:$pathId'];
-      if (routeMetadataEntry == null) {
-        continue;
-      }
-      final route = _routeSummaryFromPathRow(
+    try {
+      final latDelta = radiusMeters / 111320;
+      final lonDelta =
+          radiusMeters / (111320 * math.cos(latitude * math.pi / 180)).abs();
+      final rows = await _loadCityStopRows(
         provider: provider,
-        routeId: routeId,
-        routeName: routeMetadataEntry.routeName,
-        routeNameEn: routeMetadataEntry.routeNameEn,
-        pathId: pathId,
-        pathName: routeMetadataEntry.pathName,
+        latitude: latitude,
+        longitude: longitude,
+        latDelta: latDelta,
+        lonDelta: lonDelta,
+        limit: 500,
       );
 
-      results.add(
-        NearbyStopResult(route: route, stop: stop, distanceMeters: distance),
+      final results = <NearbyStopResult>[];
+      final seen = <String>{};
+      final routeMetadata = await _loadRouteMetadataMapFromLocalStore(
+        provider: provider,
+        routeIds: rows.map((row) => row.routeId).where((id) => id.isNotEmpty).toSet(),
+      );
+
+      for (final row in rows) {
+        final routeId = row.routeId;
+        final pathId = row.pathId;
+        final stopId = _parseStopId(row.stopId);
+        final stop = StopInfo(
+          routeKey: _routeKeyForRouteId(routeId),
+          pathId: pathId,
+          stopId: stopId,
+          stopName: row.stopName,
+          sequence: row.sequence,
+          lon: row.lon,
+          lat: row.lat,
+        );
+
+        final distance = calculateDistanceMeters(
+          latitude,
+          longitude,
+          stop.lat,
+          stop.lon,
+        );
+        if (distance > radiusMeters) {
+          continue;
+        }
+
+        final dedupeKey = '$routeId:$pathId:${stop.stopId}';
+        if (!seen.add(dedupeKey)) {
+          continue;
+        }
+
+        final routeMetadataEntry = routeMetadata['$routeId:$pathId'];
+        if (routeMetadataEntry == null) {
+          continue;
+        }
+        final route = _routeSummaryFromPathRow(
+          provider: provider,
+          routeId: routeId,
+          routeName: routeMetadataEntry.routeName,
+          routeNameEn: routeMetadataEntry.routeNameEn,
+          pathId: pathId,
+          pathName: routeMetadataEntry.pathName,
+        );
+
+        results.add(
+          NearbyStopResult(route: route, stop: stop, distanceMeters: distance),
+        );
+      }
+
+      results.sort(
+        (left, right) => left.distanceMeters.compareTo(right.distanceMeters),
+      );
+      return results.take(limit).toList();
+    } on DatabaseNotReadyException {
+      return _fetchNearbyStopsFromApi(
+        provider: provider,
+        latitude: latitude,
+        longitude: longitude,
+        radiusMeters: radiusMeters,
+        limit: limit,
       );
     }
+  }
 
+  Future<List<NearbyStopResult>> _fetchNearbyStopsFromApi({
+    required BusProvider provider,
+    required double latitude,
+    required double longitude,
+    double radiusMeters = 500,
+    int limit = 20,
+  }) async {
+    final city = _providerDatabaseName(provider);
+    final uri = Uri.parse(
+      '$_apiBaseUrl/api/v1/cities/${Uri.encodeComponent(city)}/stops/nearby'
+      '?lat=$latitude&lon=$longitude&radius=$radiusMeters&limit=$limit',
+    );
+    final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode != 200) {
+      return const [];
+    }
+    final decoded =
+        jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
+    final results = <NearbyStopResult>[];
+    for (final item in decoded.whereType<Map>()) {
+      final routeId = item['routeid']?.toString() ?? '';
+      final pathId = _nullableInt(item['pathid']) ?? 0;
+      final stopId = _parseStopId(item['stopid']);
+      final stopName = item['stop_name']?.toString() ?? '';
+      final sequence = _nullableInt(item['seq']) ?? 0;
+      final lon = _toDouble(item['lon']);
+      final lat = _toDouble(item['lat']);
+      final distance = _toDouble(item['distance']);
+
+      final routeName = item['route_name']?.toString() ?? routeId;
+      final pathName = item['path_name']?.toString() ?? '';
+
+      results.add(NearbyStopResult(
+        route: _routeSummaryFromPathRow(
+          provider: provider,
+          routeId: routeId,
+          routeName: routeName,
+          routeNameEn: '',
+          pathId: pathId,
+          pathName: pathName,
+        ),
+        stop: StopInfo(
+          routeKey: _routeKeyForRouteId(routeId),
+          pathId: pathId,
+          stopId: stopId,
+          stopName: stopName,
+          sequence: sequence,
+          lon: lon,
+          lat: lat,
+        ),
+        distanceMeters: distance > 0
+            ? distance
+            : calculateDistanceMeters(latitude, longitude, lat, lon),
+      ));
+    }
     results.sort(
       (left, right) => left.distanceMeters.compareTo(right.distanceMeters),
     );
@@ -1086,18 +1423,7 @@ class BusRepository {
     required String routeId,
     String? routeNameHint,
   }) async {
-    final response = await _client.get(
-      Uri.parse(
-        '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/stops',
-      ),
-      headers: _apiJsonHeaders,
-    );
-    if (response.statusCode != 200) {
-      throw HttpException('無法取得 $routeId 的路線站牌 (${response.statusCode})。');
-    }
-
-    final decoded =
-        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final decoded = await _loadRouteStopsPayload(routeId);
     final routeKey = _routeKeyForRouteId(routeId);
 
     final rawPaths = decoded['paths'] as List<dynamic>? ?? const [];
@@ -1561,7 +1887,7 @@ class BusRepository {
     final lon = _toDouble(
       payload['lon'] ?? payload['lng'] ?? payload['longitude'],
     );
-    if (id.isEmpty || (lat == 0 && lon == 0)) {
+    if (id.isEmpty || (lat == 0 && lon == 0) || lat.abs() > 90 || lon.abs() > 180) {
       return null;
     }
 

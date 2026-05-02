@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
@@ -46,6 +47,9 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   int _providerPriority(AppController busController, BusProvider provider) {
+    if (kIsWeb) {
+      return 0;
+    }
     final currentProvider = busController.settings.provider;
     if (provider == currentProvider) {
       return 0;
@@ -74,19 +78,7 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      final results = <RouteSummary>[];
-      for (final provider in busController.searchProviders) {
-        if (provider.supportsLocalDatabase &&
-            busController.isDatabaseReady(provider)) {
-          results.addAll(
-            await busController.searchRoutes(query, provider: provider),
-          );
-        } else {
-          results.addAll(
-            await busController.searchRoutesViaApi(query, provider: provider),
-          );
-        }
-      }
+      final results = await busController.searchRoutesAcrossSelected(query);
 
       results.sort((left, right) {
         final leftProvider = busProviderFromString(left.sourceProvider);
@@ -165,6 +157,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'route_detail'),
         builder: (_) => RouteDetailScreen(
           routeKey: routeKey,
           provider: provider,
@@ -196,110 +189,110 @@ class _SearchScreenState extends State<SearchScreen> {
         appBar: AppBar(title: const Text('搜尋路線')),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        children: [
-          TextField(
-            controller: _controller,
-            onChanged: _onQueryChanged,
-            textInputAction: TextInputAction.search,
-            onSubmitted: (value) => _search(value),
-            decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.search_rounded),
-              hintText: '輸入公車號碼、路線名稱或客運名稱',
-              suffixIcon: _controller.text.isEmpty
-                  ? null
-                  : IconButton(
-                      onPressed: () {
-                        _controller.clear();
-                        setState(() {});
-                        _onQueryChanged('');
-                      },
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // if (missingProviders.isNotEmpty)
-          //   Card(
-          //     child: Padding(
-          //       padding: const EdgeInsets.all(16),
-          //       child: Text(
-          //         '尚未下載：${missingProviders.map((provider) => provider.label).join('、')}。\n'
-          //         '搜尋時會自動改走線上 API；公路客運固定使用線上查詢。',
-          //       ),
-          //     ),
-          //   ),
-          if (_controller.text.trim().isEmpty)
-            _HistorySection(
-              history: busController.history,
-              onClear: busController.clearHistory,
-              onSelect: (entry) {
-                unawaited(
-                  _openRoute(
-                    provider: entry.provider,
-                    routeKey: entry.routeKey,
-                    routeName: entry.routeName,
-                    routeIdHint: entry.routeId,
-                    source: 'search_history',
-                  ),
-                );
-              },
-            )
-          else if (_isLoading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 40),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_error != null)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text('搜尋失敗：$_error'),
-              ),
-            )
-          else if (_results.isEmpty)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('找不到符合的路線。'),
-              ),
-            )
-          else
-            ..._results.map(
-              (route) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Card(
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      child: Text(
-                        route.routeName.trim().isEmpty
-                            ? '?'
-                            : route.routeName.characters.first,
+          children: [
+            TextField(
+              controller: _controller,
+              onChanged: _onQueryChanged,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (value) => _search(value),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search_rounded),
+                hintText: '輸入公車號碼、路線名稱或客運名稱',
+                suffixIcon: _controller.text.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          _controller.clear();
+                          setState(() {});
+                          _onQueryChanged('');
+                        },
+                        icon: const Icon(Icons.close_rounded),
                       ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // if (missingProviders.isNotEmpty)
+            //   Card(
+            //     child: Padding(
+            //       padding: const EdgeInsets.all(16),
+            //       child: Text(
+            //         '尚未下載：${missingProviders.map((provider) => provider.label).join('、')}。\n'
+            //         '搜尋時會自動改走線上 API；公路客運固定使用線上查詢。',
+            //       ),
+            //     ),
+            //   ),
+            if (_controller.text.trim().isEmpty)
+              _HistorySection(
+                history: busController.history,
+                onClear: busController.clearHistory,
+                onSelect: (entry) {
+                  unawaited(
+                    _openRoute(
+                      provider: entry.provider,
+                      routeKey: entry.routeKey,
+                      routeName: entry.routeName,
+                      routeIdHint: entry.routeId,
+                      source: 'search_history',
                     ),
-                    title: Text(route.routeName),
-                    subtitle: Text(
-                      route.description.trim().isEmpty
-                          ? busProviderFromString(route.sourceProvider).label
-                          : route.description,
+                  );
+                },
+              )
+            else if (_isLoading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_error != null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('搜尋失敗：$_error'),
+                ),
+              )
+            else if (_results.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('找不到符合的路線。'),
+                ),
+              )
+            else
+              ..._results.map(
+                (route) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Card(
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        child: Text(
+                          route.routeName.trim().isEmpty
+                              ? '?'
+                              : route.routeName.characters.first,
+                        ),
+                      ),
+                      title: Text(route.routeName),
+                      subtitle: Text(
+                        route.description.trim().isEmpty
+                            ? busProviderFromString(route.sourceProvider).label
+                            : route.description,
+                      ),
+                      onTap: () async {
+                        final routeProvider = busProviderFromString(
+                          route.sourceProvider,
+                        );
+                        await _openRoute(
+                          provider: routeProvider,
+                          routeKey: route.routeKey,
+                          routeName: route.routeName,
+                          routeIdHint: route.routeId,
+                          initialPathId: route.rtrip,
+                          route: route,
+                          saveHistory: true,
+                        );
+                      },
                     ),
-                    onTap: () async {
-                      final routeProvider = busProviderFromString(
-                        route.sourceProvider,
-                      );
-                      await _openRoute(
-                        provider: routeProvider,
-                        routeKey: route.routeKey,
-                        routeName: route.routeName,
-                        routeIdHint: route.routeId,
-                        initialPathId: route.rtrip,
-                        route: route,
-                        saveHistory: true,
-                      );
-                    },
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),

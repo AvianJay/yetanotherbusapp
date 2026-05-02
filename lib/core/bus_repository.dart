@@ -289,7 +289,7 @@ class BusRepository {
     }
     final database = await _openMetadataDatabase();
     try {
-      return _queryMetadataPathRows(
+      return await _queryMetadataPathRows(
         database,
         provider: provider,
         routeId: routeId,

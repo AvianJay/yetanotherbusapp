@@ -17,6 +17,12 @@ const CACHE_FIRST_EXTENSIONS = [
   '.gif', '.webp', '.svg', '.css', '.ttf', '.woff2', '.html',
 ];
 
+/// Paths that must always bypass the cache (network-only).
+const NETWORK_ONLY_PATHS = [
+  '/version.json',
+  '/sw.js',
+];
+
 const NETWORK_FIRST_HOSTS = [
   'localhost',
   '127.0.0.1',
@@ -46,8 +52,14 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Only handle same-origin or known API origins
+  // Only handle same-origin GET requests
   if (event.request.method !== 'GET') return;
+
+  // Network-only: version.json & sw.js must never be cached
+  if (NETWORK_ONLY_PATHS.some((p) => url.pathname === p)) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
 
   // Cache-first for static assets by extension
   const isStaticAsset = CACHE_FIRST_EXTENSIONS.some(

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_controller.dart';
@@ -12,6 +13,13 @@ import '../core/desktop_discord_route_observer.dart';
 import '../core/ios_widget_integration.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
+import '../core/web_update_checker_stub.dart'
+    if (dart.library.html) '../core/web_update_checker_web.dart'
+    as web_update;
+
+// Web-only import for page reload. Ignored on non-web platforms.
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html show window;
 import '../screens/favorites_screen.dart';
 import '../screens/main_transit_shell.dart';
 import '../screens/onboarding_screen.dart';
@@ -185,6 +193,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   bool _widgetSyncScheduled = false;
   AppLaunchAction? _pendingLaunchAction;
   StreamSubscription<AppLaunchAction>? _launchSubscription;
+  StreamSubscription<web_update.WebUpdateCheckResult>? _webUpdateSubscription;
 
   @override
   void initState() {
@@ -197,6 +206,37 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
       _maybeScheduleLaunchAction();
     });
     _scheduleIOSWidgetSync();
+    _initWebUpdateChecker();
+  }
+
+  void _initWebUpdateChecker() {
+    if (!kIsWeb) return;
+    final checker = web_update.createWebUpdateChecker();
+    if (checker == null) return;
+    _webUpdateSubscription = checker.onUpdateAvailable.listen((result) {
+      if (!mounted) return;
+      _showWebUpdateBanner(result);
+    });
+    checker.startPeriodicCheck();
+  }
+
+  void _showWebUpdateBanner(web_update.WebUpdateCheckResult result) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 8),
+        content: Text(
+          '有新版本可用（${result.latestVersion}+${result.latestBuildNumber}）',
+        ),
+        action: SnackBarAction(
+          label: '重新載入',
+          onPressed: () {
+            // Reload the page to activate the new service worker.
+            html.window.location.reload();
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -205,6 +245,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
     unawaited(desktopDiscordPresenceService.dispose());
     WidgetsBinding.instance.removeObserver(this);
     _launchSubscription?.cancel();
+    _webUpdateSubscription?.cancel();
     super.dispose();
   }
 

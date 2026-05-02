@@ -131,6 +131,16 @@ jobs:
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=web-release
+      - name: Write version.json
+        shell: bash
+        run: |
+          cat > build/web/version.json <<EOF
+          {
+            "version": "${{ inputs.version }}",
+            "buildNumber": "${{ github.run_number }}",
+            "gitSha": "${{ github.sha }}"
+          }
+          EOF
       - name: Upload Web artifact
         uses: actions/upload-artifact@v6
         with:

@@ -96,6 +96,31 @@ enum FavoriteWidgetSharedStore {
   }
 
   private static func loadFavoriteGroupsPayload() -> [String: Any]? {
+    let filePayload = loadFavoriteGroupsPayloadFromSharedFile()
+    let defaultsPayload = loadFavoriteGroupsPayloadFromUserDefaults()
+
+    if let filePayload, !filePayload.isEmpty {
+      return filePayload
+    }
+
+    if let defaultsPayload, !defaultsPayload.isEmpty {
+      if filePayload != nil {
+        NSLog(
+          "FavoriteWidgetSharedStore shared file empty, falling back to UserDefaults. groups=%d",
+          defaultsPayload.count
+        )
+      }
+      return defaultsPayload
+    }
+
+    if let filePayload {
+      return filePayload
+    }
+
+    return defaultsPayload
+  }
+
+  private static func loadFavoriteGroupsPayloadFromSharedFile() -> [String: Any]? {
     let containerURL = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: appGroupIdentifier
     )
@@ -135,6 +160,10 @@ enum FavoriteWidgetSharedStore {
       )
     }
 
+    return nil
+  }
+
+  private static func loadFavoriteGroupsPayloadFromUserDefaults() -> [String: Any]? {
     guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
       NSLog(
         "FavoriteWidgetSharedStore UserDefaults suite nil for %@",
@@ -237,73 +266,11 @@ private struct FavoriteWidgetLiveStop: Hashable {
   let vehicleId: String?
 }
 
-struct FavoriteGroupEntity: AppEntity {
-  static let typeDisplayRepresentation = TypeDisplayRepresentation(
-    name: "\u{6211}\u{7684}\u{6700}\u{611b}\u{7fa4}\u{7d44}"
-  )
-  static let defaultQuery = FavoriteGroupQuery()
-
-  let id: String
-
-  var displayRepresentation: DisplayRepresentation {
-    DisplayRepresentation(title: "\(id)")
-  }
-}
-
-private extension FavoriteWidgetSharedStore {
-  static func loadFavoriteGroupEntities() -> [FavoriteGroupEntity] {
-    loadFavoriteGroupNames().map { name in
-      FavoriteGroupEntity(id: name)
-    }
-  }
-}
-
-struct FavoriteGroupQuery: EntityQuery, EnumerableEntityQuery {
-  func allEntities() async throws -> [FavoriteGroupEntity] {
-    let entities = FavoriteWidgetSharedStore.loadFavoriteGroupEntities()
-    NSLog("FavoriteGroupQuery.allEntities returned %d", entities.count)
-    return entities
-  }
-
-  func entities(
-    for identifiers: [FavoriteGroupEntity.ID]
-  ) async throws -> [FavoriteGroupEntity] {
-    let availableNames = Set(FavoriteWidgetSharedStore.loadFavoriteGroupNames())
-    return identifiers.compactMap { identifier in
-      guard availableNames.contains(identifier) else {
-        return nil
-      }
-      return FavoriteGroupEntity(id: identifier)
-    }
-  }
-
-  func suggestedEntities() async throws -> [FavoriteGroupEntity] {
-    let entities = FavoriteWidgetSharedStore.loadFavoriteGroupEntities()
-    NSLog("FavoriteGroupQuery.suggestedEntities returned %d", entities.count)
-    return entities
-  }
-
-  func defaultResult() async -> FavoriteGroupEntity? {
-    FavoriteWidgetSharedStore.loadFavoriteGroupEntities().first
-  }
-}
-
-extension FavoriteGroupQuery: EntityStringQuery {
-  func entities(matching string: String) async throws -> [FavoriteGroupEntity] {
-    let query = string.trimmingCharacters(in: .whitespacesAndNewlines)
-      .lowercased()
+struct FavoriteGroupOptionsProvider: DynamicOptionsProvider {
+  func results() async throws -> [String] {
     let names = FavoriteWidgetSharedStore.loadFavoriteGroupNames()
-    let filteredNames: [String]
-    if query.isEmpty {
-      filteredNames = names
-    } else {
-      filteredNames = names.filter { name in
-        name.lowercased().contains(query)
-      }
-    }
-    return filteredNames.map { name in
-      FavoriteGroupEntity(id: name)
-    }
+    NSLog("FavoriteGroupOptionsProvider.results returned %d", names.count)
+    return names
   }
 }
 
@@ -314,8 +281,11 @@ struct FavoriteGroupConfigurationIntent: WidgetConfigurationIntent {
     "\u{986f}\u{793a}\u{55ae}\u{4e00}\u{6700}\u{611b}\u{7fa4}\u{7d44}\u{7684}\u{5230}\u{7ad9}\u{6642}\u{9593}\u{3002}"
   )
 
-  @Parameter(title: "\u{7fa4}\u{7d44}")
-  var group: FavoriteGroupEntity?
+  @Parameter(
+    title: "\u{7fa4}\u{7d44}",
+    optionsProvider: FavoriteGroupOptionsProvider()
+  )
+  var group: String?
 }
 
 struct FavoriteGroupTimelineProvider: AppIntentTimelineProvider {
@@ -382,7 +352,7 @@ private enum FavoriteGroupEntryLoader {
     }
 
     let sortedNames = groups.keys.sorted()
-    let requestedName = configuration.group?.id
+    let requestedName = configuration.group?
       .trimmingCharacters(in: .whitespacesAndNewlines)
     let selectedName = requestedName.flatMap { groups[$0] == nil ? nil : $0 } ?? sortedNames[0]
 

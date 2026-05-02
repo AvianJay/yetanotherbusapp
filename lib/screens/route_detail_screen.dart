@@ -934,6 +934,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool get _isAndroid =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
+  bool get _isIOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  bool get _isDesktop =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.macOS);
+
   bool get _appIsForeground =>
       _appLifecycleState == AppLifecycleState.resumed ||
       _appLifecycleState == AppLifecycleState.inactive;
@@ -1344,6 +1352,26 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       await _syncLiveActivityForBackgroundMonitor(detail, pathInfo);
       return;
     }
+
+    // Desktop / Web — basic notification support (no background location tracking).
+    if (_isDesktop || kIsWeb) {
+      if (!_backgroundTripMonitorReady || forcePermissionCheck) {
+        final granted = await TripMonitorNotifications.requestPermission();
+        if (granted) {
+          _backgroundTripMonitorReady = true;
+        } else {
+          _backgroundTripMonitorReady = false;
+          if (forcePermissionCheck && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('要使用乘車到站提醒，必須先允許通知權限。')),
+            );
+          }
+          return;
+        }
+      }
+      return;
+    }
+
     if (!_isAndroid) {
       return;
     }
@@ -1749,8 +1777,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _isNearestStop(StopInfo stop) {
     return _nearestStopByPath[stop.pathId] == stop.stopId;
   }
-
-  bool get _isIOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   void _resetLiveActivityRideState() {
     _liveActivityBoardingWindowOpen = false;
@@ -2379,6 +2405,30 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   Future<void> _maybeSendIOSBoardingCheckPrompt() async {
+    // On desktop / web, send a notification when the bus arrives at the
+    // boarding stop (foreground only — no background location tracking).
+    if (_isDesktop || kIsWeb) {
+      if (_appIsForeground || !_backgroundTripMonitorReady) {
+        await TripMonitorNotifications.cancelBoardingCheckPrompt();
+        return;
+      }
+      if (_iosBoardingCheckPromptSent) {
+        return;
+      }
+      final boardingStopName =
+          _boardingStopName ?? _currentBoardingCandidateStop()?.stopName;
+      if (boardingStopName == null || boardingStopName.trim().isEmpty) {
+        return;
+      }
+      await TripMonitorNotifications.showBoardingCheckPrompt(
+        routeName: _detail?.route.routeName ?? widget.routeNameHint ?? 'YABus',
+        boardingStopName: boardingStopName,
+        destinationStopName: _destinationStopName,
+      );
+      _iosBoardingCheckPromptSent = true;
+      return;
+    }
+
     if (!_isIOS || _appIsForeground || !_backgroundTripMonitorReady) {
       await TripMonitorNotifications.cancelBoardingCheckPrompt();
       return;

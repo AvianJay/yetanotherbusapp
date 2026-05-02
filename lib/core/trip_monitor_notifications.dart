@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'android_trip_monitor.dart';
+import 'platform_notification_service.dart';
 
 class TripMonitorNotifications {
   TripMonitorNotifications._();
@@ -34,7 +35,7 @@ class TripMonitorNotifications {
 
   static Future<bool> requestPermission() async {
     if (kIsWeb) {
-      return false;
+      return platformNotifications.requestPermission();
     }
 
     await initialize();
@@ -56,7 +57,7 @@ class TripMonitorNotifications {
             ) ??
             false;
       default:
-        return false;
+        return platformNotifications.requestPermission();
     }
   }
 
@@ -65,43 +66,72 @@ class TripMonitorNotifications {
     required String boardingStopName,
     String? destinationStopName,
   }) async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
-      return;
-    }
-
-    await initialize();
-    if (!_initialized) {
-      return;
-    }
     final body = destinationStopName == null || destinationStopName.trim().isEmpty
         ? '$boardingStopName 的公車已經到了，你有上車嗎？'
         : '$boardingStopName 的公車已經到了，你有上車嗎？已上車的話會繼續提醒你前往 $destinationStopName。';
 
-    try {
-      await _plugin.show(
-        6201,
-        '$routeName 上車確認',
-        body,
-        const NotificationDetails(
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentBadge: true,
-            presentSound: true,
-            interruptionLevel: InterruptionLevel.timeSensitive,
-          ),
-        ),
+    if (kIsWeb) {
+      await platformNotifications.show(
+        id: 6201,
+        title: '$routeName 上車確認',
+        body: body,
       );
-    } on MissingPluginException {
       return;
-    } on PlatformException {
+    }
+
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      await initialize();
+      if (!_initialized) {
+        return;
+      }
+      try {
+        await _plugin.show(
+          6201,
+          '$routeName 上車確認',
+          body,
+          const NotificationDetails(
+            iOS: DarwinNotificationDetails(
+              presentAlert: true,
+              presentBadge: true,
+              presentSound: true,
+              interruptionLevel: InterruptionLevel.timeSensitive,
+            ),
+          ),
+        );
+      } on MissingPluginException {
+        return;
+      } on PlatformException {
+        return;
+      }
+      return;
+    }
+
+    // Desktop (Windows / Linux / macOS) — use platform notification service.
+    if (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
+      await platformNotifications.show(
+        id: 6201,
+        title: '$routeName 上車確認',
+        body: body,
+      );
       return;
     }
   }
 
   static Future<void> cancelBoardingCheckPrompt() async {
     if (kIsWeb) {
+      await platformNotifications.cancel(6201);
       return;
     }
+
+    if (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
+      await platformNotifications.cancel(6201);
+      return;
+    }
+
     await initialize();
     if (!_initialized) {
       return;

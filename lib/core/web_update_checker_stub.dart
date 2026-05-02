@@ -38,3 +38,6 @@ class WebUpdateChecker {
 
 /// Non-web: always returns null.
 WebUpdateChecker? createWebUpdateChecker() => null;
+
+/// Non-web: no-op.
+void reloadPage() {}

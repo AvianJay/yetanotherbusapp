@@ -17,9 +17,7 @@ import '../core/web_update_checker_stub.dart'
     if (dart.library.html) '../core/web_update_checker_web.dart'
     as web_update;
 
-// Web-only import for page reload. Ignored on non-web platforms.
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html show window;
+
 import '../screens/favorites_screen.dart';
 import '../screens/main_transit_shell.dart';
 import '../screens/onboarding_screen.dart';
@@ -230,10 +228,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
         ),
         action: SnackBarAction(
           label: '重新載入',
-          onPressed: () {
-            // Reload the page to activate the new service worker.
-            html.window.location.reload();
-          },
+          onPressed: () => web_update.reloadPage(),
         ),
       ),
     );

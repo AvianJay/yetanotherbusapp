@@ -1016,7 +1016,7 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
                       Text('附近地圖', style: theme.textTheme.headlineSmall),
                       const SizedBox(height: 6),
                       Text(
-                        '有定位時直接顯示附近站牌，減少在 Web 版反覆切頁查詢。',
+                        '今天想去哪搭公車？',
                         style: theme.textTheme.bodyMedium,
                       ),
                     ],

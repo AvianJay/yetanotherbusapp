@@ -39,12 +39,14 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>沒有相簿存取權限要怎麼選擇背景圖片呢 o(*￣▽￣*)ブ</string>
 		<key>NSLocationWhenInUseUsageDescription</key>
-		<string>YABus 需要定位權限來顯示附近站牌。</string>
+		<string>我需要定位權限才可以找附近站牌。</string>
 		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-		<string>YABus 需要持續取得定位，才能在背景更新乘車提醒與靈動島。</string>
+		<string>我需要持續取得定位，才能在背景更新乘車提醒與靈動島。</string>
 		<key>NSLocationAlwaysUsageDescription</key>
-		<string>YABus 需要持續取得定位，才能在背景更新乘車提醒與靈動島。</string>
+		<string>我需要持續取得定位，才能在背景更新乘車提醒與靈動島。</string>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

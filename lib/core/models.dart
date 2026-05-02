@@ -359,9 +359,9 @@ class AppSettings {
           ? AppUpdateCheckMode.off
           : AppUpdateCheckMode.popup,
       desktopDiscordPresenceEnabled: true,
-      desktopDiscordShowProvider: true,
+        desktopDiscordShowProvider: false,
       desktopDiscordShowScreen: true,
-      desktopDiscordShowRouteName: true,
+        desktopDiscordShowRouteName: false,
     );
   }
 
@@ -454,11 +454,11 @@ class AppSettings {
       desktopDiscordPresenceEnabled:
           json['desktopDiscordPresenceEnabled'] as bool? ?? true,
       desktopDiscordShowProvider:
-          json['desktopDiscordShowProvider'] as bool? ?? true,
+          json['desktopDiscordShowProvider'] as bool? ?? false,
       desktopDiscordShowScreen:
           json['desktopDiscordShowScreen'] as bool? ?? true,
       desktopDiscordShowRouteName:
-          json['desktopDiscordShowRouteName'] as bool? ?? true,
+          json['desktopDiscordShowRouteName'] as bool? ?? false,
     );
   }
 

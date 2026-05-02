@@ -299,17 +299,17 @@ class DatabaseSettingsScreen extends StatelessWidget {
                       'Discord Rich Presence',
                       style: theme.textTheme.titleMedium,
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '桌面版可把目前操作內容同步到 Discord 狀態，下面可以控制顯示哪些欄位。',
-                      style: theme.textTheme.bodyMedium,
-                    ),
+                    // const SizedBox(height: 8),
+                    // Text(
+                    //   '桌面版可把目前操作內容同步到 Discord 狀態，下面可以控制顯示哪些欄位。',
+                    //   style: theme.textTheme.bodyMedium,
+                    // ),
                     const SizedBox(height: 8),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('啟用 Discord Rich Presence'),
                       subtitle: const Text(
-                        '使用 Application ID 1499482667429920959。',
+                        '分享你正在看的公車給朋友 (⁠ ⁠/⁠^⁠ω⁠^⁠)⁠/⁠⁠',
                       ),
                       value: controller.settings.desktopDiscordPresenceEnabled,
                       onChanged: controller.updateDesktopDiscordPresenceEnabled,

@@ -2873,7 +2873,8 @@ class BusRepository {
 
   bool get _supportsLocalDatabase => !kIsWeb;
 
-  bool get _preferNativeSqliteBridge => !kIsWeb;
+  bool get _preferNativeSqliteBridge =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
   void _ensureLocalDatabaseSupported() {
     if (!_supportsLocalDatabase) {

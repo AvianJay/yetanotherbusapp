@@ -258,19 +258,22 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       }
 
       final uniqueRoutes = <String, FavoriteStop>{};
+      final routeSummariesByKey = <String, RouteSummary>{};
       for (final item in baseItems) {
-        uniqueRoutes.putIfAbsent(
-          _routeRequestKey(item.reference),
-          () => item.reference,
-        );
+        final routeRequestKey = _routeRequestKey(item.reference);
+        uniqueRoutes.putIfAbsent(routeRequestKey, () => item.reference);
+        routeSummariesByKey.putIfAbsent(routeRequestKey, () => item.route);
       }
 
       final detailEntries = await Future.wait(
         uniqueRoutes.entries.map((entry) async {
           try {
+            final routeSummary = routeSummariesByKey[entry.key];
             final detail = await controller.getRouteDetail(
               entry.value.routeKey,
               provider: entry.value.provider,
+              routeIdHint: entry.value.routeId ?? routeSummary?.routeId,
+              routeNameHint: routeSummary?.routeName,
             );
             return MapEntry(entry.key, detail);
           } catch (_) {
@@ -711,6 +714,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                     builder: (_) => RouteDetailScreen(
                       routeKey: item.reference.routeKey,
                       provider: item.reference.provider,
+                      routeIdHint: item.reference.routeId ?? item.route.routeId,
+                      routeNameHint: item.route.routeName,
                       initialPathId: item.reference.pathId,
                       initialStopId: item.reference.stopId,
                       initialDestinationPathId:

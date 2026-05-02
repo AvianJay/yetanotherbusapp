@@ -11,6 +11,7 @@ import 'package:sqflite/sqflite.dart';
 import 'api_user_agent.dart';
 import 'models.dart';
 import 'native_sqlite_bridge.dart';
+import 'route_search_ranking.dart';
 
 class DatabaseNotReadyException implements Exception {
   DatabaseNotReadyException(this.message);
@@ -402,7 +403,10 @@ class BusRepository {
         )
         .where((summary) => summary.routeId.isNotEmpty)
         .toList();
-    return _collapseRouteSummariesByRouteId(summaries);
+    return sortRouteSummariesForQuery(
+      _collapseRouteSummariesByRouteId(summaries),
+      query: query,
+    );
   }
 
   Future<bool> routeMetadataDatabaseExists() async {
@@ -557,7 +561,10 @@ class BusRepository {
         })
         .where((summary) => summary.routeId.isNotEmpty)
         .toList();
-    return _collapseRouteSummariesByRouteId(summaries);
+    return sortRouteSummariesForQuery(
+      _collapseRouteSummariesByRouteId(summaries),
+      query: query,
+    );
   }
 
   Future<List<RouteSummary>> _loadSearchRoutesAcrossApi(
@@ -589,7 +596,10 @@ class BusRepository {
         })
         .where((summary) => summary.routeId.isNotEmpty)
         .toList();
-    return _collapseRouteSummariesByRouteId(summaries);
+    return sortRouteSummariesForQuery(
+      _collapseRouteSummariesByRouteId(summaries),
+      query: query,
+    );
   }
 
   BusProvider _providerFromRouteSearchRow(

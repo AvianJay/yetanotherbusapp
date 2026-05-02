@@ -313,16 +313,18 @@ jobs:
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=ios-unsigned-ipa
       - name: Package unsigned IPA
+        shell: bash
         run: |
           mkdir -p build/ipa/temp/Payload
-          mv build/ios/archive/*.xcarchive/Products/Applications/*.app build/ipa/temp/Payload/ 2>/dev/null || true
-          if [ ! -d "build/ipa/temp/Payload/"*.app ]; then
-            # Try alternative path from flutter build output
-            APP_PATH=$(find build -name "Runner.app" -type d | head -1)
-            if [ -n "$APP_PATH" ]; then
-              cp -r "$APP_PATH" build/ipa/temp/Payload/
-            fi
+          APP_PATH=$(find build/ios/iphoneos -maxdepth 1 -name "*.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find build/ios/archive -path "*.xcarchive/Products/Applications/*.app" -type d | head -1)
           fi
+          if [ -z "$APP_PATH" ]; then
+            echo "No built iOS .app bundle found for IPA packaging."
+            exit 1
+          fi
+          cp -R "$APP_PATH" build/ipa/temp/Payload/
           cd build/ipa/temp
           zip -r Generated_IPA.zip Payload
           mv Generated_IPA.zip ../YABus-${{ inputs.version }}.ipa

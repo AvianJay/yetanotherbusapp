@@ -16,7 +16,7 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="Yet Another Taiwan Bus App – 台灣公車即時動態查詢">
+  <meta name="description" content="Yet Another Bus App – 台灣公車即時動態查詢">
   <meta name="theme-color" content="#0B7285">
 
   <!-- PWA / iOS meta tags & icons -->
@@ -101,6 +101,68 @@
       document.getElementById("splash-branding")?.remove();
       document.body.style.background = "transparent";
     }
+  </script>
+  <script>
+    (function () {
+      const installState = {
+        deferredPrompt: null,
+        installed:
+          window.matchMedia('(display-mode: standalone)').matches ||
+          window.navigator.standalone === true,
+      };
+
+      function dispatchInstallState() {
+        window.dispatchEvent(new CustomEvent('yabus-pwa-install-state'));
+      }
+
+      window.__yabusPwaInstall = {
+        getState: function () {
+          return {
+            supported: 'serviceWorker' in navigator,
+            canInstall: !!installState.deferredPrompt && !installState.installed,
+            installed: !!installState.installed,
+          };
+        },
+        promptInstall: async function (resolve) {
+          if (!installState.deferredPrompt || installState.installed) {
+            if (typeof resolve === 'function') {
+              resolve('unavailable');
+            }
+            return;
+          }
+
+          const promptEvent = installState.deferredPrompt;
+          installState.deferredPrompt = null;
+          dispatchInstallState();
+
+          await promptEvent.prompt();
+          const choice = await promptEvent.userChoice;
+          const outcome = choice && choice.outcome === 'accepted'
+            ? 'accepted'
+            : 'dismissed';
+          if (typeof resolve === 'function') {
+            resolve(outcome);
+          }
+        },
+      };
+
+      window.addEventListener('beforeinstallprompt', function (event) {
+        event.preventDefault();
+        if (installState.installed) {
+          return;
+        }
+        installState.deferredPrompt = event;
+        dispatchInstallState();
+      });
+
+      window.addEventListener('appinstalled', function () {
+        installState.installed = true;
+        installState.deferredPrompt = null;
+        dispatchInstallState();
+      });
+
+      dispatchInstallState();
+    })();
   </script>
   <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
 </head>

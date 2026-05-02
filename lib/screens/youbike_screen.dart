@@ -440,7 +440,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '點選左側站點或地圖上的標記後，這裡會顯示可借、可還與距離資訊。',
+                          '按一下左側站點或地圖上的標記後，這裡就會顯示可借、可還與距離資訊。',
                           style: theme.textTheme.bodyMedium,
                         ),
                         const SizedBox(height: 16),

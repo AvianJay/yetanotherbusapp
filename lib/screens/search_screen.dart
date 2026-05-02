@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
+import '../core/route_search_ranking.dart';
 import 'route_detail_screen.dart';
 import '../widgets/background_image_wrapper.dart';
 
@@ -22,6 +24,17 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isLoading = false;
   String? _error;
   List<RouteSummary> _results = const [];
+  BusProvider? _webPreferredProvider;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_resolveWebPreferredProvider());
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -48,7 +61,14 @@ class _SearchScreenState extends State<SearchScreen> {
 
   int _providerPriority(AppController busController, BusProvider provider) {
     if (kIsWeb) {
-      return 0;
+      final webPreferredProvider = _webPreferredProvider;
+      if (webPreferredProvider == null) {
+        return 0;
+      }
+      if (provider == webPreferredProvider) {
+        return 0;
+      }
+      return provider == BusProvider.inter ? 2 : 1;
     }
     final currentProvider = busController.settings.provider;
     if (provider == currentProvider) {
@@ -58,6 +78,65 @@ class _SearchScreenState extends State<SearchScreen> {
       return 1;
     }
     return 2;
+  }
+
+  List<RouteSummary> _sortResults(
+    Iterable<RouteSummary> routes,
+    String query,
+    AppController busController,
+  ) {
+    return sortRouteSummariesForQuery(
+      routes,
+      query: query,
+      providerPriority: (provider) => _providerPriority(busController, provider),
+    );
+  }
+
+  Future<void> _resolveWebPreferredProvider() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        return;
+      }
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+
+      Position? position;
+      try {
+        position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.low,
+            timeLimit: Duration(seconds: 4),
+          ),
+        );
+      } catch (_) {
+        position = await Geolocator.getLastKnownPosition();
+      }
+
+      if (!mounted || position == null) {
+        return;
+      }
+
+      final nextProvider = nearestBusProvider(
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+      if (nextProvider == _webPreferredProvider) {
+        return;
+      }
+
+      final busController = AppControllerScope.read(context);
+      setState(() {
+        _webPreferredProvider = nextProvider;
+        if (_results.isNotEmpty && _controller.text.trim().isNotEmpty) {
+          _results = _sortResults(_results, _controller.text, busController);
+        }
+      });
+    } catch (_) {
+      // Ignore location failures; web search stays nationwide without a preferred city.
+    }
   }
 
   Future<void> _search(String query) async {
@@ -76,24 +155,12 @@ class _SearchScreenState extends State<SearchScreen> {
       _isLoading = true;
       _error = null;
     });
-
     try {
-      final results = await busController.searchRoutesAcrossSelected(query);
-
-      results.sort((left, right) {
-        final leftProvider = busProviderFromString(left.sourceProvider);
-        final rightProvider = busProviderFromString(right.sourceProvider);
-        final leftPriority = _providerPriority(busController, leftProvider);
-        final rightPriority = _providerPriority(busController, rightProvider);
-        if (leftPriority != rightPriority) {
-          return leftPriority.compareTo(rightPriority);
-        }
-        final routeNameCompare = left.routeName.compareTo(right.routeName);
-        if (routeNameCompare != 0) {
-          return routeNameCompare;
-        }
-        return left.description.compareTo(right.description);
-      });
+      final results = _sortResults(
+        await busController.searchRoutesAcrossSelected(trimmedQuery),
+        trimmedQuery,
+        busController,
+      );
 
       if (!mounted) {
         return;

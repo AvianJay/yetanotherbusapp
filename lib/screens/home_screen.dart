@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
+import '../core/pwa_install_service.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/transit_station_map.dart';
 import '../widgets/transit_drawer.dart';
@@ -189,6 +190,7 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
         actions: [
+          if (kIsWeb) const _WebPwaInstallButton(),
           if (!kIsWeb)
             IconButton(
               tooltip: '資料庫與下載',
@@ -262,6 +264,80 @@ class HomeScreen extends StatelessWidget {
       return false;
     }
     return settings.homeBackgroundOpacity > 0;
+  }
+}
+
+class _WebPwaInstallButton extends StatelessWidget {
+  const _WebPwaInstallButton();
+
+  Future<void> _handlePressed(BuildContext context) async {
+    final shouldInstall = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('要安裝成應用程式嗎？'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('把 YABus 安裝成應用程式，之後就能像一般應用程式一樣開啟。'),
+              SizedBox(height: 12),
+              Text('功能會比原版應用程式少就是了', style: TextStyle(decoration: TextDecoration.lineThrough),),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('先不要'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('當然好啊 ＼(^o^)／'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldInstall != true || !context.mounted) {
+      return;
+    }
+
+    final outcome = await pwaInstallService.promptInstall();
+    if (!context.mounted) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    switch (outcome) {
+      case PwaInstallPromptOutcome.accepted:
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('已送出安裝要求。')),
+        );
+      case PwaInstallPromptOutcome.dismissed:
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('已取消安裝。')),
+        );
+      case PwaInstallPromptOutcome.unavailable:
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('這個裝置目前無法顯示安裝提示。')),
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<PwaInstallState>(
+      valueListenable: pwaInstallService.stateListenable,
+      builder: (context, state, _) {
+        if (!state.shouldShowInstallAction) {
+          return const SizedBox.shrink();
+        }
+        return IconButton(
+          tooltip: '安裝 App',
+          onPressed: () => _handlePressed(context),
+          icon: const Icon(Icons.download_rounded),
+        );
+      },
+    );
   }
 }
 

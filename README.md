@@ -1,30 +1,24 @@
 # YetAnotherBusApp
 
-A new Flutter project.
+「現代化公車狀態查詢 App」
 
-## Nightly Downloads (nightly.link)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/AvianJay/yetanotherbusapp/build.yml?branch=main)](https://github.com/AvianJay/yetanotherbusapp/actions/workflows/build.yml)
 
-Use these links to download artifacts from the latest successful `build` workflow run on `main`.
+# 下載
 
-| Platform | Artifact | Download |
+## Release
+
+### 前往[這裡](https://github.com/AvianJay/yetanotherbusapp/releases/latest)下載最新的正式版本。
+
+## Nightly
+
+下方可以下載最新的測試版本。
+
+| 平台 | Artifact | 下載 |
 | --- | --- | --- |
-| Android APK | `android-apk-release` | [Download](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/android-apk-release.zip) |
-| iOS Unsigned IPA | `ios-unsigned-ipa` | [Download](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/ios-unsigned-ipa.zip) |
-| Web | `web-release` | [Download](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/web-release.zip) |
-| Windows | `windows-release` | [Download](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/windows-release.zip) |
-| Linux | `linux-release` | [Download](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/linux-release.zip) |
-| macOS | `macos-release` | [Download](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/macos-release.zip) |
-
-## Getting Started
-
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+| Android APK | `android-apk-release` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/android-apk-release.zip) |
+| iOS Unsigned IPA | `ios-unsigned-ipa` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/ios-unsigned-ipa.zip) |
+| Web | `web-release` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/web-release.zip) |
+| Windows | `windows-release` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/windows-release.zip) |
+| Linux | `linux-release` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/linux-release.zip) |
+| macOS | `macos-release` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/macos-release.zip) |

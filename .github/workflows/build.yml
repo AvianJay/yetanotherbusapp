@@ -269,11 +269,21 @@ jobs:
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=macos-release
 
+      - name: Package macOS app bundle
+        shell: bash
+        run: |
+          APP_PATH=$(find build/macos/Build/Products/Release -maxdepth 1 -name "*.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No macOS .app bundle found."
+            exit 1
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" build/macos/YABus-macos.zip
+
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v6
         with:
           name: macos-release
-          path: build/macos/Build/Products/Release/YetAnotherBusApp.app
+          path: build/macos/YABus-macos.zip
 
   build-ios-ipa:
     name: Build iOS unsigned IPA

@@ -19,8 +19,13 @@ const CACHE_FIRST_EXTENSIONS = [
 
 /// Paths that must always bypass the cache (network-only).
 const NETWORK_ONLY_PATHS = [
-  '/version.json',
   '/sw.js',
+];
+
+/// Paths that should prefer the network but still fall back to cache when
+/// the app starts offline.
+const NETWORK_FIRST_PATHS = [
+  '/version.json',
 ];
 
 const NETWORK_FIRST_HOSTS = [
@@ -55,9 +60,27 @@ self.addEventListener('fetch', (event) => {
   // Only handle same-origin GET requests
   if (event.request.method !== 'GET') return;
 
-  // Network-only: version.json & sw.js must never be cached
+  // Network-only: sw.js must never be cached
   if (NETWORK_ONLY_PATHS.some((p) => url.pathname === p)) {
     event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // Network-first with cache fallback for version.json so offline startup
+  // can still read the previously fetched app metadata.
+  if (NETWORK_FIRST_PATHS.some((p) => url.pathname === p)) {
+    const cacheKey = `${url.origin}${url.pathname}`;
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(cacheKey, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(cacheKey)),
+    );
     return;
   }
 

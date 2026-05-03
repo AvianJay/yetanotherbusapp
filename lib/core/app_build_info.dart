@@ -31,23 +31,41 @@ class AppBuildInfo {
     defaultValue: 'android-apk-release',
   );
 
-  static Future<AppBuildInfo> load() async {
-    final packageInfo = await PackageInfo.fromPlatform();
+  static const _fallbackVersion = 'unknown';
+  static const _fallbackBuildNumber = '0';
+  static const _gitSha = String.fromEnvironment(
+    'APP_GIT_SHA',
+    defaultValue: 'unknown',
+  );
+  static const _defaultUpdateChannelString = String.fromEnvironment(
+    'APP_UPDATE_CHANNEL',
+    defaultValue: 'nightly',
+  );
 
-    return AppBuildInfo(
-      version: packageInfo.version,
-      buildNumber: packageInfo.buildNumber,
-      gitSha: const String.fromEnvironment(
-        'APP_GIT_SHA',
-        defaultValue: 'unknown',
-      ).trim().toLowerCase(),
-      defaultUpdateChannel: appUpdateChannelFromStringConst(
-        const String.fromEnvironment(
-          'APP_UPDATE_CHANNEL',
-          defaultValue: 'nightly',
+  static Future<AppBuildInfo> load() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+
+      return AppBuildInfo(
+        version: packageInfo.version,
+        buildNumber: packageInfo.buildNumber,
+        gitSha: _gitSha.trim().toLowerCase(),
+        defaultUpdateChannel: appUpdateChannelFromStringConst(
+          _defaultUpdateChannelString,
         ),
-      ),
-    );
+      );
+    } catch (_) {
+      // On web, package_info_plus reads version.json. Offline launches should
+      // still boot even if that file is temporarily unavailable.
+      return AppBuildInfo(
+        version: _fallbackVersion,
+        buildNumber: _fallbackBuildNumber,
+        gitSha: _gitSha.trim().toLowerCase(),
+        defaultUpdateChannel: appUpdateChannelFromStringConst(
+          _defaultUpdateChannelString,
+        ),
+      );
+    }
   }
 
   final String version;

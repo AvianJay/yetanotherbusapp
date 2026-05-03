@@ -34,6 +34,7 @@ codesign --verify --deep --strict "${APP_PATH}"
 # then we rename it to our preferred naming scheme.
 create-dmg \
   --overwrite \
+  --no-code-sign \
   --dmg-title="YABus" \
   "${APP_PATH}" \
   "${OUTPUT_DIR}"

@@ -15,10 +15,12 @@ class DesktopDiscordPresenceService {
 
   static const _clientId = '1499482667429920959';
   static const _reconnectDelay = Duration(seconds: 15);
+  static const _postConnectReplayDelay = Duration(milliseconds: 900);
 
   final DateTime _sessionStartedAt = DateTime.now();
 
   _DiscordRpcClient? _client;
+  Future<_DiscordRpcClient?>? _connectInFlight;
   Timer? _retryTimer;
   DateTime? _nextReconnectAt;
   AppSettings? _settings;
@@ -71,31 +73,63 @@ class DesktopDiscordPresenceService {
       return;
     }
 
-    final client = await _ensureConnected();
-    if (client == null) {
+    final connection = await _ensureConnected();
+    if (connection == null) {
       _scheduleReconnect();
       return;
     }
 
+    final activity = _activityFromPayload(payload);
     try {
-      await client.setActivity(
-        _DiscordRpcActivity(
-          details: payload.details,
-          state: payload.state,
-          startedAt: _sessionStartedAt,
-        ),
-      );
+      await connection.client.setActivity(activity);
       _lastPayload = payload;
+      if (connection.isFreshConnection) {
+        _schedulePostConnectReplay(
+          client: connection.client,
+          payload: payload,
+          activity: activity,
+        );
+      }
     } catch (_) {
       await _disconnect();
       _scheduleReconnect();
     }
   }
 
-  Future<_DiscordRpcClient?> _ensureConnected() async {
-    if (_client != null) {
-      return _client;
+  Future<_DiscordRpcConnection?> _ensureConnected() async {
+    final existingClient = _client;
+    if (existingClient != null) {
+      return _DiscordRpcConnection(
+        client: existingClient,
+        isFreshConnection: false,
+      );
     }
+
+    final inFlight = _connectInFlight;
+    if (inFlight != null) {
+      final client = await inFlight;
+      if (client == null) {
+        return null;
+      }
+      return _DiscordRpcConnection(client: client, isFreshConnection: false);
+    }
+
+    final connectFuture = _connectFreshClient();
+    _connectInFlight = connectFuture;
+    try {
+      final client = await connectFuture;
+      if (client == null) {
+        return null;
+      }
+      return _DiscordRpcConnection(client: client, isFreshConnection: true);
+    } finally {
+      if (identical(_connectInFlight, connectFuture)) {
+        _connectInFlight = null;
+      }
+    }
+  }
+
+  Future<_DiscordRpcClient?> _connectFreshClient() async {
     final now = DateTime.now();
     if (_nextReconnectAt != null && now.isBefore(_nextReconnectAt!)) {
       _scheduleReconnect();
@@ -105,6 +139,13 @@ class DesktopDiscordPresenceService {
     try {
       final client = _createClient();
       await client.connect();
+
+      final settings = _settings;
+      if (settings == null || !settings.desktopDiscordPresenceEnabled) {
+        await client.disconnect();
+        return null;
+      }
+
       _client = client;
       _nextReconnectAt = null;
       _retryTimer?.cancel();
@@ -155,6 +196,51 @@ class DesktopDiscordPresenceService {
       await client.disconnect();
     } catch (_) {
       // Ignore transport shutdown errors.
+    }
+  }
+
+  _DiscordRpcActivity _activityFromPayload(_DesktopPresencePayload payload) {
+    return _DiscordRpcActivity(
+      details: payload.details,
+      state: payload.state,
+      startedAt: _sessionStartedAt,
+    );
+  }
+
+  void _schedulePostConnectReplay({
+    required _DiscordRpcClient client,
+    required _DesktopPresencePayload payload,
+    required _DiscordRpcActivity activity,
+  }) {
+    unawaited(
+      _replayPostConnectActivity(
+        client: client,
+        payload: payload,
+        activity: activity,
+      ),
+    );
+  }
+
+  Future<void> _replayPostConnectActivity({
+    required _DiscordRpcClient client,
+    required _DesktopPresencePayload payload,
+    required _DiscordRpcActivity activity,
+  }) async {
+    await Future<void>.delayed(_postConnectReplayDelay);
+
+    final settings = _settings;
+    if (_client != client || settings == null) {
+      return;
+    }
+    if (!settings.desktopDiscordPresenceEnabled || _lastPayload != payload) {
+      return;
+    }
+
+    try {
+      await client.setActivity(activity);
+    } catch (_) {
+      await _disconnect();
+      _scheduleReconnect();
     }
   }
 
@@ -237,6 +323,16 @@ class _DiscordRpcActivity {
   final String details;
   final String? state;
   final DateTime startedAt;
+}
+
+class _DiscordRpcConnection {
+  const _DiscordRpcConnection({
+    required this.client,
+    required this.isFreshConnection,
+  });
+
+  final _DiscordRpcClient client;
+  final bool isFreshConnection;
 }
 
 abstract class _DiscordRpcClient {
@@ -347,10 +443,7 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
     }
 
     try {
-      final payload = _encodeMessage(
-        _opcodeClose,
-        const <String, Object?>{},
-      );
+      final payload = _encodeMessage(_opcodeClose, const <String, Object?>{});
       await pipe.writeFrom(payload);
     } catch (_) {
       // Ignore disconnect write failures.
@@ -463,9 +556,7 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
       return decoded;
     }
     if (decoded is Map) {
-      return decoded.map(
-        (key, value) => MapEntry(key.toString(), value),
-      );
+      return decoded.map((key, value) => MapEntry(key.toString(), value));
     }
     return const <String, Object?>{};
   }

@@ -67,7 +67,7 @@ Section "Install"
     "NoModify" "1"
 
   ; Estimate size
-  ${GetSize} "$INSTDIR" "/S=0K" $0
+  ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" \
     "EstimatedSize" "$0"

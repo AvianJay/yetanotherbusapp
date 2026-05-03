@@ -37,16 +37,6 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
       );
     }
 
-    final canInstall =
-        await _channel.invokeMethod<bool>('canRequestPackageInstalls') ?? false;
-    if (!canInstall) {
-      await _channel.invokeMethod<void>('openInstallSettings');
-      return const AppUpdateInstallResult(
-        status: AppUpdateInstallStatus.permissionRequired,
-        message: '請先允許這個 app 安裝未知應用程式，再重新點一次更新。',
-      );
-    }
-
     // Desktop platforms: download installer and launch it.
     if (defaultTargetPlatform == TargetPlatform.windows ||
         defaultTargetPlatform == TargetPlatform.macOS ||
@@ -55,16 +45,27 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
     }
 
     // Android path below.
-    final updateDirectory = await _prepareUpdateDirectory();
-    final downloadPath = p.join(
-      updateDirectory.path,
-      update.packageFormat == AppUpdatePackageFormat.zip
-          ? 'update.zip'
-          : 'update.apk',
-    );
-    final downloadFile = File(downloadPath);
-
     try {
+      final canInstall =
+          await _channel.invokeMethod<bool>('canRequestPackageInstalls') ??
+          false;
+      if (!canInstall) {
+        await _channel.invokeMethod<void>('openInstallSettings');
+        return const AppUpdateInstallResult(
+          status: AppUpdateInstallStatus.permissionRequired,
+          message: '請先允許這個 app 安裝未知應用程式，再重新點一次更新。',
+        );
+      }
+
+      final updateDirectory = await _prepareUpdateDirectory();
+      final downloadPath = p.join(
+        updateDirectory.path,
+        update.packageFormat == AppUpdatePackageFormat.zip
+            ? 'update.zip'
+            : 'update.apk',
+      );
+      final downloadFile = File(downloadPath);
+
       onProgress?.call(0, '下載更新中…');
       await _downloadFile(
         update.downloadUrl,

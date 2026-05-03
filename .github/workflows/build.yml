@@ -201,22 +201,26 @@ jobs:
         shell: pwsh
         run: |
           choco install nsis -y
-            $nsisExe = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
-            if (-not (Test-Path $nsisExe)) {
-              throw "makensis.exe not found at $nsisExe"
-            }
-            & $nsisExe /VERSION
+          $nsisExe = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
+          if (-not (Test-Path $nsisExe)) {
+            throw "makensis.exe not found at $nsisExe"
+          }
+          & $nsisExe /VERSION
 
       - name: Build Windows installer
         shell: pwsh
         run: |
-            $nsisExe = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
-            if (-not (Test-Path $nsisExe)) {
-              throw "makensis.exe not found at $nsisExe"
-            }
-            & $nsisExe `
-            /DVERSION=nightly-${{ github.run_number }} `
-            /DSOURCE_DIR=build\windows\x64\runner\Release `
+          $nsisExe = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
+          $sourceDir = Join-Path $env:GITHUB_WORKSPACE 'build\windows\x64\runner\Release'
+          if (-not (Test-Path $nsisExe)) {
+            throw "makensis.exe not found at $nsisExe"
+          }
+          if (-not (Test-Path $sourceDir)) {
+            throw "Windows build output not found at $sourceDir"
+          }
+          & $nsisExe `
+            "/DVERSION=nightly-${{ github.run_number }}" `
+            "/DSOURCE_DIR=$sourceDir" `
             windows\installer\yabus.nsi
 
       - name: Upload Windows artifact

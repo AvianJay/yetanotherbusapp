@@ -16,7 +16,7 @@
   !define VERSION "0.0.0"
 !endif
 !ifndef SOURCE_DIR
-  !define SOURCE_DIR "..\build\windows\x64\runner\Release"
+  !define SOURCE_DIR "..\..\build\windows\x64\runner\Release"
 !endif
 
 Name "${APPNAME} ${VERSION}"

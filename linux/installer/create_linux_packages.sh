@@ -16,6 +16,14 @@ MAINTAINER="AvianJay"
 DESCRIPTION="台灣公車即時動態查詢"
 DEPS="libgtk-3-0, libglib2.0-0, libpango-1.0-0, libharfbuzz0b, libc6, libstdc++6"
 
+SANITIZED_DEB_VERSION="$(printf '%s' "${VERSION}" | sed 's/[^A-Za-z0-9.+:~_-]/./g')"
+NORMALIZED_DEB_VERSION="$(printf '%s' "${SANITIZED_DEB_VERSION}" | tr '-' '.')"
+if [[ "${NORMALIZED_DEB_VERSION}" =~ ^[0-9] ]]; then
+  DEB_VERSION="${NORMALIZED_DEB_VERSION}"
+else
+  DEB_VERSION="0~${NORMALIZED_DEB_VERSION}"
+fi
+
 mkdir -p "${OUTPUT_DIR}"
 
 # ── .deb package ────────────────────────────────────────────
@@ -61,7 +69,7 @@ fi
 INSTALLED_SIZE=$(du -sk "${DEB_STAGING}" | cut -f1)
 cat > "${DEB_STAGING}/DEBIAN/control" <<CONTROL
 Package: ${APP_NAME}
-Version: ${VERSION}
+Version: ${DEB_VERSION}
 Architecture: ${ARCH}
 Maintainer: ${MAINTAINER}
 Description: ${DESCRIPTION}

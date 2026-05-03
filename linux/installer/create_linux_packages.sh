@@ -148,7 +148,7 @@ fi
 
 # Build AppImage
 APPIMAGE_FILE="${OUTPUT_DIR}/YABus-${VERSION}-linux-x86_64.AppImage"
-"${APPIMAGETOOL}" "${APPDIR}" "${APPIMAGE_FILE}"
+APPIMAGE_EXTRACT_AND_RUN=1 "${APPIMAGETOOL}" "${APPDIR}" "${APPIMAGE_FILE}"
 echo "AppImage created: ${APPIMAGE_FILE}"
 
 rm -rf "${APPDIR}"

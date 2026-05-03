@@ -80,10 +80,8 @@ Section "Install"
   CreateShortcut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\${APPNAMEINTERNAL}.exe" "" \
     "$INSTDIR\${APPNAMEINTERNAL}.exe" 0
 
-  ; Auto-start flag: /S = silent (auto-update), run after install
-  ${If} ${Silent}
-    Exec '"$INSTDIR\${APPNAMEINTERNAL}.exe"'
-  ${EndIf}
+  ; Launch the app after a successful install, including silent updates.
+  Exec '"$INSTDIR\${APPNAMEINTERNAL}.exe"'
 SectionEnd
 
 ; ── Uninstall ───────────────────────────────────────────────

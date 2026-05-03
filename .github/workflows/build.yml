@@ -197,11 +197,25 @@ jobs:
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=windows-release
 
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y
+          makensis /VERSION
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          makensis `
+            /DVERSION=nightly-${{ github.run_number }} `
+            /DSOURCE_DIR=build\windows\x64\runner\Release `
+            windows\installer\yabus.nsi
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v6
         with:
           name: windows-release
-          path: build/windows/x64/runner/Release
+          path: windows/installer/YABus-nightly-${{ github.run_number }}-windows-x64-setup.exe
 
   build-linux:
     name: Build Linux
@@ -215,7 +229,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libnotify-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libnotify-dev dpkg-dev
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -241,11 +255,20 @@ jobs:
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=linux-release
 
+      - name: Package Linux installers
+        shell: bash
+        run: |
+          chmod +x linux/installer/create_linux_packages.sh
+          bash linux/installer/create_linux_packages.sh \
+            build/linux/x64/release/bundle \
+            nightly-${{ github.run_number }} \
+            build/linux/output
+
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v6
         with:
           name: linux-release
-          path: build/linux/x64/release/bundle
+          path: build/linux/output
 
   build-macos:
     name: Build macOS
@@ -280,7 +303,7 @@ jobs:
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=macos-release
 
-      - name: Package macOS app bundle
+      - name: Package macOS DMG
         shell: bash
         run: |
           APP_PATH=$(find build/macos/Build/Products/Release -maxdepth 1 -name "*.app" -type d | head -1)
@@ -288,13 +311,15 @@ jobs:
             echo "No macOS .app bundle found."
             exit 1
           fi
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" build/macos/YABus-macos.zip
+          mkdir -p build/macos/output
+          chmod +x macos/installer/create_dmg.sh
+          bash macos/installer/create_dmg.sh "$APP_PATH" nightly-${{ github.run_number }} build/macos/output
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v6
         with:
           name: macos-release
-          path: build/macos/YABus-macos.zip
+          path: build/macos/output/YABus-nightly-${{ github.run_number }}-macos.dmg
 
   build-ios-ipa:
     name: Build iOS unsigned IPA

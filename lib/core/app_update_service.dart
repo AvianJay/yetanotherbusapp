@@ -39,6 +39,16 @@ AppUpdatePackageFormat _packageFormatFromAssetName(String name) {
   return AppUpdatePackageFormat.zip;
 }
 
+AppUpdatePackageFormat get _nightlyPackageFormat {
+  if (kIsWeb) return AppUpdatePackageFormat.zip;
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.windows => AppUpdatePackageFormat.exe,
+    TargetPlatform.macOS => AppUpdatePackageFormat.dmg,
+    TargetPlatform.linux => AppUpdatePackageFormat.deb,
+    _ => AppUpdatePackageFormat.zip,
+  };
+}
+
 class AppUpdateInfo {
   const AppUpdateInfo({
     required this.channel,
@@ -171,7 +181,7 @@ class AppUpdateService {
         title: 'Nightly 更新：$latestShortSha',
         summary: commitMessage,
         downloadUrl: downloadUrl,
-        packageFormat: AppUpdatePackageFormat.zip,
+        packageFormat: _nightlyPackageFormat,
         detailsUrl: compareUrl,
         notes: '目前版本：${buildInfo.shortGitSha}\n最新版本：$latestShortSha',
       ),

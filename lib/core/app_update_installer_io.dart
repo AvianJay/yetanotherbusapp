@@ -166,6 +166,46 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
     return outputFile;
   }
 
+  Future<File> _extractPackagedInstaller(
+    File zipFile,
+    Directory outputDirectory,
+    AppUpdatePackageFormat format,
+  ) async {
+    final archive = ZipDecoder().decodeBytes(
+      await zipFile.readAsBytes(),
+      verify: false,
+    );
+    final suffix = switch (format) {
+      AppUpdatePackageFormat.exe => '.exe',
+      AppUpdatePackageFormat.dmg => '.dmg',
+      AppUpdatePackageFormat.deb => '.deb',
+      AppUpdatePackageFormat.appImage => '.appimage',
+      AppUpdatePackageFormat.apk => '.apk',
+      AppUpdatePackageFormat.zip => '.zip',
+    };
+
+    ArchiveFile? installerEntry;
+    for (final file in archive) {
+      if (file.isFile && file.name.toLowerCase().endsWith(suffix)) {
+        installerEntry = file;
+        break;
+      }
+    }
+
+    if (installerEntry == null) {
+      throw FormatException('nightly 壓縮檔裡找不到 ${suffix.toUpperCase()} 安裝檔。');
+    }
+
+    final outputFile = File(
+      p.join(outputDirectory.path, p.basename(installerEntry.name)),
+    );
+    await outputFile.writeAsBytes(
+      installerEntry.content as List<int>,
+      flush: true,
+    );
+    return outputFile;
+  }
+
   // ── Desktop update: download installer, then launch it ──────
   Future<AppUpdateInstallResult> _installDesktopUpdate(
     AppUpdateInfo update, {
@@ -194,25 +234,35 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
         onProgress: onProgress,
       );
 
+      var installerFile = downloadFile;
+      if (p.extension(downloadFile.path).toLowerCase() == '.zip') {
+        onProgress?.call(null, '整理安裝檔中…');
+        installerFile = await _extractPackagedInstaller(
+          downloadFile,
+          updateDirectory,
+          update.packageFormat,
+        );
+      }
+
       onProgress?.call(null, '啟動安裝程式…');
 
       if (defaultTargetPlatform == TargetPlatform.windows) {
         // NSIS silent install: /S means one-click auto-install
-        await Process.run(downloadFile.path, ['/S']);
+        await Process.run(installerFile.path, ['/S']);
       } else if (defaultTargetPlatform == TargetPlatform.macOS) {
         // Open the DMG so the user can drag to Applications
-        await Process.run('open', [downloadFile.path]);
+        await Process.run('open', [installerFile.path]);
       } else if (defaultTargetPlatform == TargetPlatform.linux) {
         if (update.packageFormat == AppUpdatePackageFormat.appImage) {
           // Replace the current AppImage in-place
           final currentExe = Platform.resolvedExecutable;
           final installDir = p.dirname(currentExe);
           final targetPath = p.join(installDir, p.basename(currentExe));
-          await File(downloadFile.path).rename(targetPath);
+          await File(installerFile.path).rename(targetPath);
           await Process.run('chmod', ['+x', targetPath]);
         } else {
           // deb: open with software center or dpkg
-          await Process.run('xdg-open', [downloadFile.path]);
+          await Process.run('xdg-open', [installerFile.path]);
         }
       }
 

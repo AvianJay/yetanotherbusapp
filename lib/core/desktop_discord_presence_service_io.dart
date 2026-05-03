@@ -4,8 +4,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:discord_rich_presence/discord_rich_presence.dart';
-
 import 'models.dart';
 
 final desktopDiscordPresenceService = DesktopDiscordPresenceService._();
@@ -162,7 +160,7 @@ class DesktopDiscordPresenceService {
     if (Platform.isWindows) {
       return _WindowsDiscordRpcClient(clientId: _clientId);
     }
-    return _PackageDiscordRpcClient(clientId: _clientId);
+    return _UnixDiscordRpcClient(clientId: _clientId);
   }
 
   void _scheduleReconnect() {
@@ -343,69 +341,66 @@ abstract class _DiscordRpcClient {
   Future<void> disconnect();
 }
 
-class _PackageDiscordRpcClient implements _DiscordRpcClient {
-  _PackageDiscordRpcClient({required String clientId})
-    : _client = Client(clientId: clientId);
-
-  final Client _client;
-
-  @override
-  Future<void> connect() {
-    return _client.connect();
-  }
-
-  @override
-  Future<void> setActivity(_DiscordRpcActivity activity) {
-    return _client.setActivity(
-      Activity(
-        name: 'YetAnotherBusApp',
-        type: ActivityType.playing,
-        details: activity.details,
-        state: activity.state,
-        timestamps: ActivityTimestamps(start: activity.startedAt),
-      ),
-    );
-  }
-
-  @override
-  Future<void> disconnect() {
-    return _client.disconnect();
-  }
-}
-
-class _WindowsDiscordRpcClient implements _DiscordRpcClient {
-  _WindowsDiscordRpcClient({required this.clientId});
+class _UnixDiscordRpcClient implements _DiscordRpcClient {
+  _UnixDiscordRpcClient({required this.clientId});
 
   static const _opcodeHandshake = 0;
   static const _opcodeFrame = 1;
   static const _opcodeClose = 2;
   static const _opcodePing = 3;
   static const _opcodePong = 4;
+  static const _connectTimeout = Duration(seconds: 5);
 
   final String clientId;
 
-  RandomAccessFile? _pipe;
+  Socket? _socket;
+  StreamSubscription<Uint8List>? _subscription;
+  Uint8List _pendingBytes = Uint8List(0);
+  Completer<void>? _readyCompleter;
   bool _closing = false;
   int _nonceCounter = 0;
 
   @override
   Future<void> connect() async {
-    final pipe = await _openPipe();
-    if (pipe == null) {
+    final socket = await _openSocket();
+    if (socket == null) {
       throw StateError('Discord IPC unavailable.');
     }
 
     _closing = false;
-    _pipe = pipe;
-    unawaited(_readLoop());
+    _socket = socket;
+    final readyCompleter = Completer<void>();
+    _readyCompleter = readyCompleter;
+    _subscription = socket.listen(
+      _handleChunk,
+      onError: (Object error, StackTrace stackTrace) {
+        _completeReadyError(error, stackTrace);
+      },
+      onDone: () {
+        _completeReadyError(
+          StateError('Discord IPC closed during handshake.'),
+          StackTrace.current,
+        );
+        if (!_closing) {
+          unawaited(disconnect());
+        }
+      },
+      cancelOnError: false,
+    );
+
     try {
       await _sendMessage(
         opcode: _opcodeHandshake,
         payload: <String, Object?>{'v': 1, 'client_id': clientId},
       );
+      await readyCompleter.future.timeout(_connectTimeout);
     } catch (_) {
       await disconnect();
       rethrow;
+    } finally {
+      if (identical(_readyCompleter, readyCompleter)) {
+        _readyCompleter = null;
+      }
     }
   }
 
@@ -436,6 +431,217 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
   @override
   Future<void> disconnect() async {
     _closing = true;
+    _completeReadyError(StateError('Discord IPC disconnected.'), null);
+
+    final socket = _socket;
+    _socket = null;
+    _pendingBytes = Uint8List(0);
+
+    final subscription = _subscription;
+    _subscription = null;
+    await subscription?.cancel();
+
+    if (socket == null) {
+      return;
+    }
+
+    try {
+      final payload = _encodeMessage(_opcodeClose, const <String, Object?>{});
+      socket.add(payload);
+      await socket.flush();
+    } catch (_) {
+      // Ignore disconnect write failures.
+    }
+
+    try {
+      await socket.close();
+    } catch (_) {
+      socket.destroy();
+    }
+  }
+
+  Future<Socket?> _openSocket() async {
+    for (var index = 0; index < 10; index++) {
+      final path = _socketPath(index);
+      try {
+        return await Socket.connect(
+          InternetAddress(path, type: InternetAddressType.unix),
+          0,
+          timeout: const Duration(seconds: 3),
+        );
+      } catch (_) {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  String _socketPath(int index) {
+    final environment = Platform.environment;
+    final prefix = environment['XDG_RUNTIME_DIR'] ??
+        environment['TMPDIR'] ??
+        environment['TMP'] ??
+        environment['TEMP'] ??
+        '/tmp';
+    return '$prefix/discord-ipc-$index';
+  }
+
+  void _handleChunk(Uint8List chunk) {
+    _pendingBytes = _appendBytes(_pendingBytes, chunk);
+
+    while (true) {
+      if (_pendingBytes.length < 8) {
+        return;
+      }
+
+      final header = ByteData.sublistView(_pendingBytes, 0, 8);
+      final opcode = header.getInt32(0, Endian.little);
+      final payloadLength = header.getInt32(4, Endian.little);
+      final totalLength = 8 + payloadLength;
+      if (_pendingBytes.length < totalLength) {
+        return;
+      }
+
+      final payloadBytes = Uint8List.sublistView(_pendingBytes, 8, totalLength);
+      _pendingBytes = Uint8List.sublistView(_pendingBytes, totalLength);
+      final payload = _decodePayload(payloadBytes);
+      _handleMessage(opcode: opcode, payload: payload);
+    }
+  }
+
+  void _handleMessage({
+    required int opcode,
+    required Map<String, Object?> payload,
+  }) {
+    if (opcode == _opcodePing) {
+      unawaited(_sendMessage(opcode: _opcodePong, payload: payload));
+      return;
+    }
+
+    if (opcode == _opcodeClose) {
+      _completeReadyError(
+        StateError('Discord IPC closed the connection.'),
+        StackTrace.current,
+      );
+      if (!_closing) {
+        unawaited(disconnect());
+      }
+      return;
+    }
+
+    if (opcode == _opcodeFrame && _isReadyEvent(payload)) {
+      final readyCompleter = _readyCompleter;
+      if (readyCompleter != null && !readyCompleter.isCompleted) {
+        readyCompleter.complete();
+      }
+    }
+  }
+
+  Future<void> _sendMessage({
+    required int opcode,
+    required Map<String, Object?> payload,
+  }) async {
+    final socket = _socket;
+    if (socket == null) {
+      throw StateError('Discord IPC not connected.');
+    }
+
+    socket.add(_encodeMessage(opcode, payload));
+    await socket.flush();
+  }
+
+  void _completeReadyError(Object error, StackTrace? stackTrace) {
+    final readyCompleter = _readyCompleter;
+    if (readyCompleter != null && !readyCompleter.isCompleted) {
+      readyCompleter.completeError(error, stackTrace ?? StackTrace.current);
+    }
+  }
+
+  String _nextNonce() {
+    _nonceCounter += 1;
+    return '${DateTime.now().microsecondsSinceEpoch}-$_nonceCounter';
+  }
+}
+
+class _WindowsDiscordRpcClient implements _DiscordRpcClient {
+  _WindowsDiscordRpcClient({required this.clientId});
+
+  static const _opcodeHandshake = 0;
+  static const _opcodeFrame = 1;
+  static const _opcodeClose = 2;
+  static const _opcodePing = 3;
+  static const _opcodePong = 4;
+
+  final String clientId;
+
+  RandomAccessFile? _pipe;
+  bool _closing = false;
+  int _nonceCounter = 0;
+  Completer<void>? _readyCompleter;
+
+  @override
+  Future<void> connect() async {
+    final pipe = await _openPipe();
+    if (pipe == null) {
+      throw StateError('Discord IPC unavailable.');
+    }
+
+    _closing = false;
+    _pipe = pipe;
+    final readyCompleter = Completer<void>();
+    _readyCompleter = readyCompleter;
+    unawaited(_readLoop());
+    try {
+      await _sendMessage(
+        opcode: _opcodeHandshake,
+        payload: <String, Object?>{'v': 1, 'client_id': clientId},
+      );
+      await readyCompleter.future.timeout(const Duration(seconds: 5));
+    } catch (_) {
+      await disconnect();
+      rethrow;
+    } finally {
+      if (identical(_readyCompleter, readyCompleter)) {
+        _readyCompleter = null;
+      }
+    }
+  }
+
+  @override
+  Future<void> setActivity(_DiscordRpcActivity activity) {
+    return _sendMessage(
+      opcode: _opcodeFrame,
+      payload: <String, Object?>{
+        'cmd': 'SET_ACTIVITY',
+        'args': <String, Object?>{
+          'pid': pid,
+          'activity': <String, Object?>{
+            'name': 'YetAnotherBusApp',
+            'type': 0,
+            'details': activity.details,
+            if (activity.state != null) 'state': activity.state,
+            'timestamps': <String, Object?>{
+              'start': activity.startedAt.millisecondsSinceEpoch,
+            },
+          },
+        },
+        'evt': '',
+        'nonce': _nextNonce(),
+      },
+    );
+  }
+
+  @override
+  Future<void> disconnect() async {
+    _closing = true;
+    final readyCompleter = _readyCompleter;
+    _readyCompleter = null;
+    if (readyCompleter != null && !readyCompleter.isCompleted) {
+      readyCompleter.completeError(
+        StateError('Discord IPC disconnected.'),
+        StackTrace.current,
+      );
+    }
     final pipe = _pipe;
     _pipe = null;
     if (pipe == null) {
@@ -492,7 +698,24 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
           await _sendMessage(opcode: _opcodePong, payload: payload);
           continue;
         }
+        if (opcode == _opcodeFrame) {
+          final payload = _decodePayload(payloadBytes);
+          final readyCompleter = _readyCompleter;
+          if (_isReadyEvent(payload) &&
+              readyCompleter != null &&
+              !readyCompleter.isCompleted) {
+            readyCompleter.complete();
+          }
+          continue;
+        }
         if (opcode == _opcodeClose) {
+          final readyCompleter = _readyCompleter;
+          if (readyCompleter != null && !readyCompleter.isCompleted) {
+            readyCompleter.completeError(
+              StateError('Discord IPC closed the connection.'),
+              StackTrace.current,
+            );
+          }
           break;
         }
       }
@@ -565,4 +788,47 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
     _nonceCounter += 1;
     return '${DateTime.now().microsecondsSinceEpoch}-$_nonceCounter';
   }
+}
+
+Uint8List _encodeMessage(int opcode, Map<String, Object?> payload) {
+  final body = utf8.encode(jsonEncode(payload));
+  final header = ByteData(8)
+    ..setInt32(0, opcode, Endian.little)
+    ..setInt32(4, body.length, Endian.little);
+  final builder = BytesBuilder(copy: false)
+    ..add(header.buffer.asUint8List())
+    ..add(body);
+  return builder.toBytes();
+}
+
+Map<String, Object?> _decodePayload(Uint8List payloadBytes) {
+  if (payloadBytes.isEmpty) {
+    return const <String, Object?>{};
+  }
+  final decoded = jsonDecode(utf8.decode(payloadBytes));
+  if (decoded is Map<String, dynamic>) {
+    return decoded;
+  }
+  if (decoded is Map) {
+    return decoded.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return const <String, Object?>{};
+}
+
+Uint8List _appendBytes(Uint8List existing, Uint8List additional) {
+  if (existing.isEmpty) {
+    return Uint8List.fromList(additional);
+  }
+  if (additional.isEmpty) {
+    return existing;
+  }
+
+  final combined = Uint8List(existing.length + additional.length)
+    ..setAll(0, existing)
+    ..setAll(existing.length, additional);
+  return combined;
+}
+
+bool _isReadyEvent(Map<String, Object?> payload) {
+  return payload['evt']?.toString() == 'READY';
 }

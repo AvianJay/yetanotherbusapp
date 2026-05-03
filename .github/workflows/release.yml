@@ -179,20 +179,35 @@ jobs:
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=windows-release
-      - name: Package Windows artifact
+      - name: Install NSIS
         shell: pwsh
         run: |
-          $stageRoot = 'build/windows/package'
-          $stageDir = Join-Path $stageRoot 'YABus-${{ inputs.version }}-windows-x64'
-          Remove-Item $stageRoot -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
-          Copy-Item -Recurse -Force 'build/windows/x64/runner/Release/*' $stageDir
-          Compress-Archive -Path $stageDir -DestinationPath 'build/windows/YABus-${{ inputs.version }}-windows-x64.zip' -Force
-      - name: Upload Windows artifact
+          choco install nsis -y
+          $nsisExe = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
+          if (-not (Test-Path $nsisExe)) {
+            throw "makensis.exe not found at $nsisExe"
+          }
+          & $nsisExe /VERSION
+      - name: Build NSIS installer
+        shell: pwsh
+        run: |
+          $nsisExe = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
+          $sourceDir = Join-Path $env:GITHUB_WORKSPACE 'build\windows\x64\runner\Release'
+          if (-not (Test-Path $nsisExe)) {
+            throw "makensis.exe not found at $nsisExe"
+          }
+          if (-not (Test-Path $sourceDir)) {
+            throw "Windows build output not found at $sourceDir"
+          }
+          & $nsisExe `
+            "/DVERSION=${{ inputs.version }}" `
+            "/DSOURCE_DIR=$sourceDir" `
+            windows\installer\yabus.nsi
+      - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v6
         with:
           name: windows-release
-          path: build/windows/YABus-${{ inputs.version }}-windows-x64.zip
+          path: windows/installer/YABus-${{ inputs.version }}-windows-x64-setup.exe
 
   build-linux:
     name: Build Linux
@@ -203,7 +218,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libnotify-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libnotify-dev dpkg-dev
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -229,20 +244,24 @@ jobs:
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=linux-release
-      - name: Package Linux artifact
+      - name: Package Linux .deb and AppImage
         shell: bash
         run: |
-          PACKAGE_ROOT="build/linux/package"
-          PACKAGE_DIR="$PACKAGE_ROOT/YABus-${{ inputs.version }}-linux-x64"
-          rm -rf "$PACKAGE_ROOT"
-          mkdir -p "$PACKAGE_DIR"
-          cp -R build/linux/x64/release/bundle/. "$PACKAGE_DIR/"
-          tar -C "$PACKAGE_ROOT" -czf build/linux/YABus-${{ inputs.version }}-linux-x64.tar.gz "YABus-${{ inputs.version }}-linux-x64"
-      - name: Upload Linux artifact
+          chmod +x linux/installer/create_linux_packages.sh
+          bash linux/installer/create_linux_packages.sh \
+            build/linux/x64/release/bundle \
+            ${{ inputs.version }} \
+            build/linux/output
+      - name: Upload Linux .deb artifact
         uses: actions/upload-artifact@v6
         with:
-          name: linux-release
-          path: build/linux/YABus-${{ inputs.version }}-linux-x64.tar.gz
+          name: linux-deb-release
+          path: build/linux/output/*.deb
+      - name: Upload Linux AppImage artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-appimage-release
+          path: build/linux/output/*.AppImage
 
   build-macos:
     name: Build macOS
@@ -275,7 +294,7 @@ jobs:
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=macos-release
-      - name: Package macOS app bundle
+      - name: Package macOS DMG
         shell: bash
         run: |
           APP_PATH=$(find build/macos/Build/Products/Release -maxdepth 1 -name "*.app" -type d | head -1)
@@ -283,12 +302,14 @@ jobs:
             echo "No macOS .app bundle found."
             exit 1
           fi
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "build/macos/YABus-${{ inputs.version }}-macos.zip"
+          mkdir -p build/macos/output
+          chmod +x macos/installer/create_dmg.sh
+          bash macos/installer/create_dmg.sh "$APP_PATH" ${{ inputs.version }} build/macos/output
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v6
         with:
           name: macos-release
-          path: build/macos/YABus-${{ inputs.version }}-macos.zip
+          path: build/macos/output/YABus-${{ inputs.version }}-macos.dmg
 
   build-ios-ipa:
     name: Build iOS unsigned IPA
@@ -397,17 +418,22 @@ jobs:
         with:
           name: ios-unsigned-ipa
           path: release-assets
-      - name: Download Windows package
+      - name: Download Windows installer
         uses: actions/download-artifact@v5
         with:
           name: windows-release
           path: release-assets
-      - name: Download Linux package
+      - name: Download Linux .deb
         uses: actions/download-artifact@v5
         with:
-          name: linux-release
+          name: linux-deb-release
           path: release-assets
-      - name: Download macOS package
+      - name: Download Linux AppImage
+        uses: actions/download-artifact@v5
+        with:
+          name: linux-appimage-release
+          path: release-assets
+      - name: Download macOS DMG
         uses: actions/download-artifact@v5
         with:
           name: macos-release
@@ -448,7 +474,8 @@ jobs:
           files: |
             release-assets/YABus-${{ inputs.version }}.apk
             release-assets/YABus-${{ inputs.version }}.ipa
-            release-assets/YABus-${{ inputs.version }}-windows-x64.zip
-            release-assets/YABus-${{ inputs.version }}-linux-x64.tar.gz
-            release-assets/YABus-${{ inputs.version }}-macos.zip
+            release-assets/YABus-${{ inputs.version }}-windows-x64-setup.exe
+            release-assets/YABus-${{ inputs.version }}-linux-amd64.deb
+            release-assets/YABus-${{ inputs.version }}-linux-x86_64.AppImage
+            release-assets/YABus-${{ inputs.version }}-macos.dmg
             release-assets/YABus-${{ inputs.version }}-web.zip

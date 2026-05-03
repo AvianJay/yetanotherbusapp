@@ -19,7 +19,11 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
 
   @override
   bool get supportsInAppInstall =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.linux);
 
   @override
   Future<AppUpdateInstallResult> installUpdate(
@@ -43,6 +47,14 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
       );
     }
 
+    // Desktop platforms: download installer and launch it.
+    if (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.linux) {
+      return _installDesktopUpdate(update, onProgress: onProgress);
+    }
+
+    // Android path below.
     final updateDirectory = await _prepareUpdateDirectory();
     final downloadPath = p.join(
       updateDirectory.path,
@@ -67,6 +79,7 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
           downloadFile,
           updateDirectory,
         ),
+        _ => downloadFile,
       };
 
       onProgress?.call(null, '啟動安裝程式…');
@@ -151,6 +164,118 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
     );
     await outputFile.writeAsBytes(apkEntry.content as List<int>, flush: true);
     return outputFile;
+  }
+
+  Future<File> _extractPackagedInstaller(
+    File zipFile,
+    Directory outputDirectory,
+    AppUpdatePackageFormat format,
+  ) async {
+    final archive = ZipDecoder().decodeBytes(
+      await zipFile.readAsBytes(),
+      verify: false,
+    );
+    final suffix = switch (format) {
+      AppUpdatePackageFormat.exe => '.exe',
+      AppUpdatePackageFormat.dmg => '.dmg',
+      AppUpdatePackageFormat.deb => '.deb',
+      AppUpdatePackageFormat.appImage => '.appimage',
+      AppUpdatePackageFormat.apk => '.apk',
+      AppUpdatePackageFormat.zip => '.zip',
+    };
+
+    ArchiveFile? installerEntry;
+    for (final file in archive) {
+      if (file.isFile && file.name.toLowerCase().endsWith(suffix)) {
+        installerEntry = file;
+        break;
+      }
+    }
+
+    if (installerEntry == null) {
+      throw FormatException('nightly 壓縮檔裡找不到 ${suffix.toUpperCase()} 安裝檔。');
+    }
+
+    final outputFile = File(
+      p.join(outputDirectory.path, p.basename(installerEntry.name)),
+    );
+    await outputFile.writeAsBytes(
+      installerEntry.content as List<int>,
+      flush: true,
+    );
+    return outputFile;
+  }
+
+  // ── Desktop update: download installer, then launch it ──────
+  Future<AppUpdateInstallResult> _installDesktopUpdate(
+    AppUpdateInfo update, {
+    AppUpdateInstallProgressCallback? onProgress,
+  }) async {
+    final updateDirectory = await _prepareUpdateDirectory();
+
+    // Derive local filename from download URL or package format.
+    final uriName = p.basename(Uri.parse(update.downloadUrl).path);
+    final localName = uriName.isNotEmpty
+        ? uriName
+        : switch (update.packageFormat) {
+            AppUpdatePackageFormat.exe => 'YABus-setup.exe',
+            AppUpdatePackageFormat.dmg => 'YABus-update.dmg',
+            AppUpdatePackageFormat.deb => 'YABus-update.deb',
+            AppUpdatePackageFormat.appImage => 'YABus-update.AppImage',
+            _ => 'YABus-update.zip',
+          };
+    final downloadFile = File(p.join(updateDirectory.path, localName));
+
+    try {
+      onProgress?.call(0, '下載更新中…');
+      await _downloadFile(
+        update.downloadUrl,
+        downloadFile,
+        onProgress: onProgress,
+      );
+
+      var installerFile = downloadFile;
+      if (p.extension(downloadFile.path).toLowerCase() == '.zip') {
+        onProgress?.call(null, '整理安裝檔中…');
+        installerFile = await _extractPackagedInstaller(
+          downloadFile,
+          updateDirectory,
+          update.packageFormat,
+        );
+      }
+
+      onProgress?.call(null, '啟動安裝程式…');
+
+      if (defaultTargetPlatform == TargetPlatform.windows) {
+        // NSIS silent install: /S means one-click auto-install
+        await Process.run(installerFile.path, ['/S']);
+      } else if (defaultTargetPlatform == TargetPlatform.macOS) {
+        // Open the DMG so the user can drag to Applications
+        await Process.run('open', [installerFile.path]);
+      } else if (defaultTargetPlatform == TargetPlatform.linux) {
+        if (update.packageFormat == AppUpdatePackageFormat.appImage) {
+          // Replace the current AppImage in-place
+          final currentExe = Platform.resolvedExecutable;
+          final installDir = p.dirname(currentExe);
+          final targetPath = p.join(installDir, p.basename(currentExe));
+          await File(installerFile.path).rename(targetPath);
+          await Process.run('chmod', ['+x', targetPath]);
+        } else {
+          // deb: open with software center or dpkg
+          await Process.run('xdg-open', [installerFile.path]);
+        }
+      }
+
+      return const AppUpdateInstallResult(
+        status: AppUpdateInstallStatus.launchedInstaller,
+        message: '安裝程式已啟動。請依照指示完成安裝後重新開啟 App。',
+      );
+    } catch (error) {
+      return AppUpdateInstallResult(
+        status: AppUpdateInstallStatus.failed,
+        message: '下載或安裝更新失敗：$error',
+      );
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'api_user_agent.dart';
@@ -8,7 +9,45 @@ import 'models.dart';
 
 enum AppUpdateStatus { unavailable, upToDate, updateAvailable }
 
-enum AppUpdatePackageFormat { apk, zip }
+enum AppUpdatePackageFormat {
+  apk,
+  zip,
+  exe,
+  dmg,
+  deb,
+  appImage,
+}
+
+/// The preferred asset suffix for the current platform when checking
+/// GitHub Release assets for a downloadable update.
+String get _platformAssetSuffix {
+  if (kIsWeb) return '';
+  if (defaultTargetPlatform == TargetPlatform.windows) return '-windows-x64-setup.exe';
+  if (defaultTargetPlatform == TargetPlatform.macOS) return '-macos.dmg';
+  if (defaultTargetPlatform == TargetPlatform.linux) return '-linux-amd64.deb';
+  return '.apk';
+}
+
+/// Map a release asset filename to the corresponding package format.
+AppUpdatePackageFormat _packageFormatFromAssetName(String name) {
+  final lower = name.toLowerCase();
+  if (lower.endsWith('.apk')) return AppUpdatePackageFormat.apk;
+  if (lower.endsWith('setup.exe')) return AppUpdatePackageFormat.exe;
+  if (lower.endsWith('.dmg')) return AppUpdatePackageFormat.dmg;
+  if (lower.endsWith('.deb')) return AppUpdatePackageFormat.deb;
+  if (lower.endsWith('.appimage')) return AppUpdatePackageFormat.appImage;
+  return AppUpdatePackageFormat.zip;
+}
+
+AppUpdatePackageFormat get _nightlyPackageFormat {
+  if (kIsWeb) return AppUpdatePackageFormat.zip;
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.windows => AppUpdatePackageFormat.exe,
+    TargetPlatform.macOS => AppUpdatePackageFormat.dmg,
+    TargetPlatform.linux => AppUpdatePackageFormat.deb,
+    _ => AppUpdatePackageFormat.zip,
+  };
+}
 
 class AppUpdateInfo {
   const AppUpdateInfo({
@@ -142,7 +181,7 @@ class AppUpdateService {
         title: 'Nightly 更新：$latestShortSha',
         summary: commitMessage,
         downloadUrl: downloadUrl,
-        packageFormat: AppUpdatePackageFormat.zip,
+        packageFormat: _nightlyPackageFormat,
         detailsUrl: compareUrl,
         notes: '目前版本：${buildInfo.shortGitSha}\n最新版本：$latestShortSha',
       ),
@@ -171,25 +210,33 @@ class AppUpdateService {
     }
 
     final assets = payload['assets'] as List<dynamic>? ?? const [];
-    Map<String, dynamic>? apkAsset;
-    for (final asset in assets.whereType<Map<String, dynamic>>()) {
-      final name = (asset['name'] as String? ?? '').toLowerCase();
-      if (name.endsWith('.apk')) {
-        apkAsset = asset;
-        break;
+
+    // Find the best-matching asset for the current platform.
+    Map<String, dynamic>? platformAsset;
+    final suffix = _platformAssetSuffix;
+    if (suffix.isNotEmpty) {
+      for (final asset in assets.whereType<Map<String, dynamic>>()) {
+        final name = asset['name'] as String? ?? '';
+        if (name.contains(suffix)) {
+          platformAsset = asset;
+          break;
+        }
       }
     }
 
-    if (apkAsset == null) {
-      return AppUpdateCheckResult(
-        status: AppUpdateStatus.unavailable,
-        message: '發現新 release $latestTag，但沒有 Android APK 可下載。',
-      );
-    }
+    // Fallback: try APK for mobile, generic zip otherwise.
+    platformAsset ??= assets.whereType<Map<String, dynamic>>().firstWhere(
+      (asset) => (asset['name'] as String? ?? '').toLowerCase().endsWith('.apk'),
+      orElse: () => assets.whereType<Map<String, dynamic>>().firstWhere(
+        (asset) => (asset['name'] as String? ?? '').toLowerCase().endsWith('.zip'),
+        orElse: () => throw StateError('no matching asset'),
+      ),
+    );
 
+    final assetName = platformAsset['name'] as String? ?? '';
     final body = (payload['body'] as String? ?? '').trim();
     final releaseUrl = payload['html_url'] as String?;
-    final downloadUrl = apkAsset['browser_download_url'] as String? ?? '';
+    final downloadUrl = platformAsset['browser_download_url'] as String? ?? '';
     if (downloadUrl.isEmpty) {
       return AppUpdateCheckResult(
         status: AppUpdateStatus.unavailable,
@@ -207,7 +254,7 @@ class AppUpdateService {
         title: 'Release 更新：$latestTag',
         summary: body.isEmpty ? '新的 release 已可下載。' : body.split('\n').first,
         downloadUrl: downloadUrl,
-        packageFormat: AppUpdatePackageFormat.apk,
+        packageFormat: _packageFormatFromAssetName(assetName),
         detailsUrl: releaseUrl,
         notes: body.isEmpty ? null : body,
       ),

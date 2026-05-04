@@ -4,6 +4,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:discord_rich_presence/discord_rich_presence.dart'
+  as discord_rpc;
+
 import 'models.dart';
 
 final desktopDiscordPresenceService = DesktopDiscordPresenceService._();
@@ -157,10 +160,7 @@ class DesktopDiscordPresenceService {
   }
 
   _DiscordRpcClient _createClient() {
-    if (Platform.isWindows) {
-      return _WindowsDiscordRpcClient(clientId: _clientId);
-    }
-    return _UnixDiscordRpcClient(clientId: _clientId);
+    return _PackageDiscordRpcClient(clientId: _clientId);
   }
 
   void _scheduleReconnect() {
@@ -341,6 +341,47 @@ abstract class _DiscordRpcClient {
   Future<void> disconnect();
 }
 
+class _PackageDiscordRpcClient implements _DiscordRpcClient {
+  _PackageDiscordRpcClient({required this.clientId});
+
+  final String clientId;
+
+  discord_rpc.Client? _client;
+
+  @override
+  Future<void> connect() async {
+    final client = discord_rpc.Client(clientId: clientId);
+    await client.connect();
+    _client = client;
+  }
+
+  @override
+  Future<void> setActivity(_DiscordRpcActivity activity) async {
+    final client = _client;
+    if (client == null) {
+      throw StateError('Discord IPC not connected.');
+    }
+
+    await client.setActivity(
+      discord_rpc.Activity(
+        name: 'YetAnotherBusApp',
+        type: discord_rpc.ActivityType.playing,
+        details: activity.details,
+        state: activity.state,
+        timestamps: discord_rpc.ActivityTimestamps(start: activity.startedAt),
+      ),
+    );
+  }
+
+  @override
+  Future<void> disconnect() async {
+    final client = _client;
+    _client = null;
+    await client?.disconnect();
+  }
+}
+
+// ignore: unused_element
 class _UnixDiscordRpcClient implements _DiscordRpcClient {
   _UnixDiscordRpcClient({required this.clientId});
 
@@ -563,6 +604,7 @@ class _UnixDiscordRpcClient implements _DiscordRpcClient {
   }
 }
 
+// ignore: unused_element
 class _WindowsDiscordRpcClient implements _DiscordRpcClient {
   _WindowsDiscordRpcClient({required this.clientId});
 

@@ -164,13 +164,14 @@ class _TransitStationMapState extends State<TransitStationMap> {
                         final selected = point.id == widget.selectedPointId;
                         return Marker(
                           point: point.latLng,
-                          width: selected ? 92 : 72,
-                          height: selected ? 66 : 58,
+                          width: selected ? 160 : 148,
+                          height: selected ? 70 : 62,
                           child: GestureDetector(
                             onTap: () => widget.onPointSelected?.call(point),
                             child: _TransitPointMarker(
                               point: point,
                               selected: selected,
+                              labelMaxWidth: selected ? 104 : 92,
                             ),
                           ),
                         );
@@ -196,10 +197,15 @@ class _TransitStationMapState extends State<TransitStationMap> {
 }
 
 class _TransitPointMarker extends StatelessWidget {
-  const _TransitPointMarker({required this.point, required this.selected});
+  const _TransitPointMarker({
+    required this.point,
+    required this.selected,
+    required this.labelMaxWidth,
+  });
 
   final TransitMapPoint point;
   final bool selected;
+  final double labelMaxWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -242,12 +248,13 @@ class _TransitPointMarker extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 120),
+                constraints: BoxConstraints(maxWidth: labelMaxWidth),
                 child: Text(
                   point.badge?.isNotEmpty == true
                       ? '${point.badge} ${point.label}'
                       : point.label,
                   maxLines: 1,
+                  softWrap: false,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelLarge?.copyWith(
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,

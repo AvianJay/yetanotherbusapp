@@ -27,6 +27,8 @@ abstract class AppUpdateInstaller {
 
   bool get supportsInAppInstall;
 
+  Future<void> exitAfterLaunchingInstaller();
+
   Future<AppUpdateInstallResult> installUpdate(
     AppUpdateInfo update, {
     AppUpdateInstallProgressCallback? onProgress,

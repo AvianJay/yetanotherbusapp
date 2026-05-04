@@ -26,6 +26,15 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
           defaultTargetPlatform == TargetPlatform.linux);
 
   @override
+  Future<void> exitAfterLaunchingInstaller() async {
+    if (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.linux) {
+      exit(0);
+    }
+  }
+
+  @override
   Future<AppUpdateInstallResult> installUpdate(
     AppUpdateInfo update, {
     AppUpdateInstallProgressCallback? onProgress,

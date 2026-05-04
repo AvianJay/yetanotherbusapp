@@ -8,6 +8,9 @@ class StubAppUpdateInstaller extends AppUpdateInstaller {
   bool get supportsInAppInstall => false;
 
   @override
+  Future<void> exitAfterLaunchingInstaller() async {}
+
+  @override
   Future<AppUpdateInstallResult> installUpdate(
     AppUpdateInfo update, {
     AppUpdateInstallProgressCallback? onProgress,

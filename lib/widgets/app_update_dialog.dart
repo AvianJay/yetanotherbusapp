@@ -86,6 +86,7 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
     if (installResult.didLaunchInstaller &&
         _shouldExitAfterSchedulingInstaller) {
       Navigator.of(context).pop();
+      await widget.controller.appUpdateInstaller.exitAfterLaunchingInstaller();
       await SystemNavigator.pop();
       return;
     }

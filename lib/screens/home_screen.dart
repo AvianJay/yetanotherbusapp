@@ -737,6 +737,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                               Text(
                                 nearestStop.stopName,
                                 style: theme.textTheme.titleMedium,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(height: 2),
                               Text(
@@ -744,6 +746,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                                     ? ''
                                     : '距離你約 ${formatDistance(suggestion.distanceMeters!)}。',
                                 style: theme.textTheme.bodySmall,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),
@@ -814,17 +818,23 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                   Text(
                     nearby.result.stop.stopName,
                     style: theme.textTheme.titleMedium,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
                   Text(
                     '距離你約 ${formatDistance(nearby.result.distanceMeters)}。',
                     style: theme.textTheme.bodyMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   if (nearby.path != null) ...[
                     const SizedBox(height: 8),
                     Text(
                       '方向：${nearby.path!.name}',
                       style: theme.textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ],
@@ -1173,11 +1183,15 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     fontWeight: FontWeight.w700,
                                   ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
                                   '${busProviderFromString(selected.route.sourceProvider).label} · ${selected.route.routeName}',
                                   style: theme.textTheme.bodyMedium,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ],
                             ),

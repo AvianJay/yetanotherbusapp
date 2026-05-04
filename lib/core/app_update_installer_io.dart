@@ -294,17 +294,13 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
     File installerFile, {
     required AppUpdatePackageFormat packageFormat,
   }) async {
+    final appPid = pid;
     final installerPath = _quoteForPowerShell(installerFile.path);
-    final argumentsClause = packageFormat == AppUpdatePackageFormat.exe
-        ? ' -ArgumentList \'/S\''
-        : '';
     final script =
         '''
-\$pidToWait = $pid
-while (Get-Process -Id \$pidToWait -ErrorAction SilentlyContinue) {
-  Start-Sleep -Milliseconds 300
-}
-Start-Process -FilePath $installerPath$argumentsClause
+\$pidToWait = $appPid
+Wait-Process -Id \$pidToWait -ErrorAction SilentlyContinue
+Start-Process -FilePath $installerPath
 ''';
 
     await Process.start('powershell', [

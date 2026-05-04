@@ -575,7 +575,6 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
   static const _opcodeClose = 2;
   static const _opcodePing = 3;
   static const _opcodePong = 4;
-  static const _readPollInterval = Duration(milliseconds: 50);
 
   final String clientId;
 
@@ -736,17 +735,12 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
   Future<Uint8List?> _readExact(int byteCount) async {
     final builder = BytesBuilder(copy: false);
     while (builder.length < byteCount) {
-      final remaining = byteCount - builder.length;
-      final hasAvailableBytes = await _waitForAvailableBytes(remaining);
-      if (!hasAvailableBytes) {
-        return null;
-      }
-
       final pipe = _pipe;
       if (pipe == null) {
         return null;
       }
 
+      final remaining = byteCount - builder.length;
       final chunk = await pipe.read(remaining);
       if (chunk.isEmpty) {
         return null;
@@ -754,28 +748,6 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
       builder.add(chunk);
     }
     return builder.toBytes();
-  }
-
-  Future<bool> _waitForAvailableBytes(int minimumBytes) async {
-    while (!_closing) {
-      final pipe = _pipe;
-      if (pipe == null) {
-        return false;
-      }
-
-      try {
-        final availableBytes = await pipe.length();
-        if (availableBytes >= minimumBytes) {
-          return true;
-        }
-      } catch (_) {
-        return false;
-      }
-
-      await Future<void>.delayed(_readPollInterval);
-    }
-
-    return false;
   }
 
   Future<void> _sendMessage({

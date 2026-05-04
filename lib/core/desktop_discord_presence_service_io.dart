@@ -2,7 +2,10 @@ import 'dart:io';
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' as ffi;
 import 'dart:typed_data';
+
+import 'package:ffi/ffi.dart';
 
 import 'models.dart';
 
@@ -157,8 +160,8 @@ class DesktopDiscordPresenceService {
   }
 
   _DiscordRpcClient _createClient() {
-    // The pub package writes JSON frames from UTF-16 code units, which breaks
-    // non-ASCII presence strings on desktop IPC transports.
+    // The package transport writes JSON frames from UTF-16 code units,
+    // which breaks non-ASCII presence strings on desktop IPC transports.
     if (Platform.isWindows) {
       return _WindowsDiscordRpcClient(clientId: _clientId);
     }
@@ -566,7 +569,6 @@ class _UnixDiscordRpcClient implements _DiscordRpcClient {
   }
 }
 
-// ignore: unused_element
 class _WindowsDiscordRpcClient implements _DiscordRpcClient {
   _WindowsDiscordRpcClient({required this.clientId});
 
@@ -575,31 +577,122 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
   static const _opcodeClose = 2;
   static const _opcodePing = 3;
   static const _opcodePong = 4;
+  static const _readPollInterval = Duration(milliseconds: 50);
+  static const _genericRead = 0x80000000;
+  static const _genericWrite = 0x40000000;
+  static const _openExisting = 3;
+  static const _invalidHandleValue = -1;
+
+  static final ffi.DynamicLibrary _kernel32 = ffi.DynamicLibrary.open(
+    'kernel32.dll',
+  );
+  static final _createFile = _kernel32.lookupFunction<
+    ffi.IntPtr Function(
+      ffi.Pointer<Utf16>,
+      ffi.Uint32,
+      ffi.Uint32,
+      ffi.Pointer<ffi.Void>,
+      ffi.Uint32,
+      ffi.Uint32,
+      ffi.IntPtr,
+    ),
+    int Function(
+      ffi.Pointer<Utf16>,
+      int,
+      int,
+      ffi.Pointer<ffi.Void>,
+      int,
+      int,
+      int,
+    )
+  >('CreateFileW');
+  static final _peekNamedPipe = _kernel32.lookupFunction<
+    ffi.Int32 Function(
+      ffi.IntPtr,
+      ffi.Pointer<ffi.Void>,
+      ffi.Uint32,
+      ffi.Pointer<ffi.Uint32>,
+      ffi.Pointer<ffi.Uint32>,
+      ffi.Pointer<ffi.Uint32>,
+    ),
+    int Function(
+      int,
+      ffi.Pointer<ffi.Void>,
+      int,
+      ffi.Pointer<ffi.Uint32>,
+      ffi.Pointer<ffi.Uint32>,
+      ffi.Pointer<ffi.Uint32>,
+    )
+  >('PeekNamedPipe');
+  static final _readFile = _kernel32.lookupFunction<
+    ffi.Int32 Function(
+      ffi.IntPtr,
+      ffi.Pointer<ffi.Uint8>,
+      ffi.Uint32,
+      ffi.Pointer<ffi.Uint32>,
+      ffi.Pointer<ffi.Void>,
+    ),
+    int Function(
+      int,
+      ffi.Pointer<ffi.Uint8>,
+      int,
+      ffi.Pointer<ffi.Uint32>,
+      ffi.Pointer<ffi.Void>,
+    )
+  >('ReadFile');
+  static final _writeFile = _kernel32.lookupFunction<
+    ffi.Int32 Function(
+      ffi.IntPtr,
+      ffi.Pointer<ffi.Uint8>,
+      ffi.Uint32,
+      ffi.Pointer<ffi.Uint32>,
+      ffi.Pointer<ffi.Void>,
+    ),
+    int Function(
+      int,
+      ffi.Pointer<ffi.Uint8>,
+      int,
+      ffi.Pointer<ffi.Uint32>,
+      ffi.Pointer<ffi.Void>,
+    )
+  >('WriteFile');
+  static final _closeHandle = _kernel32.lookupFunction<
+    ffi.Int32 Function(ffi.IntPtr),
+    int Function(int)
+  >('CloseHandle');
 
   final String clientId;
 
-  RandomAccessFile? _pipe;
+  int? _pipeHandle;
+  Timer? _readTimer;
   bool _closing = false;
+  bool _reading = false;
   int _nonceCounter = 0;
   Completer<void>? _readyCompleter;
+  Uint8List _pendingBytes = Uint8List(0);
 
   @override
   Future<void> connect() async {
-    final pipe = await _openPipe();
-    if (pipe == null) {
+    final pipeHandle = _openPipe();
+    if (pipeHandle == null) {
       throw StateError('Discord IPC unavailable.');
     }
 
     _closing = false;
-    _pipe = pipe;
+    _pipeHandle = pipeHandle;
+    _pendingBytes = Uint8List(0);
     final readyCompleter = Completer<void>();
     _readyCompleter = readyCompleter;
-    unawaited(_readLoop());
+    _readTimer = Timer.periodic(_readPollInterval, (_) {
+      unawaited(_pumpRead());
+    });
+
     try {
       await _sendMessage(
         opcode: _opcodeHandshake,
         payload: <String, Object?>{'v': 1, 'client_id': clientId},
       );
+      unawaited(_pumpRead());
       await readyCompleter.future.timeout(const Duration(seconds: 5));
     } catch (_) {
       await disconnect();
@@ -638,6 +731,8 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
   @override
   Future<void> disconnect() async {
     _closing = true;
+    _readTimer?.cancel();
+    _readTimer = null;
     final readyCompleter = _readyCompleter;
     _readyCompleter = null;
     if (readyCompleter != null && !readyCompleter.isCompleted) {
@@ -646,146 +741,215 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
         StackTrace.current,
       );
     }
-    final pipe = _pipe;
-    _pipe = null;
-    if (pipe == null) {
+    final pipeHandle = _pipeHandle;
+    _pipeHandle = null;
+    _pendingBytes = Uint8List(0);
+    if (pipeHandle == null) {
       return;
     }
 
     try {
-      final payload = _encodeMessage(_opcodeClose, const <String, Object?>{});
-      await pipe.writeFrom(payload);
+      _writeBytes(
+        pipeHandle,
+        _encodeMessage(_opcodeClose, const <String, Object?>{}),
+      );
     } catch (_) {
       // Ignore disconnect write failures.
     }
 
-    try {
-      await pipe.close();
-    } catch (_) {
-      // Ignore close errors.
-    }
+    _closeHandle(pipeHandle);
   }
 
-  Future<RandomAccessFile?> _openPipe() async {
+  int? _openPipe() {
     for (var index = 0; index < 10; index++) {
+      final path = _pipePath(index).toNativeUtf16();
       try {
-        return await File(_pipePath(index)).open(mode: FileMode.write);
-      } catch (_) {
-        continue;
+        final handle = _createFile(
+          path,
+          _genericRead | _genericWrite,
+          0,
+          ffi.nullptr,
+          _openExisting,
+          0,
+          0,
+        );
+        if (handle != _invalidHandleValue) {
+          return handle;
+        }
+      } finally {
+        calloc.free(path);
       }
     }
+
     return null;
   }
 
-  String _pipePath(int index) => '\\\\?\\pipe\\discord-ipc-$index';
+  String _pipePath(int index) => r'\\?\pipe\discord-ipc-' '$index';
 
-  Future<void> _readLoop() async {
+  Future<void> _pumpRead() async {
+    if (_reading || _closing) {
+      return;
+    }
+
+    _reading = true;
     try {
       while (!_closing) {
-        final headerBytes = await _readExact(8);
-        if (headerBytes == null) {
-          break;
+        final pipeHandle = _pipeHandle;
+        if (pipeHandle == null) {
+          return;
         }
 
-        final header = ByteData.sublistView(headerBytes);
-        final opcode = header.getInt32(0, Endian.little);
-        final payloadLength = header.getInt32(4, Endian.little);
-        final payloadBytes = payloadLength == 0
-            ? Uint8List(0)
-            : await _readExact(payloadLength);
-        if (payloadBytes == null) {
-          break;
+        final availableBytes = _peekAvailableBytes(pipeHandle);
+        if (availableBytes == null) {
+          throw StateError('Discord IPC peek failed.');
+        }
+        if (availableBytes == 0) {
+          return;
         }
 
-        if (opcode == _opcodePing) {
-          final payload = _decodePayload(payloadBytes);
-          await _sendMessage(opcode: _opcodePong, payload: payload);
-          continue;
+        final chunk = _readAvailableBytes(pipeHandle, availableBytes);
+        if (chunk == null || chunk.isEmpty) {
+          throw StateError('Discord IPC closed during read.');
         }
-        if (opcode == _opcodeFrame) {
-          final payload = _decodePayload(payloadBytes);
-          final readyCompleter = _readyCompleter;
-          if (_isReadyEvent(payload) &&
-              readyCompleter != null &&
-              !readyCompleter.isCompleted) {
-            readyCompleter.complete();
-          }
-          continue;
-        }
-        if (opcode == _opcodeClose) {
-          final readyCompleter = _readyCompleter;
-          if (readyCompleter != null && !readyCompleter.isCompleted) {
-            readyCompleter.completeError(
-              StateError('Discord IPC closed the connection.'),
-              StackTrace.current,
-            );
-          }
-          break;
-        }
+
+        _pendingBytes = _appendBytes(_pendingBytes, chunk);
+        _drainPendingMessages();
       }
     } catch (_) {
-      // Ignore transport read errors; the service will reconnect on next update.
-    } finally {
       if (!_closing) {
         await disconnect();
+      }
+    } finally {
+      _reading = false;
+    }
+  }
+
+  void _drainPendingMessages() {
+    while (true) {
+      if (_pendingBytes.length < 8) {
+        return;
+      }
+
+      final header = ByteData.sublistView(_pendingBytes, 0, 8);
+      final opcode = header.getInt32(0, Endian.little);
+      final payloadLength = header.getInt32(4, Endian.little);
+      final totalLength = 8 + payloadLength;
+      if (_pendingBytes.length < totalLength) {
+        return;
+      }
+
+      final payloadBytes = Uint8List.fromList(
+        Uint8List.sublistView(_pendingBytes, 8, totalLength),
+      );
+      _pendingBytes = Uint8List.sublistView(_pendingBytes, totalLength);
+
+      if (opcode == _opcodePing) {
+        final payload = _decodePayload(payloadBytes);
+        unawaited(_sendMessage(opcode: _opcodePong, payload: payload));
+        continue;
+      }
+
+      if (opcode == _opcodeClose) {
+        final readyCompleter = _readyCompleter;
+        if (readyCompleter != null && !readyCompleter.isCompleted) {
+          readyCompleter.completeError(
+            StateError('Discord IPC closed the connection.'),
+            StackTrace.current,
+          );
+        }
+        return;
+      }
+
+      if (opcode == _opcodeFrame) {
+        final payload = _decodePayload(payloadBytes);
+        final readyCompleter = _readyCompleter;
+        if (_isReadyEvent(payload) &&
+            readyCompleter != null &&
+            !readyCompleter.isCompleted) {
+          readyCompleter.complete();
+        }
       }
     }
   }
 
-  Future<Uint8List?> _readExact(int byteCount) async {
-    final builder = BytesBuilder(copy: false);
-    while (builder.length < byteCount) {
-      final pipe = _pipe;
-      if (pipe == null) {
+  int? _peekAvailableBytes(int pipeHandle) {
+    final totalBytesAvail = calloc<ffi.Uint32>();
+    try {
+      final result = _peekNamedPipe(
+        pipeHandle,
+        ffi.nullptr,
+        0,
+        ffi.nullptr.cast<ffi.Uint32>(),
+        totalBytesAvail,
+        ffi.nullptr.cast<ffi.Uint32>(),
+      );
+      if (result == 0) {
+        return null;
+      }
+      return totalBytesAvail.value;
+    } finally {
+      calloc.free(totalBytesAvail);
+    }
+  }
+
+  Uint8List? _readAvailableBytes(int pipeHandle, int availableBytes) {
+    final bytesToRead = availableBytes > 4096 ? 4096 : availableBytes;
+    final chunk = calloc<ffi.Uint8>(bytesToRead);
+    final bytesRead = calloc<ffi.Uint32>();
+    try {
+      final result = _readFile(
+        pipeHandle,
+        chunk,
+        bytesToRead,
+        bytesRead,
+        ffi.nullptr,
+      );
+      if (result == 0) {
         return null;
       }
 
-      final remaining = byteCount - builder.length;
-      final chunk = await pipe.read(remaining);
-      if (chunk.isEmpty) {
-        return null;
+      final readCount = bytesRead.value;
+      if (readCount == 0) {
+        return Uint8List(0);
       }
-      builder.add(chunk);
+      return Uint8List.fromList(chunk.asTypedList(readCount));
+    } finally {
+      calloc.free(bytesRead);
+      calloc.free(chunk);
     }
-    return builder.toBytes();
   }
 
   Future<void> _sendMessage({
     required int opcode,
     required Map<String, Object?> payload,
   }) async {
-    final pipe = _pipe;
-    if (pipe == null) {
+    final pipeHandle = _pipeHandle;
+    if (pipeHandle == null) {
       throw StateError('Discord IPC not connected.');
     }
 
-    final message = _encodeMessage(opcode, payload);
-    await pipe.writeFrom(message);
+    _writeBytes(pipeHandle, _encodeMessage(opcode, payload));
   }
 
-  Uint8List _encodeMessage(int opcode, Map<String, Object?> payload) {
-    final body = utf8.encode(jsonEncode(payload));
-    final header = ByteData(8)
-      ..setInt32(0, opcode, Endian.little)
-      ..setInt32(4, body.length, Endian.little);
-    final builder = BytesBuilder(copy: false)
-      ..add(header.buffer.asUint8List())
-      ..add(body);
-    return builder.toBytes();
-  }
-
-  Map<String, Object?> _decodePayload(Uint8List payloadBytes) {
-    if (payloadBytes.isEmpty) {
-      return const <String, Object?>{};
+  void _writeBytes(int pipeHandle, Uint8List message) {
+    final messagePtr = calloc<ffi.Uint8>(message.length);
+    final bytesWritten = calloc<ffi.Uint32>();
+    try {
+      messagePtr.asTypedList(message.length).setAll(0, message);
+      final result = _writeFile(
+        pipeHandle,
+        messagePtr,
+        message.length,
+        bytesWritten,
+        ffi.nullptr,
+      );
+      if (result == 0 || bytesWritten.value != message.length) {
+        throw StateError('Discord IPC write failed.');
+      }
+    } finally {
+      calloc.free(bytesWritten);
+      calloc.free(messagePtr);
     }
-    final decoded = jsonDecode(utf8.decode(payloadBytes));
-    if (decoded is Map<String, dynamic>) {
-      return decoded;
-    }
-    if (decoded is Map) {
-      return decoded.map((key, value) => MapEntry(key.toString(), value));
-    }
-    return const <String, Object?>{};
   }
 
   String _nextNonce() {

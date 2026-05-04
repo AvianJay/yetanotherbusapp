@@ -16,7 +16,7 @@ import 'core/storage_service.dart';
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
-  configureDatabaseFactory();
+  await configureDatabaseFactory();
   try {
     await AppLaunchService.instance.initialize();
     final analytics = await AppAnalytics.initialize();

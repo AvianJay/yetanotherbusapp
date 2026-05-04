@@ -83,7 +83,8 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
       return;
     }
 
-    if (installResult.didLaunchInstaller && _shouldExitAfterSchedulingInstaller) {
+    if (installResult.didLaunchInstaller &&
+        _shouldExitAfterSchedulingInstaller) {
       Navigator.of(context).pop();
       await SystemNavigator.pop();
       return;

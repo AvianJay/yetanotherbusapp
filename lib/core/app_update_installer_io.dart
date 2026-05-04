@@ -245,31 +245,15 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
         );
       }
 
-      onProgress?.call(null, '啟動安裝程式…');
-
-      if (defaultTargetPlatform == TargetPlatform.windows) {
-        // NSIS silent install: /S means one-click auto-install
-        await Process.run(installerFile.path, ['/S']);
-      } else if (defaultTargetPlatform == TargetPlatform.macOS) {
-        // Open the DMG so the user can drag to Applications
-        await Process.run('open', [installerFile.path]);
-      } else if (defaultTargetPlatform == TargetPlatform.linux) {
-        if (update.packageFormat == AppUpdatePackageFormat.appImage) {
-          // Replace the current AppImage in-place
-          final currentExe = Platform.resolvedExecutable;
-          final installDir = p.dirname(currentExe);
-          final targetPath = p.join(installDir, p.basename(currentExe));
-          await File(installerFile.path).rename(targetPath);
-          await Process.run('chmod', ['+x', targetPath]);
-        } else {
-          // deb: open with software center or dpkg
-          await Process.run('xdg-open', [installerFile.path]);
-        }
-      }
+      onProgress?.call(null, '準備關閉 App 並啟動安裝程式…');
+      await _scheduleDesktopInstallerLaunch(
+        installerFile,
+        packageFormat: update.packageFormat,
+      );
 
       return const AppUpdateInstallResult(
         status: AppUpdateInstallStatus.launchedInstaller,
-        message: '安裝程式已啟動。請依照指示完成安裝後重新開啟 App。',
+        message: '安裝程式已排程。App 關閉後會自動啟動安裝程式。',
       );
     } catch (error) {
       return AppUpdateInstallResult(
@@ -277,6 +261,120 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
         message: '下載或安裝更新失敗：$error',
       );
     }
+  }
+
+  Future<void> _scheduleDesktopInstallerLaunch(
+    File installerFile, {
+    required AppUpdatePackageFormat packageFormat,
+  }) async {
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      await _scheduleWindowsInstallerLaunch(
+        installerFile,
+        packageFormat: packageFormat,
+      );
+      return;
+    }
+
+    await _scheduleUnixInstallerLaunch(
+      installerFile,
+      packageFormat: packageFormat,
+    );
+  }
+
+  Future<void> _scheduleWindowsInstallerLaunch(
+    File installerFile, {
+    required AppUpdatePackageFormat packageFormat,
+  }) async {
+    final installerPath = _quoteForPowerShell(installerFile.path);
+    final argumentsClause = packageFormat == AppUpdatePackageFormat.exe
+        ? ' -ArgumentList \'/S\''
+        : '';
+    final script =
+        '''
+\$pidToWait = $pid
+while (Get-Process -Id \$pidToWait -ErrorAction SilentlyContinue) {
+  Start-Sleep -Milliseconds 300
+}
+Start-Process -FilePath $installerPath$argumentsClause
+''';
+
+    await Process.start('powershell', [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-WindowStyle',
+      'Hidden',
+      '-Command',
+      script,
+    ], mode: ProcessStartMode.detached);
+  }
+
+  Future<void> _scheduleUnixInstallerLaunch(
+    File installerFile, {
+    required AppUpdatePackageFormat packageFormat,
+  }) async {
+    final script = switch (defaultTargetPlatform) {
+      TargetPlatform.macOS => _buildMacInstallerLaunchScript(installerFile),
+      TargetPlatform.linux => _buildLinuxInstallerLaunchScript(
+        installerFile,
+        packageFormat: packageFormat,
+      ),
+      _ => throw UnsupportedError('Unsupported desktop installer platform.'),
+    };
+
+    await Process.start('/bin/sh', [
+      '-c',
+      script,
+    ], mode: ProcessStartMode.detached);
+  }
+
+  String _buildMacInstallerLaunchScript(File installerFile) {
+    final installerPath = _quoteForShell(installerFile.path);
+    return '''
+while kill -0 $pid 2>/dev/null; do
+  sleep 1
+done
+open $installerPath
+''';
+  }
+
+  String _buildLinuxInstallerLaunchScript(
+    File installerFile, {
+    required AppUpdatePackageFormat packageFormat,
+  }) {
+    if (packageFormat == AppUpdatePackageFormat.appImage) {
+      final currentExecutable = Platform.resolvedExecutable;
+      final targetPath = p.join(
+        p.dirname(currentExecutable),
+        p.basename(currentExecutable),
+      );
+      final installerPath = _quoteForShell(installerFile.path);
+      final quotedTargetPath = _quoteForShell(targetPath);
+      return '''
+while kill -0 $pid 2>/dev/null; do
+  sleep 1
+done
+mv -f $installerPath $quotedTargetPath
+chmod +x $quotedTargetPath
+$quotedTargetPath >/dev/null 2>&1 &
+''';
+    }
+
+    final installerPath = _quoteForShell(installerFile.path);
+    return '''
+while kill -0 $pid 2>/dev/null; do
+  sleep 1
+done
+xdg-open $installerPath
+''';
+  }
+
+  String _quoteForShell(String value) {
+    return "'${value.replaceAll("'", "'\\''")}'";
+  }
+
+  String _quoteForPowerShell(String value) {
+    return "'${value.replaceAll("'", "''")}'";
   }
 }
 

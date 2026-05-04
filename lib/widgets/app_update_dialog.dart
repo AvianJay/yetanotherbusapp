@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -92,8 +93,17 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
 
     if (installResult.didLaunchInstaller) {
       Navigator.of(context).pop();
+      if (_shouldExitAfterSchedulingInstaller) {
+        await SystemNavigator.pop();
+      }
     }
   }
+
+  bool get _shouldExitAfterSchedulingInstaller =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.linux);
 
   @override
   Widget build(BuildContext context) {

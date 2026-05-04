@@ -3,13 +3,19 @@
     "short_name": "YABus",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#F5F7F2",
-    "theme_color": "#0B7285",
+    "background_color": "#ff6f1f",
+    "theme_color": "#ff6f1f",
     "description": "Yet Another Bus App – 台灣公車即時動態查詢",
     "orientation": "any",
     "scope": ".",
     "prefer_related_applications": false,
-    "categories": ["navigation", "travel", "utilities"],
+    "categories": [
+        "navigation",
+        "travel",
+        "utilities"
+    ],
+    "screenshots": [],
+    "shortcuts": [],
     "icons": [
         {
             "src": "icons/Icon-192.png",
@@ -33,7 +39,5 @@
             "type": "image/png",
             "purpose": "maskable"
         }
-    ],
-    "screenshots": [],
-    "shortcuts": []
+    ]
 }

@@ -8,6 +8,7 @@ class DesktopDiscordPresenceService {
     required String screenLabel,
     BusProvider? provider,
     String? routeName,
+    String? stateLabel,
   }) async {}
 
   Future<void> refresh({required AppSettings settings}) async {}

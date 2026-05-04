@@ -1749,6 +1749,41 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return null;
   }
 
+  String? _buildDesktopDiscordArrivalStatus(AppSettings settings) {
+    if (!settings.desktopDiscordShowScreen) {
+      return null;
+    }
+
+    final stop = _currentBoardingCandidateStop();
+    if (stop == null) {
+      return null;
+    }
+
+    final message = stop.msg?.trim() ?? '';
+    if (message.isNotEmpty) {
+      return switch (message) {
+        '即將進站' => '公車即將到站',
+        '進站中' => '公車進站中',
+        '末班駛離' => '公車末班已駛離',
+        '今日未營運' => '今日未營運',
+        _ => '公車$message',
+      };
+    }
+
+    final seconds = stop.sec;
+    if (seconds == null) {
+      return null;
+    }
+    if (seconds <= 0) {
+      return '公車進站中';
+    }
+    if (seconds < 60) {
+      return '公車即將到站';
+    }
+
+    return '公車還有 ${seconds ~/ 60} 分到站';
+  }
+
   void _maybeScrollToCurrentLocation() {
     if (_didAutoScrollToCurrentLocation || _requestedStopId != null) {
       return;
@@ -3490,6 +3525,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         screenLabel: '查看路線',
         provider: widget.provider,
         routeName: detail?.route.routeName,
+        stateLabel: _buildDesktopDiscordArrivalStatus(settings),
       ),
     );
 

@@ -36,12 +36,14 @@ class DesktopDiscordPresenceService {
     required String screenLabel,
     BusProvider? provider,
     String? routeName,
+    String? stateLabel,
   }) async {
     _settings = settings;
     _view = _DesktopPresenceView(
       screenLabel: screenLabel,
       provider: provider,
       routeName: routeName,
+      stateLabel: stateLabel,
     );
     await _apply();
   }
@@ -206,6 +208,7 @@ class DesktopDiscordPresenceService {
     return _DiscordRpcActivity(
       details: payload.details,
       state: payload.state,
+      iconName: payload.iconName,
       startedAt: _sessionStartedAt,
     );
   }
@@ -257,21 +260,34 @@ class DesktopDiscordPresenceService {
         routeName != null &&
         routeName.isNotEmpty;
 
-    final secondaryLines = <String>[
-      if (settings.desktopDiscordShowScreen) view.screenLabel,
-      if (settings.desktopDiscordShowProvider && view.provider != null)
-        view.provider!.label,
-    ];
+    final iconName = settings.desktopDiscordShowProvider && view.provider != null
+        ? _limitField(view.provider!.label)
+        : null;
 
-    String? details = showRouteName ? routeName : null;
-    if (details == null && secondaryLines.isNotEmpty) {
-      details = secondaryLines.removeAt(0);
+    String details;
+    String? state;
+    switch (view.screenLabel) {
+      case '查看路線':
+        details = '正在查看公車路線';
+        if (showRouteName) {
+          details = '$details $routeName';
+        }
+        state = settings.desktopDiscordShowScreen ? view.stateLabel : null;
+        break;
+      case 'YouBike':
+        details = '正在尋找 YouBike 站點';
+        state = settings.desktopDiscordShowScreen ? view.stateLabel : null;
+        break;
+      default:
+        details = showRouteName ? routeName : view.screenLabel;
+        state = settings.desktopDiscordShowScreen ? view.stateLabel : null;
+        break;
     }
-    final state = secondaryLines.isEmpty ? null : secondaryLines.join(' · ');
 
     return _DesktopPresencePayload(
-      details: _limitField(details ?? '使用中'),
+      details: _limitField(details.isEmpty ? '使用中' : details),
       state: state == null ? null : _limitField(state),
+      iconName: iconName,
     );
   }
 
@@ -289,18 +305,25 @@ class _DesktopPresenceView {
     required this.screenLabel,
     this.provider,
     this.routeName,
+    this.stateLabel,
   });
 
   final String screenLabel;
   final BusProvider? provider;
   final String? routeName;
+  final String? stateLabel;
 }
 
 class _DesktopPresencePayload {
-  const _DesktopPresencePayload({required this.details, this.state});
+  const _DesktopPresencePayload({
+    required this.details,
+    this.state,
+    this.iconName,
+  });
 
   final String details;
   final String? state;
+  final String? iconName;
 
   @override
   bool operator ==(Object other) {
@@ -309,22 +332,25 @@ class _DesktopPresencePayload {
     }
     return other is _DesktopPresencePayload &&
         other.details == details &&
-        other.state == state;
+        other.state == state &&
+        other.iconName == iconName;
   }
 
   @override
-  int get hashCode => Object.hash(details, state);
+  int get hashCode => Object.hash(details, state, iconName);
 }
 
 class _DiscordRpcActivity {
   const _DiscordRpcActivity({
     required this.details,
     this.state,
+    this.iconName,
     required this.startedAt,
   });
 
   final String details;
   final String? state;
+  final String? iconName;
   final DateTime startedAt;
 }
 
@@ -423,6 +449,7 @@ class _UnixDiscordRpcClient implements _DiscordRpcClient {
             'type': 0,
             'details': activity.details,
             if (activity.state != null) 'state': activity.state,
+            if (activity.iconName != null) 'icon_name': activity.iconName,
             'timestamps': <String, Object?>{
               'start': activity.startedAt.millisecondsSinceEpoch,
             },
@@ -717,6 +744,7 @@ class _WindowsDiscordRpcClient implements _DiscordRpcClient {
             'type': 0,
             'details': activity.details,
             if (activity.state != null) 'state': activity.state,
+            if (activity.iconName != null) 'icon_name': activity.iconName,
             'timestamps': <String, Object?>{
               'start': activity.startedAt.millisecondsSinceEpoch,
             },

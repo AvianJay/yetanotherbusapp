@@ -9,6 +9,7 @@
 ## Release
 
 ### 前往[這裡](https://github.com/AvianJay/yetanotherbusapp/releases/latest)下載最新的正式版本。
+[網頁版](https://busapp.avianjay.sbs/)
 
 ## Nightly
 

@@ -83,6 +83,12 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
       return;
     }
 
+    if (installResult.didLaunchInstaller && _shouldExitAfterSchedulingInstaller) {
+      Navigator.of(context).pop();
+      await SystemNavigator.pop();
+      return;
+    }
+
     setState(() {
       _installing = false;
       _progress = null;
@@ -93,9 +99,6 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
 
     if (installResult.didLaunchInstaller) {
       Navigator.of(context).pop();
-      if (_shouldExitAfterSchedulingInstaller) {
-        await SystemNavigator.pop();
-      }
     }
   }
 

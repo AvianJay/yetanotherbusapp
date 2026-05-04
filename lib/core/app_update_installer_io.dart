@@ -253,7 +253,7 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
 
       return const AppUpdateInstallResult(
         status: AppUpdateInstallStatus.launchedInstaller,
-        message: '安裝程式已排程。App 關閉後會自動啟動安裝程式。',
+        message: '即將關閉 App 並啟動安裝程式。',
       );
     } catch (error) {
       return AppUpdateInstallResult(

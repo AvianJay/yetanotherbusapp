@@ -25,6 +25,7 @@ InstallDir "$LOCALAPPDATA\${APPNAME}"
 RequestExecutionLevel user
 ShowInstDetails nevershow
 ShowUninstDetails nevershow
+AutoCloseWindow true
 
 ; ── Modern UI ──────────────────────────────────────────────
 !define MUI_ICON "..\..\windows\runner\resources\app_icon.ico"
@@ -37,6 +38,7 @@ ShowUninstDetails nevershow
 
 ; ── Install ─────────────────────────────────────────────────
 Section "Install"
+  SetShellVarContext current
   SetOutPath $INSTDIR
 
   ; Remove old install
@@ -73,7 +75,8 @@ Section "Install"
     "EstimatedSize" "$0"
 
   ; Start Menu shortcut
-  CreateShortcut "$SMPROGRAMS\${APPNAME}.lnk" "$INSTDIR\${APPNAMEINTERNAL}.exe" "" \
+  CreateDirectory "$SMPROGRAMS\${APPNAME}"
+  CreateShortcut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\${APPNAMEINTERNAL}.exe" "" \
     "$INSTDIR\${APPNAMEINTERNAL}.exe" 0
 
   ; Desktop shortcut
@@ -86,6 +89,7 @@ SectionEnd
 
 ; ── Uninstall ───────────────────────────────────────────────
 Section "Uninstall"
+  SetShellVarContext current
   ; Kill running process if any
   ExecWait "taskkill /IM ${APPNAMEINTERNAL}.exe /F"
 
@@ -93,7 +97,8 @@ Section "Uninstall"
   RMDir /r "$INSTDIR"
 
   ; Remove shortcuts
-  Delete "$SMPROGRAMS\${APPNAME}.lnk"
+  Delete "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk"
+  RMDir "$SMPROGRAMS\${APPNAME}"
   Delete "$DESKTOP\${APPNAME}.lnk"
 
   ; Remove registry entries

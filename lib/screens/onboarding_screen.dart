@@ -315,7 +315,7 @@ class _PermissionStep extends StatelessWidget {
         Text('定位權限', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 10),
         Text(
-          '如果你願意開啟定位，系統會先幫你選擇最近的縣市資料庫；就算跳過，也能手動選擇。',
+          '我們需要定位權限來取得最近的站牌資訊。',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         const SizedBox(height: 24),
@@ -325,7 +325,8 @@ class _PermissionStep extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('這一步只用來預先挑選資料庫，不會影響其他功能。'),
+                const Text('允許即代表你同意將定位資訊提供給程式進行處理。 (用於取得最近站牌)'),
+                const Text('僅在無資料庫可用時才會將位置提供給伺服器。'),
                 if (permissionMessage != null) ...[
                   const SizedBox(height: 12),
                   Text(permissionMessage!),

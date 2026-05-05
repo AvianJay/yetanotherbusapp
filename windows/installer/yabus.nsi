@@ -39,6 +39,11 @@ AutoCloseWindow true
 ; ── Install ─────────────────────────────────────────────────
 Section "Install"
   SetShellVarContext current
+
+  ; In-app updates launch this installer before the Flutter process exits.
+  ; Close the running app first so $INSTDIR can be replaced reliably.
+  ExecWait "taskkill /IM ${APPNAMEINTERNAL}.exe /F"
+
   SetOutPath $INSTDIR
 
   ; Remove old install

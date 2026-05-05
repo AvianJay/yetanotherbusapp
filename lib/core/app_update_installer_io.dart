@@ -278,10 +278,7 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
     required AppUpdatePackageFormat packageFormat,
   }) async {
     if (defaultTargetPlatform == TargetPlatform.windows) {
-      await _scheduleWindowsInstallerLaunch(
-        installerFile,
-        packageFormat: packageFormat,
-      );
+      await _scheduleWindowsInstallerLaunch(installerFile);
       return;
     }
 
@@ -291,28 +288,13 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
     );
   }
 
-  Future<void> _scheduleWindowsInstallerLaunch(
-    File installerFile, {
-    required AppUpdatePackageFormat packageFormat,
-  }) async {
-    final appPid = pid;
-    final installerPath = _quoteForPowerShell(installerFile.path);
-    final script =
-        '''
-\$pidToWait = $appPid
-Wait-Process -Id \$pidToWait -ErrorAction SilentlyContinue
-Start-Process -FilePath $installerPath
-''';
-
-    await Process.start('powershell', [
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-WindowStyle',
-      'Hidden',
-      '-Command',
-      script,
-    ], mode: ProcessStartMode.detached);
+  Future<void> _scheduleWindowsInstallerLaunch(File installerFile) async {
+    await Process.start(
+      installerFile.path,
+      const [],
+      workingDirectory: p.dirname(installerFile.path),
+      mode: ProcessStartMode.detached,
+    );
   }
 
   Future<void> _scheduleUnixInstallerLaunch(
@@ -377,10 +359,6 @@ xdg-open $installerPath
 
   String _quoteForShell(String value) {
     return "'${value.replaceAll("'", "'\\''")}'";
-  }
-
-  String _quoteForPowerShell(String value) {
-    return "'${value.replaceAll("'", "''")}'";
   }
 }
 

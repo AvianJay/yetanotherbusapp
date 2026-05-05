@@ -2,9 +2,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../core/app_build_info.dart';
 import '../core/app_controller.dart';
 import '../core/app_update_service.dart';
+import '../core/models.dart';
 
 Future<void> showAppUpdateDialog(
   BuildContext context, {
@@ -53,6 +56,61 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('$label已複製到剪貼簿。')));
+  }
+
+  Future<void> _openMarkdownLink(String? href) async {
+    if (href == null) {
+      return;
+    }
+
+    final uri = Uri.tryParse(href);
+    if (uri == null) {
+      return;
+    }
+
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!mounted || opened) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('無法開啟連結。')));
+  }
+
+  String? _buildChangelogMarkdown() {
+    final notes = widget.update.notes?.trim();
+    final detailsUrl = widget.update.detailsUrl?.trim();
+    final sections = <String>[];
+
+    if (widget.update.channel == AppUpdateChannel.nightly) {
+      sections.add(_buildNightlyCommitMarkdown());
+    }
+
+    if (detailsUrl != null && detailsUrl.isNotEmpty) {
+      final rangeLabel =
+          '${widget.update.currentVersionLabel}...${widget.update.latestVersionLabel}';
+      sections.add('變更紀錄：[$rangeLabel]($detailsUrl)');
+    }
+
+    if (notes != null && notes.isNotEmpty) {
+      sections.add(notes);
+    }
+
+    if (sections.isEmpty) {
+      return null;
+    }
+    return sections.join('\n\n');
+  }
+
+  String _buildNightlyCommitMarkdown() {
+    final commitHash = widget.update.latestVersionLabel;
+    final commitUrl = Uri.https(
+      'github.com',
+      '/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/commit/$commitHash',
+    );
+    final comment = widget.update.summary.trim();
+    return '[`$commitHash`]($commitUrl): $comment';
   }
 
   Future<void> _installUpdate() async {
@@ -115,7 +173,7 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
   Widget build(BuildContext context) {
     final canInstallInApp =
         widget.controller.appUpdateInstaller.supportsInAppInstall;
-    final notes = widget.update.notes?.trim();
+    final changelogMarkdown = _buildChangelogMarkdown();
 
     return AlertDialog(
       title: Text(widget.update.title),
@@ -136,11 +194,14 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
                 const SizedBox(height: 8),
                 Text(_statusMessage),
               ],
-              if (notes != null && notes.isNotEmpty) ...[
+              if (changelogMarkdown != null) ...[
                 const SizedBox(height: 16),
                 Text('更新內容', style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: 8),
-                MarkdownBody(data: notes),
+                MarkdownBody(
+                  data: changelogMarkdown,
+                  onTapLink: (text, href, title) => _openMarkdownLink(href),
+                ),
               ],
             ],
           ),
@@ -153,11 +214,6 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
               : () => _copyLink(widget.update.downloadUrl, '下載連結'),
           child: Text(canInstallInApp ? '複製下載連結' : '下載連結'),
         ),
-        if (widget.update.detailsUrl case final detailsUrl?)
-          TextButton(
-            onPressed: _installing ? null : () => _copyLink(detailsUrl, '說明連結'),
-            child: const Text('複製說明連結'),
-          ),
         TextButton(
           onPressed: _installing ? null : () => Navigator.of(context).pop(),
           child: Text(canInstallInApp ? '稍後' : '關閉'),

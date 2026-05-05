@@ -59,6 +59,7 @@ dependencies:
   discord_rich_presence: ^1.1.1
   ffi: ^2.2.0
   local_notifier: ^0.1.6
+  flutter_markdown: ^0.7.7+1
 
 dev_dependencies:
   flutter_test:

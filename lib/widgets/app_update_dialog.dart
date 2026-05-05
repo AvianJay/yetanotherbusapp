@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../core/app_controller.dart';
 import '../core/app_update_service.dart';
@@ -125,7 +126,7 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.update.summary),
+              // Text(widget.update.summary),
               const SizedBox(height: 12),
               Text('目前版本：${widget.update.currentVersionLabel}'),
               Text('最新版本：${widget.update.latestVersionLabel}'),
@@ -139,7 +140,7 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
                 const SizedBox(height: 16),
                 Text('更新內容', style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: 8),
-                SelectableText(notes),
+                MarkdownBody(data: notes),
               ],
             ],
           ),

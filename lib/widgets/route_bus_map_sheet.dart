@@ -5,11 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 
 import '../app/bus_app.dart';
 import '../core/models.dart';
 import 'eta_badge.dart';
+import 'platform_map_provider.dart';
 
 class RouteBusMapSheet extends StatefulWidget {
   const RouteBusMapSheet({
@@ -55,6 +57,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   static const _cameraPadding = EdgeInsets.fromLTRB(20, 20, 20, 140);
 
   final MapController _mapController = MapController();
+  gmaps.GoogleMapController? _googleMapController;
   late final AnimationController _refreshProgressController;
 
   Timer? _refreshTimer;
@@ -73,6 +76,8 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   bool _showStops = true;
   LatLng? _userLocation;
   bool _didFitCurrentPathWithUserLocation = false;
+  bool _isMovingGoogleCameraProgrammatically = false;
+  gmaps.CameraPosition? _googleCameraPosition;
   late int _activePathId;
 
   @override
@@ -102,6 +107,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     _refreshTimer?.cancel();
     _simulationTimer?.cancel();
     _userLocationSubscription?.cancel();
+    _googleMapController?.dispose();
     _refreshProgressController.dispose();
     super.dispose();
   }
@@ -360,35 +366,76 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         if (fitPoints.isEmpty) {
           return;
         }
-        if (fitPoints.length == 1) {
-          _mapController.move(fitPoints.first, 16);
+        final didFit = useGoogleMapsProvider
+            ? _fitGoogleCameraToPoints(fitPoints)
+            : _fitOsmCameraToPoints(fitPoints);
+        if (didFit) {
           _didFitCurrentPathWithUserLocation = _userLocation != null;
-          return;
         }
-        final bounds = LatLngBounds.fromPoints(fitPoints);
-        final clampedBounds = LatLngBounds(
-          LatLng(
-            bounds.south.clamp(-85.0, 85.0),
-            bounds.west.clamp(-180.0, 180.0),
-          ),
-          LatLng(
-            bounds.north.clamp(-85.0, 85.0),
-            bounds.east.clamp(-180.0, 180.0),
-          ),
-        );
-        _mapController.fitCamera(
-          CameraFit.bounds(
-            bounds: clampedBounds,
-            padding: _userLocation != null
-                ? const EdgeInsets.fromLTRB(20, 20, 20, 168)
-                : _cameraPadding,
-          ),
-        );
-        _didFitCurrentPathWithUserLocation = _userLocation != null;
       } catch (_) {
         // Ignore fit errors from early controller lifecycle and wait for next refresh.
       }
     });
+  }
+
+  bool _fitOsmCameraToPoints(List<LatLng> fitPoints) {
+    if (fitPoints.length == 1) {
+      _mapController.move(fitPoints.first, 16);
+      return true;
+    }
+    final bounds = LatLngBounds.fromPoints(fitPoints);
+    final clampedBounds = LatLngBounds(
+      LatLng(bounds.south.clamp(-85.0, 85.0), bounds.west.clamp(-180.0, 180.0)),
+      LatLng(bounds.north.clamp(-85.0, 85.0), bounds.east.clamp(-180.0, 180.0)),
+    );
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: clampedBounds,
+        padding: _userLocation != null
+            ? const EdgeInsets.fromLTRB(20, 20, 20, 168)
+            : _cameraPadding,
+      ),
+    );
+    return true;
+  }
+
+  bool _fitGoogleCameraToPoints(List<LatLng> fitPoints) {
+    final controller = _googleMapController;
+    if (controller == null) {
+      return false;
+    }
+    if (fitPoints.length == 1) {
+      _moveGoogleCamera(
+        gmaps.CameraUpdate.newLatLngZoom(toGoogleLatLng(fitPoints.first), 16),
+      );
+      return true;
+    }
+    _moveGoogleCamera(
+      gmaps.CameraUpdate.newLatLngBounds(
+        googleBoundsFromLatLngs(fitPoints),
+        _userLocation != null ? 168 : 140,
+      ),
+    );
+    return true;
+  }
+
+  void _moveGoogleCamera(gmaps.CameraUpdate update) {
+    final controller = _googleMapController;
+    if (controller == null) {
+      return;
+    }
+    _isMovingGoogleCameraProgrammatically = true;
+    controller.animateCamera(update).whenComplete(() {
+      _isMovingGoogleCameraProgrammatically = false;
+    });
+  }
+
+  LatLng? get _googleCameraCenter {
+    final position = _googleCameraPosition;
+    if (position == null) {
+      return null;
+    }
+    return fromGoogleLatLng(position.target);
   }
 
   void _syncSelectedBusCamera({bool force = false}) {
@@ -403,6 +450,16 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
     try {
       final point = selectedBus.positionAt(DateTime.now(), geometry: geometry);
+      if (useGoogleMapsProvider) {
+        final currentCenter = _googleCameraCenter;
+        if (!force &&
+            currentCenter != null &&
+            _distanceMetersBetween(currentCenter, point) < 8) {
+          return;
+        }
+        _moveGoogleCamera(gmaps.CameraUpdate.newLatLng(toGoogleLatLng(point)));
+        return;
+      }
       final currentCenter = _mapController.camera.center;
       if (!force && _distanceMetersBetween(currentCenter, point) < 8) {
         return;
@@ -758,173 +815,184 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     return Stack(
       children: [
         Positioned.fill(
-          child: FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: geometry.points.first,
-              initialZoom: 13.5,
-              onTap: (_, point) {
-                if (_selectedBusId == null && _selectedStopId == null) {
-                  return;
-                }
-                setState(() {
-                  _selectedBusId = null;
-                  _selectedStopId = null;
-                  _followSelectedBus = false;
-                });
-              },
-              onPositionChanged: (_, hasGesture) {
-                if (!hasGesture || !_followSelectedBus) {
-                  return;
-                }
-                setState(() {
-                  _followSelectedBus = false;
-                });
-              },
-              interactionOptions: const InteractionOptions(
-                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-              ),
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
-              ),
-              PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: geometry.points,
-                    strokeWidth: 5,
-                    color: theme.colorScheme.primary.withValues(alpha: 0.88),
-                    borderColor: theme.colorScheme.surface,
-                    borderStrokeWidth: 1.2,
-                  ),
-                ],
-              ),
-              if (_userLocation != null)
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: _userLocation!,
-                      width: 24,
-                      height: 24,
-                      child: const _UserLocationMarker(),
+          child: useGoogleMapsProvider
+              ? _buildGoogleRouteMap(
+                  theme: theme,
+                  geometry: geometry,
+                  displayStops: displayStops,
+                  displayBuses: displayBuses,
+                )
+              : FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: geometry.points.first,
+                    initialZoom: 13.5,
+                    onTap: (_, point) {
+                      if (_selectedBusId == null && _selectedStopId == null) {
+                        return;
+                      }
+                      setState(() {
+                        _selectedBusId = null;
+                        _selectedStopId = null;
+                        _followSelectedBus = false;
+                      });
+                    },
+                    onPositionChanged: (_, hasGesture) {
+                      if (!hasGesture || !_followSelectedBus) {
+                        return;
+                      }
+                      setState(() {
+                        _followSelectedBus = false;
+                      });
+                    },
+                    interactionOptions: const InteractionOptions(
+                      flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                     ),
-                  ],
-                ),
-              if (_showStops)
-                MarkerLayer(
-                  markers: displayStops.map((stop) {
-                    final selected = _selectedStopId == stop.stop.stopId;
-                    return Marker(
-                      point: stop.point,
-                      width: selected ? 44 : 36,
-                      height: selected ? 44 : 36,
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedStopId =
-                                _selectedStopId == stop.stop.stopId
-                                ? null
-                                : stop.stop.stopId;
-                            _selectedBusId = null;
-                            _followSelectedBus = false;
-                          });
-                        },
-                        child: _StopMarker(
-                          stop: stop.stop,
-                          alwaysShowSeconds: widget.alwaysShowSeconds,
-                          selected: selected,
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              if (_showBuses)
-                MarkerLayer(
-                  markers: displayBuses.map((bus) {
-                    final selected = _selectedBusId == bus.state.bus.id;
-                    return Marker(
-                      point: bus.point,
-                      width: selected ? 48 : 40,
-                      height: selected ? 48 : 40,
-                      child: GestureDetector(
-                        onTap: () {
-                          final nextSelectedBusId =
-                              _selectedBusId == bus.state.bus.id
-                              ? null
-                              : bus.state.bus.id;
-                          setState(() {
-                            _selectedBusId = nextSelectedBusId;
-                            _selectedStopId = null;
-                            _followSelectedBus = nextSelectedBusId != null;
-                          });
-                          if (nextSelectedBusId != null) {
-                            _syncSelectedBusCamera(force: true);
-                          }
-                        },
-                        child: _BusMarker(
-                          color: bus.state.status.color,
-                          selected: selected,
-                          label: bus.state.bus.id,
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              if (_showBuses && selectedDisplayBus != null)
-                MarkerLayer(
-                  markers: [
-                    () {
-                      final displayedBus = selectedDisplayBus!;
-                      final popupAlignment = _selectedPopupAlignment(
-                        displayedBus.point,
-                      );
-                      return Marker(
-                        point: displayedBus.point,
-                        width: 224,
-                        height: 124,
-                        alignment: popupAlignment,
-                        child: IgnorePointer(
-                          child: Transform.translate(
-                            offset: _selectedPopupOffset(popupAlignment),
-                            child: _BusInfoPopupCompact(
-                              busState: displayedBus.state,
-                            ),
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
+                    ),
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: geometry.points,
+                          strokeWidth: 5,
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.88,
                           ),
+                          borderColor: theme.colorScheme.surface,
+                          borderStrokeWidth: 1.2,
                         ),
-                      );
-                    }(),
-                  ],
-                ),
-              if (_showStops && selectedDisplayStop != null)
-                MarkerLayer(
-                  markers: [
-                    () {
-                      final displayedStop = selectedDisplayStop!;
-                      final popupAlignment = _selectedPopupAlignment(
-                        displayedStop.point,
-                      );
-                      return Marker(
-                        point: displayedStop.point,
-                        width: 228,
-                        height: 122,
-                        alignment: popupAlignment,
-                        child: IgnorePointer(
-                          child: Transform.translate(
-                            offset: _selectedPopupOffset(popupAlignment),
-                            child: _StopInfoPopup(
-                              stop: displayedStop.stop,
-                              alwaysShowSeconds: widget.alwaysShowSeconds,
-                            ),
+                      ],
+                    ),
+                    if (_userLocation != null)
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: _userLocation!,
+                            width: 24,
+                            height: 24,
+                            child: const _UserLocationMarker(),
                           ),
-                        ),
-                      );
-                    }(),
+                        ],
+                      ),
+                    if (_showStops)
+                      MarkerLayer(
+                        markers: displayStops.map((stop) {
+                          final selected = _selectedStopId == stop.stop.stopId;
+                          return Marker(
+                            point: stop.point,
+                            width: selected ? 44 : 36,
+                            height: selected ? 44 : 36,
+                            child: GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedStopId =
+                                      _selectedStopId == stop.stop.stopId
+                                      ? null
+                                      : stop.stop.stopId;
+                                  _selectedBusId = null;
+                                  _followSelectedBus = false;
+                                });
+                              },
+                              child: _StopMarker(
+                                stop: stop.stop,
+                                alwaysShowSeconds: widget.alwaysShowSeconds,
+                                selected: selected,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    if (_showBuses)
+                      MarkerLayer(
+                        markers: displayBuses.map((bus) {
+                          final selected = _selectedBusId == bus.state.bus.id;
+                          return Marker(
+                            point: bus.point,
+                            width: selected ? 48 : 40,
+                            height: selected ? 48 : 40,
+                            child: GestureDetector(
+                              onTap: () {
+                                final nextSelectedBusId =
+                                    _selectedBusId == bus.state.bus.id
+                                    ? null
+                                    : bus.state.bus.id;
+                                setState(() {
+                                  _selectedBusId = nextSelectedBusId;
+                                  _selectedStopId = null;
+                                  _followSelectedBus =
+                                      nextSelectedBusId != null;
+                                });
+                                if (nextSelectedBusId != null) {
+                                  _syncSelectedBusCamera(force: true);
+                                }
+                              },
+                              child: _BusMarker(
+                                color: bus.state.status.color,
+                                selected: selected,
+                                label: bus.state.bus.id,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    if (_showBuses && selectedDisplayBus != null)
+                      MarkerLayer(
+                        markers: [
+                          () {
+                            final displayedBus = selectedDisplayBus!;
+                            final popupAlignment = _selectedPopupAlignment(
+                              displayedBus.point,
+                            );
+                            return Marker(
+                              point: displayedBus.point,
+                              width: 224,
+                              height: 124,
+                              alignment: popupAlignment,
+                              child: IgnorePointer(
+                                child: Transform.translate(
+                                  offset: _selectedPopupOffset(popupAlignment),
+                                  child: _BusInfoPopupCompact(
+                                    busState: displayedBus.state,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }(),
+                        ],
+                      ),
+                    if (_showStops && selectedDisplayStop != null)
+                      MarkerLayer(
+                        markers: [
+                          () {
+                            final displayedStop = selectedDisplayStop!;
+                            final popupAlignment = _selectedPopupAlignment(
+                              displayedStop.point,
+                            );
+                            return Marker(
+                              point: displayedStop.point,
+                              width: 228,
+                              height: 122,
+                              alignment: popupAlignment,
+                              child: IgnorePointer(
+                                child: Transform.translate(
+                                  offset: _selectedPopupOffset(popupAlignment),
+                                  child: _StopInfoPopup(
+                                    stop: displayedStop.stop,
+                                    alwaysShowSeconds: widget.alwaysShowSeconds,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }(),
+                        ],
+                      ),
                   ],
                 ),
-            ],
-          ),
         ),
         Positioned(
           left: 0,
@@ -932,8 +1000,208 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
           top: 0,
           child: IgnorePointer(child: _buildTopProgressBar()),
         ),
+        if (useGoogleMapsProvider && _showBuses && selectedDisplayBus != null)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                width: 320,
+                child: _BusInfoPopupCompact(busState: selectedDisplayBus.state),
+              ),
+            ),
+          ),
+        if (useGoogleMapsProvider && _showStops && selectedDisplayStop != null)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                width: 328,
+                child: _StopInfoPopup(
+                  stop: selectedDisplayStop.stop,
+                  alwaysShowSeconds: widget.alwaysShowSeconds,
+                ),
+              ),
+            ),
+          ),
       ],
     );
+  }
+
+  Widget _buildGoogleRouteMap({
+    required ThemeData theme,
+    required _RouteGeometry geometry,
+    required List<_DisplayedStop> displayStops,
+    required List<_DisplayedBus> displayBuses,
+  }) {
+    return gmaps.GoogleMap(
+      initialCameraPosition: gmaps.CameraPosition(
+        target: toGoogleLatLng(geometry.points.first),
+        zoom: 13.5,
+      ),
+      mapType: gmaps.MapType.normal,
+      rotateGesturesEnabled: false,
+      myLocationButtonEnabled: false,
+      mapToolbarEnabled: false,
+      zoomControlsEnabled: false,
+      polylines: _buildGoogleRoutePolylines(theme, geometry),
+      markers: _buildGoogleRouteMarkers(
+        theme: theme,
+        displayStops: displayStops,
+        displayBuses: displayBuses,
+      ),
+      onMapCreated: (controller) {
+        _googleMapController = controller;
+        _googleCameraPosition = gmaps.CameraPosition(
+          target: toGoogleLatLng(geometry.points.first),
+          zoom: 13.5,
+        );
+        _fitCameraToGeometry(geometry);
+      },
+      onTap: (_) {
+        if (_selectedBusId == null && _selectedStopId == null) {
+          return;
+        }
+        setState(() {
+          _selectedBusId = null;
+          _selectedStopId = null;
+          _followSelectedBus = false;
+        });
+      },
+      onCameraMoveStarted: () {
+        if (_isMovingGoogleCameraProgrammatically || !_followSelectedBus) {
+          return;
+        }
+        setState(() {
+          _followSelectedBus = false;
+        });
+      },
+      onCameraMove: (position) {
+        _googleCameraPosition = position;
+      },
+    );
+  }
+
+  Set<gmaps.Polyline> _buildGoogleRoutePolylines(
+    ThemeData theme,
+    _RouteGeometry geometry,
+  ) {
+    final points = geometry.points.map(toGoogleLatLng).toList(growable: false);
+    return {
+      gmaps.Polyline(
+        polylineId: const gmaps.PolylineId('route-border'),
+        points: points,
+        color: theme.colorScheme.surface,
+        width: 8,
+        zIndex: 1,
+      ),
+      gmaps.Polyline(
+        polylineId: const gmaps.PolylineId('route'),
+        points: points,
+        color: theme.colorScheme.primary.withValues(alpha: 0.88),
+        width: 5,
+        zIndex: 2,
+      ),
+    };
+  }
+
+  Set<gmaps.Marker> _buildGoogleRouteMarkers({
+    required ThemeData theme,
+    required List<_DisplayedStop> displayStops,
+    required List<_DisplayedBus> displayBuses,
+  }) {
+    final markers = <gmaps.Marker>{};
+    final userLocation = _userLocation;
+    if (userLocation != null) {
+      markers.add(
+        gmaps.Marker(
+          markerId: const gmaps.MarkerId('user-location'),
+          position: toGoogleLatLng(userLocation),
+          icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
+            gmaps.BitmapDescriptor.hueAzure,
+          ),
+          zIndexInt: 4,
+        ),
+      );
+    }
+
+    if (_showStops) {
+      for (final stop in displayStops) {
+        final selected = _selectedStopId == stop.stop.stopId;
+        final eta = buildEtaPresentation(
+          stop.stop,
+          alwaysShowSeconds: widget.alwaysShowSeconds,
+          brightness: theme.brightness,
+        );
+        markers.add(
+          gmaps.Marker(
+            markerId: gmaps.MarkerId('stop:${stop.stop.stopId}'),
+            consumeTapEvents: true,
+            position: toGoogleLatLng(stop.point),
+            icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
+              selected
+                  ? googleMarkerHueForColor(theme.colorScheme.primary)
+                  : gmaps.BitmapDescriptor.hueCyan,
+            ),
+            infoWindow: gmaps.InfoWindow(
+              title: stop.stop.stopName,
+              snippet: eta.text.replaceAll('\n', ' '),
+            ),
+            zIndexInt: selected ? 3 : 1,
+            onTap: () {
+              setState(() {
+                _selectedStopId = _selectedStopId == stop.stop.stopId
+                    ? null
+                    : stop.stop.stopId;
+                _selectedBusId = null;
+                _followSelectedBus = false;
+              });
+            },
+          ),
+        );
+      }
+    }
+
+    if (_showBuses) {
+      for (final bus in displayBuses) {
+        final selected = _selectedBusId == bus.state.bus.id;
+        markers.add(
+          gmaps.Marker(
+            markerId: gmaps.MarkerId('bus:${bus.state.bus.id}'),
+            consumeTapEvents: true,
+            position: toGoogleLatLng(bus.point),
+            icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
+              googleMarkerHueForColor(bus.state.status.color),
+            ),
+            infoWindow: gmaps.InfoWindow(
+              title: bus.state.bus.id,
+              snippet: bus.state.status.label,
+            ),
+            zIndexInt: selected ? 5 : 2,
+            onTap: () {
+              final nextSelectedBusId = _selectedBusId == bus.state.bus.id
+                  ? null
+                  : bus.state.bus.id;
+              setState(() {
+                _selectedBusId = nextSelectedBusId;
+                _selectedStopId = null;
+                _followSelectedBus = nextSelectedBusId != null;
+              });
+              if (nextSelectedBusId != null) {
+                _syncSelectedBusCamera(force: true);
+              }
+            },
+          ),
+        );
+      }
+    }
+
+    return markers;
   }
 
   @override

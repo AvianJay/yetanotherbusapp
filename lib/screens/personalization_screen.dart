@@ -41,11 +41,9 @@ const _pageIcons = <String, IconData>{
 };
 
 Future<String?> _pickBackgroundImageValue(ImagePicker picker) async {
-  final image = await picker.pickImage(
-    source: ImageSource.gallery,
-    maxWidth: 1920,
-    imageQuality: 85,
-  );
+  // Keep the original file. Passing resize/quality options makes some platform
+  // pickers transcode animated GIFs into a single static frame.
+  final image = await picker.pickImage(source: ImageSource.gallery);
   if (image == null) {
     return null;
   }
@@ -164,10 +162,7 @@ class PersonalizationScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '深色模式',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+                  Text('深色模式', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 12),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
@@ -194,10 +189,7 @@ class PersonalizationScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '主頁漸層',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+                  Text('主頁漸層', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 4),
                   Text(
                     '調整主頁漸層背景的透明度',
@@ -226,10 +218,7 @@ class PersonalizationScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '背景圖片',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+                  Text('背景圖片', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 4),
                   Text(
                     '設定各頁面的背景圖片。',
@@ -248,9 +237,8 @@ class PersonalizationScreen extends StatelessWidget {
                               FilledButton.tonalIcon(
                                 onPressed: () async {
                                   final picker = ImagePicker();
-                                  final imagePath = await _pickBackgroundImageValue(
-                                    picker,
-                                  );
+                                  final imagePath =
+                                      await _pickBackgroundImageValue(picker);
                                   if (imagePath != null) {
                                     controller.applyBackgroundImageToAllPages(
                                       imagePath,
@@ -275,20 +263,21 @@ class PersonalizationScreen extends StatelessWidget {
                                 ),
                             ],
                           ),
-                            if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              _OpacitySlider(
-                                label: '背景透明度',
-                                value: backgroundOpacity,
-                                onChanged: isAmoled
-                                    ? null
-                                    : (value) {
-                                        controller.updateAllPageBackgroundImageOpacity(
-                                          value,
-                                        );
-                                      },
-                              ),
-                            ],
+                          if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _OpacitySlider(
+                              label: '背景透明度',
+                              value: backgroundOpacity,
+                              onChanged: isAmoled
+                                  ? null
+                                  : (value) {
+                                      controller
+                                          .updateAllPageBackgroundImageOpacity(
+                                            value,
+                                          );
+                                    },
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           // Navigate to per-page settings
                           ListTile(
@@ -471,11 +460,7 @@ class _SeedColorPicker extends StatelessWidget {
               selected: selectedColor == null,
             ),
             for (final c in presetColors)
-              _colorChip(
-                context,
-                color: c,
-                selected: selectedColor == c,
-              ),
+              _colorChip(context, color: c, selected: selectedColor == c),
             ActionChip(
               avatar: Icon(
                 Icons.colorize_outlined,
@@ -565,7 +550,8 @@ class _CustomColorPickerDialogState extends State<_CustomColorPickerDialog> {
     _value = hsv.value;
   }
 
-  Color get _currentColor => HSVColor.fromAHSV(1.0, _hue, _saturation, _value).toColor();
+  Color get _currentColor =>
+      HSVColor.fromAHSV(1.0, _hue, _saturation, _value).toColor();
 
   @override
   Widget build(BuildContext context) {
@@ -590,7 +576,10 @@ class _CustomColorPickerDialogState extends State<_CustomColorPickerDialog> {
               children: [
                 SizedBox(
                   width: 56,
-                  child: Text('色相', style: Theme.of(context).textTheme.labelMedium),
+                  child: Text(
+                    '色相',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
                 ),
                 Expanded(
                   child: Slider(
@@ -609,7 +598,10 @@ class _CustomColorPickerDialogState extends State<_CustomColorPickerDialog> {
               children: [
                 SizedBox(
                   width: 56,
-                  child: Text('飽和', style: Theme.of(context).textTheme.labelMedium),
+                  child: Text(
+                    '飽和',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
                 ),
                 Expanded(
                   child: Slider(
@@ -627,7 +619,10 @@ class _CustomColorPickerDialogState extends State<_CustomColorPickerDialog> {
               children: [
                 SizedBox(
                   width: 56,
-                  child: Text('明度', style: Theme.of(context).textTheme.labelMedium),
+                  child: Text(
+                    '明度',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
                 ),
                 Expanded(
                   child: Slider(
@@ -700,7 +695,7 @@ class _PerPageBackgroundScreen extends StatelessWidget {
                       imagePath: settings.pageBackgroundImagePaths[pageKey],
                       imageOpacity:
                           settings.pageBackgroundImageOpacities[pageKey] ??
-                              0.25,
+                          0.25,
                       onPick: () async {
                         final picker = ImagePicker();
                         final imagePath = await _pickBackgroundImageValue(
@@ -793,8 +788,7 @@ class _PreviewPageCard extends StatelessWidget {
     final isGif = imagePath.toLowerCase().endsWith('.gif');
     final appBarColor =
         theme.appBarTheme.backgroundColor ?? colorScheme.surface;
-    final cardColor =
-        theme.cardTheme.color ?? colorScheme.surfaceContainerHigh;
+    final cardColor = theme.cardTheme.color ?? colorScheme.surfaceContainerHigh;
     final inputColor = theme.inputDecorationTheme.fillColor ?? cardColor;
     final bottomBarColor = theme.bottomAppBarTheme.color ?? appBarColor;
     final lineColor = colorScheme.onSurface.withValues(alpha: 0.26);
@@ -1289,7 +1283,10 @@ class _PreviewPageCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    _buildIconTile(accentColor.withValues(alpha: 0.7), size: 14),
+                    _buildIconTile(
+                      accentColor.withValues(alpha: 0.7),
+                      size: 14,
+                    ),
                   ],
                 ),
               ],
@@ -1466,15 +1463,17 @@ class _PageBackgroundRow extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 label,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
               ),
               if (isGif) ...[
                 const SizedBox(width: 6),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: colorScheme.tertiaryContainer,
                     borderRadius: BorderRadius.circular(6),
@@ -1499,7 +1498,9 @@ class _PageBackgroundRow extends StatelessWidget {
               FilledButton.tonalIcon(
                 onPressed: onPick,
                 icon: Icon(
-                  hasImage ? Icons.swap_horiz : Icons.add_photo_alternate_outlined,
+                  hasImage
+                      ? Icons.swap_horiz
+                      : Icons.add_photo_alternate_outlined,
                   size: 18,
                 ),
                 label: Text(hasImage ? '更換' : '選擇圖片'),

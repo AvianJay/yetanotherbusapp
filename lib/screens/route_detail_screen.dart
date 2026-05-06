@@ -56,6 +56,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final RouteDetailLaunchHandler _launchHandler;
   late final ValueNotifier<int?> _selectedMapPathId;
+  late final ValueNotifier<Map<int, List<StopInfo>>> _liveMapStopsByPath;
   bool _isLoading = true;
   String? _error;
   String? _statusMessage;
@@ -120,6 +121,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _launchHandler = _handleLaunchAction;
     RouteDetailLaunchBridge.instance.attach(_launchHandler);
     _selectedMapPathId = ValueNotifier<int?>(widget.initialPathId);
+    _liveMapStopsByPath = ValueNotifier<Map<int, List<StopInfo>>>(
+      const <int, List<StopInfo>>{},
+    );
     _countdownProgressController = AnimationController(vsync: this);
     _requestedPathId = widget.initialPathId;
     _requestedStopId = widget.initialStopId;
@@ -147,6 +151,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _routeVisitTimer?.cancel();
     _countdownProgressController.dispose();
     _selectedMapPathId.dispose();
+    _liveMapStopsByPath.dispose();
     _positionSubscription?.cancel();
     _tabController?.dispose();
     for (final controller in _scrollControllers.values) {
@@ -236,6 +241,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           ? _mergeDetailWithPreviousLiveData(fetchedDetail, previousDetail)
           : fetchedDetail;
 
+      _syncLiveMapStopsByPath(displayDetail.stopsByPath);
       _syncTabController(displayDetail);
       setState(() {
         _detail = displayDetail;
@@ -282,6 +288,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       });
       _startCountdown(controller.settings.busErrorUpdateTime);
     }
+  }
+
+  void _syncLiveMapStopsByPath(Map<int, List<StopInfo>> stopsByPath) {
+    _liveMapStopsByPath.value = stopsByPath.map(
+      (pathId, stops) => MapEntry(pathId, List<StopInfo>.of(stops)),
+    );
   }
 
   Future<void> _fetchAndShowAlerts(String routeId) async {
@@ -1022,6 +1034,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               routeName: detail.route.routeName,
               paths: detail.paths,
               stopsByPath: detail.stopsByPath,
+              liveStopsByPathListenable: _liveMapStopsByPath,
               alwaysShowSeconds: controller.settings.alwaysShowSeconds,
               selectedPathIdListenable: _selectedMapPathId,
               refreshIntervalSeconds: controller.settings.busUpdateTime,
@@ -2539,6 +2552,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final displayDetail = !fetchedDetail.hasLiveData && previousDetail != null
           ? _mergeDetailWithPreviousLiveData(fetchedDetail, previousDetail)
           : fetchedDetail;
+      _syncLiveMapStopsByPath(displayDetail.stopsByPath);
       _syncTabController(displayDetail);
       setState(() {
         _detail = displayDetail;
@@ -3338,11 +3352,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       math.min(stopNameMaxWidth, constraints.maxWidth),
                     );
                     final dividerLeftOffset =
-                        stopNameWidth +
-                        6.0 +
-                        (hasAlert ? 16.0 + 6.0 : 0.0);
-                    final dividerRightOffset =
-                        trailingStatus == null ? 0.0 : trailingStatusWidth + 8.0;
+                        stopNameWidth + 6.0 + (hasAlert ? 16.0 + 6.0 : 0.0);
+                    final dividerRightOffset = trailingStatus == null
+                        ? 0.0
+                        : trailingStatusWidth + 8.0;
                     final showDivider =
                         constraints.maxWidth -
                             dividerLeftOffset -
@@ -3488,6 +3501,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       routeName: detail.route.routeName,
       paths: detail.paths,
       stopsByPath: detail.stopsByPath,
+      liveStopsByPathListenable: _liveMapStopsByPath,
       alwaysShowSeconds: controller.settings.alwaysShowSeconds,
       selectedPathIdListenable: _selectedMapPathId,
       refreshIntervalSeconds: controller.settings.busUpdateTime,

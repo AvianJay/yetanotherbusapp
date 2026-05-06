@@ -82,7 +82,9 @@ class RouteTripMonitorService : Service() {
             if (!foregroundStarted) {
                 return
             }
-            refreshNotification()
+            if (!appInForeground) {
+                refreshNotification()
+            }
             mainHandler.postDelayed(this, POLL_INTERVAL_MS)
         }
     }
@@ -90,7 +92,9 @@ class RouteTripMonitorService : Service() {
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(locationResult: LocationResult) {
             latestLocation = locationResult.lastLocation
-            refreshNotification()
+            if (!appInForeground) {
+                refreshNotification()
+            }
         }
     }
 
@@ -133,7 +137,11 @@ class RouteTripMonitorService : Service() {
                     return START_NOT_STICKY
                 }
                 refreshNotification(force = true)
-                startPolling()
+                if (appInForeground) {
+                    stopPolling()
+                } else {
+                    startPolling()
+                }
                 return START_STICKY
             }
 
@@ -231,7 +239,11 @@ class RouteTripMonitorService : Service() {
                 ensureForegroundStarted(parsedSession)
                 requestLocationUpdates()
                 refreshNotification(force = true)
-                startPolling()
+                if (appInForeground) {
+                    stopPolling()
+                } else {
+                    startPolling()
+                }
             }
         }
         return START_STICKY
@@ -335,7 +347,9 @@ class RouteTripMonitorService : Service() {
             fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                 if (location != null) {
                     latestLocation = location
-                    refreshNotification()
+                    if (!appInForeground) {
+                        refreshNotification()
+                    }
                 }
             }
         }
@@ -2081,6 +2095,13 @@ class RouteTripMonitorService : Service() {
         val now = SystemClock.elapsedRealtime()
         synchronized(refreshLock) {
             if (
+                appInForeground &&
+                cachedLiveRouteId == routeId &&
+                cachedLivePathId == session.pathId
+            ) {
+                return cachedLiveStops
+            }
+            if (
                 cachedLiveRouteId == routeId &&
                 cachedLivePathId == session.pathId &&
                 cachedLiveFetchedAtMs != 0L &&
@@ -2088,6 +2109,9 @@ class RouteTripMonitorService : Service() {
             ) {
                 return cachedLiveStops
             }
+        }
+        if (appInForeground) {
+            return emptyMap()
         }
         val liveStops = fetchLiveStopMapFromBackend(
             routeId = routeId,

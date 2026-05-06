@@ -20,8 +20,7 @@ class IOSWidgetIntegration {
       !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   static Future<void> syncFavoriteGroups(
-    Map<String, List<FavoriteStop>> favoriteGroups,
-    {
+    Map<String, List<FavoriteStop>> favoriteGroups, {
     bool waitForBridge = false,
   }) async {
     if (!_isIOS) {
@@ -54,6 +53,13 @@ class IOSWidgetIntegration {
           return;
         }
       } on PlatformException catch (error) {
+        if (error.code == 'app_group_unavailable') {
+          debugPrint(
+            'IOSWidgetIntegration syncFavoriteGroups skipped because no usable '
+            'App Group container is available (groups=$groupCount, details=${error.details}).',
+          );
+          return;
+        }
         if (isLastAttempt) {
           debugPrint(
             'IOSWidgetIntegration syncFavoriteGroups failed after $_maxSyncAttempts attempts '

@@ -22,6 +22,7 @@ class RouteBusMapSheet extends StatefulWidget {
     required this.routeName,
     required this.paths,
     required this.stopsByPath,
+    this.liveStopsByPathListenable,
     required this.alwaysShowSeconds,
     this.routeIdHint,
     required this.selectedPathIdListenable,
@@ -39,6 +40,7 @@ class RouteBusMapSheet extends StatefulWidget {
   final String routeName;
   final List<PathInfo> paths;
   final Map<int, List<StopInfo>> stopsByPath;
+  final ValueListenable<Map<int, List<StopInfo>>>? liveStopsByPathListenable;
   final bool alwaysShowSeconds;
   final ValueListenable<int?> selectedPathIdListenable;
   final int refreshIntervalSeconds;
@@ -104,6 +106,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     _stopsByPath = _copyStopsByPath(widget.stopsByPath);
     _refreshProgressController = AnimationController(vsync: this);
     widget.selectedPathIdListenable.addListener(_handleExternalPathSelection);
+    widget.liveStopsByPathListenable?.addListener(_handleExternalStopsUpdate);
     _simulationTimer = Timer.periodic(_simulationTick, (_) {
       if (!mounted || _busStates.isEmpty) {
         return;
@@ -116,9 +119,34 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   }
 
   @override
+  void didUpdateWidget(covariant RouteBusMapSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedPathIdListenable != widget.selectedPathIdListenable) {
+      oldWidget.selectedPathIdListenable.removeListener(
+        _handleExternalPathSelection,
+      );
+      widget.selectedPathIdListenable.addListener(_handleExternalPathSelection);
+    }
+    if (oldWidget.liveStopsByPathListenable !=
+        widget.liveStopsByPathListenable) {
+      oldWidget.liveStopsByPathListenable?.removeListener(
+        _handleExternalStopsUpdate,
+      );
+      widget.liveStopsByPathListenable?.addListener(_handleExternalStopsUpdate);
+      _handleExternalStopsUpdate();
+    } else if (widget.liveStopsByPathListenable == null &&
+        oldWidget.stopsByPath != widget.stopsByPath) {
+      _applyStopsByPathSnapshot(widget.stopsByPath);
+    }
+  }
+
+  @override
   void dispose() {
     widget.selectedPathIdListenable.removeListener(
       _handleExternalPathSelection,
+    );
+    widget.liveStopsByPathListenable?.removeListener(
+      _handleExternalStopsUpdate,
     );
     _refreshTimer?.cancel();
     _simulationTimer?.cancel();
@@ -179,6 +207,34 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     _switchPath(nextPathId, notifyParent: false);
   }
 
+  void _handleExternalStopsUpdate() {
+    final latestStopsByPath = widget.liveStopsByPathListenable?.value;
+    if (latestStopsByPath == null || latestStopsByPath.isEmpty) {
+      return;
+    }
+    _applyStopsByPathSnapshot(latestStopsByPath);
+  }
+
+  void _applyStopsByPathSnapshot(Map<int, List<StopInfo>> stopsByPath) {
+    final nextStopsByPath = _copyStopsByPath(stopsByPath);
+    final nextSelectedStopId =
+        _selectedStopId != null &&
+            (nextStopsByPath[_activePathId] ?? const <StopInfo>[]).any(
+              (stop) => stop.stopId == _selectedStopId,
+            )
+        ? _selectedStopId
+        : null;
+    if (!mounted) {
+      _stopsByPath = nextStopsByPath;
+      _selectedStopId = nextSelectedStopId;
+      return;
+    }
+    setState(() {
+      _stopsByPath = nextStopsByPath;
+      _selectedStopId = nextSelectedStopId;
+    });
+  }
+
   void _switchPath(int pathId, {required bool notifyParent}) {
     if (_activePathId == pathId) {
       return;
@@ -228,20 +284,8 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         widget.routeId,
         pathId: pathId,
       );
-      final detailFuture = controller.getRouteDetail(
-        widget.routeKey,
-        provider: widget.provider,
-        routeIdHint: widget.routeIdHint ?? widget.routeId,
-        routeNameHint: widget.routeName,
-      );
       final pathPoints = await pathPointsFuture;
       final buses = await busesFuture;
-      RouteDetailData? refreshedDetail;
-      try {
-        refreshedDetail = await detailFuture;
-      } catch (_) {
-        refreshedDetail = null;
-      }
       if (!mounted ||
           pathId != _activePathId ||
           requestId != _refreshRequestSerial) {
@@ -258,19 +302,15 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
           _selectedBusId != null && nextStates.containsKey(_selectedBusId)
           ? _selectedBusId
           : null;
-      final nextStopsByPath = refreshedDetail == null
-          ? _stopsByPath
-          : _copyStopsByPath(refreshedDetail.stopsByPath);
       final nextSelectedStopId =
           _selectedStopId != null &&
-              (nextStopsByPath[pathId] ?? const <StopInfo>[]).any(
+              (_stopsByPath[pathId] ?? const <StopInfo>[]).any(
                 (stop) => stop.stopId == _selectedStopId,
               )
           ? _selectedStopId
           : null;
       setState(() {
         _geometry = geometry;
-        _stopsByPath = nextStopsByPath;
         _busStates = nextStates;
         _selectedBusId = nextSelectedBusId;
         _selectedStopId = nextSelectedStopId;
@@ -781,21 +821,23 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                 ),
                 visualDensity: VisualDensity.compact,
               ),
-              const SizedBox(width: 4),
-              AnimatedBuilder(
-                animation: _refreshProgressController,
-                builder: (context, child) {
-                  return Text(
-                    _refreshLabel(),
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: _isRefreshing
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  );
-                },
-              ),
+              if (!widget.embedded) ...[
+                const SizedBox(width: 4),
+                AnimatedBuilder(
+                  animation: _refreshProgressController,
+                  builder: (context, child) {
+                    return Text(
+                      _refreshLabel(),
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: _isRefreshing
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    );
+                  },
+                ),
+              ],
             ],
           ),
           if (widget.paths.length > 1) ...[
@@ -1091,12 +1133,13 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                   ],
                 ),
         ),
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          child: IgnorePointer(child: _buildTopProgressBar()),
-        ),
+        if (!widget.embedded)
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: IgnorePointer(child: _buildTopProgressBar()),
+          ),
         if (_useGoogleMapsRouteProvider &&
             _showBuses &&
             selectedDisplayBus != null)

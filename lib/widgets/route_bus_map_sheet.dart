@@ -366,7 +366,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         if (fitPoints.isEmpty) {
           return;
         }
-        final didFit = useGoogleMapsProvider
+        final didFit = useGoogleMapsRouteProvider
             ? _fitGoogleCameraToPoints(fitPoints)
             : _fitOsmCameraToPoints(fitPoints);
         if (didFit) {
@@ -450,7 +450,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
     try {
       final point = selectedBus.positionAt(DateTime.now(), geometry: geometry);
-      if (useGoogleMapsProvider) {
+      if (useGoogleMapsRouteProvider) {
         final currentCenter = _googleCameraCenter;
         if (!force &&
             currentCenter != null &&
@@ -815,7 +815,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     return Stack(
       children: [
         Positioned.fill(
-          child: useGoogleMapsProvider
+            child: useGoogleMapsRouteProvider
               ? _buildGoogleRouteMap(
                   theme: theme,
                   geometry: geometry,
@@ -851,8 +851,8 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                   ),
                   children: [
                     TileLayer(
-                      urlTemplate:
-                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      urlTemplate: mapTileUrlTemplate(theme.brightness),
+                      subdomains: mapTileSubdomains(theme.brightness),
                       userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
                     ),
                     PolylineLayer(
@@ -1000,7 +1000,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
           top: 0,
           child: IgnorePointer(child: _buildTopProgressBar()),
         ),
-        if (useGoogleMapsProvider && _showBuses && selectedDisplayBus != null)
+        if (useGoogleMapsRouteProvider &&
+            _showBuses &&
+            selectedDisplayBus != null)
           Positioned(
             left: 16,
             right: 16,
@@ -1013,7 +1015,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
               ),
             ),
           ),
-        if (useGoogleMapsProvider && _showStops && selectedDisplayStop != null)
+        if (useGoogleMapsRouteProvider &&
+            _showStops &&
+            selectedDisplayStop != null)
           Positioned(
             left: 16,
             right: 16,
@@ -1045,7 +1049,11 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         zoom: 13.5,
       ),
       mapType: gmaps.MapType.normal,
+      style: googleMapStyleForBrightness(theme.brightness),
+      gestureRecognizers: buildGoogleMapGestureRecognizers(),
       rotateGesturesEnabled: false,
+      scrollGesturesEnabled: true,
+      zoomGesturesEnabled: true,
       myLocationButtonEnabled: false,
       mapToolbarEnabled: false,
       zoomControlsEnabled: false,

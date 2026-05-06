@@ -150,9 +150,15 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   }
 
   void _selectStation(BikeStation station) {
-    final point = LatLng(station.lat, station.lon);
+    final point = _stationPointIfValid(station);
     setState(() => _selectedStation = station);
-    if (useGoogleMapsProvider) {
+    if (point == null) {
+      if (MediaQuery.sizeOf(context).width < _splitLayoutBreakpoint) {
+        _showStationDetail(station);
+      }
+      return;
+    }
+    if (useGoogleMapsPointProvider) {
       _googleCameraCenter = point;
       _googleMapController?.animateCamera(
         gmaps.CameraUpdate.newLatLngZoom(
@@ -170,7 +176,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
 
   void _recenterToUser() {
     if (_userLocation != null) {
-      if (useGoogleMapsProvider) {
+      if (useGoogleMapsPointProvider) {
         _googleCameraCenter = _userLocation!;
         _googleCameraZoom = _defaultZoom;
         _googleMapController?.animateCamera(
@@ -620,14 +626,17 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     final theme = Theme.of(context);
     return Stack(
       children: [
-        if (useGoogleMapsProvider)
+        if (useGoogleMapsPointProvider)
           gmaps.GoogleMap(
             initialCameraPosition: gmaps.CameraPosition(
               target: toGoogleLatLng(_center),
               zoom: _defaultZoom,
             ),
             mapType: gmaps.MapType.normal,
+            gestureRecognizers: buildGoogleMapGestureRecognizers(),
             rotateGesturesEnabled: false,
+            scrollGesturesEnabled: true,
+            zoomGesturesEnabled: true,
             myLocationButtonEnabled: false,
             mapToolbarEnabled: false,
             zoomControlsEnabled: false,
@@ -657,7 +666,8 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: mapTileUrlTemplate(theme.brightness),
+                subdomains: mapTileSubdomains(theme.brightness),
                 userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
               ),
               if (_userLocation != null)
@@ -684,44 +694,51 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                   ],
                 ),
               MarkerLayer(
-                markers: _stations.map((station) {
-                  final color = _availabilityColor(station);
-                  final selected = _selectedStation?.name == station.name;
-                  return Marker(
-                    point: LatLng(station.lat, station.lon),
-                    width: selected ? 44 : 36,
-                    height: selected ? 44 : 36,
-                    child: GestureDetector(
-                      onTap: () => _selectStation(station),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: color,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: selected ? Colors.white : Colors.white70,
-                            width: selected ? 3 : 2,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              blurRadius: selected ? 8 : 4,
-                              color: Colors.black.withValues(alpha: 0.3),
+                markers: _stations
+                    .map((station) {
+                      final point = _stationPointIfValid(station);
+                      if (point == null) {
+                        return null;
+                      }
+                      final color = _availabilityColor(station);
+                      final selected = _selectedStation?.name == station.name;
+                      return Marker(
+                        point: point,
+                        width: selected ? 44 : 36,
+                        height: selected ? 44 : 36,
+                        child: GestureDetector(
+                          onTap: () => _selectStation(station),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: selected ? Colors.white : Colors.white70,
+                                width: selected ? 3 : 2,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  blurRadius: selected ? 8 : 4,
+                                  color: Colors.black.withValues(alpha: 0.3),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                        child: Center(
-                          child: Text(
-                            '${station.availableRent}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
+                            child: Center(
+                              child: Text(
+                                '${station.availableRent}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                  );
-                }).toList(),
+                      );
+                    })
+                    .whereType<Marker>()
+                    .toList(growable: false),
               ),
             ],
           ),
@@ -763,6 +780,10 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     }
 
     for (final station in _stations) {
+      final point = _stationPointIfValid(station);
+      if (point == null) {
+        continue;
+      }
       final color = _availabilityColor(station);
       final selected =
           _selectedStation?.stationUid == station.stationUid &&
@@ -773,7 +794,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       markers.add(
         gmaps.Marker(
           markerId: gmaps.MarkerId('bike:$id'),
-          position: gmaps.LatLng(station.lat, station.lon),
+          position: toGoogleLatLng(point),
           icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
             googleMarkerHueForColor(color),
           ),
@@ -787,6 +808,20 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       );
     }
     return markers;
+  }
+
+  bool _isValidCoordinate(double latitude, double longitude) {
+    return latitude.isFinite &&
+        longitude.isFinite &&
+        latitude.abs() <= 90 &&
+        longitude.abs() <= 180;
+  }
+
+  LatLng? _stationPointIfValid(BikeStation station) {
+    if (!_isValidCoordinate(station.lat, station.lon)) {
+      return null;
+    }
+    return LatLng(station.lat, station.lon);
   }
 
   @override

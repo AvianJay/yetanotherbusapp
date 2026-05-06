@@ -88,7 +88,7 @@ class _TransitStationMapState extends State<TransitStationMap> {
       if (!mounted || _validPoints.isEmpty) {
         return;
       }
-      if (useGoogleMapsProvider) {
+      if (useGoogleMapsPointProvider) {
         _fitGoogleCamera();
         return;
       }
@@ -198,14 +198,17 @@ class _TransitStationMapState extends State<TransitStationMap> {
         height: widget.height,
         child: Stack(
           children: [
-            if (useGoogleMapsProvider)
+            if (useGoogleMapsPointProvider)
               gmaps.GoogleMap(
                 initialCameraPosition: const gmaps.CameraPosition(
                   target: gmaps.LatLng(23.7, 121.0),
                   zoom: 7.2,
                 ),
                 mapType: gmaps.MapType.normal,
+                gestureRecognizers: buildGoogleMapGestureRecognizers(),
                 rotateGesturesEnabled: false,
+                scrollGesturesEnabled: true,
+                zoomGesturesEnabled: true,
                 myLocationButtonEnabled: false,
                 mapToolbarEnabled: false,
                 zoomControlsEnabled: false,
@@ -227,8 +230,8 @@ class _TransitStationMapState extends State<TransitStationMap> {
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate:
-                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    urlTemplate: mapTileUrlTemplate(theme.brightness),
+                    subdomains: mapTileSubdomains(theme.brightness),
                     userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
                   ),
                   MarkerLayer(

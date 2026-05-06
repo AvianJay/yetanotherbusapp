@@ -18,7 +18,7 @@ bool get supportsGoogleMapsProvider {
 
 bool get useGoogleMapsRouteProvider => supportsGoogleMapsProvider;
 
-bool get useGoogleMapsPointProvider => false;
+bool get useGoogleMapsPointProvider => supportsGoogleMapsProvider;
 
 String mapTileUrlTemplate(Brightness brightness) {
   if (brightness == Brightness.dark) {

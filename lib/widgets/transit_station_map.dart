@@ -205,6 +205,7 @@ class _TransitStationMapState extends State<TransitStationMap> {
                   zoom: 7.2,
                 ),
                 mapType: gmaps.MapType.normal,
+                style: googleMapStyleForBrightness(theme.brightness),
                 gestureRecognizers: buildGoogleMapGestureRecognizers(),
                 rotateGesturesEnabled: false,
                 scrollGesturesEnabled: true,

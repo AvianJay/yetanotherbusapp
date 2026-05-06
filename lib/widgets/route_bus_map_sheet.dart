@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -78,6 +79,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   bool _didFitCurrentPathWithUserLocation = false;
   bool _isMovingGoogleCameraProgrammatically = false;
   gmaps.CameraPosition? _googleCameraPosition;
+  final Map<String, gmaps.BitmapDescriptor> _googleStopIcons =
+      <String, gmaps.BitmapDescriptor>{};
+  final Set<String> _pendingGoogleStopIconKeys = <String>{};
   late int _activePathId;
 
   @override
@@ -811,11 +815,14 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         }
       }
     }
+    if (useGoogleMapsRouteProvider) {
+      _ensureGoogleStopIcons(theme, displayStops);
+    }
 
     return Stack(
       children: [
         Positioned.fill(
-            child: useGoogleMapsRouteProvider
+          child: useGoogleMapsRouteProvider
               ? _buildGoogleRouteMap(
                   theme: theme,
                   geometry: geometry,
@@ -1037,6 +1044,152 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     );
   }
 
+  void _ensureGoogleStopIcons(
+    ThemeData theme,
+    List<_DisplayedStop> displayStops,
+  ) {
+    if (!_showStops || displayStops.isEmpty) {
+      return;
+    }
+
+    final pixelRatio = MediaQuery.of(
+      context,
+    ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+    final requests = <_GoogleStopIconRequest>[];
+
+    for (final stop in displayStops) {
+      for (final selected in <bool>[
+        false,
+        _selectedStopId == stop.stop.stopId,
+      ]) {
+        final eta = buildEtaPresentation(
+          stop.stop,
+          alwaysShowSeconds: widget.alwaysShowSeconds,
+          brightness: theme.brightness,
+          colorScheme: theme.colorScheme,
+        );
+        final key = _googleStopIconKey(
+          eta: eta,
+          selected: selected,
+          pixelRatio: pixelRatio,
+        );
+        if (_googleStopIcons.containsKey(key) ||
+            _pendingGoogleStopIconKeys.contains(key)) {
+          continue;
+        }
+        _pendingGoogleStopIconKeys.add(key);
+        requests.add(
+          _GoogleStopIconRequest(
+            key: key,
+            eta: eta,
+            selected: selected,
+            pixelRatio: pixelRatio,
+          ),
+        );
+      }
+    }
+
+    if (requests.isNotEmpty) {
+      unawaited(_generateGoogleStopIcons(requests));
+    }
+  }
+
+  String _googleStopIconKey({
+    required EtaPresentation eta,
+    required bool selected,
+    required double pixelRatio,
+  }) {
+    return [
+      selected ? 'selected' : 'normal',
+      pixelRatio.toStringAsFixed(2),
+      eta.text,
+      eta.backgroundColor,
+      eta.foregroundColor,
+    ].join('|');
+  }
+
+  Future<void> _generateGoogleStopIcons(
+    List<_GoogleStopIconRequest> requests,
+  ) async {
+    final generated = <String, gmaps.BitmapDescriptor>{};
+    try {
+      for (final request in requests) {
+        final bytes = await _drawGoogleStopIcon(request);
+        generated[request.key] = gmaps.BitmapDescriptor.bytes(
+          bytes,
+          imagePixelRatio: request.pixelRatio,
+          width: request.logicalSize,
+          height: request.logicalSize,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          for (final request in requests) {
+            _pendingGoogleStopIconKeys.remove(request.key);
+          }
+          _googleStopIcons.addAll(generated);
+        });
+      }
+    }
+  }
+
+  Future<Uint8List> _drawGoogleStopIcon(_GoogleStopIconRequest request) async {
+    final pixelSize = (request.logicalSize * request.pixelRatio).ceil();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)
+      ..scale(request.pixelRatio, request.pixelRatio);
+    final center = ui.Offset(request.logicalSize / 2, request.logicalSize / 2);
+    final rect = ui.Rect.fromCenter(
+      center: center,
+      width: request.badgeSize,
+      height: request.badgeSize,
+    );
+    final radius = ui.Radius.circular(request.badgeSize * 0.31);
+    final rrect = ui.RRect.fromRectAndRadius(rect, radius);
+
+    canvas.drawRRect(
+      rrect.shift(const ui.Offset(0, 2)),
+      ui.Paint()
+        ..color = Colors.black.withValues(alpha: 0.24)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
+    );
+    canvas.drawRRect(rrect, ui.Paint()..color = request.eta.backgroundColor);
+    canvas.drawRRect(
+      rrect,
+      ui.Paint()
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = request.borderWidth
+        ..color = Colors.white,
+    );
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: request.eta.text,
+        style: TextStyle(
+          color: request.eta.foregroundColor,
+          fontWeight: FontWeight.w700,
+          fontSize: request.badgeSize * 0.24,
+          height: 1.1,
+        ),
+      ),
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+      maxLines: 2,
+    )..layout(maxWidth: request.badgeSize - 4);
+    textPainter.paint(
+      canvas,
+      center - ui.Offset(textPainter.width / 2, textPainter.height / 2),
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelSize, pixelSize);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    return byteData!.buffer.asUint8List();
+  }
+
   Widget _buildGoogleRouteMap({
     required ThemeData theme,
     required _RouteGeometry geometry,
@@ -1145,17 +1298,27 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
           stop.stop,
           alwaysShowSeconds: widget.alwaysShowSeconds,
           brightness: theme.brightness,
+          colorScheme: theme.colorScheme,
+        );
+        final iconKey = _googleStopIconKey(
+          eta: eta,
+          selected: selected,
+          pixelRatio: MediaQuery.of(
+            context,
+          ).devicePixelRatio.clamp(1.0, 3.0).toDouble(),
         );
         markers.add(
           gmaps.Marker(
             markerId: gmaps.MarkerId('stop:${stop.stop.stopId}'),
             consumeTapEvents: true,
             position: toGoogleLatLng(stop.point),
-            icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
-              selected
-                  ? googleMarkerHueForColor(theme.colorScheme.primary)
-                  : gmaps.BitmapDescriptor.hueCyan,
-            ),
+            icon:
+                _googleStopIcons[iconKey] ??
+                gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                  selected
+                      ? googleMarkerHueForColor(theme.colorScheme.primary)
+                      : gmaps.BitmapDescriptor.hueCyan,
+                ),
             infoWindow: gmaps.InfoWindow(
               title: stop.stop.stopName,
               snippet: eta.text.replaceAll('\n', ' '),
@@ -1721,6 +1884,26 @@ class _DisplayedStop {
 
   final StopInfo stop;
   final LatLng point;
+}
+
+class _GoogleStopIconRequest {
+  const _GoogleStopIconRequest({
+    required this.key,
+    required this.eta,
+    required this.selected,
+    required this.pixelRatio,
+  });
+
+  final String key;
+  final EtaPresentation eta;
+  final bool selected;
+  final double pixelRatio;
+
+  double get logicalSize => selected ? 44 : 36;
+
+  double get badgeSize => selected ? 36 : 30;
+
+  double get borderWidth => selected ? 2.5 : 1.8;
 }
 
 enum _BusMotionMode { snappedToRoute, freeFloating }

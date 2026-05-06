@@ -633,6 +633,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
               zoom: _defaultZoom,
             ),
             mapType: gmaps.MapType.normal,
+            style: googleMapStyleForBrightness(theme.brightness),
             gestureRecognizers: buildGoogleMapGestureRecognizers(),
             rotateGesturesEnabled: false,
             scrollGesturesEnabled: true,

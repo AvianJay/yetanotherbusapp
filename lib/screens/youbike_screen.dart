@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -23,6 +25,11 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   final TransitRepository _repo = TransitRepository();
   final MapController _mapController = MapController();
   gmaps.GoogleMapController? _googleMapController;
+  final Map<String, gmaps.BitmapDescriptor> _googleStationIcons =
+      <String, gmaps.BitmapDescriptor>{};
+  final Set<String> _pendingGoogleStationIconKeys = <String>{};
+  gmaps.BitmapDescriptor? _googleUserLocationIcon;
+  bool _isGeneratingGoogleUserLocationIcon = false;
 
   static const _defaultCenter = LatLng(25.033, 121.565); // Taipei
   static const _defaultZoom = 15.0;
@@ -624,6 +631,10 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
 
   Widget _buildMapContent() {
     final theme = Theme.of(context);
+    if (useGoogleMapsPointProvider) {
+      _ensureGoogleStationIcons();
+      _ensureGoogleUserLocationIcon();
+    }
     return Stack(
       children: [
         if (useGoogleMapsPointProvider)
@@ -764,17 +775,239 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     );
   }
 
+  void _ensureGoogleUserLocationIcon() {
+    if (_googleUserLocationIcon != null || _isGeneratingGoogleUserLocationIcon) {
+      return;
+    }
+
+    _isGeneratingGoogleUserLocationIcon = true;
+    final pixelRatio = MediaQuery.of(
+      context,
+    ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+
+    unawaited(() async {
+      gmaps.BitmapDescriptor? icon;
+      try {
+        final bytes = await _drawGoogleUserLocationIcon(pixelRatio);
+        icon = gmaps.BitmapDescriptor.bytes(
+          bytes,
+          imagePixelRatio: pixelRatio,
+          width: _GoogleYouBikeUserLocationIcon.baseLogicalSize,
+          height: _GoogleYouBikeUserLocationIcon.baseLogicalSize,
+        );
+      } finally {
+        if (mounted) {
+          setState(() {
+            _googleUserLocationIcon = icon ?? _googleUserLocationIcon;
+            _isGeneratingGoogleUserLocationIcon = false;
+          });
+        } else {
+          _isGeneratingGoogleUserLocationIcon = false;
+        }
+      }
+    }());
+  }
+
+  void _ensureGoogleStationIcons() {
+    if (_stations.isEmpty) {
+      return;
+    }
+
+    final pixelRatio = MediaQuery.of(
+      context,
+    ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+    final requests = <_GoogleYouBikeMarkerRequest>[];
+
+    for (final station in _stations) {
+      if (_stationPointIfValid(station) == null) {
+        continue;
+      }
+      final selected =
+          _selectedStation?.stationUid == station.stationUid &&
+          _selectedStation?.stationId == station.stationId;
+      for (final markerSelected in <bool>[false, selected]) {
+        final request = _GoogleYouBikeMarkerRequest(
+          key: _googleStationIconKey(
+            countLabel: _bikeCountLabel(station),
+            color: _availabilityColor(station),
+            selected: markerSelected,
+            pixelRatio: pixelRatio,
+          ),
+          countLabel: _bikeCountLabel(station),
+          color: _availabilityColor(station),
+          selected: markerSelected,
+          pixelRatio: pixelRatio,
+        );
+        if (_googleStationIcons.containsKey(request.key) ||
+            _pendingGoogleStationIconKeys.contains(request.key)) {
+          continue;
+        }
+        _pendingGoogleStationIconKeys.add(request.key);
+        requests.add(request);
+      }
+    }
+
+    if (requests.isNotEmpty) {
+      unawaited(_generateGoogleStationIcons(requests));
+    }
+  }
+
+  String _googleStationIconKey({
+    required String countLabel,
+    required Color color,
+    required bool selected,
+    required double pixelRatio,
+  }) {
+    return [
+      countLabel,
+      color.toARGB32().toRadixString(16),
+      selected ? 'selected' : 'normal',
+      pixelRatio.toStringAsFixed(2),
+    ].join('|');
+  }
+
+  String _bikeCountLabel(BikeStation station) {
+    if (station.availableRent > 99) {
+      return '99+';
+    }
+    return '${station.availableRent}';
+  }
+
+  Future<void> _generateGoogleStationIcons(
+    List<_GoogleYouBikeMarkerRequest> requests,
+  ) async {
+    final generated = <String, gmaps.BitmapDescriptor>{};
+    try {
+      for (final request in requests) {
+        final bytes = await _drawGoogleStationIcon(request);
+        generated[request.key] = gmaps.BitmapDescriptor.bytes(
+          bytes,
+          imagePixelRatio: request.pixelRatio,
+          width: request.logicalSize,
+          height: request.logicalSize,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          for (final request in requests) {
+            _pendingGoogleStationIconKeys.remove(request.key);
+          }
+          _googleStationIcons.addAll(generated);
+        });
+      }
+    }
+  }
+
+  Future<Uint8List> _drawGoogleUserLocationIcon(double pixelRatio) async {
+    final request = _GoogleYouBikeUserLocationIcon(pixelRatio: pixelRatio);
+    final pixelSize = (request.logicalSize * pixelRatio).ceil();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)..scale(pixelRatio, pixelRatio);
+    final center = ui.Offset(request.logicalSize / 2, request.logicalSize / 2);
+
+    canvas.drawCircle(
+      center,
+      request.outerRadius,
+      ui.Paint()..color = const Color(0x331E88E5),
+    );
+    canvas.drawCircle(
+      center.translate(0, 1.5),
+      request.innerRadius,
+      ui.Paint()
+        ..color = Colors.black.withValues(alpha: 0.18)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
+    );
+    canvas.drawCircle(
+      center,
+      request.innerRadius,
+      ui.Paint()..color = const Color(0xFF1E88E5),
+    );
+    canvas.drawCircle(
+      center,
+      request.innerRadius,
+      ui.Paint()
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..color = Colors.white,
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelSize, pixelSize);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    return byteData!.buffer.asUint8List();
+  }
+
+  Future<Uint8List> _drawGoogleStationIcon(
+    _GoogleYouBikeMarkerRequest request,
+  ) async {
+    final pixelSize = (request.logicalSize * request.pixelRatio).ceil();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)
+      ..scale(request.pixelRatio, request.pixelRatio);
+    final center = ui.Offset(request.logicalSize / 2, request.logicalSize / 2);
+
+    canvas.drawCircle(
+      center.translate(0, 1.5),
+      request.radius,
+      ui.Paint()
+        ..color = Colors.black.withValues(alpha: 0.2)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
+    );
+    canvas.drawCircle(center, request.radius, ui.Paint()..color = request.color);
+    canvas.drawCircle(
+      center,
+      request.radius,
+      ui.Paint()
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = request.borderWidth
+        ..color = request.selected ? Colors.white : Colors.white70,
+    );
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: request.countLabel,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: request.fontSize,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+    )..layout(maxWidth: request.logicalSize - 8);
+    textPainter.paint(
+      canvas,
+      center - ui.Offset(textPainter.width / 2, textPainter.height / 2),
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelSize, pixelSize);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    return byteData!.buffer.asUint8List();
+  }
+
   Set<gmaps.Marker> _buildGoogleMarkers(ThemeData theme) {
     final markers = <gmaps.Marker>{};
     final userLocation = _userLocation;
     if (userLocation != null) {
+      final userIcon = _googleUserLocationIcon;
       markers.add(
         gmaps.Marker(
           markerId: const gmaps.MarkerId('user-location'),
           position: toGoogleLatLng(userLocation),
-          icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
-            gmaps.BitmapDescriptor.hueAzure,
-          ),
+          anchor: userIcon == null
+              ? const Offset(0.5, 1)
+              : const Offset(0.5, 0.5),
+          icon:
+              userIcon ??
+              gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                gmaps.BitmapDescriptor.hueAzure,
+              ),
           zIndexInt: 3,
         ),
       );
@@ -789,6 +1022,15 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       final selected =
           _selectedStation?.stationUid == station.stationUid &&
           _selectedStation?.stationId == station.stationId;
+      final iconKey = _googleStationIconKey(
+        countLabel: _bikeCountLabel(station),
+        color: color,
+        selected: selected,
+        pixelRatio: MediaQuery.of(
+          context,
+        ).devicePixelRatio.clamp(1.0, 3.0).toDouble(),
+      );
+      final markerIcon = _googleStationIcons[iconKey];
       final id = station.stationUid.isNotEmpty
           ? station.stationUid
           : '${station.stationId}:${station.lat}:${station.lon}';
@@ -796,9 +1038,14 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
         gmaps.Marker(
           markerId: gmaps.MarkerId('bike:$id'),
           position: toGoogleLatLng(point),
-          icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
-            googleMarkerHueForColor(color),
-          ),
+          anchor: markerIcon == null
+              ? const Offset(0.5, 1)
+              : const Offset(0.5, 0.5),
+          icon:
+              markerIcon ??
+              gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                googleMarkerHueForColor(color),
+              ),
           infoWindow: gmaps.InfoWindow(
             title: station.name,
             snippet: station.address.isEmpty ? null : station.address,
@@ -880,6 +1127,49 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     if (meters < 1000) return '${meters.round()}m';
     return '${(meters / 1000).toStringAsFixed(1)}km';
   }
+}
+
+class _GoogleYouBikeMarkerRequest {
+  const _GoogleYouBikeMarkerRequest({
+    required this.key,
+    required this.countLabel,
+    required this.color,
+    required this.selected,
+    required this.pixelRatio,
+  });
+
+  final String key;
+  final String countLabel;
+  final Color color;
+  final bool selected;
+  final double pixelRatio;
+
+  double get logicalSize => selected ? 44 : 36;
+
+  double get radius => selected ? 19 : 16;
+
+  double get borderWidth => selected ? 3 : 2;
+
+  double get fontSize {
+    if (countLabel.length >= 3) {
+      return selected ? 10 : 9;
+    }
+    return selected ? 12 : 11;
+  }
+}
+
+class _GoogleYouBikeUserLocationIcon {
+  const _GoogleYouBikeUserLocationIcon({required this.pixelRatio});
+
+  static const double baseLogicalSize = 28;
+
+  final double pixelRatio;
+
+  double get logicalSize => baseLogicalSize;
+
+  double get outerRadius => 12;
+
+  double get innerRadius => 8.6;
 }
 
 class _StatItem extends StatelessWidget {

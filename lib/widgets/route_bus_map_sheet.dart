@@ -56,6 +56,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   static const _snapToRouteThresholdMeters = 180.0;
   static const _offRouteThresholdMeters = 320.0;
   static const _cameraPadding = EdgeInsets.fromLTRB(20, 20, 20, 140);
+  static const _userLocationFocusZoom = 16.4;
 
   final MapController _mapController = MapController();
   gmaps.GoogleMapController? _googleMapController;
@@ -77,11 +78,17 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   bool _showStops = true;
   LatLng? _userLocation;
   bool _didFitCurrentPathWithUserLocation = false;
+    bool _didFocusInitialUserLocation = false;
   bool _isMovingGoogleCameraProgrammatically = false;
   gmaps.CameraPosition? _googleCameraPosition;
   final Map<String, gmaps.BitmapDescriptor> _googleStopIcons =
       <String, gmaps.BitmapDescriptor>{};
   final Set<String> _pendingGoogleStopIconKeys = <String>{};
+    final Map<String, gmaps.BitmapDescriptor> _googleBusIcons =
+      <String, gmaps.BitmapDescriptor>{};
+    final Set<String> _pendingGoogleBusIconKeys = <String>{};
+    gmaps.BitmapDescriptor? _googleUserLocationIcon;
+    bool _isGeneratingGoogleUserLocationIcon = false;
   late int _activePathId;
 
   @override
@@ -168,6 +175,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       _selectedStopId = null;
       _followSelectedBus = false;
       _didFitCurrentPathWithUserLocation = false;
+      _didFocusInitialUserLocation = false;
       _error = null;
       _geometry = null;
       _busStates = <String, _AnimatedBusState>{};
@@ -249,7 +257,12 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       });
       _scheduleNextRefresh();
       if (fitCamera) {
-        _fitCameraToGeometry(geometry);
+        final didFocusUser =
+            !_didFocusInitialUserLocation &&
+            _focusOnUserLocation(markInitial: true);
+        if (!didFocusUser) {
+          _fitCameraToGeometry(geometry);
+        }
       }
       _syncSelectedBusCamera(force: true);
     } catch (error) {
@@ -341,14 +354,22 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
               _userLocation = nextLocation;
             });
             final geometry = _geometry;
-            if (geometry != null && !_didFitCurrentPathWithUserLocation) {
-              _fitCameraToGeometry(geometry);
+            if (geometry != null) {
+              if (!_didFocusInitialUserLocation) {
+                _focusOnUserLocation(markInitial: true);
+              } else if (!_didFitCurrentPathWithUserLocation) {
+                _fitCameraToGeometry(geometry);
+              }
             }
           });
 
       final geometry = _geometry;
-      if (geometry != null && !_didFitCurrentPathWithUserLocation) {
-        _fitCameraToGeometry(geometry);
+      if (geometry != null) {
+        if (!_didFocusInitialUserLocation) {
+          _focusOnUserLocation(markInitial: true);
+        } else if (!_didFitCurrentPathWithUserLocation) {
+          _fitCameraToGeometry(geometry);
+        }
       }
     } catch (_) {
       // Ignore location lookup failures and keep the map focused on the route.
@@ -421,6 +442,46 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       ),
     );
     return true;
+  }
+
+  bool _focusOnUserLocation({bool markInitial = false}) {
+    final userLocation = _userLocation;
+    if (userLocation == null) {
+      return false;
+    }
+
+    if (useGoogleMapsRouteProvider) {
+      if (_googleMapController == null) {
+        return false;
+      }
+      _moveGoogleCamera(
+        gmaps.CameraUpdate.newLatLngZoom(
+          toGoogleLatLng(userLocation),
+          _userLocationFocusZoom,
+        ),
+      );
+    } else {
+      _mapController.move(userLocation, _userLocationFocusZoom);
+    }
+
+    _didFitCurrentPathWithUserLocation = true;
+    if (markInitial) {
+      _didFocusInitialUserLocation = true;
+    }
+    return true;
+  }
+
+  void _handleRecenterToUser() {
+    if (_userLocation == null) {
+      unawaited(_loadUserLocation());
+      return;
+    }
+    if (_followSelectedBus) {
+      setState(() {
+        _followSelectedBus = false;
+      });
+    }
+    _focusOnUserLocation(markInitial: true);
   }
 
   void _moveGoogleCamera(gmaps.CameraUpdate update) {
@@ -817,7 +878,14 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     }
     if (useGoogleMapsRouteProvider) {
       _ensureGoogleStopIcons(theme, displayStops);
+      _ensureGoogleBusIcons(displayBuses);
+      _ensureGoogleUserLocationIcon();
     }
+
+    final hasGoogleBottomOverlay =
+        useGoogleMapsRouteProvider &&
+        ((_showBuses && selectedDisplayBus != null) ||
+            (_showStops && selectedDisplayStop != null));
 
     return Stack(
       children: [
@@ -1040,6 +1108,17 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
               ),
             ),
           ),
+        Positioned(
+          right: 16,
+          bottom: hasGoogleBottomOverlay ? 136 : 20,
+          child: FloatingActionButton.small(
+            heroTag: widget.embedded
+                ? 'route-map-recenter-inline'
+                : 'route-map-recenter-sheet',
+            onPressed: _handleRecenterToUser,
+            child: const Icon(Icons.my_location_rounded),
+          ),
+        ),
       ],
     );
   }
@@ -1190,6 +1269,208 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     return byteData!.buffer.asUint8List();
   }
 
+  void _ensureGoogleUserLocationIcon() {
+    if (_googleUserLocationIcon != null || _isGeneratingGoogleUserLocationIcon) {
+      return;
+    }
+
+    _isGeneratingGoogleUserLocationIcon = true;
+    final pixelRatio = MediaQuery.of(
+      context,
+    ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+
+    unawaited(() async {
+      gmaps.BitmapDescriptor? icon;
+      try {
+        final bytes = await _drawGoogleUserLocationIcon(pixelRatio);
+        icon = gmaps.BitmapDescriptor.bytes(
+          bytes,
+          imagePixelRatio: pixelRatio,
+          width: _GoogleUserLocationIconRequest.baseLogicalSize,
+          height: _GoogleUserLocationIconRequest.baseLogicalSize,
+        );
+      } finally {
+        if (mounted) {
+          setState(() {
+            _googleUserLocationIcon = icon ?? _googleUserLocationIcon;
+            _isGeneratingGoogleUserLocationIcon = false;
+          });
+        } else {
+          _isGeneratingGoogleUserLocationIcon = false;
+        }
+      }
+    }());
+  }
+
+  void _ensureGoogleBusIcons(List<_DisplayedBus> displayBuses) {
+    if (!_showBuses || displayBuses.isEmpty) {
+      return;
+    }
+
+    final pixelRatio = MediaQuery.of(
+      context,
+    ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+    final requests = <_GoogleBusIconRequest>[];
+
+    for (final bus in displayBuses) {
+      for (final selected in <bool>[false, _selectedBusId == bus.state.bus.id]) {
+        final key = _googleBusIconKey(
+          color: bus.state.status.color,
+          selected: selected,
+          pixelRatio: pixelRatio,
+        );
+        if (_googleBusIcons.containsKey(key) ||
+            _pendingGoogleBusIconKeys.contains(key)) {
+          continue;
+        }
+        _pendingGoogleBusIconKeys.add(key);
+        requests.add(
+          _GoogleBusIconRequest(
+            key: key,
+            color: bus.state.status.color,
+            selected: selected,
+            pixelRatio: pixelRatio,
+          ),
+        );
+      }
+    }
+
+    if (requests.isNotEmpty) {
+      unawaited(_generateGoogleBusIcons(requests));
+    }
+  }
+
+  String _googleBusIconKey({
+    required Color color,
+    required bool selected,
+    required double pixelRatio,
+  }) {
+    return [
+      color.toARGB32().toRadixString(16),
+      selected ? 'selected' : 'normal',
+      pixelRatio.toStringAsFixed(2),
+    ].join('|');
+  }
+
+  Future<void> _generateGoogleBusIcons(
+    List<_GoogleBusIconRequest> requests,
+  ) async {
+    final generated = <String, gmaps.BitmapDescriptor>{};
+    try {
+      for (final request in requests) {
+        final bytes = await _drawGoogleBusIcon(request);
+        generated[request.key] = gmaps.BitmapDescriptor.bytes(
+          bytes,
+          imagePixelRatio: request.pixelRatio,
+          width: request.logicalSize,
+          height: request.logicalSize,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          for (final request in requests) {
+            _pendingGoogleBusIconKeys.remove(request.key);
+          }
+          _googleBusIcons.addAll(generated);
+        });
+      }
+    }
+  }
+
+  Future<Uint8List> _drawGoogleUserLocationIcon(double pixelRatio) async {
+    final request = _GoogleUserLocationIconRequest(pixelRatio: pixelRatio);
+    final pixelSize = (request.logicalSize * pixelRatio).ceil();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)..scale(pixelRatio, pixelRatio);
+    final center = ui.Offset(request.logicalSize / 2, request.logicalSize / 2);
+
+    canvas.drawCircle(
+      center,
+      request.outerRadius,
+      ui.Paint()..color = const Color(0x331E88E5),
+    );
+    canvas.drawCircle(
+      center.translate(0, 1.5),
+      request.innerRadius,
+      ui.Paint()
+        ..color = Colors.black.withValues(alpha: 0.18)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
+    );
+    canvas.drawCircle(
+      center,
+      request.innerRadius,
+      ui.Paint()..color = const Color(0xFF1E88E5),
+    );
+    canvas.drawCircle(
+      center,
+      request.innerRadius,
+      ui.Paint()
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..color = Colors.white,
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelSize, pixelSize);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    return byteData!.buffer.asUint8List();
+  }
+
+  Future<Uint8List> _drawGoogleBusIcon(_GoogleBusIconRequest request) async {
+    final pixelSize = (request.logicalSize * request.pixelRatio).ceil();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)
+      ..scale(request.pixelRatio, request.pixelRatio);
+    final center = ui.Offset(request.logicalSize / 2, request.logicalSize / 2);
+    final foreground = request.color.computeLuminance() > 0.45
+        ? Colors.black87
+        : Colors.white;
+
+    canvas.drawCircle(
+      center.translate(0, 1.5),
+      request.radius,
+      ui.Paint()
+        ..color = Colors.black.withValues(alpha: 0.2)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
+    );
+    canvas.drawCircle(center, request.radius, ui.Paint()..color = request.color);
+    canvas.drawCircle(
+      center,
+      request.radius,
+      ui.Paint()
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = request.borderWidth
+        ..color = Colors.white,
+    );
+
+    final busIconPainter = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(Icons.directions_bus_rounded.codePoint),
+        style: TextStyle(
+          fontFamily: Icons.directions_bus_rounded.fontFamily,
+          package: Icons.directions_bus_rounded.fontPackage,
+          fontSize: request.iconSize,
+          color: foreground,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    busIconPainter.paint(
+      canvas,
+      center - ui.Offset(busIconPainter.width / 2, busIconPainter.height / 2),
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelSize, pixelSize);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    return byteData!.buffer.asUint8List();
+  }
+
   Widget _buildGoogleRouteMap({
     required ThemeData theme,
     required _RouteGeometry geometry,
@@ -1279,13 +1560,19 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     final markers = <gmaps.Marker>{};
     final userLocation = _userLocation;
     if (userLocation != null) {
+      final icon = _googleUserLocationIcon;
       markers.add(
         gmaps.Marker(
           markerId: const gmaps.MarkerId('user-location'),
           position: toGoogleLatLng(userLocation),
-          icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
-            gmaps.BitmapDescriptor.hueAzure,
-          ),
+          anchor: icon == null
+              ? const Offset(0.5, 1)
+              : const Offset(0.5, 0.5),
+          icon:
+              icon ??
+              gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                gmaps.BitmapDescriptor.hueAzure,
+              ),
           zIndexInt: 4,
         ),
       );
@@ -1341,14 +1628,27 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     if (_showBuses) {
       for (final bus in displayBuses) {
         final selected = _selectedBusId == bus.state.bus.id;
+        final iconKey = _googleBusIconKey(
+          color: bus.state.status.color,
+          selected: selected,
+          pixelRatio: MediaQuery.of(
+            context,
+          ).devicePixelRatio.clamp(1.0, 3.0).toDouble(),
+        );
+        final icon = _googleBusIcons[iconKey];
         markers.add(
           gmaps.Marker(
             markerId: gmaps.MarkerId('bus:${bus.state.bus.id}'),
             consumeTapEvents: true,
             position: toGoogleLatLng(bus.point),
-            icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
-              googleMarkerHueForColor(bus.state.status.color),
-            ),
+            anchor: icon == null
+                ? const Offset(0.5, 1)
+                : const Offset(0.5, 0.5),
+            icon:
+                icon ??
+                gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                  googleMarkerHueForColor(bus.state.status.color),
+                ),
             infoWindow: gmaps.InfoWindow(
               title: bus.state.bus.id,
               snippet: bus.state.status.label,
@@ -1904,6 +2204,42 @@ class _GoogleStopIconRequest {
   double get badgeSize => selected ? 36 : 30;
 
   double get borderWidth => selected ? 2.5 : 1.8;
+}
+
+class _GoogleBusIconRequest {
+  const _GoogleBusIconRequest({
+    required this.key,
+    required this.color,
+    required this.selected,
+    required this.pixelRatio,
+  });
+
+  final String key;
+  final Color color;
+  final bool selected;
+  final double pixelRatio;
+
+  double get logicalSize => selected ? 48 : 40;
+
+  double get radius => selected ? 20 : 17;
+
+  double get borderWidth => selected ? 3 : 2;
+
+  double get iconSize => selected ? 24 : 20;
+}
+
+class _GoogleUserLocationIconRequest {
+  const _GoogleUserLocationIconRequest({required this.pixelRatio});
+
+  static const double baseLogicalSize = 28;
+
+  final double pixelRatio;
+
+  double get logicalSize => baseLogicalSize;
+
+  double get outerRadius => 12;
+
+  double get innerRadius => 8.6;
 }
 
 enum _BusMotionMode { snappedToRoute, freeFloating }

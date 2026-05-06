@@ -78,18 +78,23 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   bool _showStops = true;
   LatLng? _userLocation;
   bool _didFitCurrentPathWithUserLocation = false;
-    bool _didFocusInitialUserLocation = false;
+  bool _didFocusInitialUserLocation = false;
   bool _isMovingGoogleCameraProgrammatically = false;
   gmaps.CameraPosition? _googleCameraPosition;
   final Map<String, gmaps.BitmapDescriptor> _googleStopIcons =
       <String, gmaps.BitmapDescriptor>{};
   final Set<String> _pendingGoogleStopIconKeys = <String>{};
-    final Map<String, gmaps.BitmapDescriptor> _googleBusIcons =
+  final Map<String, gmaps.BitmapDescriptor> _googleBusIcons =
       <String, gmaps.BitmapDescriptor>{};
-    final Set<String> _pendingGoogleBusIconKeys = <String>{};
-    gmaps.BitmapDescriptor? _googleUserLocationIcon;
-    bool _isGeneratingGoogleUserLocationIcon = false;
+  final Set<String> _pendingGoogleBusIconKeys = <String>{};
+  gmaps.BitmapDescriptor? _googleUserLocationIcon;
+  bool _isGeneratingGoogleUserLocationIcon = false;
   late int _activePathId;
+  bool? _lastUseGoogleMapsRouteProvider;
+
+  bool get _useGoogleMapsRouteProvider => useGoogleMapsProviderFor(
+    AppControllerScope.read(context).settings.mobileMapProvider,
+  );
 
   @override
   void initState() {
@@ -121,6 +126,23 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     _googleMapController?.dispose();
     _refreshProgressController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final useGoogleMapsRouteProvider = useGoogleMapsProviderFor(
+      AppControllerScope.of(context).settings.mobileMapProvider,
+    );
+    if (_lastUseGoogleMapsRouteProvider == useGoogleMapsRouteProvider) {
+      return;
+    }
+    _lastUseGoogleMapsRouteProvider = useGoogleMapsRouteProvider;
+    final geometry = _geometry;
+    if (geometry != null) {
+      _fitCameraToGeometry(geometry);
+      _syncSelectedBusCamera(force: true);
+    }
   }
 
   int get _refreshSeconds => math.max(3, widget.refreshIntervalSeconds);
@@ -391,7 +413,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         if (fitPoints.isEmpty) {
           return;
         }
-        final didFit = useGoogleMapsRouteProvider
+        final didFit = _useGoogleMapsRouteProvider
             ? _fitGoogleCameraToPoints(fitPoints)
             : _fitOsmCameraToPoints(fitPoints);
         if (didFit) {
@@ -450,7 +472,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       return false;
     }
 
-    if (useGoogleMapsRouteProvider) {
+    if (_useGoogleMapsRouteProvider) {
       if (_googleMapController == null) {
         return false;
       }
@@ -515,7 +537,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
     try {
       final point = selectedBus.positionAt(DateTime.now(), geometry: geometry);
-      if (useGoogleMapsRouteProvider) {
+      if (_useGoogleMapsRouteProvider) {
         final currentCenter = _googleCameraCenter;
         if (!force &&
             currentCenter != null &&
@@ -876,21 +898,21 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         }
       }
     }
-    if (useGoogleMapsRouteProvider) {
+    if (_useGoogleMapsRouteProvider) {
       _ensureGoogleStopIcons(theme, displayStops);
       _ensureGoogleBusIcons(displayBuses);
       _ensureGoogleUserLocationIcon();
     }
 
     final hasGoogleBottomOverlay =
-        useGoogleMapsRouteProvider &&
+        _useGoogleMapsRouteProvider &&
         ((_showBuses && selectedDisplayBus != null) ||
             (_showStops && selectedDisplayStop != null));
 
     return Stack(
       children: [
         Positioned.fill(
-          child: useGoogleMapsRouteProvider
+          child: _useGoogleMapsRouteProvider
               ? _buildGoogleRouteMap(
                   theme: theme,
                   geometry: geometry,
@@ -1075,7 +1097,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
           top: 0,
           child: IgnorePointer(child: _buildTopProgressBar()),
         ),
-        if (useGoogleMapsRouteProvider &&
+        if (_useGoogleMapsRouteProvider &&
             _showBuses &&
             selectedDisplayBus != null)
           Positioned(
@@ -1090,7 +1112,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
               ),
             ),
           ),
-        if (useGoogleMapsRouteProvider &&
+        if (_useGoogleMapsRouteProvider &&
             _showStops &&
             selectedDisplayStop != null)
           Positioned(
@@ -1270,7 +1292,8 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   }
 
   void _ensureGoogleUserLocationIcon() {
-    if (_googleUserLocationIcon != null || _isGeneratingGoogleUserLocationIcon) {
+    if (_googleUserLocationIcon != null ||
+        _isGeneratingGoogleUserLocationIcon) {
       return;
     }
 
@@ -1313,7 +1336,10 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     final requests = <_GoogleBusIconRequest>[];
 
     for (final bus in displayBuses) {
-      for (final selected in <bool>[false, _selectedBusId == bus.state.bus.id]) {
+      for (final selected in <bool>[
+        false,
+        _selectedBusId == bus.state.bus.id,
+      ]) {
         final key = _googleBusIconKey(
           color: bus.state.status.color,
           selected: selected,
@@ -1436,7 +1462,11 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         ..color = Colors.black.withValues(alpha: 0.2)
         ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
     );
-    canvas.drawCircle(center, request.radius, ui.Paint()..color = request.color);
+    canvas.drawCircle(
+      center,
+      request.radius,
+      ui.Paint()..color = request.color,
+    );
     canvas.drawCircle(
       center,
       request.radius,
@@ -1565,9 +1595,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         gmaps.Marker(
           markerId: const gmaps.MarkerId('user-location'),
           position: toGoogleLatLng(userLocation),
-          anchor: icon == null
-              ? const Offset(0.5, 1)
-              : const Offset(0.5, 0.5),
+          anchor: icon == null ? const Offset(0.5, 1) : const Offset(0.5, 0.5),
           icon:
               icon ??
               gmaps.BitmapDescriptor.defaultMarkerWithHue(

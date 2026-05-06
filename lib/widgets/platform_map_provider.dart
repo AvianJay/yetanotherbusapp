@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart' as latlong;
 
+import '../core/models.dart';
+
 const double mapBoundsDefaultPadding = 28;
 
 bool get supportsGoogleMapsProvider {
@@ -16,9 +18,9 @@ bool get supportsGoogleMapsProvider {
   };
 }
 
-bool get useGoogleMapsRouteProvider => supportsGoogleMapsProvider;
-
-bool get useGoogleMapsPointProvider => supportsGoogleMapsProvider;
+bool useGoogleMapsProviderFor(MobileMapProvider provider) {
+  return supportsGoogleMapsProvider && provider == MobileMapProvider.googleMaps;
+}
 
 String mapTileUrlTemplate(Brightness brightness) {
   if (brightness == Brightness.dark) {

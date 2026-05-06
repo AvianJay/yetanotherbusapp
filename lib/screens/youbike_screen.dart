@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 
+import '../app/bus_app.dart';
 import '../core/transit_repository.dart';
 import '../widgets/transit_drawer.dart';
 import '../widgets/platform_map_provider.dart';
@@ -45,6 +46,10 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   List<BikeStation> _stations = [];
   BikeStation? _selectedStation;
   Timer? _refreshTimer;
+
+  bool get _useGoogleMapsPointProvider => useGoogleMapsProviderFor(
+    AppControllerScope.read(context).settings.mobileMapProvider,
+  );
 
   @override
   void initState() {
@@ -165,7 +170,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       }
       return;
     }
-    if (useGoogleMapsPointProvider) {
+    if (_useGoogleMapsPointProvider) {
       _googleCameraCenter = point;
       _googleMapController?.animateCamera(
         gmaps.CameraUpdate.newLatLngZoom(
@@ -183,7 +188,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
 
   void _recenterToUser() {
     if (_userLocation != null) {
-      if (useGoogleMapsPointProvider) {
+      if (_useGoogleMapsPointProvider) {
         _googleCameraCenter = _userLocation!;
         _googleCameraZoom = _defaultZoom;
         _googleMapController?.animateCamera(
@@ -629,7 +634,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     );
   }
 
-  Widget _buildMapContent() {
+  Widget _buildMapContent({required bool useGoogleMapsPointProvider}) {
     final theme = Theme.of(context);
     if (useGoogleMapsPointProvider) {
       _ensureGoogleStationIcons();
@@ -776,7 +781,8 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   }
 
   void _ensureGoogleUserLocationIcon() {
-    if (_googleUserLocationIcon != null || _isGeneratingGoogleUserLocationIcon) {
+    if (_googleUserLocationIcon != null ||
+        _isGeneratingGoogleUserLocationIcon) {
       return;
     }
 
@@ -956,7 +962,11 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
         ..color = Colors.black.withValues(alpha: 0.2)
         ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
     );
-    canvas.drawCircle(center, request.radius, ui.Paint()..color = request.color);
+    canvas.drawCircle(
+      center,
+      request.radius,
+      ui.Paint()..color = request.color,
+    );
     canvas.drawCircle(
       center,
       request.radius,
@@ -1077,6 +1087,9 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     final useSplitLayout =
         MediaQuery.sizeOf(context).width >= _splitLayoutBreakpoint;
     final theme = Theme.of(context);
+    final useGoogleMapsPointProvider = useGoogleMapsProviderFor(
+      AppControllerScope.of(context).settings.mobileMapProvider,
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -1116,10 +1129,16 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                   thickness: 1,
                   color: theme.colorScheme.outlineVariant,
                 ),
-                Expanded(child: _buildMapContent()),
+                Expanded(
+                  child: _buildMapContent(
+                    useGoogleMapsPointProvider: useGoogleMapsPointProvider,
+                  ),
+                ),
               ],
             )
-          : _buildMapContent(),
+          : _buildMapContent(
+              useGoogleMapsPointProvider: useGoogleMapsPointProvider,
+            ),
     );
   }
 

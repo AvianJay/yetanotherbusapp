@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 
+import '../app/bus_app.dart';
 import 'platform_map_provider.dart';
 
 class TransitMapPoint {
@@ -57,10 +58,15 @@ class TransitStationMap extends StatefulWidget {
 class _TransitStationMapState extends State<TransitStationMap> {
   final MapController _mapController = MapController();
   gmaps.GoogleMapController? _googleMapController;
+  bool? _lastUseGoogleMapsPointProvider;
 
   List<TransitMapPoint> get _validPoints => widget.points
       .where((point) => point.hasValidLocation)
       .toList(growable: false);
+
+  bool get _useGoogleMapsPointProvider => useGoogleMapsProviderFor(
+    AppControllerScope.read(context).settings.mobileMapProvider,
+  );
 
   @override
   void dispose() {
@@ -71,6 +77,19 @@ class _TransitStationMapState extends State<TransitStationMap> {
   @override
   void initState() {
     super.initState();
+    _fitCamera();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final useGoogleMapsPointProvider = useGoogleMapsProviderFor(
+      AppControllerScope.of(context).settings.mobileMapProvider,
+    );
+    if (_lastUseGoogleMapsPointProvider == useGoogleMapsPointProvider) {
+      return;
+    }
+    _lastUseGoogleMapsPointProvider = useGoogleMapsPointProvider;
     _fitCamera();
   }
 
@@ -88,7 +107,7 @@ class _TransitStationMapState extends State<TransitStationMap> {
       if (!mounted || _validPoints.isEmpty) {
         return;
       }
-      if (useGoogleMapsPointProvider) {
+      if (_useGoogleMapsPointProvider) {
         _fitGoogleCamera();
         return;
       }
@@ -198,7 +217,7 @@ class _TransitStationMapState extends State<TransitStationMap> {
         height: widget.height,
         child: Stack(
           children: [
-            if (useGoogleMapsPointProvider)
+            if (_useGoogleMapsPointProvider)
               gmaps.GoogleMap(
                 initialCameraPosition: const gmaps.CameraPosition(
                   target: gmaps.LatLng(23.7, 121.0),

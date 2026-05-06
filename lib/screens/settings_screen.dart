@@ -144,6 +144,29 @@ class SettingsScreen extends StatelessWidget {
                             }
                           },
                         ),
+                        if (isAndroid || isIOS) ...[
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<MobileMapProvider>(
+                            initialValue: controller.settings.mobileMapProvider,
+                            decoration: const InputDecoration(
+                              labelText: 'Map provider',
+                            ),
+                            items: MobileMapProvider.values
+                                .map(
+                                  (provider) =>
+                                      DropdownMenuItem<MobileMapProvider>(
+                                        value: provider,
+                                        child: Text(provider.label),
+                                      ),
+                                )
+                                .toList(growable: false),
+                            onChanged: (value) {
+                              if (value != null) {
+                                controller.updateMobileMapProvider(value);
+                              }
+                            },
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         ListTile(
                           contentPadding: EdgeInsets.zero,

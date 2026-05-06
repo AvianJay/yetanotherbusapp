@@ -251,6 +251,12 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateMobileMapProvider(MobileMapProvider provider) async {
+    _settings = _settings.copyWith(mobileMapProvider: provider);
+    await storage.saveSettings(_settings);
+    notifyListeners();
+  }
+
   Future<void> updateUseAmoledDark(bool value) async {
     _settings = _settings.copyWith(useAmoledDark: value);
     await storage.saveSettings(_settings);

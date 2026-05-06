@@ -23,4 +23,14 @@ void main() {
     expect(formatDistance(320), '320m');
     expect(formatDistance(1530), '1.5km');
   });
+
+  test('app settings persist mobile map provider', () {
+    final settings = AppSettings.defaults().copyWith(
+      mobileMapProvider: MobileMapProvider.osm,
+    );
+
+    final restored = AppSettings.fromJson(settings.toJson());
+
+    expect(restored.mobileMapProvider, MobileMapProvider.osm);
+  });
 }

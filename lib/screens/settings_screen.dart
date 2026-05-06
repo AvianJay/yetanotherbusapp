@@ -149,7 +149,7 @@ class SettingsScreen extends StatelessWidget {
                           DropdownButtonFormField<MobileMapProvider>(
                             initialValue: controller.settings.mobileMapProvider,
                             decoration: const InputDecoration(
-                              labelText: 'Map provider',
+                              labelText: '地圖提供者',
                             ),
                             items: MobileMapProvider.values
                                 .map(

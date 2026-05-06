@@ -198,6 +198,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       AppLifecycleState.paused => false,
       AppLifecycleState.detached => false,
     };
+    unawaited(AndroidTripMonitor.setAppInForeground(isForeground));
     if (isForeground == wasForeground) {
       if (!isForeground) {
         _pauseForegroundRefreshLoop();

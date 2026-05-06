@@ -107,10 +107,17 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
   }
 
   Future<Directory> _prepareUpdateDirectory() async {
-    final supportDirectory = await getApplicationSupportDirectory();
-    final directory = Directory(
-      p.join(supportDirectory.path, 'updates', 'installer'),
-    );
+    var directory = Directory('');
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      final supportDirectory = await getApplicationSupportDirectory();
+      directory = Directory(
+        p.join(supportDirectory.path, 'updates', 'installer'),
+      );
+    } else {
+      directory = Directory(
+        p.join((await getTemporaryDirectory()).path, 'app_update'),
+      );
+    }
     if (directory.existsSync()) {
       await directory.delete(recursive: true);
     }

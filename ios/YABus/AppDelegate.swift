@@ -1,4 +1,5 @@
 import Flutter
+import GoogleMaps
 import UIKit
 
 @main
@@ -7,6 +8,7 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    GMSServices.provideAPIKey("AIzaSyBYliaV-a04zp5u7rhLr9UVaa0wDbfjwf8")
     if let registrar = registrar(forPlugin: "YABusHostBridges") {
       configureBridges(messenger: registrar.messenger())
     }

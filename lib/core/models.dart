@@ -137,6 +137,23 @@ ThemeMode themeModeFromString(String value) {
   );
 }
 
+enum MobileMapProvider {
+  googleMaps,
+  osm;
+
+  String get label => switch (this) {
+    MobileMapProvider.googleMaps => 'Google Maps',
+    MobileMapProvider.osm => 'OpenStreetMap',
+  };
+}
+
+MobileMapProvider mobileMapProviderFromString(String value) {
+  return MobileMapProvider.values.firstWhere(
+    (provider) => provider.name == value,
+    orElse: () => MobileMapProvider.googleMaps,
+  );
+}
+
 int? _colorToJson(Color? color) {
   return color?.toARGB32();
 }
@@ -299,6 +316,7 @@ class AppSettings {
     required this.selectedProviders,
     required this.skipDownloadPromptProviders,
     required this.themeMode,
+    required this.mobileMapProvider,
     required this.useAmoledDark,
     required this.seedColor,
     required this.homeBackgroundOpacity,
@@ -331,6 +349,7 @@ class AppSettings {
       selectedProviders: const [BusProvider.tpe],
       skipDownloadPromptProviders: const [],
       themeMode: ThemeMode.system,
+      mobileMapProvider: MobileMapProvider.googleMaps,
       useAmoledDark: false,
       seedColor: null,
       homeBackgroundOpacity: 0.65,
@@ -359,9 +378,9 @@ class AppSettings {
           ? AppUpdateCheckMode.off
           : AppUpdateCheckMode.popup,
       desktopDiscordPresenceEnabled: true,
-        desktopDiscordShowProvider: false,
+      desktopDiscordShowProvider: false,
       desktopDiscordShowScreen: true,
-        desktopDiscordShowRouteName: false,
+      desktopDiscordShowRouteName: false,
     );
   }
 
@@ -399,6 +418,9 @@ class AppSettings {
       selectedProviders: selectedProviders,
       skipDownloadPromptProviders: skipPromptProviders,
       themeMode: themeModeFromString(json['themeMode'] as String? ?? 'system'),
+      mobileMapProvider: mobileMapProviderFromString(
+        json['mobileMapProvider'] as String? ?? 'googleMaps',
+      ),
       useAmoledDark: json['useAmoledDark'] as bool? ?? false,
       seedColor: _colorFromJson(json['seedColor']),
       homeBackgroundOpacity:
@@ -466,6 +488,7 @@ class AppSettings {
   final List<BusProvider> selectedProviders;
   final List<BusProvider> skipDownloadPromptProviders;
   final ThemeMode themeMode;
+  final MobileMapProvider mobileMapProvider;
   final bool useAmoledDark;
   final Color? seedColor;
   final double homeBackgroundOpacity;
@@ -496,6 +519,7 @@ class AppSettings {
     List<BusProvider>? selectedProviders,
     List<BusProvider>? skipDownloadPromptProviders,
     ThemeMode? themeMode,
+    MobileMapProvider? mobileMapProvider,
     bool? useAmoledDark,
     Color? seedColor,
     bool clearSeedColor = false,
@@ -528,6 +552,7 @@ class AppSettings {
       skipDownloadPromptProviders:
           skipDownloadPromptProviders ?? this.skipDownloadPromptProviders,
       themeMode: themeMode ?? this.themeMode,
+      mobileMapProvider: mobileMapProvider ?? this.mobileMapProvider,
       useAmoledDark: useAmoledDark ?? this.useAmoledDark,
       seedColor: clearSeedColor ? null : (seedColor ?? this.seedColor),
       homeBackgroundOpacity:
@@ -580,6 +605,7 @@ class AppSettings {
           .map((item) => item.name)
           .toList(),
       'themeMode': themeMode.name,
+      'mobileMapProvider': mobileMapProvider.name,
       'useAmoledDark': useAmoledDark,
       'seedColor': _colorToJson(seedColor),
       'homeBackgroundOpacity': homeBackgroundOpacity,

@@ -14,6 +14,9 @@
         android:label="YABus"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyAh6mQfqV4iBk4vZ79DJav_Rm2P8E6JlKs" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

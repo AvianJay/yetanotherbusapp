@@ -1,15 +1,18 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 
 import '../app/bus_app.dart';
 import '../core/models.dart';
 import 'eta_badge.dart';
+import 'platform_map_provider.dart';
 
 class RouteBusMapSheet extends StatefulWidget {
   const RouteBusMapSheet({
@@ -55,8 +58,10 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   static const _snapToRouteThresholdMeters = 180.0;
   static const _offRouteThresholdMeters = 320.0;
   static const _cameraPadding = EdgeInsets.fromLTRB(20, 20, 20, 140);
+  static const _userLocationFocusZoom = 16.4;
 
   final MapController _mapController = MapController();
+  gmaps.GoogleMapController? _googleMapController;
   late final AnimationController _refreshProgressController;
 
   Timer? _refreshTimer;
@@ -75,7 +80,23 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   bool _showStops = true;
   LatLng? _userLocation;
   bool _didFitCurrentPathWithUserLocation = false;
+  bool _didFocusInitialUserLocation = false;
+  bool _isMovingGoogleCameraProgrammatically = false;
+  gmaps.CameraPosition? _googleCameraPosition;
+  final Map<String, gmaps.BitmapDescriptor> _googleStopIcons =
+      <String, gmaps.BitmapDescriptor>{};
+  final Set<String> _pendingGoogleStopIconKeys = <String>{};
+  final Map<String, gmaps.BitmapDescriptor> _googleBusIcons =
+      <String, gmaps.BitmapDescriptor>{};
+  final Set<String> _pendingGoogleBusIconKeys = <String>{};
+  gmaps.BitmapDescriptor? _googleUserLocationIcon;
+  bool _isGeneratingGoogleUserLocationIcon = false;
   late int _activePathId;
+  bool? _lastUseGoogleMapsRouteProvider;
+
+  bool get _useGoogleMapsRouteProvider => useGoogleMapsProviderFor(
+    AppControllerScope.read(context).settings.mobileMapProvider,
+  );
 
   @override
   void initState() {
@@ -130,8 +151,26 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     _refreshTimer?.cancel();
     _simulationTimer?.cancel();
     _userLocationSubscription?.cancel();
+    _googleMapController?.dispose();
     _refreshProgressController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final useGoogleMapsRouteProvider = useGoogleMapsProviderFor(
+      AppControllerScope.of(context).settings.mobileMapProvider,
+    );
+    if (_lastUseGoogleMapsRouteProvider == useGoogleMapsRouteProvider) {
+      return;
+    }
+    _lastUseGoogleMapsRouteProvider = useGoogleMapsRouteProvider;
+    final geometry = _geometry;
+    if (geometry != null) {
+      _fitCameraToGeometry(geometry);
+      _syncSelectedBusCamera(force: true);
+    }
   }
 
   int get _refreshSeconds => math.max(3, widget.refreshIntervalSeconds);
@@ -214,6 +253,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       _selectedStopId = null;
       _followSelectedBus = false;
       _didFitCurrentPathWithUserLocation = false;
+      _didFocusInitialUserLocation = false;
       _error = null;
       _geometry = null;
       _busStates = <String, _AnimatedBusState>{};
@@ -279,7 +319,12 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       });
       _scheduleNextRefresh();
       if (fitCamera) {
-        _fitCameraToGeometry(geometry);
+        final didFocusUser =
+            !_didFocusInitialUserLocation &&
+            _focusOnUserLocation(markInitial: true);
+        if (!didFocusUser) {
+          _fitCameraToGeometry(geometry);
+        }
       }
       _syncSelectedBusCamera(force: true);
     } catch (error) {
@@ -371,14 +416,22 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
               _userLocation = nextLocation;
             });
             final geometry = _geometry;
-            if (geometry != null && !_didFitCurrentPathWithUserLocation) {
-              _fitCameraToGeometry(geometry);
+            if (geometry != null) {
+              if (!_didFocusInitialUserLocation) {
+                _focusOnUserLocation(markInitial: true);
+              } else if (!_didFitCurrentPathWithUserLocation) {
+                _fitCameraToGeometry(geometry);
+              }
             }
           });
 
       final geometry = _geometry;
-      if (geometry != null && !_didFitCurrentPathWithUserLocation) {
-        _fitCameraToGeometry(geometry);
+      if (geometry != null) {
+        if (!_didFocusInitialUserLocation) {
+          _focusOnUserLocation(markInitial: true);
+        } else if (!_didFitCurrentPathWithUserLocation) {
+          _fitCameraToGeometry(geometry);
+        }
       }
     } catch (_) {
       // Ignore location lookup failures and keep the map focused on the route.
@@ -400,35 +453,116 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         if (fitPoints.isEmpty) {
           return;
         }
-        if (fitPoints.length == 1) {
-          _mapController.move(fitPoints.first, 16);
+        final didFit = _useGoogleMapsRouteProvider
+            ? _fitGoogleCameraToPoints(fitPoints)
+            : _fitOsmCameraToPoints(fitPoints);
+        if (didFit) {
           _didFitCurrentPathWithUserLocation = _userLocation != null;
-          return;
         }
-        final bounds = LatLngBounds.fromPoints(fitPoints);
-        final clampedBounds = LatLngBounds(
-          LatLng(
-            bounds.south.clamp(-85.0, 85.0),
-            bounds.west.clamp(-180.0, 180.0),
-          ),
-          LatLng(
-            bounds.north.clamp(-85.0, 85.0),
-            bounds.east.clamp(-180.0, 180.0),
-          ),
-        );
-        _mapController.fitCamera(
-          CameraFit.bounds(
-            bounds: clampedBounds,
-            padding: _userLocation != null
-                ? const EdgeInsets.fromLTRB(20, 20, 20, 168)
-                : _cameraPadding,
-          ),
-        );
-        _didFitCurrentPathWithUserLocation = _userLocation != null;
       } catch (_) {
         // Ignore fit errors from early controller lifecycle and wait for next refresh.
       }
     });
+  }
+
+  bool _fitOsmCameraToPoints(List<LatLng> fitPoints) {
+    if (fitPoints.length == 1) {
+      _mapController.move(fitPoints.first, 16);
+      return true;
+    }
+    final bounds = LatLngBounds.fromPoints(fitPoints);
+    final clampedBounds = LatLngBounds(
+      LatLng(bounds.south.clamp(-85.0, 85.0), bounds.west.clamp(-180.0, 180.0)),
+      LatLng(bounds.north.clamp(-85.0, 85.0), bounds.east.clamp(-180.0, 180.0)),
+    );
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: clampedBounds,
+        padding: _userLocation != null
+            ? const EdgeInsets.fromLTRB(20, 20, 20, 168)
+            : _cameraPadding,
+      ),
+    );
+    return true;
+  }
+
+  bool _fitGoogleCameraToPoints(List<LatLng> fitPoints) {
+    final controller = _googleMapController;
+    if (controller == null) {
+      return false;
+    }
+    if (fitPoints.length == 1) {
+      _moveGoogleCamera(
+        gmaps.CameraUpdate.newLatLngZoom(toGoogleLatLng(fitPoints.first), 16),
+      );
+      return true;
+    }
+    _moveGoogleCamera(
+      gmaps.CameraUpdate.newLatLngBounds(
+        googleBoundsFromLatLngs(fitPoints),
+        _userLocation != null ? 168 : 140,
+      ),
+    );
+    return true;
+  }
+
+  bool _focusOnUserLocation({bool markInitial = false}) {
+    final userLocation = _userLocation;
+    if (userLocation == null) {
+      return false;
+    }
+
+    if (_useGoogleMapsRouteProvider) {
+      if (_googleMapController == null) {
+        return false;
+      }
+      _moveGoogleCamera(
+        gmaps.CameraUpdate.newLatLngZoom(
+          toGoogleLatLng(userLocation),
+          _userLocationFocusZoom,
+        ),
+      );
+    } else {
+      _mapController.move(userLocation, _userLocationFocusZoom);
+    }
+
+    _didFitCurrentPathWithUserLocation = true;
+    if (markInitial) {
+      _didFocusInitialUserLocation = true;
+    }
+    return true;
+  }
+
+  void _handleRecenterToUser() {
+    if (_userLocation == null) {
+      unawaited(_loadUserLocation());
+      return;
+    }
+    if (_followSelectedBus) {
+      setState(() {
+        _followSelectedBus = false;
+      });
+    }
+    _focusOnUserLocation(markInitial: true);
+  }
+
+  void _moveGoogleCamera(gmaps.CameraUpdate update) {
+    final controller = _googleMapController;
+    if (controller == null) {
+      return;
+    }
+    _isMovingGoogleCameraProgrammatically = true;
+    controller.animateCamera(update).whenComplete(() {
+      _isMovingGoogleCameraProgrammatically = false;
+    });
+  }
+
+  LatLng? get _googleCameraCenter {
+    final position = _googleCameraPosition;
+    if (position == null) {
+      return null;
+    }
+    return fromGoogleLatLng(position.target);
   }
 
   void _syncSelectedBusCamera({bool force = false}) {
@@ -443,6 +577,16 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
     try {
       final point = selectedBus.positionAt(DateTime.now(), geometry: geometry);
+      if (_useGoogleMapsRouteProvider) {
+        final currentCenter = _googleCameraCenter;
+        if (!force &&
+            currentCenter != null &&
+            _distanceMetersBetween(currentCenter, point) < 8) {
+          return;
+        }
+        _moveGoogleCamera(gmaps.CameraUpdate.newLatLng(toGoogleLatLng(point)));
+        return;
+      }
       final currentCenter = _mapController.camera.center;
       if (!force && _distanceMetersBetween(currentCenter, point) < 8) {
         return;
@@ -796,177 +940,198 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         }
       }
     }
+    if (_useGoogleMapsRouteProvider) {
+      _ensureGoogleStopIcons(theme, displayStops);
+      _ensureGoogleBusIcons(displayBuses);
+      _ensureGoogleUserLocationIcon();
+    }
+
+    final hasGoogleBottomOverlay =
+        _useGoogleMapsRouteProvider &&
+        ((_showBuses && selectedDisplayBus != null) ||
+            (_showStops && selectedDisplayStop != null));
 
     return Stack(
       children: [
         Positioned.fill(
-          child: FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: geometry.points.first,
-              initialZoom: 13.5,
-              onTap: (_, point) {
-                if (_selectedBusId == null && _selectedStopId == null) {
-                  return;
-                }
-                setState(() {
-                  _selectedBusId = null;
-                  _selectedStopId = null;
-                  _followSelectedBus = false;
-                });
-              },
-              onPositionChanged: (_, hasGesture) {
-                if (!hasGesture || !_followSelectedBus) {
-                  return;
-                }
-                setState(() {
-                  _followSelectedBus = false;
-                });
-              },
-              interactionOptions: const InteractionOptions(
-                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-              ),
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
-              ),
-              PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: geometry.points,
-                    strokeWidth: 5,
-                    color: theme.colorScheme.primary.withValues(alpha: 0.88),
-                    borderColor: theme.colorScheme.surface,
-                    borderStrokeWidth: 1.2,
-                  ),
-                ],
-              ),
-              if (_userLocation != null)
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: _userLocation!,
-                      width: 24,
-                      height: 24,
-                      child: const _UserLocationMarker(),
+          child: _useGoogleMapsRouteProvider
+              ? _buildGoogleRouteMap(
+                  theme: theme,
+                  geometry: geometry,
+                  displayStops: displayStops,
+                  displayBuses: displayBuses,
+                )
+              : FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: geometry.points.first,
+                    initialZoom: 13.5,
+                    onTap: (_, point) {
+                      if (_selectedBusId == null && _selectedStopId == null) {
+                        return;
+                      }
+                      setState(() {
+                        _selectedBusId = null;
+                        _selectedStopId = null;
+                        _followSelectedBus = false;
+                      });
+                    },
+                    onPositionChanged: (_, hasGesture) {
+                      if (!hasGesture || !_followSelectedBus) {
+                        return;
+                      }
+                      setState(() {
+                        _followSelectedBus = false;
+                      });
+                    },
+                    interactionOptions: const InteractionOptions(
+                      flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                     ),
-                  ],
-                ),
-              if (_showStops)
-                MarkerLayer(
-                  markers: displayStops.map((stop) {
-                    final selected = _selectedStopId == stop.stop.stopId;
-                    return Marker(
-                      point: stop.point,
-                      width: selected ? 44 : 36,
-                      height: selected ? 44 : 36,
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedStopId =
-                                _selectedStopId == stop.stop.stopId
-                                ? null
-                                : stop.stop.stopId;
-                            _selectedBusId = null;
-                            _followSelectedBus = false;
-                          });
-                        },
-                        child: _StopMarker(
-                          stop: stop.stop,
-                          alwaysShowSeconds: widget.alwaysShowSeconds,
-                          selected: selected,
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              if (_showBuses)
-                MarkerLayer(
-                  markers: displayBuses.map((bus) {
-                    final selected = _selectedBusId == bus.state.bus.id;
-                    return Marker(
-                      point: bus.point,
-                      width: selected ? 48 : 40,
-                      height: selected ? 48 : 40,
-                      child: GestureDetector(
-                        onTap: () {
-                          final nextSelectedBusId =
-                              _selectedBusId == bus.state.bus.id
-                              ? null
-                              : bus.state.bus.id;
-                          setState(() {
-                            _selectedBusId = nextSelectedBusId;
-                            _selectedStopId = null;
-                            _followSelectedBus = nextSelectedBusId != null;
-                          });
-                          if (nextSelectedBusId != null) {
-                            _syncSelectedBusCamera(force: true);
-                          }
-                        },
-                        child: _BusMarker(
-                          color: bus.state.status.color,
-                          selected: selected,
-                          label: bus.state.bus.id,
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              if (_showBuses && selectedDisplayBus != null)
-                MarkerLayer(
-                  markers: [
-                    () {
-                      final displayedBus = selectedDisplayBus!;
-                      final popupAlignment = _selectedPopupAlignment(
-                        displayedBus.point,
-                      );
-                      return Marker(
-                        point: displayedBus.point,
-                        width: 224,
-                        height: 124,
-                        alignment: popupAlignment,
-                        child: IgnorePointer(
-                          child: Transform.translate(
-                            offset: _selectedPopupOffset(popupAlignment),
-                            child: _BusInfoPopupCompact(
-                              busState: displayedBus.state,
-                            ),
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate: mapTileUrlTemplate(theme.brightness),
+                      subdomains: mapTileSubdomains(theme.brightness),
+                      userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
+                    ),
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: geometry.points,
+                          strokeWidth: 5,
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.88,
                           ),
+                          borderColor: theme.colorScheme.surface,
+                          borderStrokeWidth: 1.2,
                         ),
-                      );
-                    }(),
-                  ],
-                ),
-              if (_showStops && selectedDisplayStop != null)
-                MarkerLayer(
-                  markers: [
-                    () {
-                      final displayedStop = selectedDisplayStop!;
-                      final popupAlignment = _selectedPopupAlignment(
-                        displayedStop.point,
-                      );
-                      return Marker(
-                        point: displayedStop.point,
-                        width: 228,
-                        height: 122,
-                        alignment: popupAlignment,
-                        child: IgnorePointer(
-                          child: Transform.translate(
-                            offset: _selectedPopupOffset(popupAlignment),
-                            child: _StopInfoPopup(
-                              stop: displayedStop.stop,
-                              alwaysShowSeconds: widget.alwaysShowSeconds,
-                            ),
+                      ],
+                    ),
+                    if (_userLocation != null)
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: _userLocation!,
+                            width: 24,
+                            height: 24,
+                            child: const _UserLocationMarker(),
                           ),
-                        ),
-                      );
-                    }(),
+                        ],
+                      ),
+                    if (_showStops)
+                      MarkerLayer(
+                        markers: displayStops.map((stop) {
+                          final selected = _selectedStopId == stop.stop.stopId;
+                          return Marker(
+                            point: stop.point,
+                            width: selected ? 44 : 36,
+                            height: selected ? 44 : 36,
+                            child: GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedStopId =
+                                      _selectedStopId == stop.stop.stopId
+                                      ? null
+                                      : stop.stop.stopId;
+                                  _selectedBusId = null;
+                                  _followSelectedBus = false;
+                                });
+                              },
+                              child: _StopMarker(
+                                stop: stop.stop,
+                                alwaysShowSeconds: widget.alwaysShowSeconds,
+                                selected: selected,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    if (_showBuses)
+                      MarkerLayer(
+                        markers: displayBuses.map((bus) {
+                          final selected = _selectedBusId == bus.state.bus.id;
+                          return Marker(
+                            point: bus.point,
+                            width: selected ? 48 : 40,
+                            height: selected ? 48 : 40,
+                            child: GestureDetector(
+                              onTap: () {
+                                final nextSelectedBusId =
+                                    _selectedBusId == bus.state.bus.id
+                                    ? null
+                                    : bus.state.bus.id;
+                                setState(() {
+                                  _selectedBusId = nextSelectedBusId;
+                                  _selectedStopId = null;
+                                  _followSelectedBus =
+                                      nextSelectedBusId != null;
+                                });
+                                if (nextSelectedBusId != null) {
+                                  _syncSelectedBusCamera(force: true);
+                                }
+                              },
+                              child: _BusMarker(
+                                color: bus.state.status.color,
+                                selected: selected,
+                                label: bus.state.bus.id,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    if (_showBuses && selectedDisplayBus != null)
+                      MarkerLayer(
+                        markers: [
+                          () {
+                            final displayedBus = selectedDisplayBus!;
+                            final popupAlignment = _selectedPopupAlignment(
+                              displayedBus.point,
+                            );
+                            return Marker(
+                              point: displayedBus.point,
+                              width: 224,
+                              height: 124,
+                              alignment: popupAlignment,
+                              child: IgnorePointer(
+                                child: Transform.translate(
+                                  offset: _selectedPopupOffset(popupAlignment),
+                                  child: _BusInfoPopupCompact(
+                                    busState: displayedBus.state,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }(),
+                        ],
+                      ),
+                    if (_showStops && selectedDisplayStop != null)
+                      MarkerLayer(
+                        markers: [
+                          () {
+                            final displayedStop = selectedDisplayStop!;
+                            final popupAlignment = _selectedPopupAlignment(
+                              displayedStop.point,
+                            );
+                            return Marker(
+                              point: displayedStop.point,
+                              width: 228,
+                              height: 122,
+                              alignment: popupAlignment,
+                              child: IgnorePointer(
+                                child: Transform.translate(
+                                  offset: _selectedPopupOffset(popupAlignment),
+                                  child: _StopInfoPopup(
+                                    stop: displayedStop.stop,
+                                    alwaysShowSeconds: widget.alwaysShowSeconds,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }(),
+                        ],
+                      ),
                   ],
                 ),
-            ],
-          ),
         ),
         if (!widget.embedded)
           Positioned(
@@ -975,8 +1140,610 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
             top: 0,
             child: IgnorePointer(child: _buildTopProgressBar()),
           ),
+        if (_useGoogleMapsRouteProvider &&
+            _showBuses &&
+            selectedDisplayBus != null)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                width: 320,
+                child: _BusInfoPopupCompact(busState: selectedDisplayBus.state),
+              ),
+            ),
+          ),
+        if (_useGoogleMapsRouteProvider &&
+            _showStops &&
+            selectedDisplayStop != null)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                width: 328,
+                child: _StopInfoPopup(
+                  stop: selectedDisplayStop.stop,
+                  alwaysShowSeconds: widget.alwaysShowSeconds,
+                ),
+              ),
+            ),
+          ),
+        Positioned(
+          right: 16,
+          bottom: hasGoogleBottomOverlay ? 136 : 20,
+          child: FloatingActionButton.small(
+            heroTag: widget.embedded
+                ? 'route-map-recenter-inline'
+                : 'route-map-recenter-sheet',
+            onPressed: _handleRecenterToUser,
+            child: const Icon(Icons.my_location_rounded),
+          ),
+        ),
       ],
     );
+  }
+
+  void _ensureGoogleStopIcons(
+    ThemeData theme,
+    List<_DisplayedStop> displayStops,
+  ) {
+    if (!_showStops || displayStops.isEmpty) {
+      return;
+    }
+
+    final pixelRatio = MediaQuery.of(
+      context,
+    ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+    final requests = <_GoogleStopIconRequest>[];
+
+    for (final stop in displayStops) {
+      for (final selected in <bool>[
+        false,
+        _selectedStopId == stop.stop.stopId,
+      ]) {
+        final eta = buildEtaPresentation(
+          stop.stop,
+          alwaysShowSeconds: widget.alwaysShowSeconds,
+          brightness: theme.brightness,
+          colorScheme: theme.colorScheme,
+        );
+        final key = _googleStopIconKey(
+          eta: eta,
+          selected: selected,
+          pixelRatio: pixelRatio,
+        );
+        if (_googleStopIcons.containsKey(key) ||
+            _pendingGoogleStopIconKeys.contains(key)) {
+          continue;
+        }
+        _pendingGoogleStopIconKeys.add(key);
+        requests.add(
+          _GoogleStopIconRequest(
+            key: key,
+            eta: eta,
+            selected: selected,
+            pixelRatio: pixelRatio,
+          ),
+        );
+      }
+    }
+
+    if (requests.isNotEmpty) {
+      unawaited(_generateGoogleStopIcons(requests));
+    }
+  }
+
+  String _googleStopIconKey({
+    required EtaPresentation eta,
+    required bool selected,
+    required double pixelRatio,
+  }) {
+    return [
+      selected ? 'selected' : 'normal',
+      pixelRatio.toStringAsFixed(2),
+      eta.text,
+      eta.backgroundColor,
+      eta.foregroundColor,
+    ].join('|');
+  }
+
+  Future<void> _generateGoogleStopIcons(
+    List<_GoogleStopIconRequest> requests,
+  ) async {
+    final generated = <String, gmaps.BitmapDescriptor>{};
+    try {
+      for (final request in requests) {
+        final bytes = await _drawGoogleStopIcon(request);
+        generated[request.key] = gmaps.BitmapDescriptor.bytes(
+          bytes,
+          imagePixelRatio: request.pixelRatio,
+          width: request.logicalSize,
+          height: request.logicalSize,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          for (final request in requests) {
+            _pendingGoogleStopIconKeys.remove(request.key);
+          }
+          _googleStopIcons.addAll(generated);
+        });
+      }
+    }
+  }
+
+  Future<Uint8List> _drawGoogleStopIcon(_GoogleStopIconRequest request) async {
+    final pixelSize = (request.logicalSize * request.pixelRatio).ceil();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)
+      ..scale(request.pixelRatio, request.pixelRatio);
+    final center = ui.Offset(request.logicalSize / 2, request.logicalSize / 2);
+    final rect = ui.Rect.fromCenter(
+      center: center,
+      width: request.badgeSize,
+      height: request.badgeSize,
+    );
+    final radius = ui.Radius.circular(request.badgeSize * 0.31);
+    final rrect = ui.RRect.fromRectAndRadius(rect, radius);
+
+    canvas.drawRRect(
+      rrect.shift(const ui.Offset(0, 2)),
+      ui.Paint()
+        ..color = Colors.black.withValues(alpha: 0.24)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
+    );
+    canvas.drawRRect(rrect, ui.Paint()..color = request.eta.backgroundColor);
+    canvas.drawRRect(
+      rrect,
+      ui.Paint()
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = request.borderWidth
+        ..color = Colors.white,
+    );
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: request.eta.text,
+        style: TextStyle(
+          color: request.eta.foregroundColor,
+          fontWeight: FontWeight.w700,
+          fontSize: request.badgeSize * 0.24,
+          height: 1.1,
+        ),
+      ),
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+      maxLines: 2,
+    )..layout(maxWidth: request.badgeSize - 4);
+    textPainter.paint(
+      canvas,
+      center - ui.Offset(textPainter.width / 2, textPainter.height / 2),
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelSize, pixelSize);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    return byteData!.buffer.asUint8List();
+  }
+
+  void _ensureGoogleUserLocationIcon() {
+    if (_googleUserLocationIcon != null ||
+        _isGeneratingGoogleUserLocationIcon) {
+      return;
+    }
+
+    _isGeneratingGoogleUserLocationIcon = true;
+    final pixelRatio = MediaQuery.of(
+      context,
+    ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+
+    unawaited(() async {
+      gmaps.BitmapDescriptor? icon;
+      try {
+        final bytes = await _drawGoogleUserLocationIcon(pixelRatio);
+        icon = gmaps.BitmapDescriptor.bytes(
+          bytes,
+          imagePixelRatio: pixelRatio,
+          width: _GoogleUserLocationIconRequest.baseLogicalSize,
+          height: _GoogleUserLocationIconRequest.baseLogicalSize,
+        );
+      } finally {
+        if (mounted) {
+          setState(() {
+            _googleUserLocationIcon = icon ?? _googleUserLocationIcon;
+            _isGeneratingGoogleUserLocationIcon = false;
+          });
+        } else {
+          _isGeneratingGoogleUserLocationIcon = false;
+        }
+      }
+    }());
+  }
+
+  void _ensureGoogleBusIcons(List<_DisplayedBus> displayBuses) {
+    if (!_showBuses || displayBuses.isEmpty) {
+      return;
+    }
+
+    final pixelRatio = MediaQuery.of(
+      context,
+    ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+    final requests = <_GoogleBusIconRequest>[];
+
+    for (final bus in displayBuses) {
+      for (final selected in <bool>[
+        false,
+        _selectedBusId == bus.state.bus.id,
+      ]) {
+        final key = _googleBusIconKey(
+          color: bus.state.status.color,
+          selected: selected,
+          pixelRatio: pixelRatio,
+        );
+        if (_googleBusIcons.containsKey(key) ||
+            _pendingGoogleBusIconKeys.contains(key)) {
+          continue;
+        }
+        _pendingGoogleBusIconKeys.add(key);
+        requests.add(
+          _GoogleBusIconRequest(
+            key: key,
+            color: bus.state.status.color,
+            selected: selected,
+            pixelRatio: pixelRatio,
+          ),
+        );
+      }
+    }
+
+    if (requests.isNotEmpty) {
+      unawaited(_generateGoogleBusIcons(requests));
+    }
+  }
+
+  String _googleBusIconKey({
+    required Color color,
+    required bool selected,
+    required double pixelRatio,
+  }) {
+    return [
+      color.toARGB32().toRadixString(16),
+      selected ? 'selected' : 'normal',
+      pixelRatio.toStringAsFixed(2),
+    ].join('|');
+  }
+
+  Future<void> _generateGoogleBusIcons(
+    List<_GoogleBusIconRequest> requests,
+  ) async {
+    final generated = <String, gmaps.BitmapDescriptor>{};
+    try {
+      for (final request in requests) {
+        final bytes = await _drawGoogleBusIcon(request);
+        generated[request.key] = gmaps.BitmapDescriptor.bytes(
+          bytes,
+          imagePixelRatio: request.pixelRatio,
+          width: request.logicalSize,
+          height: request.logicalSize,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          for (final request in requests) {
+            _pendingGoogleBusIconKeys.remove(request.key);
+          }
+          _googleBusIcons.addAll(generated);
+        });
+      }
+    }
+  }
+
+  Future<Uint8List> _drawGoogleUserLocationIcon(double pixelRatio) async {
+    final request = _GoogleUserLocationIconRequest(pixelRatio: pixelRatio);
+    final pixelSize = (request.logicalSize * pixelRatio).ceil();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)..scale(pixelRatio, pixelRatio);
+    final center = ui.Offset(request.logicalSize / 2, request.logicalSize / 2);
+
+    canvas.drawCircle(
+      center,
+      request.outerRadius,
+      ui.Paint()..color = const Color(0x331E88E5),
+    );
+    canvas.drawCircle(
+      center.translate(0, 1.5),
+      request.innerRadius,
+      ui.Paint()
+        ..color = Colors.black.withValues(alpha: 0.18)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
+    );
+    canvas.drawCircle(
+      center,
+      request.innerRadius,
+      ui.Paint()..color = const Color(0xFF1E88E5),
+    );
+    canvas.drawCircle(
+      center,
+      request.innerRadius,
+      ui.Paint()
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..color = Colors.white,
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelSize, pixelSize);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    return byteData!.buffer.asUint8List();
+  }
+
+  Future<Uint8List> _drawGoogleBusIcon(_GoogleBusIconRequest request) async {
+    final pixelSize = (request.logicalSize * request.pixelRatio).ceil();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)
+      ..scale(request.pixelRatio, request.pixelRatio);
+    final center = ui.Offset(request.logicalSize / 2, request.logicalSize / 2);
+    final foreground = request.color.computeLuminance() > 0.45
+        ? Colors.black87
+        : Colors.white;
+
+    canvas.drawCircle(
+      center.translate(0, 1.5),
+      request.radius,
+      ui.Paint()
+        ..color = Colors.black.withValues(alpha: 0.2)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
+    );
+    canvas.drawCircle(
+      center,
+      request.radius,
+      ui.Paint()..color = request.color,
+    );
+    canvas.drawCircle(
+      center,
+      request.radius,
+      ui.Paint()
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = request.borderWidth
+        ..color = Colors.white,
+    );
+
+    final busIconPainter = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(Icons.directions_bus_rounded.codePoint),
+        style: TextStyle(
+          fontFamily: Icons.directions_bus_rounded.fontFamily,
+          package: Icons.directions_bus_rounded.fontPackage,
+          fontSize: request.iconSize,
+          color: foreground,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    busIconPainter.paint(
+      canvas,
+      center - ui.Offset(busIconPainter.width / 2, busIconPainter.height / 2),
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelSize, pixelSize);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    return byteData!.buffer.asUint8List();
+  }
+
+  Widget _buildGoogleRouteMap({
+    required ThemeData theme,
+    required _RouteGeometry geometry,
+    required List<_DisplayedStop> displayStops,
+    required List<_DisplayedBus> displayBuses,
+  }) {
+    return gmaps.GoogleMap(
+      initialCameraPosition: gmaps.CameraPosition(
+        target: toGoogleLatLng(geometry.points.first),
+        zoom: 13.5,
+      ),
+      mapType: gmaps.MapType.normal,
+      style: googleMapStyleForBrightness(theme.brightness),
+      gestureRecognizers: buildGoogleMapGestureRecognizers(),
+      rotateGesturesEnabled: false,
+      scrollGesturesEnabled: true,
+      zoomGesturesEnabled: true,
+      myLocationButtonEnabled: false,
+      mapToolbarEnabled: false,
+      zoomControlsEnabled: false,
+      polylines: _buildGoogleRoutePolylines(theme, geometry),
+      markers: _buildGoogleRouteMarkers(
+        theme: theme,
+        displayStops: displayStops,
+        displayBuses: displayBuses,
+      ),
+      onMapCreated: (controller) {
+        _googleMapController = controller;
+        _googleCameraPosition = gmaps.CameraPosition(
+          target: toGoogleLatLng(geometry.points.first),
+          zoom: 13.5,
+        );
+        _fitCameraToGeometry(geometry);
+      },
+      onTap: (_) {
+        if (_selectedBusId == null && _selectedStopId == null) {
+          return;
+        }
+        setState(() {
+          _selectedBusId = null;
+          _selectedStopId = null;
+          _followSelectedBus = false;
+        });
+      },
+      onCameraMoveStarted: () {
+        if (_isMovingGoogleCameraProgrammatically || !_followSelectedBus) {
+          return;
+        }
+        setState(() {
+          _followSelectedBus = false;
+        });
+      },
+      onCameraMove: (position) {
+        _googleCameraPosition = position;
+      },
+    );
+  }
+
+  Set<gmaps.Polyline> _buildGoogleRoutePolylines(
+    ThemeData theme,
+    _RouteGeometry geometry,
+  ) {
+    final points = geometry.points.map(toGoogleLatLng).toList(growable: false);
+    return {
+      gmaps.Polyline(
+        polylineId: const gmaps.PolylineId('route-border'),
+        points: points,
+        color: theme.colorScheme.surface,
+        width: 8,
+        zIndex: 1,
+      ),
+      gmaps.Polyline(
+        polylineId: const gmaps.PolylineId('route'),
+        points: points,
+        color: theme.colorScheme.primary.withValues(alpha: 0.88),
+        width: 5,
+        zIndex: 2,
+      ),
+    };
+  }
+
+  Set<gmaps.Marker> _buildGoogleRouteMarkers({
+    required ThemeData theme,
+    required List<_DisplayedStop> displayStops,
+    required List<_DisplayedBus> displayBuses,
+  }) {
+    final markers = <gmaps.Marker>{};
+    final userLocation = _userLocation;
+    if (userLocation != null) {
+      final icon = _googleUserLocationIcon;
+      markers.add(
+        gmaps.Marker(
+          markerId: const gmaps.MarkerId('user-location'),
+          position: toGoogleLatLng(userLocation),
+          anchor: icon == null ? const Offset(0.5, 1) : const Offset(0.5, 0.5),
+          icon:
+              icon ??
+              gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                gmaps.BitmapDescriptor.hueAzure,
+              ),
+          zIndexInt: 4,
+        ),
+      );
+    }
+
+    if (_showStops) {
+      for (final stop in displayStops) {
+        final selected = _selectedStopId == stop.stop.stopId;
+        final eta = buildEtaPresentation(
+          stop.stop,
+          alwaysShowSeconds: widget.alwaysShowSeconds,
+          brightness: theme.brightness,
+          colorScheme: theme.colorScheme,
+        );
+        final iconKey = _googleStopIconKey(
+          eta: eta,
+          selected: selected,
+          pixelRatio: MediaQuery.of(
+            context,
+          ).devicePixelRatio.clamp(1.0, 3.0).toDouble(),
+        );
+        markers.add(
+          gmaps.Marker(
+            markerId: gmaps.MarkerId('stop:${stop.stop.stopId}'),
+            consumeTapEvents: true,
+            position: toGoogleLatLng(stop.point),
+            icon:
+                _googleStopIcons[iconKey] ??
+                gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                  selected
+                      ? googleMarkerHueForColor(theme.colorScheme.primary)
+                      : gmaps.BitmapDescriptor.hueCyan,
+                ),
+            infoWindow: gmaps.InfoWindow(
+              title: stop.stop.stopName,
+              snippet: eta.text.replaceAll('\n', ' '),
+            ),
+            zIndexInt: selected ? 3 : 1,
+            onTap: () {
+              setState(() {
+                _selectedStopId = _selectedStopId == stop.stop.stopId
+                    ? null
+                    : stop.stop.stopId;
+                _selectedBusId = null;
+                _followSelectedBus = false;
+              });
+            },
+          ),
+        );
+      }
+    }
+
+    if (_showBuses) {
+      for (final bus in displayBuses) {
+        final selected = _selectedBusId == bus.state.bus.id;
+        final iconKey = _googleBusIconKey(
+          color: bus.state.status.color,
+          selected: selected,
+          pixelRatio: MediaQuery.of(
+            context,
+          ).devicePixelRatio.clamp(1.0, 3.0).toDouble(),
+        );
+        final icon = _googleBusIcons[iconKey];
+        markers.add(
+          gmaps.Marker(
+            markerId: gmaps.MarkerId('bus:${bus.state.bus.id}'),
+            consumeTapEvents: true,
+            position: toGoogleLatLng(bus.point),
+            anchor: icon == null
+                ? const Offset(0.5, 1)
+                : const Offset(0.5, 0.5),
+            icon:
+                icon ??
+                gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                  googleMarkerHueForColor(bus.state.status.color),
+                ),
+            infoWindow: gmaps.InfoWindow(
+              title: bus.state.bus.id,
+              snippet: bus.state.status.label,
+            ),
+            zIndexInt: selected ? 5 : 2,
+            onTap: () {
+              final nextSelectedBusId = _selectedBusId == bus.state.bus.id
+                  ? null
+                  : bus.state.bus.id;
+              setState(() {
+                _selectedBusId = nextSelectedBusId;
+                _selectedStopId = null;
+                _followSelectedBus = nextSelectedBusId != null;
+              });
+              if (nextSelectedBusId != null) {
+                _syncSelectedBusCamera(force: true);
+              }
+            },
+          ),
+        );
+      }
+    }
+
+    return markers;
   }
 
   @override
@@ -1488,6 +2255,62 @@ class _DisplayedStop {
 
   final StopInfo stop;
   final LatLng point;
+}
+
+class _GoogleStopIconRequest {
+  const _GoogleStopIconRequest({
+    required this.key,
+    required this.eta,
+    required this.selected,
+    required this.pixelRatio,
+  });
+
+  final String key;
+  final EtaPresentation eta;
+  final bool selected;
+  final double pixelRatio;
+
+  double get logicalSize => selected ? 44 : 36;
+
+  double get badgeSize => selected ? 36 : 30;
+
+  double get borderWidth => selected ? 2.5 : 1.8;
+}
+
+class _GoogleBusIconRequest {
+  const _GoogleBusIconRequest({
+    required this.key,
+    required this.color,
+    required this.selected,
+    required this.pixelRatio,
+  });
+
+  final String key;
+  final Color color;
+  final bool selected;
+  final double pixelRatio;
+
+  double get logicalSize => selected ? 48 : 40;
+
+  double get radius => selected ? 20 : 17;
+
+  double get borderWidth => selected ? 3 : 2;
+
+  double get iconSize => selected ? 24 : 20;
+}
+
+class _GoogleUserLocationIconRequest {
+  const _GoogleUserLocationIconRequest({required this.pixelRatio});
+
+  static const double baseLogicalSize = 28;
+
+  final double pixelRatio;
+
+  double get logicalSize => baseLogicalSize;
+
+  double get outerRadius => 12;
+
+  double get innerRadius => 8.6;
 }
 
 enum _BusMotionMode { snappedToRoute, freeFloating }

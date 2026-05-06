@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
+
+import '../app/bus_app.dart';
+import 'platform_map_provider.dart';
 
 class TransitMapPoint {
   const TransitMapPoint({
@@ -53,14 +57,39 @@ class TransitStationMap extends StatefulWidget {
 
 class _TransitStationMapState extends State<TransitStationMap> {
   final MapController _mapController = MapController();
+  gmaps.GoogleMapController? _googleMapController;
+  bool? _lastUseGoogleMapsPointProvider;
 
   List<TransitMapPoint> get _validPoints => widget.points
       .where((point) => point.hasValidLocation)
       .toList(growable: false);
 
+  bool get _useGoogleMapsPointProvider => useGoogleMapsProviderFor(
+    AppControllerScope.read(context).settings.mobileMapProvider,
+  );
+
+  @override
+  void dispose() {
+    _googleMapController?.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    _fitCamera();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final useGoogleMapsPointProvider = useGoogleMapsProviderFor(
+      AppControllerScope.of(context).settings.mobileMapProvider,
+    );
+    if (_lastUseGoogleMapsPointProvider == useGoogleMapsPointProvider) {
+      return;
+    }
+    _lastUseGoogleMapsPointProvider = useGoogleMapsPointProvider;
     _fitCamera();
   }
 
@@ -78,33 +107,77 @@ class _TransitStationMapState extends State<TransitStationMap> {
       if (!mounted || _validPoints.isEmpty) {
         return;
       }
-      try {
-        final selectedPoint = _selectedPoint;
-        if (selectedPoint != null) {
-          _mapController.move(selectedPoint.latLng, 14.5);
-          return;
-        }
-        if (_validPoints.length == 1) {
-          _mapController.move(_validPoints.first.latLng, 14.5);
-          return;
-        }
-        _mapController.fitCamera(
-          CameraFit.bounds(
-            bounds: LatLngBounds.fromPoints(
-              _validPoints
-                  .map((point) => point.latLng)
-                  .where(
-                    (p) => p.latitude.abs() <= 90 && p.longitude.abs() <= 180,
-                  )
-                  .toList(growable: false),
-            ),
-            padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
+      if (_useGoogleMapsPointProvider) {
+        _fitGoogleCamera();
+        return;
+      }
+      _fitOsmCamera();
+    });
+  }
+
+  void _fitOsmCamera() {
+    try {
+      final selectedPoint = _selectedPoint;
+      if (selectedPoint != null) {
+        _mapController.move(selectedPoint.latLng, 14.5);
+        return;
+      }
+      if (_validPoints.length == 1) {
+        _mapController.move(_validPoints.first.latLng, 14.5);
+        return;
+      }
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints(
+            _validPoints
+                .map((point) => point.latLng)
+                .where(
+                  (p) => p.latitude.abs() <= 90 && p.longitude.abs() <= 180,
+                )
+                .toList(growable: false),
+          ),
+          padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
+        ),
+      );
+    } catch (_) {
+      // Ignore early controller lifecycle fit failures.
+    }
+  }
+
+  void _fitGoogleCamera() {
+    final controller = _googleMapController;
+    if (controller == null) {
+      return;
+    }
+    try {
+      final selectedPoint = _selectedPoint;
+      if (selectedPoint != null) {
+        controller.animateCamera(
+          gmaps.CameraUpdate.newLatLngZoom(
+            toGoogleLatLng(selectedPoint.latLng),
+            14.5,
           ),
         );
-      } catch (_) {
-        // Ignore early controller lifecycle fit failures.
+        return;
       }
-    });
+      if (_validPoints.length == 1) {
+        controller.animateCamera(
+          gmaps.CameraUpdate.newLatLngZoom(
+            toGoogleLatLng(_validPoints.first.latLng),
+            14.5,
+          ),
+        );
+        return;
+      }
+      controller.animateCamera(
+        gmaps.CameraUpdate.newLatLngBounds(
+          googleBoundsFromLatLngs(_validPoints.map((point) => point.latLng)),
+          mapBoundsDefaultPadding,
+        ),
+      );
+    } catch (_) {
+      // Ignore early controller lifecycle fit failures.
+    }
   }
 
   TransitMapPoint? get _selectedPoint {
@@ -144,42 +217,65 @@ class _TransitStationMapState extends State<TransitStationMap> {
         height: widget.height,
         child: Stack(
           children: [
-            FlutterMap(
-              mapController: _mapController,
-              options: const MapOptions(
-                initialCenter: LatLng(23.7, 121.0),
-                initialZoom: 7.2,
-                interactionOptions: InteractionOptions(
-                  flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+            if (_useGoogleMapsPointProvider)
+              gmaps.GoogleMap(
+                initialCameraPosition: const gmaps.CameraPosition(
+                  target: gmaps.LatLng(23.7, 121.0),
+                  zoom: 7.2,
                 ),
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
+                mapType: gmaps.MapType.normal,
+                style: googleMapStyleForBrightness(theme.brightness),
+                gestureRecognizers: buildGoogleMapGestureRecognizers(),
+                rotateGesturesEnabled: false,
+                scrollGesturesEnabled: true,
+                zoomGesturesEnabled: true,
+                myLocationButtonEnabled: false,
+                mapToolbarEnabled: false,
+                zoomControlsEnabled: false,
+                markers: _buildGoogleMarkers(theme),
+                onMapCreated: (controller) {
+                  _googleMapController = controller;
+                  _fitCamera();
+                },
+              )
+            else
+              FlutterMap(
+                mapController: _mapController,
+                options: const MapOptions(
+                  initialCenter: LatLng(23.7, 121.0),
+                  initialZoom: 7.2,
+                  interactionOptions: InteractionOptions(
+                    flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                  ),
                 ),
-                MarkerLayer(
-                  markers: _validPoints
-                      .map((point) {
-                        final selected = point.id == widget.selectedPointId;
-                        return Marker(
-                          point: point.latLng,
-                          width: selected ? 160 : 148,
-                          height: selected ? 70 : 62,
-                          child: GestureDetector(
-                            onTap: () => widget.onPointSelected?.call(point),
-                            child: _TransitPointMarker(
-                              point: point,
-                              selected: selected,
-                              labelMaxWidth: selected ? 104 : 92,
+                children: [
+                  TileLayer(
+                    urlTemplate: mapTileUrlTemplate(theme.brightness),
+                    subdomains: mapTileSubdomains(theme.brightness),
+                    userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
+                  ),
+                  MarkerLayer(
+                    markers: _validPoints
+                        .map((point) {
+                          final selected = point.id == widget.selectedPointId;
+                          return Marker(
+                            point: point.latLng,
+                            width: selected ? 160 : 148,
+                            height: selected ? 70 : 62,
+                            child: GestureDetector(
+                              onTap: () => widget.onPointSelected?.call(point),
+                              child: _TransitPointMarker(
+                                point: point,
+                                selected: selected,
+                                labelMaxWidth: selected ? 104 : 92,
+                              ),
                             ),
-                          ),
-                        );
-                      })
-                      .toList(growable: false),
-                ),
-              ],
-            ),
+                          );
+                        })
+                        .toList(growable: false),
+                  ),
+                ],
+              ),
             Positioned(
               right: 12,
               bottom: 12,
@@ -193,6 +289,26 @@ class _TransitStationMapState extends State<TransitStationMap> {
         ),
       ),
     );
+  }
+
+  Set<gmaps.Marker> _buildGoogleMarkers(ThemeData theme) {
+    return _validPoints.map((point) {
+      final selected = point.id == widget.selectedPointId;
+      final markerColor = point.color ?? theme.colorScheme.primary;
+      final title = point.badge?.isNotEmpty == true
+          ? '${point.badge} ${point.label}'
+          : point.label;
+      return gmaps.Marker(
+        markerId: gmaps.MarkerId(point.id),
+        position: toGoogleLatLng(point.latLng),
+        icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
+          googleMarkerHueForColor(markerColor),
+        ),
+        infoWindow: gmaps.InfoWindow(title: title, snippet: point.subtitle),
+        zIndexInt: selected ? 2 : 1,
+        onTap: () => widget.onPointSelected?.call(point),
+      );
+    }).toSet();
   }
 }
 

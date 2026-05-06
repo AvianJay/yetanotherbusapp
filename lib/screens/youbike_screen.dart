@@ -1,12 +1,17 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 
+import '../app/bus_app.dart';
 import '../core/transit_repository.dart';
 import '../widgets/transit_drawer.dart';
+import '../widgets/platform_map_provider.dart';
 
 class YouBikeScreen extends StatefulWidget {
   const YouBikeScreen({required this.onModeChanged, super.key});
@@ -20,6 +25,12 @@ class YouBikeScreen extends StatefulWidget {
 class _YouBikeScreenState extends State<YouBikeScreen> {
   final TransitRepository _repo = TransitRepository();
   final MapController _mapController = MapController();
+  gmaps.GoogleMapController? _googleMapController;
+  final Map<String, gmaps.BitmapDescriptor> _googleStationIcons =
+      <String, gmaps.BitmapDescriptor>{};
+  final Set<String> _pendingGoogleStationIconKeys = <String>{};
+  gmaps.BitmapDescriptor? _googleUserLocationIcon;
+  bool _isGeneratingGoogleUserLocationIcon = false;
 
   static const _defaultCenter = LatLng(25.033, 121.565); // Taipei
   static const _defaultZoom = 15.0;
@@ -27,12 +38,18 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   static const _splitLayoutBreakpoint = 1080.0;
 
   LatLng _center = _defaultCenter;
+  LatLng _googleCameraCenter = _defaultCenter;
+  double _googleCameraZoom = _defaultZoom;
   LatLng? _userLocation;
   bool _locating = true;
   bool _loadingStations = false;
   List<BikeStation> _stations = [];
   BikeStation? _selectedStation;
   Timer? _refreshTimer;
+
+  bool get _useGoogleMapsPointProvider => useGoogleMapsProviderFor(
+    AppControllerScope.read(context).settings.mobileMapProvider,
+  );
 
   @override
   void initState() {
@@ -43,6 +60,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _googleMapController?.dispose();
     super.dispose();
   }
 
@@ -126,12 +144,43 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     }
   }
 
+  void _onGoogleCameraMove(gmaps.CameraPosition position) {
+    _googleCameraCenter = fromGoogleLatLng(position.target);
+    _googleCameraZoom = position.zoom;
+  }
+
+  void _onGoogleMapIdle() {
+    if (Geolocator.distanceBetween(
+          _center.latitude,
+          _center.longitude,
+          _googleCameraCenter.latitude,
+          _googleCameraCenter.longitude,
+        ) >
+        800) {
+      _loadNearby(_googleCameraCenter);
+    }
+  }
+
   void _selectStation(BikeStation station) {
+    final point = _stationPointIfValid(station);
     setState(() => _selectedStation = station);
-    _mapController.move(
-      LatLng(station.lat, station.lon),
-      _mapController.camera.zoom,
-    );
+    if (point == null) {
+      if (MediaQuery.sizeOf(context).width < _splitLayoutBreakpoint) {
+        _showStationDetail(station);
+      }
+      return;
+    }
+    if (_useGoogleMapsPointProvider) {
+      _googleCameraCenter = point;
+      _googleMapController?.animateCamera(
+        gmaps.CameraUpdate.newLatLngZoom(
+          toGoogleLatLng(point),
+          _googleCameraZoom,
+        ),
+      );
+    } else {
+      _mapController.move(point, _mapController.camera.zoom);
+    }
     if (MediaQuery.sizeOf(context).width < _splitLayoutBreakpoint) {
       _showStationDetail(station);
     }
@@ -139,7 +188,18 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
 
   void _recenterToUser() {
     if (_userLocation != null) {
-      _mapController.move(_userLocation!, _defaultZoom);
+      if (_useGoogleMapsPointProvider) {
+        _googleCameraCenter = _userLocation!;
+        _googleCameraZoom = _defaultZoom;
+        _googleMapController?.animateCamera(
+          gmaps.CameraUpdate.newLatLngZoom(
+            toGoogleLatLng(_userLocation!),
+            _defaultZoom,
+          ),
+        );
+      } else {
+        _mapController.move(_userLocation!, _defaultZoom);
+      }
       _loadNearby(_userLocation!);
     }
   }
@@ -574,93 +634,131 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     );
   }
 
-  Widget _buildMapContent() {
+  Widget _buildMapContent({required bool useGoogleMapsPointProvider}) {
+    final theme = Theme.of(context);
+    if (useGoogleMapsPointProvider) {
+      _ensureGoogleStationIcons();
+      _ensureGoogleUserLocationIcon();
+    }
     return Stack(
       children: [
-        FlutterMap(
-          mapController: _mapController,
-          options: MapOptions(
-            initialCenter: _center,
-            initialZoom: _defaultZoom,
-            onMapEvent: (event) {
-              if (event is MapEventMoveEnd) {
-                _onMapMoved();
-              }
+        if (useGoogleMapsPointProvider)
+          gmaps.GoogleMap(
+            initialCameraPosition: gmaps.CameraPosition(
+              target: toGoogleLatLng(_center),
+              zoom: _defaultZoom,
+            ),
+            mapType: gmaps.MapType.normal,
+            style: googleMapStyleForBrightness(theme.brightness),
+            gestureRecognizers: buildGoogleMapGestureRecognizers(),
+            rotateGesturesEnabled: false,
+            scrollGesturesEnabled: true,
+            zoomGesturesEnabled: true,
+            myLocationButtonEnabled: false,
+            mapToolbarEnabled: false,
+            zoomControlsEnabled: false,
+            markers: _buildGoogleMarkers(theme),
+            onMapCreated: (controller) {
+              _googleMapController = controller;
+              _googleCameraCenter = _center;
+              _googleCameraZoom = _defaultZoom;
             },
-            interactionOptions: const InteractionOptions(
-              flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-            ),
-          ),
-          children: [
-            TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
-            ),
-            if (_userLocation != null)
-              MarkerLayer(
-                markers: [
-                  Marker(
-                    point: _userLocation!,
-                    width: 20,
-                    height: 20,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.blue,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 3),
-                        boxShadow: [
-                          BoxShadow(
-                            blurRadius: 6,
-                            color: Colors.black.withValues(alpha: 0.3),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+            onCameraMove: _onGoogleCameraMove,
+            onCameraIdle: _onGoogleMapIdle,
+          )
+        else
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _center,
+              initialZoom: _defaultZoom,
+              onMapEvent: (event) {
+                if (event is MapEventMoveEnd) {
+                  _onMapMoved();
+                }
+              },
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
-            MarkerLayer(
-              markers: _stations.map((station) {
-                final color = _availabilityColor(station);
-                final selected = _selectedStation?.name == station.name;
-                return Marker(
-                  point: LatLng(station.lat, station.lon),
-                  width: selected ? 44 : 36,
-                  height: selected ? 44 : 36,
-                  child: GestureDetector(
-                    onTap: () => _selectStation(station),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: selected ? Colors.white : Colors.white70,
-                          width: selected ? 3 : 2,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            blurRadius: selected ? 8 : 4,
-                            color: Colors.black.withValues(alpha: 0.3),
-                          ),
-                        ],
-                      ),
-                      child: Center(
-                        child: Text(
-                          '${station.availableRent}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: mapTileUrlTemplate(theme.brightness),
+                subdomains: mapTileSubdomains(theme.brightness),
+                userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
+              ),
+              if (_userLocation != null)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: _userLocation!,
+                      width: 20,
+                      height: 20,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.blue,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 3),
+                          boxShadow: [
+                            BoxShadow(
+                              blurRadius: 6,
+                              color: Colors.black.withValues(alpha: 0.3),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ],
-        ),
+                  ],
+                ),
+              MarkerLayer(
+                markers: _stations
+                    .map((station) {
+                      final point = _stationPointIfValid(station);
+                      if (point == null) {
+                        return null;
+                      }
+                      final color = _availabilityColor(station);
+                      final selected = _selectedStation?.name == station.name;
+                      return Marker(
+                        point: point,
+                        width: selected ? 44 : 36,
+                        height: selected ? 44 : 36,
+                        child: GestureDetector(
+                          onTap: () => _selectStation(station),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: selected ? Colors.white : Colors.white70,
+                                width: selected ? 3 : 2,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  blurRadius: selected ? 8 : 4,
+                                  color: Colors.black.withValues(alpha: 0.3),
+                                ),
+                              ],
+                            ),
+                            child: Center(
+                              child: Text(
+                                '${station.availableRent}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    })
+                    .whereType<Marker>()
+                    .toList(growable: false),
+              ),
+            ],
+          ),
         if (_loadingStations)
           const Positioned(
             top: 8,
@@ -682,11 +780,316 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     );
   }
 
+  void _ensureGoogleUserLocationIcon() {
+    if (_googleUserLocationIcon != null ||
+        _isGeneratingGoogleUserLocationIcon) {
+      return;
+    }
+
+    _isGeneratingGoogleUserLocationIcon = true;
+    final pixelRatio = MediaQuery.of(
+      context,
+    ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+
+    unawaited(() async {
+      gmaps.BitmapDescriptor? icon;
+      try {
+        final bytes = await _drawGoogleUserLocationIcon(pixelRatio);
+        icon = gmaps.BitmapDescriptor.bytes(
+          bytes,
+          imagePixelRatio: pixelRatio,
+          width: _GoogleYouBikeUserLocationIcon.baseLogicalSize,
+          height: _GoogleYouBikeUserLocationIcon.baseLogicalSize,
+        );
+      } finally {
+        if (mounted) {
+          setState(() {
+            _googleUserLocationIcon = icon ?? _googleUserLocationIcon;
+            _isGeneratingGoogleUserLocationIcon = false;
+          });
+        } else {
+          _isGeneratingGoogleUserLocationIcon = false;
+        }
+      }
+    }());
+  }
+
+  void _ensureGoogleStationIcons() {
+    if (_stations.isEmpty) {
+      return;
+    }
+
+    final pixelRatio = MediaQuery.of(
+      context,
+    ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+    final requests = <_GoogleYouBikeMarkerRequest>[];
+
+    for (final station in _stations) {
+      if (_stationPointIfValid(station) == null) {
+        continue;
+      }
+      final selected =
+          _selectedStation?.stationUid == station.stationUid &&
+          _selectedStation?.stationId == station.stationId;
+      for (final markerSelected in <bool>[false, selected]) {
+        final request = _GoogleYouBikeMarkerRequest(
+          key: _googleStationIconKey(
+            countLabel: _bikeCountLabel(station),
+            color: _availabilityColor(station),
+            selected: markerSelected,
+            pixelRatio: pixelRatio,
+          ),
+          countLabel: _bikeCountLabel(station),
+          color: _availabilityColor(station),
+          selected: markerSelected,
+          pixelRatio: pixelRatio,
+        );
+        if (_googleStationIcons.containsKey(request.key) ||
+            _pendingGoogleStationIconKeys.contains(request.key)) {
+          continue;
+        }
+        _pendingGoogleStationIconKeys.add(request.key);
+        requests.add(request);
+      }
+    }
+
+    if (requests.isNotEmpty) {
+      unawaited(_generateGoogleStationIcons(requests));
+    }
+  }
+
+  String _googleStationIconKey({
+    required String countLabel,
+    required Color color,
+    required bool selected,
+    required double pixelRatio,
+  }) {
+    return [
+      countLabel,
+      color.toARGB32().toRadixString(16),
+      selected ? 'selected' : 'normal',
+      pixelRatio.toStringAsFixed(2),
+    ].join('|');
+  }
+
+  String _bikeCountLabel(BikeStation station) {
+    if (station.availableRent > 99) {
+      return '99+';
+    }
+    return '${station.availableRent}';
+  }
+
+  Future<void> _generateGoogleStationIcons(
+    List<_GoogleYouBikeMarkerRequest> requests,
+  ) async {
+    final generated = <String, gmaps.BitmapDescriptor>{};
+    try {
+      for (final request in requests) {
+        final bytes = await _drawGoogleStationIcon(request);
+        generated[request.key] = gmaps.BitmapDescriptor.bytes(
+          bytes,
+          imagePixelRatio: request.pixelRatio,
+          width: request.logicalSize,
+          height: request.logicalSize,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          for (final request in requests) {
+            _pendingGoogleStationIconKeys.remove(request.key);
+          }
+          _googleStationIcons.addAll(generated);
+        });
+      }
+    }
+  }
+
+  Future<Uint8List> _drawGoogleUserLocationIcon(double pixelRatio) async {
+    final request = _GoogleYouBikeUserLocationIcon(pixelRatio: pixelRatio);
+    final pixelSize = (request.logicalSize * pixelRatio).ceil();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)..scale(pixelRatio, pixelRatio);
+    final center = ui.Offset(request.logicalSize / 2, request.logicalSize / 2);
+
+    canvas.drawCircle(
+      center,
+      request.outerRadius,
+      ui.Paint()..color = const Color(0x331E88E5),
+    );
+    canvas.drawCircle(
+      center.translate(0, 1.5),
+      request.innerRadius,
+      ui.Paint()
+        ..color = Colors.black.withValues(alpha: 0.18)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
+    );
+    canvas.drawCircle(
+      center,
+      request.innerRadius,
+      ui.Paint()..color = const Color(0xFF1E88E5),
+    );
+    canvas.drawCircle(
+      center,
+      request.innerRadius,
+      ui.Paint()
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..color = Colors.white,
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelSize, pixelSize);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    return byteData!.buffer.asUint8List();
+  }
+
+  Future<Uint8List> _drawGoogleStationIcon(
+    _GoogleYouBikeMarkerRequest request,
+  ) async {
+    final pixelSize = (request.logicalSize * request.pixelRatio).ceil();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)
+      ..scale(request.pixelRatio, request.pixelRatio);
+    final center = ui.Offset(request.logicalSize / 2, request.logicalSize / 2);
+
+    canvas.drawCircle(
+      center.translate(0, 1.5),
+      request.radius,
+      ui.Paint()
+        ..color = Colors.black.withValues(alpha: 0.2)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 3),
+    );
+    canvas.drawCircle(
+      center,
+      request.radius,
+      ui.Paint()..color = request.color,
+    );
+    canvas.drawCircle(
+      center,
+      request.radius,
+      ui.Paint()
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = request.borderWidth
+        ..color = request.selected ? Colors.white : Colors.white70,
+    );
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: request.countLabel,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: request.fontSize,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+    )..layout(maxWidth: request.logicalSize - 8);
+    textPainter.paint(
+      canvas,
+      center - ui.Offset(textPainter.width / 2, textPainter.height / 2),
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(pixelSize, pixelSize);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    return byteData!.buffer.asUint8List();
+  }
+
+  Set<gmaps.Marker> _buildGoogleMarkers(ThemeData theme) {
+    final markers = <gmaps.Marker>{};
+    final userLocation = _userLocation;
+    if (userLocation != null) {
+      final userIcon = _googleUserLocationIcon;
+      markers.add(
+        gmaps.Marker(
+          markerId: const gmaps.MarkerId('user-location'),
+          position: toGoogleLatLng(userLocation),
+          anchor: userIcon == null
+              ? const Offset(0.5, 1)
+              : const Offset(0.5, 0.5),
+          icon:
+              userIcon ??
+              gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                gmaps.BitmapDescriptor.hueAzure,
+              ),
+          zIndexInt: 3,
+        ),
+      );
+    }
+
+    for (final station in _stations) {
+      final point = _stationPointIfValid(station);
+      if (point == null) {
+        continue;
+      }
+      final color = _availabilityColor(station);
+      final selected =
+          _selectedStation?.stationUid == station.stationUid &&
+          _selectedStation?.stationId == station.stationId;
+      final iconKey = _googleStationIconKey(
+        countLabel: _bikeCountLabel(station),
+        color: color,
+        selected: selected,
+        pixelRatio: MediaQuery.of(
+          context,
+        ).devicePixelRatio.clamp(1.0, 3.0).toDouble(),
+      );
+      final markerIcon = _googleStationIcons[iconKey];
+      final id = station.stationUid.isNotEmpty
+          ? station.stationUid
+          : '${station.stationId}:${station.lat}:${station.lon}';
+      markers.add(
+        gmaps.Marker(
+          markerId: gmaps.MarkerId('bike:$id'),
+          position: toGoogleLatLng(point),
+          anchor: markerIcon == null
+              ? const Offset(0.5, 1)
+              : const Offset(0.5, 0.5),
+          icon:
+              markerIcon ??
+              gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                googleMarkerHueForColor(color),
+              ),
+          infoWindow: gmaps.InfoWindow(
+            title: station.name,
+            snippet: station.address.isEmpty ? null : station.address,
+          ),
+          zIndexInt: selected ? 2 : 1,
+          onTap: () => _selectStation(station),
+        ),
+      );
+    }
+    return markers;
+  }
+
+  bool _isValidCoordinate(double latitude, double longitude) {
+    return latitude.isFinite &&
+        longitude.isFinite &&
+        latitude.abs() <= 90 &&
+        longitude.abs() <= 180;
+  }
+
+  LatLng? _stationPointIfValid(BikeStation station) {
+    if (!_isValidCoordinate(station.lat, station.lon)) {
+      return null;
+    }
+    return LatLng(station.lat, station.lon);
+  }
+
   @override
   Widget build(BuildContext context) {
     final useSplitLayout =
         MediaQuery.sizeOf(context).width >= _splitLayoutBreakpoint;
     final theme = Theme.of(context);
+    final useGoogleMapsPointProvider = useGoogleMapsProviderFor(
+      AppControllerScope.of(context).settings.mobileMapProvider,
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -726,10 +1129,16 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                   thickness: 1,
                   color: theme.colorScheme.outlineVariant,
                 ),
-                Expanded(child: _buildMapContent()),
+                Expanded(
+                  child: _buildMapContent(
+                    useGoogleMapsPointProvider: useGoogleMapsPointProvider,
+                  ),
+                ),
               ],
             )
-          : _buildMapContent(),
+          : _buildMapContent(
+              useGoogleMapsPointProvider: useGoogleMapsPointProvider,
+            ),
     );
   }
 
@@ -737,6 +1146,49 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     if (meters < 1000) return '${meters.round()}m';
     return '${(meters / 1000).toStringAsFixed(1)}km';
   }
+}
+
+class _GoogleYouBikeMarkerRequest {
+  const _GoogleYouBikeMarkerRequest({
+    required this.key,
+    required this.countLabel,
+    required this.color,
+    required this.selected,
+    required this.pixelRatio,
+  });
+
+  final String key;
+  final String countLabel;
+  final Color color;
+  final bool selected;
+  final double pixelRatio;
+
+  double get logicalSize => selected ? 44 : 36;
+
+  double get radius => selected ? 19 : 16;
+
+  double get borderWidth => selected ? 3 : 2;
+
+  double get fontSize {
+    if (countLabel.length >= 3) {
+      return selected ? 10 : 9;
+    }
+    return selected ? 12 : 11;
+  }
+}
+
+class _GoogleYouBikeUserLocationIcon {
+  const _GoogleYouBikeUserLocationIcon({required this.pixelRatio});
+
+  static const double baseLogicalSize = 28;
+
+  final double pixelRatio;
+
+  double get logicalSize => baseLogicalSize;
+
+  double get outerRadius => 12;
+
+  double get innerRadius => 8.6;
 }
 
 class _StatItem extends StatelessWidget {

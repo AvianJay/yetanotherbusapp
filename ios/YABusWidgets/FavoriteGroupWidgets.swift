@@ -28,7 +28,7 @@ enum FavoriteWidgetApiUserAgent {
 }
 
 enum FavoriteWidgetSharedStore {
-  static let appGroupIdentifier = "group.tw.avianjay.taiwanbus.flutter"
+  static let fallbackAppGroupIdentifier = "group.tw.avianjay.taiwanbus.flutter"
   static let favoriteGroupsKey = "favorite_groups_json"
   static let favoriteGroupsFileName = "favorite_groups.json"
 
@@ -95,32 +95,66 @@ enum FavoriteWidgetSharedStore {
       .sorted()
   }
 
-  private static func loadFavoriteGroupsPayload() -> [String: Any]? {
-    let filePayload = loadFavoriteGroupsPayloadFromSharedFile()
-    let defaultsPayload = loadFavoriteGroupsPayloadFromUserDefaults()
-
-    if let filePayload, !filePayload.isEmpty {
-      return filePayload
+  static func canOpenAnySharedContainer() -> Bool {
+    let appGroupIdentifiers = FavoriteWidgetAppGroupResolver.candidateAppGroupIdentifiers(
+      fallback: fallbackAppGroupIdentifier
+    )
+    return appGroupIdentifiers.contains { appGroupIdentifier in
+      FileManager.default.containerURL(
+        forSecurityApplicationGroupIdentifier: appGroupIdentifier
+      ) != nil
     }
-
-    if let defaultsPayload, !defaultsPayload.isEmpty {
-      if filePayload != nil {
-        NSLog(
-          "FavoriteWidgetSharedStore shared file empty, falling back to UserDefaults. groups=%d",
-          defaultsPayload.count
-        )
-      }
-      return defaultsPayload
-    }
-
-    if let filePayload {
-      return filePayload
-    }
-
-    return defaultsPayload
   }
 
-  private static func loadFavoriteGroupsPayloadFromSharedFile() -> [String: Any]? {
+  private static func loadFavoriteGroupsPayload() -> [String: Any]? {
+    var firstEmptyPayload: [String: Any]?
+    let appGroupIdentifiers = FavoriteWidgetAppGroupResolver.candidateAppGroupIdentifiers(
+      fallback: fallbackAppGroupIdentifier
+    )
+
+    for appGroupIdentifier in appGroupIdentifiers {
+      let filePayload = loadFavoriteGroupsPayloadFromSharedFile(
+        appGroupIdentifier: appGroupIdentifier
+      )
+      if let filePayload {
+        if !filePayload.isEmpty {
+          return filePayload
+        }
+        if firstEmptyPayload == nil {
+          firstEmptyPayload = filePayload
+        }
+      }
+
+      let defaultsPayload = loadFavoriteGroupsPayloadFromUserDefaults(
+        appGroupIdentifier: appGroupIdentifier
+      )
+      if let defaultsPayload {
+        if !defaultsPayload.isEmpty {
+          if filePayload != nil {
+            NSLog(
+              "FavoriteWidgetSharedStore shared file empty, falling back to UserDefaults. group=%@, groups=%d",
+              appGroupIdentifier,
+              defaultsPayload.count
+            )
+          }
+          return defaultsPayload
+        }
+        if firstEmptyPayload == nil {
+          firstEmptyPayload = defaultsPayload
+        }
+      }
+    }
+
+    NSLog(
+      "FavoriteWidgetSharedStore found no favorite payload. candidates=%@",
+      appGroupIdentifiers.joined(separator: ",")
+    )
+    return firstEmptyPayload
+  }
+
+  private static func loadFavoriteGroupsPayloadFromSharedFile(
+    appGroupIdentifier: String
+  ) -> [String: Any]? {
     let containerURL = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: appGroupIdentifier
     )
@@ -136,20 +170,23 @@ enum FavoriteWidgetSharedStore {
           let payload = object as? [String: Any]
         {
           NSLog(
-            "FavoriteWidgetSharedStore loaded payload from shared file. groups=%d, bytes=%d",
+            "FavoriteWidgetSharedStore loaded payload from shared file. group=%@, groups=%d, bytes=%d",
+            appGroupIdentifier,
             payload.count,
             data.count
           )
           return payload
         } else {
           NSLog(
-            "FavoriteWidgetSharedStore failed to parse shared file JSON. bytes=%d",
+            "FavoriteWidgetSharedStore failed to parse shared file JSON. group=%@, bytes=%d",
+            appGroupIdentifier,
             data.count
           )
         }
       } else {
         NSLog(
-          "FavoriteWidgetSharedStore shared file missing. exists=%@",
+          "FavoriteWidgetSharedStore shared file missing. group=%@, exists=%@",
+          appGroupIdentifier,
           fileExists ? "true" : "false"
         )
       }
@@ -163,7 +200,9 @@ enum FavoriteWidgetSharedStore {
     return nil
   }
 
-  private static func loadFavoriteGroupsPayloadFromUserDefaults() -> [String: Any]? {
+  private static func loadFavoriteGroupsPayloadFromUserDefaults(
+    appGroupIdentifier: String
+  ) -> [String: Any]? {
     guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
       NSLog(
         "FavoriteWidgetSharedStore UserDefaults suite nil for %@",
@@ -176,8 +215,9 @@ enum FavoriteWidgetSharedStore {
       let data = raw.data(using: .utf8)
     else {
       NSLog(
-        "FavoriteWidgetSharedStore UserDefaults missing key %@",
-        favoriteGroupsKey
+        "FavoriteWidgetSharedStore UserDefaults missing key %@ for %@",
+        favoriteGroupsKey,
+        appGroupIdentifier
       )
       return nil
     }
@@ -186,7 +226,8 @@ enum FavoriteWidgetSharedStore {
       let object = try JSONSerialization.jsonObject(with: data)
       if let payload = object as? [String: Any] {
         NSLog(
-          "FavoriteWidgetSharedStore loaded payload from UserDefaults. groups=%d",
+          "FavoriteWidgetSharedStore loaded payload from UserDefaults. group=%@, groups=%d",
+          appGroupIdentifier,
           payload.count
         )
         return payload
@@ -195,7 +236,8 @@ enum FavoriteWidgetSharedStore {
       return nil
     } catch {
       NSLog(
-        "FavoriteWidgetSharedStore UserDefaults JSON parse error: %@",
+        "FavoriteWidgetSharedStore UserDefaults JSON parse error for %@: %@",
+        appGroupIdentifier,
         error.localizedDescription
       )
       return nil
@@ -225,6 +267,85 @@ enum FavoriteWidgetSharedStore {
       return Int(text)
     default:
       return nil
+    }
+  }
+}
+
+private enum FavoriteWidgetAppGroupResolver {
+  private static let appGroupsEntitlement = "com.apple.security.application-groups"
+
+  static func candidateAppGroupIdentifiers(fallback: String) -> [String] {
+    var identifiers = [String]()
+    appendUnique(provisioningProfileAppGroupIdentifiers(), to: &identifiers)
+    appendUnique(bundleDerivedAppGroupIdentifiers(), to: &identifiers)
+    appendUnique([fallback], to: &identifiers)
+    return identifiers
+  }
+
+  private static func provisioningProfileAppGroupIdentifiers() -> [String] {
+    guard
+      let profileURL = Bundle.main.url(
+        forResource: "embedded",
+        withExtension: "mobileprovision"
+      ),
+      let profileData = try? Data(contentsOf: profileURL),
+      let profileText = String(data: profileData, encoding: .isoLatin1),
+      let plistStart = profileText.range(of: "<?xml"),
+      let plistEnd = profileText.range(
+        of: "</plist>",
+        range: plistStart.lowerBound..<profileText.endIndex
+      )
+    else {
+      return []
+    }
+
+    let plistText = profileText[plistStart.lowerBound..<plistEnd.upperBound]
+    guard
+      let plistData = String(plistText).data(using: .utf8),
+      let object = try? PropertyListSerialization.propertyList(
+        from: plistData,
+        options: [],
+        format: nil
+      ),
+      let profile = object as? [String: Any],
+      let entitlements = profile["Entitlements"] as? [String: Any],
+      let appGroups = entitlements[appGroupsEntitlement] as? [String]
+    else {
+      return []
+    }
+
+    return appGroups
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+  }
+
+  private static func bundleDerivedAppGroupIdentifiers() -> [String] {
+    guard
+      let bundleIdentifier = Bundle.main.bundleIdentifier?
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+      !bundleIdentifier.isEmpty
+    else {
+      return []
+    }
+
+    var identifiers = [String]()
+    for suffix in [".widgets", ".YABusWidgets"] {
+      if bundleIdentifier.hasSuffix(suffix) {
+        let hostBundleIdentifier = String(bundleIdentifier.dropLast(suffix.count))
+        identifiers.append("group.\(hostBundleIdentifier)")
+      }
+    }
+    identifiers.append("group.\(bundleIdentifier)")
+    return identifiers
+  }
+
+  private static func appendUnique(_ values: [String], to identifiers: inout [String]) {
+    for value in values {
+      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty, !identifiers.contains(trimmed) else {
+        continue
+      }
+      identifiers.append(trimmed)
     }
   }
 }
@@ -341,11 +462,14 @@ private enum FavoriteGroupEntryLoader {
   static func load(configuration: FavoriteGroupConfigurationIntent) async -> FavoriteGroupEntry {
     let groups = FavoriteWidgetSharedStore.loadFavoriteGroups()
     guard !groups.isEmpty else {
+      let statusMessage = FavoriteWidgetSharedStore.canOpenAnySharedContainer()
+        ? "請先在 App 內加入我的最愛。"
+        : "小工具無法讀取 App 共享資料，請確認側載簽章保留 App Groups。"
       return FavoriteGroupEntry(
         date: .now,
         groupName: "我的最愛",
         items: [],
-        statusMessage: "請先在 App 內加入我的最愛。",
+        statusMessage: statusMessage,
         lastUpdated: nil,
         groupURL: nil
       )

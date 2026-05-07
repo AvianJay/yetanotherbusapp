@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'app_build_info.dart';
+import 'auth_token_store.dart';
 
 class ApiUserAgent {
   ApiUserAgent._();
@@ -14,9 +15,11 @@ class ApiUserAgent {
   }
 
   static Map<String, String> applyTo(Map<String, String> headers) {
+    final token = AuthTokenStore.token;
     return <String, String>{
       ...headers,
       'User-Agent': value,
+      if (token != null) 'Authorization': 'Bearer $token',
     };
   }
 

@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import 'api_user_agent.dart';
+import 'api_config.dart';
 import 'models.dart';
 import 'native_sqlite_bridge.dart';
 import 'route_search_ranking.dart';
@@ -24,7 +25,7 @@ class DatabaseNotReadyException implements Exception {
 class BusRepository {
   BusRepository({http.Client? client}) : _client = client ?? http.Client();
 
-  static const _apiBaseUrl = 'https://bus.avianjay.sbs';
+  static const _apiBaseUrl = ApiConfig.baseUrl;
   static const _databaseDirectoryName = '.yabus_backend';
   static const _routeMetadataDatabaseFileName = 'routes_metadata_v1.sqlite';
   static const _legacyRouteMetadataDatabaseFileNames = <String>[

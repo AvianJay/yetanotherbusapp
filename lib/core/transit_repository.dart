@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'api_user_agent.dart';
+import 'api_config.dart';
 
 // import 'models.dart';
 
@@ -11,7 +12,7 @@ import 'api_user_agent.dart';
 class TransitRepository {
   TransitRepository({http.Client? client}) : _client = client ?? http.Client();
 
-  static const _apiBaseUrl = 'https://bus.avianjay.sbs';
+  static const _apiBaseUrl = ApiConfig.baseUrl;
 
   final http.Client _client;
   Map<String, String> get _headers => ApiUserAgent.applyTo(const {

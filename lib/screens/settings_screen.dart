@@ -83,6 +83,40 @@ class SettingsScreen extends StatelessWidget {
     messenger.showSnackBar(const SnackBar(content: Text('無法開啟 Discord 社群連結。')));
   }
 
+  Future<void> _startAuthLogin(
+    BuildContext context,
+    AppController controller,
+    String provider,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final opened = await controller.startAuthLogin(provider);
+      if (!context.mounted || opened) {
+        return;
+      }
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not open login page.')),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      messenger.showSnackBar(SnackBar(content: Text('Login failed: $error')));
+    }
+  }
+
+  Future<void> _logoutAuth(
+    BuildContext context,
+    AppController controller,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await controller.logoutAuth();
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(const SnackBar(content: Text('Logged out.')));
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
@@ -94,7 +128,14 @@ class SettingsScreen extends StatelessWidget {
     final isAndroid =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    final isDesktop =
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.linux);
+    final supportsGoogleLogin = kIsWeb || isDesktop;
     final supportsRouteBackgroundMonitor = isAndroid || isIOS;
+    final authSession = controller.authSession;
     // final databaseProviders = controller.selectedProviders
     //     .map((provider) => provider.label)
     //     .join('、');
@@ -184,6 +225,72 @@ class SettingsScreen extends StatelessWidget {
                               ),
                             );
                           },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Account',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          authSession == null
+                              ? 'Not logged in'
+                              : 'Logged in as ${authSession.displayName.isEmpty ? authSession.provider : authSession.displayName} (${authSession.role})',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            FilledButton.icon(
+                              onPressed: controller.authBusy
+                                  ? null
+                                  : () => _startAuthLogin(
+                                      context,
+                                      controller,
+                                      'discord',
+                                    ),
+                              icon: const FaIcon(
+                                FontAwesomeIcons.discord,
+                                size: 18,
+                              ),
+                              label: const Text('Discord login'),
+                            ),
+                            if (supportsGoogleLogin)
+                              FilledButton.tonalIcon(
+                                onPressed: controller.authBusy
+                                    ? null
+                                    : () => _startAuthLogin(
+                                        context,
+                                        controller,
+                                        'google',
+                                      ),
+                                icon: const FaIcon(
+                                  FontAwesomeIcons.google,
+                                  size: 18,
+                                ),
+                                label: const Text('Google login'),
+                              ),
+                            if (authSession != null)
+                              OutlinedButton.icon(
+                                onPressed: controller.authBusy
+                                    ? null
+                                    : () => _logoutAuth(context, controller),
+                                icon: const Icon(Icons.logout_rounded),
+                                label: const Text('Logout'),
+                              ),
+                          ],
                         ),
                       ],
                     ),

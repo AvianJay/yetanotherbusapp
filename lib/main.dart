@@ -9,16 +9,17 @@ import 'core/app_launch_service.dart';
 import 'core/app_update_installer.dart';
 import 'core/app_update_service.dart';
 import 'core/api_user_agent.dart';
+import 'core/auth_service.dart';
 import 'core/bus_repository.dart';
 import 'core/database_factory.dart';
 import 'core/storage_service.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
   await configureDatabaseFactory();
   try {
-    await AppLaunchService.instance.initialize();
+    await AppLaunchService.instance.initialize(initialArguments: args);
     final analytics = await AppAnalytics.initialize();
     final buildInfo = await AppBuildInfo.load();
     ApiUserAgent.configure(buildInfo);
@@ -30,6 +31,7 @@ Future<void> main() async {
       buildInfo: buildInfo,
       appUpdateService: AppUpdateService(buildInfo: buildInfo),
       appUpdateInstaller: createAppUpdateInstaller(),
+      authService: AuthService(),
     );
     await controller.initialize();
     runApp(BusApp(controller: controller, analytics: analytics));
@@ -59,16 +61,10 @@ class _StartupErrorApp extends StatelessWidget {
                 children: [
                   const Text(
                     '啟動失敗',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    error,
-                    textAlign: TextAlign.center,
-                  ),
+                  Text(error, textAlign: TextAlign.center),
                 ],
               ),
             ),

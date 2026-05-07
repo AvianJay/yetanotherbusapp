@@ -9,6 +9,11 @@ class MainFlutterWindow: NSWindow {
     self.setFrame(windowFrame, display: true)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
+    if let delegate = NSApp.delegate as? AppDelegate {
+      delegate.configureAppLaunchBridge(
+        messenger: flutterViewController.engine.binaryMessenger
+      )
+    }
 
     super.awakeFromNib()
   }

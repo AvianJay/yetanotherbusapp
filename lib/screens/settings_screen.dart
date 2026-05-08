@@ -201,8 +201,8 @@ class SettingsScreen extends StatelessWidget {
                       title: const Text('Account'),
                       subtitle: Text(
                         authSession == null
-                            ? 'Not logged in. Link Discord or Google.'
-                            : 'Logged in as ${authSession.displayName.isEmpty ? authSession.provider : authSession.displayName} (${authSession.role})',
+                            ? '尚未登入。'
+                            : '已登入為 ${authSession.displayName.isEmpty ? authSession.provider : authSession.displayName} (${authSession.role})',
                       ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () {

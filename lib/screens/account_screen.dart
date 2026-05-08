@@ -46,13 +46,13 @@ class _AccountScreenState extends State<AccountScreen> {
         return;
       }
       messenger.showSnackBar(
-        const SnackBar(content: Text('Could not open login page.')),
+        const SnackBar(content: Text('無法開啟登入頁面 :(')),
       );
     } catch (error) {
       if (!mounted) {
         return;
       }
-      messenger.showSnackBar(SnackBar(content: Text('Login failed: $error')));
+      messenger.showSnackBar(SnackBar(content: Text('登入失敗: $error')));
     }
   }
 
@@ -68,7 +68,7 @@ class _AccountScreenState extends State<AccountScreen> {
         return;
       }
       messenger.showSnackBar(
-        SnackBar(content: Text('Could not refresh account: $error')),
+        SnackBar(content: Text('無法刷新帳戶資訊: $error')),
       );
     }
   }
@@ -79,7 +79,7 @@ class _AccountScreenState extends State<AccountScreen> {
     if (!mounted) {
       return;
     }
-    messenger.showSnackBar(const SnackBar(content: Text('Logged out.')));
+    messenger.showSnackBar(const SnackBar(content: Text('已登出。')));
   }
 
   @override
@@ -103,9 +103,9 @@ class _AccountScreenState extends State<AccountScreen> {
               const SizedBox(height: 12),
               if (!controller.isAuthenticated)
                 _AuthActionsCard(
-                  title: 'Sign in',
+                  title: '登入',
                   description:
-                      'Your account starts from this device key. Signing in links an OAuth identity and gives this device its own token.',
+                      '您的帳戶從此裝置金鑰開始。登入會連結 OAuth 身份，並為此裝置提供自己的令牌。',
                   busy: controller.authBusy,
                   onDiscord: () => _startAuthLogin(controller, 'discord'),
                   onGoogle: () => _startAuthLogin(controller, 'google'),
@@ -125,9 +125,9 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
                 const SizedBox(height: 12),
                 _AuthActionsCard(
-                  title: 'Link another provider',
+                  title: '連結',
                   description:
-                      'Use the same device to link Discord or Google to this account. No password account will be created.',
+                      '使用相同的裝置將 Discord 或 Google 連結到此帳戶。',
                   busy: controller.authBusy,
                   onDiscord: () => _startAuthLogin(controller, 'discord'),
                   onGoogle: () => _startAuthLogin(controller, 'google'),
@@ -141,7 +141,7 @@ class _AccountScreenState extends State<AccountScreen> {
                           ? null
                           : () => _logout(controller),
                       icon: const Icon(Icons.logout_rounded),
-                      label: const Text('Logout this device'),
+                      label: const Text('登出此裝置'),
                     ),
                   ),
                 ),
@@ -163,12 +163,12 @@ class _IntroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final title = isAuthenticated ? 'Account linked' : 'Account linking';
+    final title = isAuthenticated ? '帳戶已連結' : '帳戶連結中';
     final subtitle = isAuthenticated
         ? (displayName.trim().isEmpty
-              ? 'This device has an active auth token.'
-              : 'Signed in as $displayName.')
-        : 'Continue with Discord or Google to create or link your account.';
+              ? '此裝置已有有效的認證令牌。'
+              : '已登入為 $displayName。')
+        : '使用 Discord 或 Google 繼續以建立或連結您的帳戶。';
 
     return Card(
       child: Padding(
@@ -217,9 +217,9 @@ class _AccountSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final accountId = account?.accountId ?? session?.accountId ?? '';
-    final deviceId = account?.deviceId ?? session?.deviceId ?? '';
-    final role = account?.role ?? session?.role ?? 'user';
+    // final accountId = account?.accountId ?? session?.accountId ?? '';
+    // final deviceId = account?.deviceId ?? session?.deviceId ?? '';
+    // final role = account?.role ?? session?.role ?? 'user';
 
     return Card(
       child: Padding(
@@ -231,12 +231,12 @@ class _AccountSummaryCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Current account',
+                    '當前帳戶資訊',
                     style: theme.textTheme.titleMedium,
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Refresh',
+                  tooltip: '刷新',
                   onPressed: loading ? null : onRefresh,
                   icon: loading
                       ? const SizedBox.square(
@@ -247,10 +247,10 @@ class _AccountSummaryCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            _DetailRow(label: 'Account ID', value: accountId),
-            _DetailRow(label: 'Device ID', value: deviceId),
-            _DetailRow(label: 'Role', value: role),
+            // const SizedBox(height: 8),
+            // _DetailRow(label: 'Account ID', value: accountId),
+            // _DetailRow(label: 'Device ID', value: deviceId),
+            // _DetailRow(label: 'Role', value: role),
           ],
         ),
       ),
@@ -281,7 +281,7 @@ class _LinkedProvidersCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Linked providers', style: theme.textTheme.titleMedium),
+            Text('已連結的提供者', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             if (loading && identities.isEmpty)
               const LinearProgressIndicator()
@@ -289,10 +289,10 @@ class _LinkedProvidersCard extends StatelessWidget {
               _ProviderTile(
                 provider: fallbackProvider,
                 label: session?.displayName ?? fallbackProvider,
-                detail: 'Loaded from current login token',
+                detail: '從當前登入令牌載入',
               )
             else if (identities.isEmpty)
-              const Text('No linked provider details loaded yet.')
+              const Text('尚未載入任何連結的提供者詳細資訊。')
             else
               for (final identity in identities)
                 _ProviderTile(
@@ -344,12 +344,12 @@ class _AuthActionsCard extends StatelessWidget {
                 FilledButton.icon(
                   onPressed: busy ? null : onDiscord,
                   icon: const FaIcon(FontAwesomeIcons.discord, size: 18),
-                  label: const Text('Continue with Discord'),
+                  label: const Text('使用 Discord 繼續'),
                 ),
                 FilledButton.tonalIcon(
                   onPressed: busy ? null : onGoogle,
                   icon: const FaIcon(FontAwesomeIcons.google, size: 18),
-                  label: const Text('Continue with Google'),
+                  label: const Text('使用 Google 繼續'),
                 ),
               ],
             ),

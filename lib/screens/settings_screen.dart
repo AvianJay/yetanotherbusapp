@@ -198,7 +198,7 @@ class SettingsScreen extends StatelessWidget {
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.account_circle_outlined),
-                      title: const Text('Account'),
+                      title: const Text('帳戶'),
                       subtitle: Text(
                         authSession == null
                             ? '尚未登入。'

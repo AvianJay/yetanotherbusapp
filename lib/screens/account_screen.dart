@@ -89,7 +89,7 @@ class _AccountScreenState extends State<AccountScreen> {
     final account = controller.authAccount;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Account')),
+      appBar: AppBar(title: const Text('帳戶')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
@@ -105,32 +105,23 @@ class _AccountScreenState extends State<AccountScreen> {
                 _AuthActionsCard(
                   title: '登入',
                   description:
-                      '您的帳戶從此裝置金鑰開始。登入會連結 OAuth 身份，並為此裝置提供自己的令牌。',
+                      '登入來備份你的最愛站牌與設定！（WIP）',
                   busy: controller.authBusy,
                   onDiscord: () => _startAuthLogin(controller, 'discord'),
                   onGoogle: () => _startAuthLogin(controller, 'google'),
                 )
               else ...[
-                _AccountSummaryCard(
-                  account: account,
-                  session: session,
-                  loading: controller.authAccountLoading,
-                  onRefresh: () => _refreshAccount(controller),
-                ),
-                const SizedBox(height: 12),
+                // _AccountSummaryCard(
+                //   account: account,
+                //   session: session,
+                //   loading: controller.authAccountLoading,
+                //   onRefresh: () => _refreshAccount(controller),
+                // ),
+                // const SizedBox(height: 12),
                 _LinkedProvidersCard(
                   account: account,
                   session: session,
                   loading: controller.authAccountLoading,
-                ),
-                const SizedBox(height: 12),
-                _AuthActionsCard(
-                  title: '連結',
-                  description:
-                      '使用相同的裝置將 Discord 或 Google 連結到此帳戶。',
-                  busy: controller.authBusy,
-                  onDiscord: () => _startAuthLogin(controller, 'discord'),
-                  onGoogle: () => _startAuthLogin(controller, 'google'),
                 ),
                 const SizedBox(height: 12),
                 Card(
@@ -141,7 +132,7 @@ class _AccountScreenState extends State<AccountScreen> {
                           ? null
                           : () => _logout(controller),
                       icon: const Icon(Icons.logout_rounded),
-                      label: const Text('登出此裝置'),
+                      label: const Text('登出'),
                     ),
                   ),
                 ),
@@ -163,11 +154,11 @@ class _IntroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final title = isAuthenticated ? '帳戶已連結' : '帳戶連結中';
+    final title = isAuthenticated ? '已登入' : '尚未登入。';
     final subtitle = isAuthenticated
         ? (displayName.trim().isEmpty
-              ? '此裝置已有有效的認證令牌。'
-              : '已登入為 $displayName。')
+              ? 'Ciallo～(∠・ω< )⌒☆'
+              : displayName)
         : '使用 Discord 或 Google 繼續以建立或連結您的帳戶。';
 
     return Card(
@@ -201,6 +192,7 @@ class _IntroCard extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _AccountSummaryCard extends StatelessWidget {
   const _AccountSummaryCard({
     required this.account,
@@ -281,7 +273,7 @@ class _LinkedProvidersCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('已連結的提供者', style: theme.textTheme.titleMedium),
+            Text('已登入', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             if (loading && identities.isEmpty)
               const LinearProgressIndicator()

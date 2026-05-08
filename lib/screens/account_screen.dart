@@ -45,9 +45,7 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted || opened) {
         return;
       }
-      messenger.showSnackBar(
-        const SnackBar(content: Text('無法開啟登入頁面 :(')),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('無法開啟登入頁面 :(')));
     } catch (error) {
       if (!mounted) {
         return;
@@ -67,9 +65,7 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted || quiet) {
         return;
       }
-      messenger.showSnackBar(
-        SnackBar(content: Text('無法刷新帳戶資訊: $error')),
-      );
+      messenger.showSnackBar(SnackBar(content: Text('無法刷新帳戶資訊: $error')));
     }
   }
 
@@ -96,21 +92,21 @@ class _AccountScreenState extends State<AccountScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
             children: [
-              _IntroCard(
-                isAuthenticated: controller.isAuthenticated,
-                displayName: account?.displayName ?? session?.displayName ?? '',
-              ),
               const SizedBox(height: 12),
-              if (!controller.isAuthenticated)
+              if (!controller.isAuthenticated) ...[
+                _IntroCard(
+                  isAuthenticated: controller.isAuthenticated,
+                  displayName:
+                      account?.displayName ?? session?.displayName ?? '',
+                ),
                 _AuthActionsCard(
                   title: '登入',
-                  description:
-                      '登入來備份你的最愛站牌與設定！（WIP）',
+                  description: '登入來備份你的最愛站牌與設定！（WIP）',
                   busy: controller.authBusy,
                   onDiscord: () => _startAuthLogin(controller, 'discord'),
                   onGoogle: () => _startAuthLogin(controller, 'google'),
-                )
-              else ...[
+                ),
+              ] else ...[
                 // _AccountSummaryCard(
                 //   account: account,
                 //   session: session,
@@ -156,9 +152,7 @@ class _IntroCard extends StatelessWidget {
     final theme = Theme.of(context);
     final title = isAuthenticated ? '已登入' : '尚未登入。';
     final subtitle = isAuthenticated
-        ? (displayName.trim().isEmpty
-              ? 'Ciallo～(∠・ω< )⌒☆'
-              : displayName)
+        ? (displayName.trim().isEmpty ? 'Ciallo～(∠・ω< )⌒☆' : displayName)
         : '使用 Discord 或 Google 繼續以建立或連結您的帳戶。';
 
     return Card(
@@ -222,10 +216,7 @@ class _AccountSummaryCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    '當前帳戶資訊',
-                    style: theme.textTheme.titleMedium,
-                  ),
+                  child: Text('當前帳戶資訊', style: theme.textTheme.titleMedium),
                 ),
                 IconButton(
                   tooltip: '刷新',

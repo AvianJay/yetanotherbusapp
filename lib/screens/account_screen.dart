@@ -360,6 +360,7 @@ class _AuthActionsCard extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _DetailRow extends StatelessWidget {
   const _DetailRow({required this.label, required this.value});
 

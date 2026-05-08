@@ -15,4 +15,14 @@ class ApiConfig {
     'YABUS_APP_AUTH_REDIRECT_URI',
     defaultValue: 'yabus://auth-callback',
   );
+
+  static const googleWebClientId = String.fromEnvironment(
+    'YABUS_GOOGLE_WEB_CLIENT_ID',
+    defaultValue: '',
+  );
+
+  static const googleIosClientId = String.fromEnvironment(
+    'YABUS_GOOGLE_IOS_CLIENT_ID',
+    defaultValue: '',
+  );
 }

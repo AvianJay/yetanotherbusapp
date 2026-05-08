@@ -170,7 +170,18 @@ class AppController extends ChangeNotifier {
     _authBusy = true;
     notifyListeners();
     try {
-      return await authService.startLogin(provider);
+      final opened = await authService.startLogin(provider);
+      if (authService.session != _authSession) {
+        _authSession = authService.session;
+        if (_authSession != null) {
+          try {
+            _authAccount = await authService.fetchAccount();
+          } catch (_) {
+            _authAccount = null;
+          }
+        }
+      }
+      return opened;
     } finally {
       _authBusy = false;
       notifyListeners();

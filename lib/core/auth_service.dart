@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -148,6 +149,8 @@ class AuthService {
   static const _displayNameKey = 'auth_display_name';
 
   AuthSession? _session;
+  Future<void>? _googleSignInInitializeFuture;
+  bool _googleSignInInitialized = false;
 
   AuthSession? get session => _session;
 
@@ -177,17 +180,87 @@ class AuthService {
     if (normalizedProvider != 'discord' && normalizedProvider != 'google') {
       throw ArgumentError('Unsupported auth provider: $provider');
     }
+    if (normalizedProvider == 'google' && _supportsNativeGoogleSignIn) {
+      await _startNativeGoogleLogin();
+      return true;
+    }
 
+    return _startBrowserLogin(normalizedProvider);
+  }
+
+  bool get _supportsNativeGoogleSignIn {
+    if (kIsWeb) {
+      return false;
+    }
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+  }
+
+  Future<void> _startNativeGoogleLogin() async {
+    await _ensureGoogleSignInInitialized();
+    if (!GoogleSignIn.instance.supportsAuthenticate()) {
+      return _startBrowserGoogleLoginFallback();
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final deviceKey = await _ensureDeviceKey(prefs);
+    final account = await GoogleSignIn.instance.authenticate(
+      scopeHint: const ['openid', 'email', 'profile'],
+    );
+    final idToken = account.authentication.idToken?.trim();
+    if (idToken == null || idToken.isEmpty) {
+      throw Exception('Google Sign-In did not return an ID token.');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/v1/auth/google-native');
+    final response = await http.post(
+      uri,
+      headers: ApiUserAgent.applyTo(const {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip',
+        'Content-Type': 'application/json',
+      }),
+      body: jsonEncode({'id_token': idToken, 'device_key': deviceKey}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        _authErrorMessage(response, 'Google native login failed'),
+      );
+    }
+
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is! Map) {
+      throw const FormatException(
+        'Native login response was not a JSON object.',
+      );
+    }
+    final payload = _stringKeyedMap(decoded);
+    await completeCallback(
+      token: '${payload['token'] ?? ''}',
+      accountId: '${payload['account_id'] ?? ''}',
+      deviceId: '${payload['device_id'] ?? ''}',
+      role: '${payload['role'] ?? 'user'}',
+      provider: '${payload['provider'] ?? 'google'}',
+      displayName: '${payload['display_name'] ?? account.displayName ?? ''}',
+    );
+  }
+
+  Future<void> _startBrowserGoogleLoginFallback() async {
+    final opened = await _startBrowserLogin('google');
+    if (!opened) {
+      throw Exception('Could not open Google login page.');
+    }
+  }
+
+  Future<bool> _startBrowserLogin(String provider) async {
     final prefs = await SharedPreferences.getInstance();
     final deviceKey = await _ensureDeviceKey(prefs);
     final platform = kIsWeb ? 'web' : 'app';
     final redirectUri = kIsWeb
         ? ApiConfig.webAuthRedirectUri
         : ApiConfig.appAuthRedirectUri;
-    final uri =
-        Uri.parse(
-          '${ApiConfig.baseUrl}/api/v1/auth/$normalizedProvider-start',
-        ).replace(
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/v1/auth/$provider-start')
+        .replace(
           queryParameters: {
             'platform': platform,
             'redirect': redirectUri,
@@ -196,6 +269,28 @@ class AuthService {
         );
 
     return launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _ensureGoogleSignInInitialized() {
+    if (_googleSignInInitializeFuture != null) {
+      return _googleSignInInitializeFuture!;
+    }
+
+    String? emptyToNull(String value) {
+      final cleaned = value.trim();
+      return cleaned.isEmpty ? null : cleaned;
+    }
+
+    final clientId = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS
+        ? emptyToNull(ApiConfig.googleIosClientId)
+        : null;
+    final serverClientId = emptyToNull(ApiConfig.googleWebClientId);
+    _googleSignInInitializeFuture = GoogleSignIn.instance
+        .initialize(clientId: clientId, serverClientId: serverClientId)
+        .then((_) {
+          _googleSignInInitialized = true;
+        });
+    return _googleSignInInitializeFuture!;
   }
 
   Future<void> completeCallback({
@@ -279,6 +374,13 @@ class AuthService {
     await prefs.remove(_roleKey);
     await prefs.remove(_providerKey);
     await prefs.remove(_displayNameKey);
+    if (_googleSignInInitialized) {
+      try {
+        await GoogleSignIn.instance.signOut();
+      } catch (_) {
+        // Google Sign-In state is best-effort; YABus token logout already won.
+      }
+    }
     AuthTokenStore.token = null;
     _session = null;
   }
@@ -347,4 +449,19 @@ int? _jsonInt(Object? value) {
     return value.toInt();
   }
   return int.tryParse('$value');
+}
+
+String _authErrorMessage(http.Response response, String fallback) {
+  try {
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is Map) {
+      final detail = decoded['detail'];
+      if (detail != null && '$detail'.trim().isNotEmpty) {
+        return '$detail';
+      }
+    }
+  } catch (_) {
+    // Fall through to the status-based fallback.
+  }
+  return '$fallback (${response.statusCode}).';
 }

@@ -79,6 +79,14 @@ Section "Install"
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" \
     "EstimatedSize" "$0"
 
+  ; Register yabus:// so OAuth callbacks can reopen the desktop app.
+  WriteRegStr HKCU "Software\Classes\yabus" "" "URL:YABus Protocol"
+  WriteRegStr HKCU "Software\Classes\yabus" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\yabus\DefaultIcon" "" \
+    "$INSTDIR\${APPNAMEINTERNAL}.exe,0"
+  WriteRegStr HKCU "Software\Classes\yabus\shell\open\command" "" \
+    "$\"$INSTDIR\${APPNAMEINTERNAL}.exe$\" $\"%1$\""
+
   ; Start Menu shortcut
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
   CreateShortcut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\${APPNAMEINTERNAL}.exe" "" \
@@ -108,6 +116,7 @@ Section "Uninstall"
 
   ; Remove registry entries
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}"
+  DeleteRegKey HKCU "Software\Classes\yabus"
 SectionEnd
 
 ; ── Init ────────────────────────────────────────────────────

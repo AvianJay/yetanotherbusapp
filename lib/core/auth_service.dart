@@ -30,6 +30,114 @@ class AuthSession {
   bool get isAuthenticated => token.trim().isNotEmpty;
 }
 
+class AuthIdentity {
+  const AuthIdentity({
+    required this.provider,
+    required this.providerUserId,
+    required this.email,
+    required this.displayName,
+    required this.avatarUrl,
+  });
+
+  final String provider;
+  final String providerUserId;
+  final String email;
+  final String displayName;
+  final String avatarUrl;
+
+  String get label {
+    final name = displayName.trim();
+    if (name.isNotEmpty) {
+      return name;
+    }
+    final address = email.trim();
+    if (address.isNotEmpty) {
+      return address;
+    }
+    return provider;
+  }
+
+  factory AuthIdentity.fromJson(Map<String, dynamic> json) {
+    return AuthIdentity(
+      provider: '${json['provider'] ?? ''}',
+      providerUserId: '${json['provider_user_id'] ?? ''}',
+      email: '${json['email'] ?? ''}',
+      displayName: '${json['display_name'] ?? ''}',
+      avatarUrl: '${json['avatar_url'] ?? ''}',
+    );
+  }
+}
+
+class AuthDeviceInfo {
+  const AuthDeviceInfo({
+    required this.deviceKey,
+    required this.createdAt,
+    required this.lastSeenAt,
+  });
+
+  final String deviceKey;
+  final int? createdAt;
+  final int? lastSeenAt;
+
+  factory AuthDeviceInfo.fromJson(Map<String, dynamic> json) {
+    return AuthDeviceInfo(
+      deviceKey: '${json['device_key'] ?? ''}',
+      createdAt: _jsonInt(json['created_at']),
+      lastSeenAt: _jsonInt(json['last_seen_at']),
+    );
+  }
+}
+
+class AuthAccount {
+  const AuthAccount({
+    required this.accountId,
+    required this.deviceId,
+    required this.role,
+    required this.device,
+    required this.identities,
+  });
+
+  final String accountId;
+  final String deviceId;
+  final String role;
+  final AuthDeviceInfo? device;
+  final List<AuthIdentity> identities;
+
+  bool get hasDiscord =>
+      identities.any((identity) => identity.provider == 'discord');
+  bool get hasGoogle =>
+      identities.any((identity) => identity.provider == 'google');
+
+  String get displayName {
+    for (final identity in identities) {
+      final label = identity.label.trim();
+      if (label.isNotEmpty) {
+        return label;
+      }
+    }
+    return accountId;
+  }
+
+  factory AuthAccount.fromJson(Map<String, dynamic> json) {
+    final rawDevice = json['device'];
+    final rawIdentities = json['identities'];
+    return AuthAccount(
+      accountId: '${json['account_id'] ?? ''}',
+      deviceId: '${json['device_id'] ?? ''}',
+      role: '${json['role'] ?? 'user'}',
+      device: rawDevice is Map
+          ? AuthDeviceInfo.fromJson(_stringKeyedMap(rawDevice))
+          : null,
+      identities: rawIdentities is List
+          ? rawIdentities
+                .whereType<Map>()
+                .map((entry) => AuthIdentity.fromJson(_stringKeyedMap(entry)))
+                .toList(growable: false)
+          : const [],
+    );
+  }
+}
+
 class AuthService {
   static const _deviceKeyKey = 'auth_device_key';
   static const _tokenKey = 'auth_token';
@@ -122,6 +230,31 @@ class AuthService {
     );
   }
 
+  Future<AuthAccount> fetchAccount() async {
+    final token = _session?.token ?? AuthTokenStore.token;
+    if (token == null || token.trim().isEmpty) {
+      throw StateError('Authentication required.');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/v1/auth/me');
+    final response = await http.get(
+      uri,
+      headers: ApiUserAgent.applyTo(const {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip',
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Could not load account (${response.statusCode}).');
+    }
+
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is! Map) {
+      throw const FormatException('Account response was not a JSON object.');
+    }
+    return AuthAccount.fromJson(_stringKeyedMap(decoded));
+  }
+
   Future<void> logout() async {
     final token = _session?.token ?? AuthTokenStore.token;
     if (token != null && token.isNotEmpty) {
@@ -197,4 +330,21 @@ class AuthService {
     }
     return decoded.map((key, value) => MapEntry('$key', '$value'));
   }
+}
+
+Map<String, dynamic> _stringKeyedMap(Map<dynamic, dynamic> source) {
+  return source.map((key, value) => MapEntry('$key', value));
+}
+
+int? _jsonInt(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse('$value');
 }

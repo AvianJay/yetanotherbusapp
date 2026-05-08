@@ -42,6 +42,7 @@ class AppController extends ChangeNotifier {
 
   AppSettings _settings = AppSettings.defaults();
   AuthSession? _authSession;
+  AuthAccount? _authAccount;
   List<SearchHistoryEntry> _history = const [];
   Map<String, List<FavoriteStop>> _favoriteGroups = const {};
   List<RouteUsageProfile> _routeUsageProfiles = const [];
@@ -53,6 +54,7 @@ class AppController extends ChangeNotifier {
   bool _downloadingDatabase = false;
   bool _checkingAppUpdate = false;
   bool _authBusy = false;
+  bool _authAccountLoading = false;
   bool _startupAppUpdateChecked = false;
   bool _startupDatabaseUpdateChecked = false;
   AppUpdateCheckResult? _lastAppUpdateResult;
@@ -60,6 +62,7 @@ class AppController extends ChangeNotifier {
 
   AppSettings get settings => _settings;
   AuthSession? get authSession => _authSession;
+  AuthAccount? get authAccount => _authAccount;
   bool get isAuthenticated => _authSession?.isAuthenticated ?? false;
   List<SearchHistoryEntry> get history => List.unmodifiable(_history);
   Map<String, List<FavoriteStop>> get favoriteGroups =>
@@ -115,6 +118,7 @@ class AppController extends ChangeNotifier {
   bool get needsOnboarding => !_settings.hasCompletedOnboarding;
   bool get checkingAppUpdate => _checkingAppUpdate;
   bool get authBusy => _authBusy;
+  bool get authAccountLoading => _authAccountLoading;
   AppUpdateCheckResult? get lastAppUpdateResult => _lastAppUpdateResult;
   Map<BusProvider, int> get pendingDatabaseUpdates =>
       Map.unmodifiable(_pendingDatabaseUpdates);
@@ -190,7 +194,32 @@ class AppController extends ChangeNotifier {
       displayName: action.authDisplayName ?? '',
     );
     _authSession = authService.session;
+    try {
+      _authAccount = await authService.fetchAccount();
+    } catch (_) {
+      _authAccount = null;
+    }
     notifyListeners();
+  }
+
+  Future<void> refreshAuthAccount() async {
+    if (_authSession == null) {
+      _authAccount = null;
+      notifyListeners();
+      return;
+    }
+    if (_authAccountLoading) {
+      return;
+    }
+
+    _authAccountLoading = true;
+    notifyListeners();
+    try {
+      _authAccount = await authService.fetchAccount();
+    } finally {
+      _authAccountLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> logoutAuth() async {
@@ -202,6 +231,7 @@ class AppController extends ChangeNotifier {
     try {
       await authService.logout();
       _authSession = null;
+      _authAccount = null;
     } finally {
       _authBusy = false;
       notifyListeners();

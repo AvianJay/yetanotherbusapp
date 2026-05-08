@@ -268,7 +268,11 @@ class AuthService {
           },
         );
 
-    return launchUrl(uri, mode: LaunchMode.externalApplication);
+    return launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+      webOnlyWindowName: kIsWeb ? '_self' : null,
+    );
   }
 
   Future<void> _ensureGoogleSignInInitialized() {

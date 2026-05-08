@@ -5,7 +5,7 @@ import 'dart:html' as html;
 Map<String, String>? takeWebAuthCallbackPayload() {
   final uri = Uri.parse(html.window.location.href);
   final normalizedPath = uri.path.isEmpty ? '/' : uri.path;
-  if (normalizedPath != '/' && normalizedPath != '/auth-callback') {
+  if (normalizedPath != '/') {
     return null;
   }
 

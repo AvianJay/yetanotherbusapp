@@ -8,6 +8,7 @@ import '../core/android_trip_monitor.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../widgets/app_update_dialog.dart';
+import 'account_screen.dart';
 import 'database_settings_screen.dart';
 import 'personalization_screen.dart';
 import '../widgets/background_image_wrapper.dart';
@@ -95,6 +96,7 @@ class SettingsScreen extends StatelessWidget {
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     final supportsRouteBackgroundMonitor = isAndroid || isIOS;
+    final authSession = controller.authSession;
     // final databaseProviders = controller.selectedProviders
     //     .map((provider) => provider.label)
     //     .join('、');
@@ -186,6 +188,31 @@ class SettingsScreen extends StatelessWidget {
                           },
                         ),
                       ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.account_circle_outlined),
+                      title: const Text('帳戶'),
+                      subtitle: Text(
+                        authSession == null
+                            ? '尚未登入。'
+                            : '已登入為 ${authSession.displayName.isEmpty ? authSession.provider : authSession.displayName} (${authSession.role})',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            settings: const RouteSettings(name: 'account'),
+                            builder: (_) => const AccountScreen(),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ),

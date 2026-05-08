@@ -17,7 +17,6 @@ import '../core/web_update_checker_stub.dart'
     if (dart.library.html) '../core/web_update_checker_web.dart'
     as web_update;
 
-
 import '../screens/favorites_screen.dart';
 import '../screens/main_transit_shell.dart';
 import '../screens/onboarding_screen.dart';
@@ -321,6 +320,28 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
       return;
     }
     _pendingLaunchAction = null;
+
+    if (action.target == AppLaunchTarget.authCallback) {
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      try {
+        await widget.controller.completeAuthCallback(action);
+        if (!mounted) {
+          return;
+        }
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('Login complete.')),
+        );
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        messenger?.showSnackBar(
+          SnackBar(content: Text('Login failed: $error')),
+        );
+      }
+      return;
+    }
+
     final navigator = Navigator.of(context);
 
     if (action.target == AppLaunchTarget.routeDetail) {
@@ -357,6 +378,8 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
             builder: (_) => FavoritesScreen(initialGroupName: action.groupName),
           ),
         );
+      case AppLaunchTarget.authCallback:
+        return;
     }
   }
 

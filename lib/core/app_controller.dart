@@ -7,8 +7,10 @@ import 'android_home_integration.dart';
 import 'android_trip_monitor.dart';
 import 'app_analytics.dart';
 import 'app_build_info.dart';
+import 'app_launch_service.dart';
 import 'app_update_installer.dart';
 import 'app_update_service.dart';
+import 'auth_service.dart';
 import 'bus_repository.dart';
 import 'desktop_discord_presence_service.dart';
 import 'ios_widget_integration.dart';
@@ -25,6 +27,7 @@ class AppController extends ChangeNotifier {
     required this.buildInfo,
     required this.appUpdateService,
     required this.appUpdateInstaller,
+    required this.authService,
   });
 
   static const defaultFavoriteGroupName = '我的最愛';
@@ -35,8 +38,11 @@ class AppController extends ChangeNotifier {
   final AppBuildInfo buildInfo;
   final AppUpdateService appUpdateService;
   final AppUpdateInstaller appUpdateInstaller;
+  final AuthService authService;
 
   AppSettings _settings = AppSettings.defaults();
+  AuthSession? _authSession;
+  AuthAccount? _authAccount;
   List<SearchHistoryEntry> _history = const [];
   Map<String, List<FavoriteStop>> _favoriteGroups = const {};
   List<RouteUsageProfile> _routeUsageProfiles = const [];
@@ -47,12 +53,17 @@ class AppController extends ChangeNotifier {
   bool _checkingDatabase = false;
   bool _downloadingDatabase = false;
   bool _checkingAppUpdate = false;
+  bool _authBusy = false;
+  bool _authAccountLoading = false;
   bool _startupAppUpdateChecked = false;
   bool _startupDatabaseUpdateChecked = false;
   AppUpdateCheckResult? _lastAppUpdateResult;
   Map<BusProvider, int> _pendingDatabaseUpdates = const {};
 
   AppSettings get settings => _settings;
+  AuthSession? get authSession => _authSession;
+  AuthAccount? get authAccount => _authAccount;
+  bool get isAuthenticated => _authSession?.isAuthenticated ?? false;
   List<SearchHistoryEntry> get history => List.unmodifiable(_history);
   Map<String, List<FavoriteStop>> get favoriteGroups =>
       Map.unmodifiable(_favoriteGroups);
@@ -106,6 +117,8 @@ class AppController extends ChangeNotifier {
   bool get downloadingDatabase => _downloadingDatabase;
   bool get needsOnboarding => !_settings.hasCompletedOnboarding;
   bool get checkingAppUpdate => _checkingAppUpdate;
+  bool get authBusy => _authBusy;
+  bool get authAccountLoading => _authAccountLoading;
   AppUpdateCheckResult? get lastAppUpdateResult => _lastAppUpdateResult;
   Map<BusProvider, int> get pendingDatabaseUpdates =>
       Map.unmodifiable(_pendingDatabaseUpdates);
@@ -128,6 +141,8 @@ class AppController extends ChangeNotifier {
 
   Future<void> initialize() async {
     await storage.migrateLegacyApiDataIfNeeded();
+    await authService.initialize();
+    _authSession = authService.session;
     _settings = await storage.loadSettings();
     _history = await storage.loadHistory();
     _favoriteGroups = await storage.loadFavoriteGroups();
@@ -146,6 +161,92 @@ class AppController extends ChangeNotifier {
     await desktopDiscordPresenceService.refresh(settings: _settings);
     _initialized = true;
     notifyListeners();
+  }
+
+  Future<bool> startAuthLogin(String provider) async {
+    if (_authBusy) {
+      return false;
+    }
+    _authBusy = true;
+    notifyListeners();
+    try {
+      final opened = await authService.startLogin(provider);
+      if (authService.session != _authSession) {
+        _authSession = authService.session;
+        if (_authSession != null) {
+          try {
+            _authAccount = await authService.fetchAccount();
+          } catch (_) {
+            _authAccount = null;
+          }
+        }
+      }
+      return opened;
+    } finally {
+      _authBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> completeAuthCallback(AppLaunchAction action) async {
+    if (action.authError?.isNotEmpty == true) {
+      throw Exception(action.authError);
+    }
+    final token = action.authToken;
+    if (token == null || token.isEmpty) {
+      throw Exception('Auth callback did not include a token.');
+    }
+    await authService.completeCallback(
+      token: token,
+      accountId: action.authAccountId ?? '',
+      deviceId: action.authDeviceId ?? '',
+      role: action.authRole ?? 'user',
+      provider: action.authProvider ?? '',
+      displayName: action.authDisplayName ?? '',
+    );
+    _authSession = authService.session;
+    try {
+      _authAccount = await authService.fetchAccount();
+    } catch (_) {
+      _authAccount = null;
+    }
+    notifyListeners();
+  }
+
+  Future<void> refreshAuthAccount() async {
+    if (_authSession == null) {
+      _authAccount = null;
+      notifyListeners();
+      return;
+    }
+    if (_authAccountLoading) {
+      return;
+    }
+
+    _authAccountLoading = true;
+    notifyListeners();
+    try {
+      _authAccount = await authService.fetchAccount();
+    } finally {
+      _authAccountLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> logoutAuth() async {
+    if (_authBusy) {
+      return;
+    }
+    _authBusy = true;
+    notifyListeners();
+    try {
+      await authService.logout();
+      _authSession = null;
+      _authAccount = null;
+    } finally {
+      _authBusy = false;
+      notifyListeners();
+    }
   }
 
   Future<void> refreshDatabaseState() async {

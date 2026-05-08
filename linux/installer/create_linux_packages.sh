@@ -53,9 +53,10 @@ cat > "${DEB_STAGING}/usr/share/applications/${APP_ID}.desktop" <<DESKTOP
 Type=Application
 Name=${APP_DISPLAY_NAME}
 Comment=${DESCRIPTION}
-Exec=${APP_NAME}
+Exec=${APP_NAME} %u
 Icon=${APP_NAME}
 Categories=Utility;Maps;
+MimeType=x-scheme-handler/yabus;
 Terminal=false
 DESKTOP
 
@@ -84,6 +85,7 @@ CONTROL
 cat > "${DEB_STAGING}/DEBIAN/postinst" <<POSTINST
 #!/bin/sh
 update-desktop-database /usr/share/applications 2>/dev/null || true
+xdg-mime default ${APP_ID}.desktop x-scheme-handler/yabus 2>/dev/null || true
 POSTINST
 chmod 755 "${DEB_STAGING}/DEBIAN/postinst"
 
@@ -133,9 +135,10 @@ cat > "${APPDIR}/${APP_ID}.desktop" <<DESKTOP
 Type=Application
 Name=${APP_DISPLAY_NAME}
 Comment=${DESCRIPTION}
-Exec=${APP_NAME}
+Exec=${APP_NAME} %u
 Icon=${APP_NAME}
 Categories=Utility;Maps;
+MimeType=x-scheme-handler/yabus;
 Terminal=false
 DESKTOP
 

@@ -6,6 +6,7 @@ import android.content.Intent
 object AppLaunchConstants {
     const val TARGET_ROUTE_DETAIL = "route_detail"
     const val TARGET_FAVORITES_GROUP = "favorites_group"
+    const val TARGET_AUTH_CALLBACK = "auth_callback"
 
     private const val EXTRA_TARGET = "launch_target"
     private const val EXTRA_PROVIDER = "provider"
@@ -56,6 +57,8 @@ object AppLaunchConstants {
 
     fun extractLaunchPayload(intent: Intent?): Map<String, Any?>? {
         intent ?: return null
+        extractAuthCallbackPayload(intent.data)?.let { return it }
+
         val target = intent.getStringExtra(EXTRA_TARGET)?.trim().orEmpty()
         if (target.isEmpty()) {
             return null
@@ -102,5 +105,32 @@ object AppLaunchConstants {
 
             else -> null
         }
+    }
+
+    private fun extractAuthCallbackPayload(uri: android.net.Uri?): Map<String, Any?>? {
+        uri ?: return null
+        if (uri.scheme?.lowercase() != "yabus" || uri.host?.lowercase() != "auth-callback") {
+            return null
+        }
+
+        val payload = mutableMapOf<String, Any?>("target" to TARGET_AUTH_CALLBACK)
+        for (key in listOf("token", "account_id", "device_id", "role", "provider", "display_name", "error")) {
+            uri.getQueryParameter(key)?.let { payload[key] = it }
+        }
+        uri.fragment
+            ?.split("&")
+            ?.mapNotNull { part ->
+                val pieces = part.split("=", limit = 2)
+                if (pieces.isEmpty() || pieces[0].isBlank()) {
+                    null
+                } else {
+                    val key = android.net.Uri.decode(pieces[0])
+                    val value = android.net.Uri.decode(pieces.getOrElse(1) { "" })
+                    key to value
+                }
+            }
+            ?.forEach { (key, value) -> payload[key] = value }
+
+        return payload
     }
 }

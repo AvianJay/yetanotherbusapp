@@ -78,7 +78,29 @@ final class AppLaunchBridge {
       return routePayload(from: components, pathSegments: pathSegments)
     }
 
+    if host == "auth-callback" {
+      return authPayload(from: components)
+    }
+
     return nil
+  }
+
+  private func authPayload(from components: URLComponents?) -> [String: Any]? {
+    var payload: [String: Any] = [
+      "target": "auth_callback"
+    ]
+    for key in ["token", "account_id", "device_id", "role", "provider", "display_name", "error"] {
+      if let value = queryValue(key, from: components) {
+        payload[key] = value
+      }
+    }
+    for item in fragmentItems(from: components) {
+      payload[item.name] = item.value ?? ""
+    }
+    if payload["token"] == nil && payload["error"] == nil {
+      return nil
+    }
+    return payload
   }
 
   private func routePayload(
@@ -121,6 +143,15 @@ final class AppLaunchBridge {
       .first(where: { $0.name == name })?
       .value?
       .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private func fragmentItems(from components: URLComponents?) -> [URLQueryItem] {
+    guard let fragment = components?.fragment, !fragment.isEmpty else {
+      return []
+    }
+    var parser = URLComponents()
+    parser.percentEncodedQuery = fragment
+    return parser.queryItems ?? []
   }
 
   private func queryInt(_ name: String, from components: URLComponents?) -> Int? {

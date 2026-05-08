@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -72,17 +73,20 @@ class AuthIdentity {
 class AuthDeviceInfo {
   const AuthDeviceInfo({
     required this.deviceKey,
+    required this.deviceName,
     required this.createdAt,
     required this.lastSeenAt,
   });
 
   final String deviceKey;
+  final String? deviceName;
   final int? createdAt;
   final int? lastSeenAt;
 
   factory AuthDeviceInfo.fromJson(Map<String, dynamic> json) {
     return AuthDeviceInfo(
       deviceKey: '${json['device_key'] ?? ''}',
+      deviceName: json['device_name']?.toString(),
       createdAt: _jsonInt(json['created_at']),
       lastSeenAt: _jsonInt(json['last_seen_at']),
     );
@@ -220,7 +224,11 @@ class AuthService {
         'Accept-Encoding': 'gzip',
         'Content-Type': 'application/json',
       }),
-      body: jsonEncode({'id_token': idToken, 'device_key': deviceKey}),
+      body: jsonEncode({
+        'id_token': idToken,
+        'device_key': deviceKey,
+        'device_name': _buildDeviceName(),
+      }),
     );
     if (response.statusCode != 200) {
       throw Exception(
@@ -397,6 +405,49 @@ class AuthService {
     final deviceKey = _uuidV4();
     await prefs.setString(_deviceKeyKey, deviceKey);
     return deviceKey;
+  }
+
+  static String _buildDeviceName() {
+    if (kIsWeb) {
+      return 'Web (App)';
+    }
+    try {
+      final os = Platform.operatingSystem.toLowerCase();
+      final version = Platform.operatingSystemVersion;
+
+      if (os == 'android') {
+        final match = RegExp(r'(\d+)').firstMatch(version);
+        final major = match?.group(1) ?? '';
+        return major.isNotEmpty ? 'Android $major (App)' : 'Android (App)';
+      }
+
+      if (os == 'ios') {
+        final match = RegExp(r'(\d+)').firstMatch(version);
+        final major = match?.group(1) ?? '';
+        // Detect iPad via the version string or model hint
+        final isIpad = version.toLowerCase().contains('ipad') ||
+            Platform.environment.containsKey('SIMULATOR_DEVICE_NAME') &&
+                (Platform.environment['SIMULATOR_DEVICE_NAME'] ?? '')
+                    .toLowerCase()
+                    .contains('ipad');
+        // On real devices, iPads running iPadOS report screen size > 1024
+        // but the most reliable check is the OS version string.
+        // UIDevice detection is handled in the native plugin; here we
+        // check the version string that Dart exposes.
+        final versionLower = version.toLowerCase();
+        final effectiveIsIpad = isIpad || versionLower.contains('ipad');
+        final osLabel = effectiveIsIpad ? 'iPadOS' : 'iOS';
+        return major.isNotEmpty ? '$osLabel $major (App)' : '$osLabel (App)';
+      }
+
+      if (os == 'macos') return 'macOS (App)';
+      if (os == 'windows') return 'Windows (App)';
+      if (os == 'linux') return 'Linux (App)';
+
+      return '${os[0].toUpperCase()}${os.substring(1)} (App)';
+    } catch (_) {
+      return 'App';
+    }
   }
 
   String _uuidV4() {

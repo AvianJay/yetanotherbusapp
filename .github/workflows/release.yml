@@ -31,6 +31,8 @@ env:
   APP_WORKFLOW_NIGHTLY_ID: build
   APP_UPDATE_CHANNEL: release
   IOS_FLAVOR: YABus
+  YABUS_GOOGLE_WEB_CLIENT_ID: ${{ secrets.YABUS_GOOGLE_WEB_CLIENT_ID }}
+  YABUS_GOOGLE_IOS_CLIENT_ID: ${{ secrets.YABUS_GOOGLE_IOS_CLIENT_ID }}
 
 permissions:
   contents: write
@@ -90,6 +92,8 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=YABUS_GOOGLE_WEB_CLIENT_ID=${{ env.YABUS_GOOGLE_WEB_CLIENT_ID }}
+          --dart-define=YABUS_GOOGLE_IOS_CLIENT_ID=${{ env.YABUS_GOOGLE_IOS_CLIENT_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=android-apk-release
       - name: Rename APK
         shell: bash
@@ -130,6 +134,8 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=YABUS_GOOGLE_WEB_CLIENT_ID=${{ env.YABUS_GOOGLE_WEB_CLIENT_ID }}
+          --dart-define=YABUS_GOOGLE_IOS_CLIENT_ID=${{ env.YABUS_GOOGLE_IOS_CLIENT_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=web-release
       - name: Write version.json
         shell: bash
@@ -178,6 +184,8 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=YABUS_GOOGLE_WEB_CLIENT_ID=${{ env.YABUS_GOOGLE_WEB_CLIENT_ID }}
+          --dart-define=YABUS_GOOGLE_IOS_CLIENT_ID=${{ env.YABUS_GOOGLE_IOS_CLIENT_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=windows-release
       - name: Install NSIS
         shell: pwsh
@@ -243,6 +251,8 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=YABUS_GOOGLE_WEB_CLIENT_ID=${{ env.YABUS_GOOGLE_WEB_CLIENT_ID }}
+          --dart-define=YABUS_GOOGLE_IOS_CLIENT_ID=${{ env.YABUS_GOOGLE_IOS_CLIENT_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=linux-release
       - name: Package Linux .deb and AppImage
         shell: bash
@@ -293,6 +303,8 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=YABUS_GOOGLE_WEB_CLIENT_ID=${{ env.YABUS_GOOGLE_WEB_CLIENT_ID }}
+          --dart-define=YABUS_GOOGLE_IOS_CLIENT_ID=${{ env.YABUS_GOOGLE_IOS_CLIENT_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=macos-release
       - name: Package macOS DMG
         shell: bash
@@ -342,6 +354,8 @@ jobs:
           --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
           --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
           --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=YABUS_GOOGLE_WEB_CLIENT_ID=${{ env.YABUS_GOOGLE_WEB_CLIENT_ID }}
+          --dart-define=YABUS_GOOGLE_IOS_CLIENT_ID=${{ env.YABUS_GOOGLE_IOS_CLIENT_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=ios-unsigned-ipa
       - name: Package unsigned IPA
         shell: bash

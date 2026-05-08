@@ -8,7 +8,7 @@ class ApiConfig {
 
   static const webAuthRedirectUri = String.fromEnvironment(
     'YABUS_WEB_AUTH_REDIRECT_URI',
-    defaultValue: 'https://busapp.avianjay.sbs/auth-callback',
+    defaultValue: 'https://busapp.avianjay.sbs/',
   );
 
   static const appAuthRedirectUri = String.fromEnvironment(

@@ -86,6 +86,8 @@ class AnnouncementService {
     AnnouncementLocalState localState,
   ) {
     switch (announcement.behavior.redDot) {
+      case AnnouncementRepeatBehavior.none:
+        return false;
       case AnnouncementRepeatBehavior.forever:
         return true;
       case AnnouncementRepeatBehavior.once:
@@ -103,6 +105,8 @@ class AnnouncementService {
         return false;
       }
       switch (announcement.behavior.popup) {
+        case AnnouncementRepeatBehavior.none:
+          return false;
         case AnnouncementRepeatBehavior.once:
           return !localState.shownPopupIds.contains(announcement.id);
         case AnnouncementRepeatBehavior.forever:

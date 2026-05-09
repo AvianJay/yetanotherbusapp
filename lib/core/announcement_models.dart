@@ -1,6 +1,6 @@
 import 'dart:collection';
 
-enum AnnouncementRepeatBehavior { once, forever }
+enum AnnouncementRepeatBehavior { none, once, forever }
 
 class AnnouncementBehavior {
   const AnnouncementBehavior({
@@ -201,9 +201,11 @@ class AnnouncementLocalState {
 }
 
 AnnouncementRepeatBehavior _behaviorFromString(Object? value) {
-  return '${value ?? 'once'}'.trim().toLowerCase() == 'forever'
-      ? AnnouncementRepeatBehavior.forever
-      : AnnouncementRepeatBehavior.once;
+  return switch ('${value ?? 'once'}'.trim().toLowerCase()) {
+    'none' => AnnouncementRepeatBehavior.none,
+    'forever' => AnnouncementRepeatBehavior.forever,
+    _ => AnnouncementRepeatBehavior.once,
+  };
 }
 
 Map<String, dynamic>? _stringKeyedMap(Object? value) {

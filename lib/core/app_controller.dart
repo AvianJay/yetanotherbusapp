@@ -4,6 +4,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'android_home_integration.dart';
+import 'announcement_models.dart';
+import 'announcement_service.dart';
 import 'android_trip_monitor.dart';
 import 'app_analytics.dart';
 import 'app_build_info.dart';
@@ -28,7 +30,8 @@ class AppController extends ChangeNotifier {
     required this.appUpdateService,
     required this.appUpdateInstaller,
     required this.authService,
-  });
+    AnnouncementService? announcementService,
+  }) : announcementService = announcementService ?? AnnouncementService();
 
   static const defaultFavoriteGroupName = '我的最愛';
 
@@ -39,10 +42,14 @@ class AppController extends ChangeNotifier {
   final AppUpdateService appUpdateService;
   final AppUpdateInstaller appUpdateInstaller;
   final AuthService authService;
+  final AnnouncementService announcementService;
 
   AppSettings _settings = AppSettings.defaults();
   AuthSession? _authSession;
   AuthAccount? _authAccount;
+  AnnouncementLocalState _announcementLocalState =
+      AnnouncementLocalState.empty();
+  List<AppAnnouncement> _announcements = const [];
   List<SearchHistoryEntry> _history = const [];
   Map<String, List<FavoriteStop>> _favoriteGroups = const {};
   List<RouteUsageProfile> _routeUsageProfiles = const [];
@@ -55,15 +62,18 @@ class AppController extends ChangeNotifier {
   bool _checkingAppUpdate = false;
   bool _authBusy = false;
   bool _authAccountLoading = false;
+  bool _announcementsLoading = false;
   bool _startupAppUpdateChecked = false;
   bool _startupDatabaseUpdateChecked = false;
   AppUpdateCheckResult? _lastAppUpdateResult;
   Map<BusProvider, int> _pendingDatabaseUpdates = const {};
+  String? _announcementsError;
 
   AppSettings get settings => _settings;
   AuthSession? get authSession => _authSession;
   AuthAccount? get authAccount => _authAccount;
   bool get isAuthenticated => _authSession?.isAuthenticated ?? false;
+  List<AppAnnouncement> get announcements => List.unmodifiable(_announcements);
   List<SearchHistoryEntry> get history => List.unmodifiable(_history);
   Map<String, List<FavoriteStop>> get favoriteGroups =>
       Map.unmodifiable(_favoriteGroups);
@@ -119,10 +129,19 @@ class AppController extends ChangeNotifier {
   bool get checkingAppUpdate => _checkingAppUpdate;
   bool get authBusy => _authBusy;
   bool get authAccountLoading => _authAccountLoading;
+  bool get announcementsLoading => _announcementsLoading;
   AppUpdateCheckResult? get lastAppUpdateResult => _lastAppUpdateResult;
   Map<BusProvider, int> get pendingDatabaseUpdates =>
       Map.unmodifiable(_pendingDatabaseUpdates);
   bool get hasPendingDatabaseUpdates => _pendingDatabaseUpdates.isNotEmpty;
+  String? get announcementsError => _announcementsError;
+  bool get hasUnreadAnnouncements => _announcements.any(
+    (announcement) =>
+        announcementService.shouldShowRedDot(
+          announcement,
+          _announcementLocalState,
+        ),
+  );
 
   bool isDatabaseReady(BusProvider provider) {
     return _databaseReadyByProvider[provider] ?? false;
@@ -144,6 +163,7 @@ class AppController extends ChangeNotifier {
     await authService.initialize();
     _authSession = authService.session;
     _settings = await storage.loadSettings();
+    _announcementLocalState = await storage.loadAnnouncementLocalState();
     _history = await storage.loadHistory();
     _favoriteGroups = await storage.loadFavoriteGroups();
     _routeUsageProfiles = await storage.loadRouteUsageProfiles();
@@ -247,6 +267,95 @@ class AppController extends ChangeNotifier {
       _authBusy = false;
       notifyListeners();
     }
+  }
+
+  Future<void> ensureAnnouncementsLoaded() async {
+    if (_announcementsLoading || _announcements.isNotEmpty || _announcementsError != null) {
+      return;
+    }
+    await refreshAnnouncements(force: true);
+  }
+
+  Future<void> refreshAnnouncements({bool force = false}) async {
+    if (_announcementsLoading) {
+      return;
+    }
+    if (!force && _announcements.isNotEmpty) {
+      return;
+    }
+
+    _announcementsLoading = true;
+    if (force || _announcements.isEmpty) {
+      _announcementsError = null;
+    }
+    notifyListeners();
+    try {
+      _announcements = await announcementService.fetchAnnouncements(
+        buildInfo: buildInfo,
+      );
+      _announcementsError = null;
+    } catch (error) {
+      _announcementsError = '$error';
+    } finally {
+      _announcementsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  AppAnnouncement? findAnnouncementById(String announcementId) {
+    final normalized = announcementId.trim();
+    for (final announcement in _announcements) {
+      if (announcement.id == normalized) {
+        return announcement;
+      }
+    }
+    return null;
+  }
+
+  AppAnnouncement? nextPendingAnnouncementPopup({
+    Set<String> sessionDeferredIds = const <String>{},
+  }) {
+    final pending = announcementService.pendingPopups(
+      _announcements,
+      _announcementLocalState,
+      sessionDeferredIds: sessionDeferredIds,
+    );
+    return pending.isEmpty ? null : pending.first;
+  }
+
+  Future<void> markAnnouncementListViewed() async {
+    final nextState = announcementService.markListViewed(
+      _announcementLocalState,
+      _announcements,
+    );
+    await _updateAnnouncementLocalState(nextState);
+  }
+
+  Future<void> markAnnouncementPopupShown(AppAnnouncement announcement) async {
+    final nextState = announcementService.markPopupShown(
+      _announcementLocalState,
+      announcement,
+    );
+    await _updateAnnouncementLocalState(nextState);
+  }
+
+  Future<void> dismissAnnouncementPopup(AppAnnouncement announcement) async {
+    final nextState = announcementService.dismissPopup(
+      _announcementLocalState,
+      announcement,
+    );
+    await _updateAnnouncementLocalState(nextState);
+  }
+
+  Future<void> _updateAnnouncementLocalState(
+    AnnouncementLocalState nextState,
+  ) async {
+    if (identical(nextState, _announcementLocalState)) {
+      return;
+    }
+    _announcementLocalState = nextState;
+    await storage.saveAnnouncementLocalState(nextState);
+    notifyListeners();
   }
 
   Future<void> refreshDatabaseState() async {

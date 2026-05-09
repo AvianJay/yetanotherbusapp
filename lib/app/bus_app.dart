@@ -4,8 +4,10 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../core/announcement_models.dart';
 import '../core/app_controller.dart';
 import '../core/app_analytics.dart';
+import '../core/app_routes.dart';
 import '../core/app_launch_service.dart';
 import '../core/android_home_integration.dart';
 import '../core/desktop_discord_presence_service.dart';
@@ -17,11 +19,21 @@ import '../core/web_update_checker_stub.dart'
     if (dart.library.html) '../core/web_update_checker_web.dart'
     as web_update;
 
+import '../screens/account_screen.dart';
+import '../screens/announcement_detail_page.dart';
+import '../screens/announcements_page.dart';
+import '../screens/database_settings_screen.dart';
 import '../screens/favorites_screen.dart';
 import '../screens/main_transit_shell.dart';
+import '../screens/nearby_screen.dart';
 import '../screens/onboarding_screen.dart';
-import '../screens/route_detail_screen.dart';
+import '../screens/privacy_policy_page.dart';
+import '../screens/route_detail_navigation.dart';
+import '../screens/search_screen.dart';
+import '../screens/settings_screen.dart';
+import '../screens/terms_of_service_page.dart';
 import '../widgets/app_update_dialog.dart';
+import '../widgets/announcement_popup_dialog.dart';
 import '../widgets/database_update_dialog.dart';
 
 class BusApp extends StatelessWidget {
@@ -57,6 +69,11 @@ class BusApp extends StatelessWidget {
                   DesktopDiscordRouteObserver(controller),
                   if (analytics.observer != null) analytics.observer!,
                 ],
+                onGenerateRoute: (settings) =>
+                    _buildAppRoute(settings, controller),
+                onGenerateInitialRoutes: (initialRoute) =>
+                    _buildInitialRoutes(initialRoute, controller),
+                onUnknownRoute: (_) => _buildHomeRoute(controller),
                 home: _AppHome(controller: controller),
               );
             },
@@ -176,6 +193,115 @@ class BusApp extends StatelessWidget {
   }
 }
 
+Route<dynamic> _buildHomeRoute(AppController controller) {
+  return MaterialPageRoute<void>(
+    settings: const RouteSettings(name: AppRoutes.home),
+    builder: (_) => _AppHome(controller: controller),
+  );
+}
+
+Route<dynamic>? _buildAppRoute(
+  RouteSettings settings,
+  AppController controller,
+) {
+  final intent = parseAppRoute(settings.name);
+  switch (intent.kind) {
+    case AppRouteKind.home:
+      return _buildHomeRoute(controller);
+    case AppRouteKind.search:
+      return MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.search),
+        builder: (_) => const SearchScreen(),
+      );
+    case AppRouteKind.favorites:
+      return MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.favorites),
+        builder: (_) => const FavoritesScreen(),
+      );
+    case AppRouteKind.nearby:
+      return MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.nearby),
+        builder: (_) => const NearbyScreen(),
+      );
+    case AppRouteKind.settings:
+      return MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.settings),
+        builder: (_) => const SettingsScreen(),
+      );
+    case AppRouteKind.account:
+      return MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.account),
+        builder: (_) => const AccountScreen(),
+      );
+    case AppRouteKind.databaseSettings:
+      return MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.databaseSettings),
+        builder: (_) => const DatabaseSettingsScreen(),
+      );
+    case AppRouteKind.termsOfService:
+      return MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.termsOfService),
+        builder: (_) => const TermsOfServicePage(),
+      );
+    case AppRouteKind.privacyPolicy:
+      return MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.privacyPolicy),
+        builder: (_) => const PrivacyPolicyPage(),
+      );
+    case AppRouteKind.announcements:
+      return MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.announcements),
+        builder: (_) => const AnnouncementsPage(),
+      );
+    case AppRouteKind.announcementDetail:
+      final announcementId = intent.announcementId;
+      if (announcementId == null || announcementId.isEmpty) {
+        return null;
+      }
+      return MaterialPageRoute<void>(
+        settings: RouteSettings(name: intent.location),
+        builder: (_) => AnnouncementDetailPage(announcementId: announcementId),
+      );
+    case AppRouteKind.routeDetail:
+      final provider = intent.provider;
+      final routeKey = intent.routeKey;
+      if (provider == null || routeKey == null) {
+        return null;
+      }
+      return buildRouteDetailRoute(
+        routeKey: routeKey,
+        provider: provider,
+        initialPathId: intent.pathId,
+        initialStopId: intent.stopId,
+        initialDestinationPathId: intent.destinationPathId,
+        initialDestinationStopId: intent.destinationStopId,
+      );
+    case AppRouteKind.stopDetail:
+    case AppRouteKind.unknown:
+      return null;
+  }
+}
+
+List<Route<dynamic>> _buildInitialRoutes(
+  String initialRoute,
+  AppController controller,
+) {
+  final intent = parseAppRoute(initialRoute);
+  final homeRoute = _buildHomeRoute(controller);
+  if (intent.kind == AppRouteKind.home) {
+    return [homeRoute];
+  }
+
+  final leafRoute = _buildAppRoute(
+    RouteSettings(name: intent.location),
+    controller,
+  );
+  if (leafRoute == null) {
+    return [homeRoute];
+  }
+  return [homeRoute, leafRoute];
+}
+
 class _AppHome extends StatefulWidget {
   const _AppHome({required this.controller});
 
@@ -188,7 +314,10 @@ class _AppHome extends StatefulWidget {
 class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   bool _startupCheckScheduled = false;
   bool _widgetSyncScheduled = false;
+  bool _announcementCheckScheduled = false;
+  bool _showingAnnouncementPopup = false;
   AppLaunchAction? _pendingLaunchAction;
+  final Set<String> _deferredAnnouncementPopupIds = <String>{};
   StreamSubscription<AppLaunchAction>? _launchSubscription;
   StreamSubscription<web_update.WebUpdateCheckResult>? _webUpdateSubscription;
 
@@ -263,6 +392,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
     super.didChangeDependencies();
     _maybeScheduleStartupCheck();
     _maybeScheduleLaunchAction();
+    _maybeScheduleAnnouncementChecks();
   }
 
   @override
@@ -270,6 +400,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
     super.didUpdateWidget(oldWidget);
     _maybeScheduleStartupCheck();
     _maybeScheduleLaunchAction();
+    _maybeScheduleAnnouncementChecks();
   }
 
   void _maybeScheduleStartupCheck() {
@@ -312,6 +443,70 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _consumeLaunchAction();
     });
+  }
+
+  void _maybeScheduleAnnouncementChecks() {
+    if (_announcementCheckScheduled || widget.controller.needsOnboarding) {
+      return;
+    }
+
+    _announcementCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _announcementCheckScheduled = false;
+      unawaited(_syncAnnouncementsAndMaybeShowPopup());
+    });
+  }
+
+  Future<void> _syncAnnouncementsAndMaybeShowPopup() async {
+    await widget.controller.ensureAnnouncementsLoaded();
+    if (!mounted) {
+      return;
+    }
+    await _maybeShowAnnouncementPopup();
+  }
+
+  Future<void> _maybeShowAnnouncementPopup() async {
+    if (!mounted || _showingAnnouncementPopup || widget.controller.needsOnboarding) {
+      return;
+    }
+
+    final announcement = widget.controller.nextPendingAnnouncementPopup(
+      sessionDeferredIds: _deferredAnnouncementPopupIds,
+    );
+    if (announcement == null) {
+      return;
+    }
+
+    _showingAnnouncementPopup = true;
+    final result = await showAnnouncementPopupDialog(
+      context,
+      announcement: announcement,
+    );
+    await widget.controller.markAnnouncementPopupShown(announcement);
+    if (!mounted) {
+      _showingAnnouncementPopup = false;
+      return;
+    }
+
+    switch (result) {
+      case AnnouncementPopupResult.dismissForever:
+        await widget.controller.dismissAnnouncementPopup(announcement);
+      case AnnouncementPopupResult.viewDetails:
+        await Navigator.of(
+          context,
+        ).pushNamed(AppRoutes.announcementDetailPath(announcement.id));
+      case AnnouncementPopupResult.later:
+        if (announcement.behavior.popup == AnnouncementRepeatBehavior.forever) {
+          _deferredAnnouncementPopupIds.add(announcement.id);
+        }
+    }
+
+    _showingAnnouncementPopup = false;
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_maybeShowAnnouncementPopup());
+      });
+    }
   }
 
   Future<void> _consumeLaunchAction() async {
@@ -361,15 +556,13 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
           return;
         }
         await navigator.push(
-          MaterialPageRoute<void>(
-            builder: (_) => RouteDetailScreen(
-              routeKey: routeKey,
-              provider: provider,
-              initialPathId: action.pathId,
-              initialStopId: action.stopId,
-              initialDestinationPathId: action.destinationPathId,
-              initialDestinationStopId: action.destinationStopId,
-            ),
+          buildRouteDetailRoute(
+            routeKey: routeKey,
+            provider: provider,
+            initialPathId: action.pathId,
+            initialStopId: action.stopId,
+            initialDestinationPathId: action.destinationPathId,
+            initialDestinationStopId: action.destinationStopId,
           ),
         );
       case AppLaunchTarget.favoritesGroup:

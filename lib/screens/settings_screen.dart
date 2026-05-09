@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../app/bus_app.dart';
 import '../core/android_trip_monitor.dart';
+import '../core/app_routes.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../widgets/app_update_dialog.dart';
@@ -546,6 +547,29 @@ class SettingsScreen extends StatelessWidget {
                               label: const Text('清除路線選擇紀錄'),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 16),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.gavel_outlined),
+                          title: const Text('服務條款'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            Navigator.of(context).pushNamed(
+                              AppRoutes.termsOfService,
+                            );
+                          },
+                        ),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.privacy_tip_outlined),
+                          title: const Text('隱私權政策'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            Navigator.of(context).pushNamed(
+                              AppRoutes.privacyPolicy,
+                            );
+                          },
                         ),
                       ],
                     ),

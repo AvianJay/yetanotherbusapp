@@ -3,6 +3,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../core/announcement_models.dart';
 import '../core/app_link_handler.dart';
+import '../core/relative_time_formatter.dart';
 
 class AnnouncementContent extends StatelessWidget {
   const AnnouncementContent({
@@ -26,32 +27,31 @@ class AnnouncementContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final chips = <Widget>[
       Chip(
         avatar: const Icon(Icons.schedule_outlined, size: 18),
-        label: Text(_formatTimestamp(announcement.createdAtDateTime)),
+        label: Text(formatRelativeTimestamp(announcement.createdAtDateTime)),
       ),
       if (announcement.author case final author?)
         Chip(
           avatar: const Icon(Icons.person_outline_rounded, size: 18),
           label: Text(author),
         ),
-      if (announcement.expireAtDateTime case final expireAt?)
-        Chip(
-          avatar: const Icon(Icons.hourglass_bottom_rounded, size: 18),
-          label: Text('到 ${_formatTimestamp(expireAt)}'),
-        ),
-      if (announcement.behavior.redDot == AnnouncementRepeatBehavior.forever)
-        const Chip(
-          avatar: Icon(Icons.brightness_1_rounded, size: 14),
-          label: Text('紅點持續顯示'),
-        ),
-      if (announcement.behavior.popup == AnnouncementRepeatBehavior.forever)
-        const Chip(
-          avatar: Icon(Icons.notification_important_outlined, size: 18),
-          label: Text('持續彈出'),
-        ),
+      // if (announcement.expireAtDateTime case final expireAt?)
+      //   Chip(
+      //     avatar: const Icon(Icons.hourglass_bottom_rounded, size: 18),
+      //     label: Text('到 ${_formatTimestamp(expireAt)}'),
+      //   ),
+      // if (announcement.behavior.redDot == AnnouncementRepeatBehavior.forever)
+      //   const Chip(
+      //     avatar: Icon(Icons.brightness_1_rounded, size: 14),
+      //     label: Text('紅點持續顯示'),
+      //   ),
+      // if (announcement.behavior.popup == AnnouncementRepeatBehavior.forever)
+      //   const Chip(
+      //     avatar: Icon(Icons.notification_important_outlined, size: 18),
+      //     label: Text('持續彈出'),
+      //   ),
     ];
 
     return Column(
@@ -92,8 +92,8 @@ class AnnouncementContent extends StatelessWidget {
           ),
         ],
         if (announcement.actions.isNotEmpty) ...[
-          const SizedBox(height: 20),
-          Text('操作', style: theme.textTheme.titleMedium),
+          // const SizedBox(height: 20),
+          // Text('操作', style: theme.textTheme.titleMedium),
           const SizedBox(height: 10),
           Wrap(
             spacing: 12,
@@ -113,14 +113,4 @@ class AnnouncementContent extends StatelessWidget {
       ],
     );
   }
-}
-
-String _formatTimestamp(DateTime value) {
-  final local = value.toLocal();
-  final year = local.year.toString().padLeft(4, '0');
-  final month = local.month.toString().padLeft(2, '0');
-  final day = local.day.toString().padLeft(2, '0');
-  final hour = local.hour.toString().padLeft(2, '0');
-  final minute = local.minute.toString().padLeft(2, '0');
-  return '$year/$month/$day $hour:$minute';
 }

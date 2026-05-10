@@ -3,8 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
-import '../core/announcement_models.dart';
+// import '../core/announcement_models.dart';
 import '../core/app_routes.dart';
+import '../core/relative_time_formatter.dart';
 
 class AnnouncementsPage extends StatefulWidget {
   const AnnouncementsPage({super.key});
@@ -83,22 +84,25 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
                         Center(
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 920),
-                            child: Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: Card(
-                                color: theme.colorScheme.errorContainer,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(18),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '公告同步失敗',
-                                        style: theme.textTheme.titleMedium,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(error),
-                                    ],
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Card(
+                                  color: theme.colorScheme.errorContainer,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(18),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '公告同步失敗',
+                                          style: theme.textTheme.titleMedium,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(error),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
@@ -126,63 +130,66 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
                           Center(
                             child: ConstrainedBox(
                               constraints: const BoxConstraints(maxWidth: 920),
-                              child: Card(
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(24),
-                                  onTap: () {
-                                    Navigator.of(context).pushNamed(
-                                      AppRoutes.announcementDetailPath(
-                                        announcement.id,
-                                      ),
-                                    );
-                                  },
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(18),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          announcement.title,
-                                          style: theme.textTheme.titleLarge,
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: Card(
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(24),
+                                    onTap: () {
+                                      Navigator.of(context).pushNamed(
+                                        AppRoutes.announcementDetailPath(
+                                          announcement.id,
                                         ),
-                                        const SizedBox(height: 8),
-                                        Text(_excerpt(announcement.content)),
-                                        const SizedBox(height: 12),
-                                        Wrap(
-                                          spacing: 8,
-                                          runSpacing: 8,
-                                          children: [
-                                            Chip(
-                                              avatar: const Icon(
-                                                Icons.schedule_outlined,
-                                                size: 18,
-                                              ),
-                                              label: Text(
-                                                _formatTimestamp(
-                                                  announcement.createdAtDateTime,
-                                                ),
-                                              ),
-                                            ),
-                                            if (announcement.author case final author?)
+                                      );
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(18),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            announcement.title,
+                                            style: theme.textTheme.titleLarge,
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(_excerpt(announcement.content)),
+                                          const SizedBox(height: 12),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: [
                                               Chip(
                                                 avatar: const Icon(
-                                                  Icons.person_outline_rounded,
+                                                  Icons.schedule_outlined,
                                                   size: 18,
                                                 ),
-                                                label: Text(author),
-                                              ),
-                                            if (announcement.behavior.popup ==
-                                                AnnouncementRepeatBehavior.forever)
-                                              const Chip(
-                                                avatar: Icon(
-                                                  Icons.notification_important_outlined,
-                                                  size: 18,
+                                                label: Text(
+                                                  formatRelativeTimestamp(
+                                                    announcement.createdAtDateTime,
+                                                  ),
                                                 ),
-                                                label: Text('持續彈出'),
                                               ),
-                                          ],
-                                        ),
-                                      ],
+                                              if (announcement.author case final author?)
+                                                Chip(
+                                                  avatar: const Icon(
+                                                    Icons.person_outline_rounded,
+                                                    size: 18,
+                                                  ),
+                                                  label: Text(author),
+                                                ),
+                                              // if (announcement.behavior.popup ==
+                                              //     AnnouncementRepeatBehavior.forever)
+                                              //   const Chip(
+                                              //     avatar: Icon(
+                                              //       Icons.notification_important_outlined,
+                                              //       size: 18,
+                                              //     ),
+                                              //     label: Text('持續彈出'),
+                                              //   ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -198,14 +205,4 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
       },
     );
   }
-}
-
-String _formatTimestamp(DateTime value) {
-  final local = value.toLocal();
-  final year = local.year.toString().padLeft(4, '0');
-  final month = local.month.toString().padLeft(2, '0');
-  final day = local.day.toString().padLeft(2, '0');
-  final hour = local.hour.toString().padLeft(2, '0');
-  final minute = local.minute.toString().padLeft(2, '0');
-  return '$year/$month/$day $hour:$minute';
 }

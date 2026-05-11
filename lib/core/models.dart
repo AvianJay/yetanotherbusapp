@@ -1313,13 +1313,19 @@ EtaPresentation buildEtaPresentation(
   final message = stop.msg?.trim() ?? '';
   if (message.isNotEmpty) {
     return EtaPresentation(
-      text: message == '即將進站'
-          ? '即將\n進站'
-          : message == '末班駛離'
-          ? '末班\n駛離'
-          : message == '今日未營運'
-          ? '今日\n未營運'
-          : message,
+      text: (() {
+        final text = message;
+
+        if (text.length == 5) {
+          return '${text.substring(0, 2)}\n${text.substring(2)}';
+        }
+
+        if (text.length == 6) {
+          return '${text.substring(0, 3)}\n${text.substring(3)}';
+        }
+
+        return text;
+      })(),
       backgroundColor:
           cs?.primaryContainer ??
           (isDark ? const Color(0xFF16383D) : Colors.teal.shade50),

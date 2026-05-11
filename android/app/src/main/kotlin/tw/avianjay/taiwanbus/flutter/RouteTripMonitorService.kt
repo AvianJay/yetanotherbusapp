@@ -1314,7 +1314,7 @@ class RouteTripMonitorService : Service() {
                 trimmedMessage.contains("即將") -> "即將"
                 trimmedMessage.contains("未發車") -> "未發"
                 trimmedMessage.contains("末班") -> "末班"
-                else -> trimmedMessage.take(4)
+                else -> trimmedMessage.take(6)
             }
         }
 

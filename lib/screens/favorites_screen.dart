@@ -7,8 +7,8 @@ import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../widgets/eta_badge.dart';
 import 'favorite_groups_screen.dart';
-import 'route_detail_screen.dart';
 import '../widgets/background_image_wrapper.dart';
+import 'route_detail_navigation.dart';
 
 class FavoritesScreen extends StatefulWidget {
   const FavoritesScreen({this.initialGroupName, super.key});
@@ -708,22 +708,17 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                 if (!context.mounted) {
                   return;
                 }
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    settings: const RouteSettings(name: 'route_detail'),
-                    builder: (_) => RouteDetailScreen(
-                      routeKey: item.reference.routeKey,
-                      provider: item.reference.provider,
-                      routeIdHint: item.reference.routeId ?? item.route.routeId,
-                      routeNameHint: item.route.routeName,
-                      initialPathId: item.reference.pathId,
-                      initialStopId: item.reference.stopId,
-                      initialDestinationPathId:
-                          item.reference.destinationPathId,
-                      initialDestinationStopId:
-                          item.reference.destinationStopId,
-                    ),
-                  ),
+                await openRouteDetailPage(
+                  context,
+                  routeKey: item.reference.routeKey,
+                  provider: item.reference.provider,
+                  routeIdHint: item.reference.routeId ?? item.route.routeId,
+                  routeNameHint: item.route.routeName,
+                  initialPathId: item.reference.pathId,
+                  initialStopId: item.reference.stopId,
+                  initialDestinationPathId: item.reference.destinationPathId,
+                  initialDestinationStopId:
+                      item.reference.destinationStopId,
                 );
               },
             ),

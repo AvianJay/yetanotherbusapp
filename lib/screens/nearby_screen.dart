@@ -4,8 +4,8 @@ import 'package:geolocator/geolocator.dart';
 import '../app/bus_app.dart';
 import '../core/models.dart';
 import 'adaptive_settings_presenter.dart';
-import 'route_detail_screen.dart';
 import '../widgets/background_image_wrapper.dart';
+import 'route_detail_navigation.dart';
 
 class NearbyScreen extends StatefulWidget {
   const NearbyScreen({super.key});
@@ -174,18 +174,14 @@ class _NearbyScreenState extends State<NearbyScreen> {
                         if (!context.mounted) {
                           return;
                         }
-                        await Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            settings: const RouteSettings(name: 'route_detail'),
-                            builder: (_) => RouteDetailScreen(
-                              routeKey: item.route.routeKey,
-                              provider: routeProvider,
-                              routeIdHint: item.route.routeId,
-                              routeNameHint: item.route.routeName,
-                              initialPathId: item.stop.pathId,
-                              initialStopId: item.stop.stopId,
-                            ),
-                          ),
+                        await openRouteDetailPage(
+                          context,
+                          routeKey: item.route.routeKey,
+                          provider: routeProvider,
+                          routeIdHint: item.route.routeId,
+                          routeNameHint: item.route.routeName,
+                          initialPathId: item.stop.pathId,
+                          initialStopId: item.stop.stopId,
                         );
                       },
                     ),

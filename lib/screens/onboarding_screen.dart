@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
+import '../core/app_routes.dart';
 import '../core/models.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -238,9 +239,35 @@ class _IntroStep extends StatelessWidget {
 
   final Future<void> Function() onNext;
 
+  Widget _buildLegalLink(
+    BuildContext context, {
+    required String label,
+    required String routeName,
+  }) {
+    final theme = Theme.of(context);
+    return TextButton(
+      onPressed: () => Navigator.of(context).pushNamed(routeName),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.primary,
+          decoration: TextDecoration.underline,
+          decorationColor: theme.colorScheme.primary,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -279,6 +306,48 @@ class _IntroStep extends StatelessWidget {
           subtitle: '配合定位權限快速找周邊站點。',
         ),
         const Spacer(),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Center(
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  '繼續即代表您同意我們的',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                _buildLegalLink(
+                  context,
+                  label: '服務條款',
+                  routeName: AppRoutes.termsOfService,
+                ),
+                Text(
+                  '及',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                _buildLegalLink(
+                  context,
+                  label: '隱私權政策',
+                  routeName: AppRoutes.privacyPolicy,
+                ),
+                Text(
+                  '。',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
         SizedBox(
           width: double.infinity,
           child: FilledButton(onPressed: onNext, child: const Text('開始設定')),

@@ -8,8 +8,8 @@ import '../app/bus_app.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../core/route_search_ranking.dart';
-import 'route_detail_screen.dart';
 import '../widgets/background_image_wrapper.dart';
+import 'route_detail_navigation.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -222,17 +222,13 @@ class _SearchScreenState extends State<SearchScreen> {
     if (!mounted) {
       return;
     }
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'route_detail'),
-        builder: (_) => RouteDetailScreen(
-          routeKey: routeKey,
-          provider: provider,
-          routeIdHint: routeIdHint,
-          routeNameHint: routeName,
-          initialPathId: initialPathId,
-        ),
-      ),
+    await openRouteDetailPage(
+      context,
+      routeKey: routeKey,
+      provider: provider,
+      routeIdHint: routeIdHint,
+      routeNameHint: routeName,
+      initialPathId: initialPathId,
     );
   }
 

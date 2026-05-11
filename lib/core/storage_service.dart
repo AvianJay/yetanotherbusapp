@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'announcement_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
@@ -11,6 +12,7 @@ class StorageService {
   static const _historyKey = 'search_history';
   static const _favoritesKey = 'favorite_groups';
   static const _routeUsageProfilesKey = 'route_usage_profiles';
+  static const _announcementLocalStateKey = 'announcement_local_state';
 
   Future<void> migrateLegacyApiDataIfNeeded() async {
     final prefs = await SharedPreferences.getInstance();
@@ -148,6 +150,31 @@ class StorageService {
     await prefs.setString(
       _routeUsageProfilesKey,
       jsonEncode(profiles.map((entry) => entry.toJson()).toList()),
+    );
+  }
+
+  Future<AnnouncementLocalState> loadAnnouncementLocalState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_announcementLocalStateKey);
+    if (raw == null || raw.isEmpty) {
+      return AnnouncementLocalState.empty();
+    }
+
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      return AnnouncementLocalState.fromJson(decoded);
+    } catch (_) {
+      return AnnouncementLocalState.empty();
+    }
+  }
+
+  Future<void> saveAnnouncementLocalState(
+    AnnouncementLocalState state,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _announcementLocalStateKey,
+      jsonEncode(state.toJson()),
     );
   }
 }

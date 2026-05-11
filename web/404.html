@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YABus</title>
+  <script>
+    (function () {
+      var path = window.location.pathname || '/';
+      var search = window.location.search || '';
+      var hash = window.location.hash || '';
+      if (!path.startsWith('/')) {
+        path = '/' + path;
+      }
+      var target = '/#' + path + search + hash;
+      window.location.replace(target);
+    })();
+  </script>
+</head>
+<body>
+  <p>正在返回 YABus…</p>
+</body>
+</html>

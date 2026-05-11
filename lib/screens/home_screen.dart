@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../app/bus_app.dart';
+import '../core/app_routes.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../core/pwa_install_service.dart';
@@ -15,7 +16,7 @@ import 'adaptive_settings_presenter.dart';
 import 'database_settings_screen.dart';
 import 'favorites_screen.dart';
 import 'nearby_screen.dart';
-import 'route_detail_screen.dart';
+import 'route_detail_navigation.dart';
 import 'search_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -209,6 +210,22 @@ class HomeScreen extends StatelessWidget {
                       ),
                     ),
             ),
+          IconButton(
+            tooltip: '公告',
+            onPressed: () {
+              Navigator.of(context).pushNamed(AppRoutes.announcements);
+            },
+            icon: controller.announcementsLoading &&
+                    controller.announcements.isEmpty
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Badge(
+                    isLabelVisible: controller.hasUnreadAnnouncements,
+                    child: const Icon(Icons.campaign_outlined),
+                  ),
+          ),
           IconButton(
             onPressed: () => openAdaptiveSettingsScreen(context),
             icon: const Icon(Icons.settings_outlined),
@@ -512,16 +529,12 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     if (!mounted) {
       return;
     }
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'route_detail'),
-        builder: (_) => RouteDetailScreen(
-          routeKey: suggestion.profile.routeKey,
-          provider: suggestion.profile.provider,
-          initialPathId: pathId,
-          initialStopId: stopId,
-        ),
-      ),
+    await openRouteDetailPage(
+      context,
+      routeKey: suggestion.profile.routeKey,
+      provider: suggestion.profile.provider,
+      initialPathId: pathId,
+      initialStopId: stopId,
     );
   }
 
@@ -537,18 +550,14 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     if (!mounted) {
       return;
     }
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'route_detail'),
-        builder: (_) => RouteDetailScreen(
-          routeKey: nearby.result.route.routeKey,
-          provider: routeProvider,
-          routeIdHint: nearby.result.route.routeId,
-          routeNameHint: nearby.result.route.routeName,
-          initialPathId: nearby.result.stop.pathId,
-          initialStopId: nearby.result.stop.stopId,
-        ),
-      ),
+    await openRouteDetailPage(
+      context,
+      routeKey: nearby.result.route.routeKey,
+      provider: routeProvider,
+      routeIdHint: nearby.result.route.routeId,
+      routeNameHint: nearby.result.route.routeName,
+      initialPathId: nearby.result.stop.pathId,
+      initialStopId: nearby.result.stop.stopId,
     );
   }
 
@@ -1058,18 +1067,14 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
     if (!mounted) {
       return;
     }
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'route_detail'),
-        builder: (_) => RouteDetailScreen(
-          routeKey: selected.route.routeKey,
-          provider: routeProvider,
-          routeIdHint: selected.route.routeId,
-          routeNameHint: selected.route.routeName,
-          initialPathId: selected.stop.pathId,
-          initialStopId: selected.stop.stopId,
-        ),
-      ),
+    await openRouteDetailPage(
+      context,
+      routeKey: selected.route.routeKey,
+      provider: routeProvider,
+      routeIdHint: selected.route.routeId,
+      routeNameHint: selected.route.routeName,
+      initialPathId: selected.stop.pathId,
+      initialStopId: selected.stop.stopId,
     );
   }
 

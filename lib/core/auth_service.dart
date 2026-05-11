@@ -351,6 +351,9 @@ class AuthService {
         'Accept-Encoding': 'gzip',
       }),
     );
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw const AuthTokenExpiredException();
+    }
     if (response.statusCode != 200) {
       throw Exception('Could not load account (${response.statusCode}).');
     }

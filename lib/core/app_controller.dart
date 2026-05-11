@@ -13,6 +13,7 @@ import 'app_launch_service.dart';
 import 'app_update_installer.dart';
 import 'app_update_service.dart';
 import 'auth_service.dart';
+import 'auth_token_store.dart';
 import 'bus_repository.dart';
 import 'desktop_discord_presence_service.dart';
 import 'ios_widget_integration.dart';
@@ -179,6 +180,22 @@ class AppController extends ChangeNotifier {
     );
     await refreshDatabaseState();
     await desktopDiscordPresenceService.refresh(settings: _settings);
+
+    // Validate the persisted token against the server. If the token has
+    // expired or been revoked the server will return 401/403, and we
+    // silently clear the local session so the user sees the logged-out UI
+    // instead of a stale authenticated state.
+    if (_authSession != null) {
+      try {
+        _authAccount = await authService.fetchAccount();
+      } on AuthTokenExpiredException {
+        await _forceLocalLogout();
+      } catch (_) {
+        // Network errors are non-fatal; keep the session for now.
+        _authAccount = null;
+      }
+    }
+
     _initialized = true;
     notifyListeners();
   }
@@ -196,6 +213,8 @@ class AppController extends ChangeNotifier {
         if (_authSession != null) {
           try {
             _authAccount = await authService.fetchAccount();
+          } on AuthTokenExpiredException {
+            await _forceLocalLogout();
           } catch (_) {
             _authAccount = null;
           }
@@ -227,6 +246,8 @@ class AppController extends ChangeNotifier {
     _authSession = authService.session;
     try {
       _authAccount = await authService.fetchAccount();
+    } on AuthTokenExpiredException {
+      await _forceLocalLogout();
     } catch (_) {
       _authAccount = null;
     }
@@ -247,6 +268,10 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     try {
       _authAccount = await authService.fetchAccount();
+    } on AuthTokenExpiredException {
+      _authAccountLoading = false;
+      await _forceLocalLogout();
+      return;
     } finally {
       _authAccountLoading = false;
       notifyListeners();
@@ -267,6 +292,16 @@ class AppController extends ChangeNotifier {
       _authBusy = false;
       notifyListeners();
     }
+  }
+
+  /// Silently clears the local auth state without contacting the server.
+  /// Used when the server has already rejected the token (401/403), so
+  /// there is no point in calling the server logout endpoint.
+  Future<void> _forceLocalLogout() async {
+    await authService.logout();
+    _authSession = null;
+    _authAccount = null;
+    notifyListeners();
   }
 
   Future<void> ensureAnnouncementsLoaded() async {

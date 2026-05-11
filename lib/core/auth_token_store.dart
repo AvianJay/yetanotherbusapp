@@ -1,3 +1,15 @@
+/// Thrown when the server rejects the current auth token (HTTP 401/403),
+/// indicating that the session is no longer valid and the user should be
+/// logged out locally.
+class AuthTokenExpiredException implements Exception {
+  const AuthTokenExpiredException([this.message = 'Auth token expired.']);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class AuthTokenStore {
   AuthTokenStore._();
 

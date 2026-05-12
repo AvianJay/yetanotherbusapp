@@ -265,7 +265,7 @@ class AppUpdateService {
     final response = await _client
         .get(
           uri,
-          headers: ApiUserAgent.applyTo(const {
+          headers: ApiUserAgent.githubApplyTo(const {
             'Accept': 'application/vnd.github+json',
             'X-GitHub-Api-Version': _githubApiVersion,
           }),

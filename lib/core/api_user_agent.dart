@@ -23,6 +23,13 @@ class ApiUserAgent {
     };
   }
 
+  static Map<String, String> githubApplyTo(Map<String, String> headers) {
+    return <String, String>{
+      ...headers,
+      'User-Agent': value,
+    };
+  }
+
   static String _build(AppBuildInfo buildInfo) {
     final version = _sanitizeSegment(buildInfo.version, fallback: 'unknown');
     final commitHash = _sanitizeSegment(

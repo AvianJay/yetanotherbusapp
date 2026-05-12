@@ -203,7 +203,7 @@ class SettingsScreen extends StatelessWidget {
                       subtitle: Text(
                         authSession == null
                             ? '尚未登入。'
-                            : '已登入為 ${authSession.displayName.isEmpty ? authSession.provider : authSession.displayName} (${authSession.role})',
+                            : '已登入為 ${authSession.displayName.isEmpty ? authSession.provider : authSession.displayName}',
                       ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () {

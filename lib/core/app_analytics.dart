@@ -51,7 +51,6 @@ class AppAnalytics {
   }) {
     return _logEvent('route_selected', {
       'provider': provider.name,
-      'route_key': routeKey,
       'source': source,
     });
   }
@@ -62,7 +61,6 @@ class AppAnalytics {
   }) {
     return _logEvent('route_visit_recorded', {
       'provider': provider.name,
-      'route_key': routeKey,
     });
   }
 
@@ -144,7 +142,6 @@ class AppAnalytics {
   }) {
     return _logEvent('favorite_stop_saved', {
       'provider': provider.name,
-      'route_key': routeKey,
       'replaced_existing': replacedExisting,
       'has_destination': hasDestination,
     });
@@ -157,7 +154,6 @@ class AppAnalytics {
   }) {
     return _logEvent('favorite_stop_removed', {
       'provider': provider.name,
-      'route_key': routeKey,
       'had_destination': hadDestination,
     });
   }

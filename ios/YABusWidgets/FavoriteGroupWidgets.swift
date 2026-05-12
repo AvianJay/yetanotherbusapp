@@ -387,6 +387,11 @@ private struct FavoriteWidgetLiveStop: Hashable {
   let vehicleId: String?
 }
 
+private struct FavoriteWidgetRouteLiveData: Hashable {
+  let stopsByPath: [Int: [Int: FavoriteWidgetLiveStop]]
+  let fallbackStops: [Int: FavoriteWidgetLiveStop]
+}
+
 struct FavoriteGroupOptionsProvider: DynamicOptionsProvider {
   func results() async throws -> [String] {
     let names = FavoriteWidgetSharedStore.loadFavoriteGroupNames()
@@ -508,23 +513,21 @@ private enum FavoriteWidgetRouteFetcher {
   static func loadItems(
     for favorites: [FavoriteWidgetStop]
   ) async -> (items: [FavoriteWidgetItem], didFetchLiveData: Bool) {
-    var liveStopsByRoute = [String: [Int: FavoriteWidgetLiveStop]]()
+    var liveDataByRoute = [String: FavoriteWidgetRouteLiveData]()
     var successfulFetchCount = 0
-    let uniqueRoutes = Dictionary(
-      favorites.map { (routeRequestKey(for: $0), $0) },
-      uniquingKeysWith: { left, _ in left }
-    )
+    // A single realtime payload can cover multiple directions for the same route.
+    let uniqueRoutes = uniqueRouteRequests(from: favorites)
 
-    await withTaskGroup(of: (String, [Int: FavoriteWidgetLiveStop], Bool).self) { group in
+    await withTaskGroup(of: (String, FavoriteWidgetRouteLiveData, Bool).self) { group in
       for (requestKey, favorite) in uniqueRoutes {
         group.addTask {
           let result = await fetchLiveStops(favorite: favorite)
-          return (requestKey, result.liveStops, result.success)
+          return (requestKey, result.liveData, result.success)
         }
       }
 
-      for await (requestKey, liveStops, success) in group {
-        liveStopsByRoute[requestKey] = liveStops
+      for await (requestKey, liveData, success) in group {
+        liveDataByRoute[requestKey] = liveData
         if success {
           successfulFetchCount += 1
         }
@@ -532,7 +535,10 @@ private enum FavoriteWidgetRouteFetcher {
     }
 
     let items = favorites.map { favorite in
-      let liveStop = liveStopsByRoute[routeRequestKey(for: favorite)]?[favorite.stopId]
+      let liveStop = resolveLiveStop(
+        for: favorite,
+        in: liveDataByRoute[routeRequestKey(for: favorite)]
+      )
       return FavoriteWidgetItem(
         id: "\(favorite.provider):\(favorite.routeKey):\(favorite.pathId):\(favorite.stopId)",
         routeName: favorite.routeName?.nilIfBlank ?? "路線 \(favorite.routeKey)",
@@ -555,16 +561,16 @@ private enum FavoriteWidgetRouteFetcher {
 
   private static func fetchLiveStops(
     favorite: FavoriteWidgetStop
-  ) async -> (success: Bool, liveStops: [Int: FavoriteWidgetLiveStop]) {
+  ) async -> (success: Bool, liveData: FavoriteWidgetRouteLiveData) {
     guard let routeID = favorite.routeId?.nilIfBlank else {
-      return (false, [:])
+      return (false, FavoriteWidgetRouteLiveData(stopsByPath: [:], fallbackStops: [:]))
     }
 
     guard
       let encodedRouteID = routeID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
       let url = URL(string: "https://bus.avianjay.sbs/api/v1/routes/\(encodedRouteID)/realtime")
     else {
-      return (false, [:])
+      return (false, FavoriteWidgetRouteLiveData(stopsByPath: [:], fallbackStops: [:]))
     }
 
     var request = URLRequest(url: url)
@@ -579,72 +585,76 @@ private enum FavoriteWidgetRouteFetcher {
         let httpResponse = response as? HTTPURLResponse,
         (200...299).contains(httpResponse.statusCode)
       else {
-        return (false, [:])
+        return (false, FavoriteWidgetRouteLiveData(stopsByPath: [:], fallbackStops: [:]))
       }
 
       guard
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-        let liveStops = parseLiveStops(
-          from: object,
-          preferredPathID: favorite.pathId
-        )
+        let liveData = parseLiveStops(from: object)
       else {
-        return (false, [:])
+        return (false, FavoriteWidgetRouteLiveData(stopsByPath: [:], fallbackStops: [:]))
       }
 
-      return (true, liveStops)
+      return (true, liveData)
     } catch {
-      return (false, [:])
+      return (false, FavoriteWidgetRouteLiveData(stopsByPath: [:], fallbackStops: [:]))
     }
   }
 
   private static func parseLiveStops(
-    from root: [String: Any],
-    preferredPathID: Int
-  ) -> [Int: FavoriteWidgetLiveStop]? {
+    from root: [String: Any]
+  ) -> FavoriteWidgetRouteLiveData? {
     guard let rawPaths = root["paths"] as? [Any] else {
       return nil
     }
     let pathObjects = rawPaths.compactMap { $0 as? [String: Any] }
-    var result = [Int: FavoriteWidgetLiveStop]()
+    var stopsByPath = [Int: [Int: FavoriteWidgetLiveStop]]()
+    var fallbackStops = [Int: FavoriteWidgetLiveStop]()
 
-    func appendPath(_ pathObject: [String: Any]) {
-      guard let rawStops = pathObject["stops"] as? [Any] else {
-        return
-      }
-      for rawStop in rawStops {
-        guard let stopObject = rawStop as? [String: Any] else {
-          continue
-        }
-        let stopID = parseStopID(stopObject["stopid"])
-        guard stopID > 0 else {
-          continue
-        }
-        let message = (stopObject["message"] as? String)?.nilIfBlank
-        let sec = intValue(from: stopObject["eta"])
-        let vehicleID = firstVehicleID(from: stopObject["buses"] as? [Any])
-        result[stopID] = FavoriteWidgetLiveStop(
-          sec: sec,
-          msg: message,
-          vehicleId: vehicleID
-        )
-      }
-    }
-
-    var matchedPath = false
     for pathObject in pathObjects {
-      if intValue(from: pathObject["pathid"]) == preferredPathID {
-        matchedPath = true
-        appendPath(pathObject)
+      let liveStops = parseStops(from: pathObject)
+      guard !liveStops.isEmpty else {
+        continue
+      }
+      if let pathID = intValue(from: pathObject["pathid"]) {
+        stopsByPath[pathID] = liveStops
+      }
+      for (stopID, liveStop) in liveStops where fallbackStops[stopID] == nil {
+        fallbackStops[stopID] = liveStop
       }
     }
 
-    if !matchedPath {
-      for pathObject in pathObjects {
-        appendPath(pathObject)
-      }
+    return FavoriteWidgetRouteLiveData(
+      stopsByPath: stopsByPath,
+      fallbackStops: fallbackStops
+    )
+  }
+
+  private static func parseStops(
+    from pathObject: [String: Any]
+  ) -> [Int: FavoriteWidgetLiveStop] {
+    guard let rawStops = pathObject["stops"] as? [Any] else {
+      return [:]
     }
 
+    var result = [Int: FavoriteWidgetLiveStop]()
+    for rawStop in rawStops {
+      guard let stopObject = rawStop as? [String: Any] else {
+        continue
+      }
+      let stopID = parseStopID(stopObject["stopid"])
+      guard stopID > 0 else {
+        continue
+      }
+      let message = (stopObject["message"] as? String)?.nilIfBlank
+      let sec = intValue(from: stopObject["eta"])
+      let vehicleID = firstVehicleID(from: stopObject["buses"] as? [Any])
+      result[stopID] = FavoriteWidgetLiveStop(
+        sec: sec,
+        msg: message,
+        vehicleId: vehicleID
+      )
+    }
     return result
   }
 
@@ -702,6 +712,39 @@ private enum FavoriteWidgetRouteFetcher {
 
   private static func routeRequestKey(for favorite: FavoriteWidgetStop) -> String {
     "\(favorite.provider):\(favorite.routeKey)"
+  }
+
+  private static func uniqueRouteRequests(
+    from favorites: [FavoriteWidgetStop]
+  ) -> [String: FavoriteWidgetStop] {
+    var uniqueRoutes = [String: FavoriteWidgetStop]()
+    for favorite in favorites {
+      let requestKey = routeRequestKey(for: favorite)
+      guard let existing = uniqueRoutes[requestKey] else {
+        uniqueRoutes[requestKey] = favorite
+        continue
+      }
+
+      let existingHasRouteID = existing.routeId?.nilIfBlank != nil
+      let favoriteHasRouteID = favorite.routeId?.nilIfBlank != nil
+      if !existingHasRouteID && favoriteHasRouteID {
+        uniqueRoutes[requestKey] = favorite
+      }
+    }
+    return uniqueRoutes
+  }
+
+  private static func resolveLiveStop(
+    for favorite: FavoriteWidgetStop,
+    in liveData: FavoriteWidgetRouteLiveData?
+  ) -> FavoriteWidgetLiveStop? {
+    guard let liveData else {
+      return nil
+    }
+    if let liveStop = liveData.stopsByPath[favorite.pathId]?[favorite.stopId] {
+      return liveStop
+    }
+    return liveData.fallbackStops[favorite.stopId]
   }
 
   private static func formatETA(_ liveStop: FavoriteWidgetLiveStop?) -> String {

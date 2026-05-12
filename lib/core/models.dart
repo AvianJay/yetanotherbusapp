@@ -1316,6 +1316,10 @@ EtaPresentation buildEtaPresentation(
       text: (() {
         final text = message;
 
+        if (text.contains(':')) {
+          return text;
+        }
+
         if (text.length == 5) {
           return '${text.substring(0, 2)}\n${text.substring(2)}';
         }

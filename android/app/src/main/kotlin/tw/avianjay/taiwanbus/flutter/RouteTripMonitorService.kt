@@ -2553,8 +2553,8 @@ class RouteTripMonitorService : Service() {
         private const val PROGRESS_POINT_COLOR = 0x80000000.toInt()
         private const val OVERSHOOT_CONFIRM_DELAY_MS = 45_000L
         private const val ARRIVAL_AUTO_PAUSE_DELAY_MS = 60_000L
-        private const val ROUTE_PROXIMITY_MAX_DISTANCE_METERS = 300.0
-        private const val DESTINATION_OVERSHOOT_DISTANCE_METERS = 300.0
+        private const val ROUTE_PROXIMITY_MAX_DISTANCE_METERS = 100.0
+        private const val DESTINATION_OVERSHOOT_DISTANCE_METERS = 100.0
         private const val LIVE_UPDATE_SDK_INT = 36
         private const val PAUSE_REASON_USER = "user"
         private const val PAUSE_REASON_ARRIVED = "arrived"

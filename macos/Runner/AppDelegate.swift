@@ -7,15 +7,23 @@ class AppDelegate: FlutterAppDelegate {
   private var appLaunchChannel: FlutterMethodChannel?
   private var pendingAuthPayload: [String: Any]?
   private var isLaunchListenerReady = false
+  private var hasInstalledUrlHandlers = false
 
-  override func applicationDidFinishLaunching(_ notification: Notification) {
-    super.applicationDidFinishLaunching(notification)
-    NSAppleEventManager.shared().setEventHandler(
-      self,
-      andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
-      forEventClass: AEEventClass(kInternetEventClass),
-      andEventID: AEEventID(kAEGetURL)
-    )
+  override init() {
+    super.init()
+    installUrlHandlersIfNeeded()
+  }
+
+  override func applicationWillFinishLaunching(_ notification: Notification) {
+    installUrlHandlersIfNeeded()
+    super.applicationWillFinishLaunching(notification)
+  }
+
+  override func application(_ application: NSApplication, open urls: [URL]) {
+    let remainingUrls = urls.filter { !handleIncomingURL($0) }
+    if !remainingUrls.isEmpty {
+      super.application(application, open: remainingUrls)
+    }
   }
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -53,22 +61,54 @@ class AppDelegate: FlutterAppDelegate {
     appLaunchChannel = channel
   }
 
+  private func installUrlHandlersIfNeeded() {
+    if hasInstalledUrlHandlers {
+      return
+    }
+    hasInstalledUrlHandlers = true
+    NSAppleEventManager.shared().setEventHandler(
+      self,
+      andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+      forEventClass: AEEventClass(kInternetEventClass),
+      andEventID: AEEventID(kAEGetURL)
+    )
+  }
+
   @objc private func handleGetURLEvent(
     _ event: NSAppleEventDescriptor,
     withReplyEvent replyEvent: NSAppleEventDescriptor
   ) {
     guard
       let rawUrl = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
-      let url = URL(string: rawUrl),
-      let payload = authPayload(for: url)
+      let url = URL(string: rawUrl)
     else {
       return
+    }
+
+    _ = handleIncomingURL(url)
+  }
+
+  @discardableResult
+  private func handleIncomingURL(_ url: URL) -> Bool {
+    guard let payload = authPayload(for: url) else {
+      return false
     }
 
     if isLaunchListenerReady, let appLaunchChannel {
       appLaunchChannel.invokeMethod("onLaunchAction", arguments: payload)
     } else {
       pendingAuthPayload = payload
+    }
+    activateAppForIncomingURL()
+    return true
+  }
+
+  private func activateAppForIncomingURL() {
+    DispatchQueue.main.async {
+      NSApp.activate(ignoringOtherApps: true)
+      if let window = self.mainFlutterWindow ?? NSApp.windows.first {
+        window.makeKeyAndOrderFront(nil)
+      }
     }
   }
 

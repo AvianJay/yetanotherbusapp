@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "app_launch_bridge.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -23,6 +24,8 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  AppLaunchBridge app_launch_bridge_;
+
   // The project to run.
   flutter::DartProject project_;
 

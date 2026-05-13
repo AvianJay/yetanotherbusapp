@@ -2,6 +2,7 @@
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 
+#include "app_launch_bridge.h"
 #include "flutter_window.h"
 #include "utils.h"
 
@@ -21,6 +22,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
+
+  const auto auth_callback_argument =
+      AppLaunchBridge::ExtractAuthCallbackArgument(command_line_arguments);
+  if (auth_callback_argument.has_value() &&
+      AppLaunchBridge::ForwardAuthCallbackToRunningInstances(
+          *auth_callback_argument)) {
+    ::CoUninitialize();
+    return EXIT_SUCCESS;
+  }
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 

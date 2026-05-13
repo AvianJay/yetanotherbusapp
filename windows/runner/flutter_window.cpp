@@ -14,6 +14,8 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
 
+  AppLaunchBridge::MarkWindowAsReceiver(GetHandle());
+
   RECT frame = GetClientArea();
 
   // The size here must match the window dimensions to avoid unnecessary surface
@@ -25,6 +27,7 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  app_launch_bridge_.Configure(flutter_controller_->engine()->messenger());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -40,6 +43,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  AppLaunchBridge::UnmarkWindowAsReceiver(GetHandle());
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -51,6 +55,10 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (app_launch_bridge_.HandleWindowMessage(message, wparam, lparam)) {
+    return 0;
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

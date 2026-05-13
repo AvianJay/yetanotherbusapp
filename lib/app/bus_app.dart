@@ -524,7 +524,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
           return;
         }
         messenger?.showSnackBar(
-          const SnackBar(content: Text('Login complete.')),
+          const SnackBar(content: Text('登入成功。')),
         );
       } catch (error) {
         if (!mounted) {

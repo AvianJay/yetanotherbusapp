@@ -26,6 +26,7 @@ object TripMonitorEnhancedSurfaceSupport {
     private const val STATUS_PREFIX = "\u9084\u6709"
     private const val STATUS_SUFFIX = "\u5230\u7ad9"
     private const val STOPS_SUFFIX = "\u7ad9"
+    private const val ARRIVING_TEXT = "\u9032\u7ad9"
     private const val SEPARATOR = " \u2022 "
 
     fun apply(
@@ -75,7 +76,8 @@ object TripMonitorEnhancedSurfaceSupport {
         }
 
         val accentColor = resolveAccentColor(snapshot)
-        val primaryText = buildShortStatusText(snapshot)
+        val chipText = buildCompactStatusText(snapshot)
+        val primaryText = buildPrimarySurfaceText(snapshot)
         val secondaryText = buildSecondarySurfaceText(session, snapshot)
         val icon = IconCompat.createWithResource(context, R.drawable.ic_status_bus)
         val flagIcon = IconCompat.createWithResource(context, R.drawable.ic_progress_flag)
@@ -90,7 +92,7 @@ object TripMonitorEnhancedSurfaceSupport {
             .accentColor(accentColor)
             .tapAction(contentIntent)
             .secondaryText(secondaryText)
-            .chipText(primaryText)
+            .chipText(chipText)
             .nowBarText(secondaryText)
             .firstIcon(icon)
             .subScreenIntent(contentIntent)
@@ -112,7 +114,7 @@ object TripMonitorEnhancedSurfaceSupport {
                 ChipConfig(
                     icon = icon.toIcon(context),
                     backgroundColor = accentColor,
-                    expandedText = primaryText,
+                    expandedText = chipText,
                 ),
             )
             .setPrimaryInfo(card.toPrimaryInfo())
@@ -152,7 +154,7 @@ object TripMonitorEnhancedSurfaceSupport {
 
         val accentColor = resolveAccentColor(snapshot)
         val accentHex = toHexColor(accentColor)
-        val shortStatus = buildShortStatusText(snapshot)
+        val shortStatus = buildCompactStatusText(snapshot)
         val detailText = buildSecondarySurfaceText(session, snapshot)
         val progressPercent = deriveProgressPercent(snapshot)
         val pauseAction = HyperAction(
@@ -245,7 +247,32 @@ object TripMonitorEnhancedSurfaceSupport {
         notification.extras.putString("miui.focus.param", builder.buildJsonParam())
     }
 
-    private fun buildShortStatusText(snapshot: TrackingSnapshot): String {
+    private fun buildCompactStatusText(snapshot: TrackingSnapshot): String {
+        normalizeShortCriticalText(snapshot.shortCriticalText)?.let {
+            return compactText(it, 16)
+        }
+
+        val stops = if (snapshot.hasBoarded) snapshot.remainingStops else snapshot.boardingStopsAway
+        val etaText = if (snapshot.hasBoarded) {
+            extractEtaFromShortCritical(snapshot.shortCriticalText)
+        } else {
+            normalizeEtaText(snapshot.boardingEtaText)
+                ?: extractEtaFromShortCritical(snapshot.shortCriticalText)
+        }
+
+        if (etaText != null && stops != null && stops > 0) {
+            return compactText("$stops$STOPS_SUFFIX|$etaText", 16)
+        }
+        if (etaText != null) {
+            return compactText(etaText, 16)
+        }
+        if (stops != null) {
+            return compactText(if (stops <= 0) ARRIVING_TEXT else "$stops$STOPS_SUFFIX", 16)
+        }
+        return compactText(snapshot.content.ifBlank { snapshot.title }, 16)
+    }
+
+    private fun buildPrimarySurfaceText(snapshot: TrackingSnapshot): String {
         val stops = if (snapshot.hasBoarded) snapshot.remainingStops else snapshot.boardingStopsAway
         val etaText = if (snapshot.hasBoarded) {
             extractEtaFromShortCritical(snapshot.shortCriticalText)
@@ -324,11 +351,7 @@ object TripMonitorEnhancedSurfaceSupport {
     }
 
     private fun extractEtaFromShortCritical(shortCriticalText: String?): String? {
-        val normalized = shortCriticalText
-            ?.replace('｜', '|')
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() && it != "--" }
-            ?: return null
+        val normalized = normalizeShortCriticalText(shortCriticalText) ?: return null
         val parts = normalized.split('|').map { it.trim() }.filter { it.isNotEmpty() }
         if (parts.isEmpty()) {
             return null
@@ -336,6 +359,16 @@ object TripMonitorEnhancedSurfaceSupport {
         return parts.firstOrNull { !looksLikeStopCount(it) }
             ?.let(::normalizeEtaText)
             ?: normalizeEtaText(normalized.takeUnless(::looksLikeStopCount))
+    }
+
+    private fun normalizeShortCriticalText(shortCriticalText: String?): String? {
+        val normalized = shortCriticalText
+            ?.replace('\u2022', '|')
+            ?.replace('\u00B7', '|')
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && it != "--" }
+            ?: return null
+        return normalized
     }
 
     private fun normalizeEtaText(raw: String?): String? {

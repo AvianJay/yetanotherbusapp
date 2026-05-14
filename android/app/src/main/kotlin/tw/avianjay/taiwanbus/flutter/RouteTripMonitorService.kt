@@ -1497,7 +1497,15 @@ class RouteTripMonitorService : Service() {
             builder.setProgress(0, 0, false)
         }
 
-        return builder.build()
+        val notification = builder.build()
+        return TripMonitorEnhancedSurfaceSupport.apply(
+            context = this,
+            notification = notification,
+            session = session,
+            snapshot = snapshot,
+            contentIntent = createOpenRoutePendingIntent(session),
+            stopIntent = createStopPendingIntent(),
+        )
     }
 
     private fun buildFrameworkTrackingNotification(
@@ -1556,7 +1564,15 @@ class RouteTripMonitorService : Service() {
             builder.setStyle(progressStyle)
         }
 
-        return builder.build()
+        val notification = builder.build()
+        return TripMonitorEnhancedSurfaceSupport.apply(
+            context = this,
+            notification = notification,
+            session = session,
+            snapshot = snapshot,
+            contentIntent = createOpenRoutePendingIntent(session),
+            stopIntent = createStopPendingIntent(),
+        )
     }
 
     private fun buildPublicTrackingNotification(snapshot: TrackingSnapshot): Notification {

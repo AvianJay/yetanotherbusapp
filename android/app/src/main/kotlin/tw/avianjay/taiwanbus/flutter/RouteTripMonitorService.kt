@@ -1449,7 +1449,7 @@ class RouteTripMonitorService : Service() {
             .setSubText(snapshot.subText)
             .setContentIntent(createOpenRoutePendingIntent(session))
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPublicVersion(buildPublicTrackingNotification(snapshot))
+            .setPublicVersion(buildPublicTrackingNotification(session, snapshot))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -1519,7 +1519,7 @@ class RouteTripMonitorService : Service() {
             .setSubText(snapshot.subText)
             .setContentIntent(createOpenRoutePendingIntent(session))
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setPublicVersion(buildPublicTrackingNotification(snapshot))
+            .setPublicVersion(buildPublicTrackingNotification(session, snapshot))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_NAVIGATION)
@@ -1575,8 +1575,11 @@ class RouteTripMonitorService : Service() {
         )
     }
 
-    private fun buildPublicTrackingNotification(snapshot: TrackingSnapshot): Notification {
-        return NotificationCompat.Builder(this, TRACKING_CHANNEL_ID)
+    private fun buildPublicTrackingNotification(
+        session: TrackingSession,
+        snapshot: TrackingSnapshot,
+    ): Notification {
+        val notification = NotificationCompat.Builder(this, TRACKING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_status_bus)
             .setContentTitle(snapshot.title)
             .setContentText(snapshot.content)
@@ -1585,6 +1588,15 @@ class RouteTripMonitorService : Service() {
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
+        return TripMonitorEnhancedSurfaceSupport.apply(
+            context = this,
+            notification = notification,
+            session = session,
+            snapshot = snapshot,
+            contentIntent = createOpenRoutePendingIntent(session),
+            stopIntent = createStopPendingIntent(),
+            includeHyperIsland = false,
+        )
     }
 
     private fun buildLegacyTrackingNotification(snapshot: TrackingSnapshot): android.app.Notification {

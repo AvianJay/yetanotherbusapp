@@ -23,6 +23,10 @@ object TripMonitorEnhancedSurfaceSupport {
     private const val HYPER_PICTURE_BUS = "trip_monitor_bus"
     private const val HYPER_PICTURE_FLAG = "trip_monitor_flag"
     private const val HYPER_PROGRESS_TRACK_COLOR = "#335A6B7A"
+    private const val STATUS_PREFIX = "\u9084\u6709"
+    private const val STATUS_SUFFIX = "\u5230\u7ad9"
+    private const val STOPS_SUFFIX = "\u7ad9"
+    private const val SEPARATOR = " \u2022 "
 
     fun apply(
         context: Context,
@@ -31,6 +35,7 @@ object TripMonitorEnhancedSurfaceSupport {
         snapshot: TrackingSnapshot,
         contentIntent: PendingIntent,
         stopIntent: PendingIntent,
+        includeHyperIsland: Boolean = true,
     ): Notification {
         runCatching {
             applySamsungNowBar(
@@ -41,14 +46,16 @@ object TripMonitorEnhancedSurfaceSupport {
                 contentIntent = contentIntent,
             )
         }
-        runCatching {
-            applyHyperIsland(
-                context = context,
-                notification = notification,
-                session = session,
-                snapshot = snapshot,
-                stopIntent = stopIntent,
-            )
+        if (includeHyperIsland) {
+            runCatching {
+                applyHyperIsland(
+                    context = context,
+                    notification = notification,
+                    session = session,
+                    snapshot = snapshot,
+                    stopIntent = stopIntent,
+                )
+            }
         }
         return notification
     }
@@ -68,24 +75,23 @@ object TripMonitorEnhancedSurfaceSupport {
         }
 
         val accentColor = resolveAccentColor(snapshot)
-        val chipText = buildShortStatusText(snapshot)
+        val primaryText = buildShortStatusText(snapshot)
+        val secondaryText = buildSecondarySurfaceText(session, snapshot)
         val icon = IconCompat.createWithResource(context, R.drawable.ic_status_bus)
         val flagIcon = IconCompat.createWithResource(context, R.drawable.ic_progress_flag)
         val progressPercent = deriveProgressPercent(snapshot)
-        val secondaryText = buildSecondarySurfaceText(session, snapshot)
-        val nowBarText = buildNowBarDetailText(session, snapshot)
 
         val cardBuilder = CustomCard.Builder
             .create(
                 snapshot.title.ifBlank { session.routeName },
                 icon,
-                snapshot.title.ifBlank { session.routeName },
+                primaryText,
             )
             .accentColor(accentColor)
             .tapAction(contentIntent)
             .secondaryText(secondaryText)
-            .chipText(chipText)
-            .nowBarText(nowBarText)
+            .chipText(primaryText)
+            .nowBarText(secondaryText)
             .firstIcon(icon)
             .subScreenIntent(contentIntent)
 
@@ -106,7 +112,7 @@ object TripMonitorEnhancedSurfaceSupport {
                 ChipConfig(
                     icon = icon.toIcon(context),
                     backgroundColor = accentColor,
-                    expandedText = chipText,
+                    expandedText = primaryText,
                 ),
             )
             .setPrimaryInfo(card.toPrimaryInfo())
@@ -170,7 +176,6 @@ object TripMonitorEnhancedSurfaceSupport {
             .setBaseInfo(
                 title = compactText(snapshot.title.ifBlank { session.routeName }, 32),
                 content = compactText(snapshot.content.ifBlank { detailText }, 42),
-                subTitle = session.pathName.trim().takeIf { it.isNotEmpty() }?.let { compactText(it, 20) },
                 subContent = detailText.takeIf { it.isNotBlank() }?.let { compactText(it, 28) },
                 pictureKey = HYPER_PICTURE_BUS,
             )
@@ -209,7 +214,9 @@ object TripMonitorEnhancedSurfaceSupport {
                         ),
                         textInfo = TextInfo(
                             title = compactText(shortStatus, 16),
-                            content = detailText.takeIf { it.isNotBlank() }?.let { compactText(it, 20) },
+                            content = detailText.takeIf { it.isNotBlank() }?.let {
+                                compactText(it, 20)
+                            },
                         ),
                     ),
                 )
@@ -227,7 +234,9 @@ object TripMonitorEnhancedSurfaceSupport {
                     ),
                     centerText = TextInfo(
                         title = compactText(shortStatus, 16),
-                        content = detailText.takeIf { it.isNotBlank() }?.let { compactText(it, 20) },
+                        content = detailText.takeIf { it.isNotBlank() }?.let {
+                            compactText(it, 20)
+                        },
                     ),
                 )
         }
@@ -237,32 +246,42 @@ object TripMonitorEnhancedSurfaceSupport {
     }
 
     private fun buildShortStatusText(snapshot: TrackingSnapshot): String {
-        val preferred = snapshot.shortCriticalText
-            ?.replace('|', ' ')
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-        return compactText(preferred ?: snapshot.content.ifBlank { snapshot.title }, 18)
+        val stops = if (snapshot.hasBoarded) snapshot.remainingStops else snapshot.boardingStopsAway
+        val etaText = if (snapshot.hasBoarded) {
+            extractEtaFromShortCritical(snapshot.shortCriticalText)
+        } else {
+            normalizeEtaText(snapshot.boardingEtaText)
+                ?: extractEtaFromShortCritical(snapshot.shortCriticalText)
+        }
+
+        if (etaText != null && isDurationLikeEta(etaText)) {
+            val parts = mutableListOf("$STATUS_PREFIX $etaText $STATUS_SUFFIX")
+            stops?.let { parts += "$it $STOPS_SUFFIX" }
+            return compactText(parts.joinToString(SEPARATOR), 32)
+        }
+        if (etaText != null) {
+            return compactText(etaText, 32)
+        }
+        if (stops != null) {
+            return compactText("$STATUS_PREFIX $stops $STOPS_SUFFIX", 32)
+        }
+        return compactText(snapshot.content.ifBlank { snapshot.title }, 32)
     }
 
     private fun buildSecondarySurfaceText(
         session: TrackingSession,
         snapshot: TrackingSnapshot,
     ): String {
-        val parts = linkedSetOf<String>()
-        snapshot.content.trim().takeIf { it.isNotEmpty() }?.let(parts::add)
-        snapshot.subText.trim().takeIf { it.isNotEmpty() }?.let(parts::add)
-        session.pathName.trim().takeIf { it.isNotEmpty() }?.let(parts::add)
-        return compactText(parts.joinToString(" • "), 48)
-    }
-
-    private fun buildNowBarDetailText(
-        session: TrackingSession,
-        snapshot: TrackingSnapshot,
-    ): String {
-        val parts = linkedSetOf<String>()
-        session.pathName.trim().takeIf { it.isNotEmpty() }?.let(parts::add)
-        snapshot.subText.trim().takeIf { it.isNotEmpty() }?.let(parts::add)
-        return compactText(parts.firstOrNull() ?: snapshot.content.ifBlank { session.routeName }, 28)
+        val stopName = inferDisplayStopName(session, snapshot)
+        return compactText(
+            listOfNotNull(
+                stopName?.takeIf { it.isNotBlank() },
+                session.routeName.trim().takeIf { it.isNotEmpty() },
+            ).joinToString(SEPARATOR).ifBlank {
+                snapshot.title.ifBlank { session.routeName }
+            },
+            48,
+        )
     }
 
     private fun deriveProgressPercent(snapshot: TrackingSnapshot): Int? {
@@ -282,6 +301,7 @@ object TripMonitorEnhancedSurfaceSupport {
             snapshot.hasBoarded -> Color.parseColor("#2E7D32")
             snapshot.boardingStopsAway != null && snapshot.boardingStopsAway <= 1 ->
                 Color.parseColor("#EF6C00")
+
             else -> Color.parseColor("#1565C0")
         }
     }
@@ -290,11 +310,59 @@ object TripMonitorEnhancedSurfaceSupport {
         return String.format("#%08X", color)
     }
 
+    private fun inferDisplayStopName(
+        session: TrackingSession,
+        snapshot: TrackingSnapshot,
+    ): String? {
+        return snapshot.destinationName?.takeIf { it.isNotBlank() }
+            ?: snapshot.boardingName?.takeIf { it.isNotBlank() }
+            ?: session.destinationStopName?.takeIf { it.isNotBlank() }
+            ?: session.boardingStopName?.takeIf { it.isNotBlank() }
+            ?: session.stops.firstOrNull { stop ->
+                snapshot.content.contains(stop.stopName) || snapshot.subText.contains(stop.stopName)
+            }?.stopName
+    }
+
+    private fun extractEtaFromShortCritical(shortCriticalText: String?): String? {
+        val normalized = shortCriticalText
+            ?.replace('｜', '|')
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && it != "--" }
+            ?: return null
+        val parts = normalized.split('|').map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.isEmpty()) {
+            return null
+        }
+        return parts.firstOrNull { !looksLikeStopCount(it) }
+            ?.let(::normalizeEtaText)
+            ?: normalizeEtaText(normalized.takeUnless(::looksLikeStopCount))
+    }
+
+    private fun normalizeEtaText(raw: String?): String? {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isEmpty() || trimmed == "--") {
+            return null
+        }
+        return trimmed
+    }
+
+    private fun looksLikeStopCount(value: String): Boolean {
+        val normalized = value.replace(" ", "")
+        return normalized.matches(Regex("^[0-9]+$STOPS_SUFFIX$"))
+    }
+
+    private fun isDurationLikeEta(value: String): Boolean {
+        val normalized = value.replace(" ", "")
+        return normalized.startsWith("<") ||
+            normalized.contains(':') ||
+            normalized.any(Char::isDigit)
+    }
+
     private fun compactText(value: String, maxLength: Int): String {
         val normalized = value.replace('\n', ' ').replace(Regex("\\s+"), " ").trim()
         if (normalized.length <= maxLength) {
             return normalized
         }
-        return normalized.take(maxLength - 1).trimEnd() + "…"
+        return normalized.take(maxLength - 3).trimEnd() + "..."
     }
 }

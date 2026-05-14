@@ -14,6 +14,7 @@ import 'app_update_installer.dart';
 import 'app_update_service.dart';
 import 'auth_service.dart';
 import 'auth_token_store.dart';
+import 'background_image_store.dart';
 import 'bus_repository.dart';
 import 'desktop_discord_presence_service.dart';
 import 'ios_widget_integration.dart';
@@ -44,6 +45,7 @@ class AppController extends ChangeNotifier {
   final AppUpdateInstaller appUpdateInstaller;
   final AuthService authService;
   final AnnouncementService announcementService;
+  final BackgroundImageStore _backgroundImageStore = BackgroundImageStore();
 
   AppSettings _settings = AppSettings.defaults();
   AuthSession? _authSession;
@@ -164,6 +166,27 @@ class AppController extends ChangeNotifier {
     await authService.initialize();
     _authSession = authService.session;
     _settings = await storage.loadSettings();
+    final normalizedBackgroundPaths =
+        await _backgroundImageStore.normalizeSettingsPaths(
+          _settings.pageBackgroundImagePaths,
+        );
+    final normalizedBackgroundOpacities = Map<String, double>.from(
+      _settings.pageBackgroundImageOpacities,
+    )..removeWhere((key, _) => !normalizedBackgroundPaths.containsKey(key));
+    if (!mapEquals(
+          _settings.pageBackgroundImagePaths,
+          normalizedBackgroundPaths,
+        ) ||
+        !mapEquals(
+          _settings.pageBackgroundImageOpacities,
+          normalizedBackgroundOpacities,
+        )) {
+      _settings = _settings.copyWith(
+        pageBackgroundImagePaths: normalizedBackgroundPaths,
+        pageBackgroundImageOpacities: normalizedBackgroundOpacities,
+      );
+      await storage.saveSettings(_settings);
+    }
     _announcementLocalState = await storage.loadAnnouncementLocalState();
     _history = await storage.loadHistory();
     _favoriteGroups = await storage.loadFavoriteGroups();
@@ -533,16 +556,23 @@ class AppController extends ChangeNotifier {
     final updated = Map<String, String>.from(
       _settings.pageBackgroundImagePaths,
     );
-    if (path != null) {
+    final updatedOpacities = Map<String, double>.from(
+      _settings.pageBackgroundImageOpacities,
+    );
+    final hasPath = path != null && path.trim().isNotEmpty;
+    if (hasPath) {
       updated[pageKey] = path;
     } else {
       updated.remove(pageKey);
+      updatedOpacities.remove(pageKey);
     }
-    _settings = _settings.copyWith(pageBackgroundImagePaths: updated);
-    await storage.saveSettings(_settings);
+    await _saveBackgroundImageSettings(
+      paths: updated,
+      opacities: updatedOpacities,
+    );
     await analytics.logPageBackgroundChanged(
       pageKey: pageKey,
-      hasImage: path != null,
+      hasImage: hasPath,
     );
     notifyListeners();
   }
@@ -591,32 +621,44 @@ class AppController extends ChangeNotifier {
       existingPaths[key] = path;
       existingOpacities[key] = opacity;
     }
-    _settings = _settings.copyWith(
-      pageBackgroundImagePaths: existingPaths,
-      pageBackgroundImageOpacities: existingOpacities,
+    await _saveBackgroundImageSettings(
+      paths: existingPaths,
+      opacities: existingOpacities,
     );
-    await storage.saveSettings(_settings);
     await analytics.logBackgroundImagesApplied(pageCount: allKeys.length);
     notifyListeners();
   }
 
   Future<void> clearAllBackgroundImages() async {
-    _settings = _settings.copyWith(
-      pageBackgroundImagePaths: const {},
-      pageBackgroundImageOpacities: const {},
-    );
-    await storage.saveSettings(_settings);
+    await _saveBackgroundImageSettings(paths: const {}, opacities: const {});
     await analytics.logBackgroundImagesCleared();
     notifyListeners();
   }
 
   static const _allPageKeys = [
     'bus',
+    'route_detail',
     'search',
     'favorites',
     'nearby',
     'settings',
   ];
+
+  Future<void> _saveBackgroundImageSettings({
+    required Map<String, String> paths,
+    required Map<String, double> opacities,
+  }) async {
+    final normalizedPaths = await _backgroundImageStore.normalizeSettingsPaths(
+      paths,
+    );
+    final normalizedOpacities = Map<String, double>.from(opacities)
+      ..removeWhere((key, _) => !normalizedPaths.containsKey(key));
+    _settings = _settings.copyWith(
+      pageBackgroundImagePaths: normalizedPaths,
+      pageBackgroundImageOpacities: normalizedOpacities,
+    );
+    await storage.saveSettings(_settings);
+  }
 
   Future<void> updateOverlayOpacity(double value) async {
     _settings = _settings.copyWith(overlayOpacity: value);

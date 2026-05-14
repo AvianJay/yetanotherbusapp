@@ -3519,8 +3519,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final settings = controller.settings;
     final isAmoled =
         settings.useAmoledDark && settings.themeMode != ThemeMode.light;
-    final hasBusBackgroundImage = settings.pageBackgroundImagePaths.containsKey(
-      'bus',
+    final hasRouteDetailBackgroundImage = hasBackgroundImageForPage(
+      settings,
+      pageKey: 'route_detail',
     );
     final currentPathId = _currentPathId;
     final currentNearestStopId = currentPathId == null
@@ -3545,10 +3546,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     );
 
     return BackgroundImageWrapper(
-      pageKey: 'bus',
+      pageKey: 'route_detail',
       child: Scaffold(
         key: _scaffoldKey,
-        backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
+        backgroundColor: hasRouteDetailBackgroundImage
+            ? Colors.transparent
+            : null,
         endDrawer: canOpenBackgroundTripMonitorDrawer
             ? _buildBackgroundTripMonitorDrawer(context)
             : null,
@@ -3624,7 +3627,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         bottomNavigationBar: Material(
           color:
               theme.bottomAppBarTheme.color ??
-              (hasBusBackgroundImage && !isAmoled
+              (hasRouteDetailBackgroundImage && !isAmoled
                   ? theme.colorScheme.surface.withValues(
                       alpha: (theme.appBarTheme.backgroundColor?.a ?? 1.0),
                     )

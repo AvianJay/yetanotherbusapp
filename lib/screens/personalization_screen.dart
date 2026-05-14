@@ -25,6 +25,7 @@ const _presetColors = <Color>[
 /// Page key → display label
 const _pageLabels = <String, String>{
   'bus': '主頁',
+  'route_detail': '公車資訊',
   'search': '搜尋',
   'favorites': '最愛',
   'nearby': '附近',
@@ -34,6 +35,7 @@ const _pageLabels = <String, String>{
 /// Page key → icon
 const _pageIcons = <String, IconData>{
   'bus': Icons.home_outlined,
+  'route_detail': Icons.directions_bus_outlined,
   'search': Icons.search_rounded,
   'favorites': Icons.favorite_outline_rounded,
   'nearby': Icons.near_me_outlined,

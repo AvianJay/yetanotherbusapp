@@ -531,7 +531,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
           return;
         }
         messenger?.showSnackBar(
-          SnackBar(content: Text('Login failed: $error')),
+          SnackBar(content: Text('登入錯誤: $error')),
         );
       }
       return;

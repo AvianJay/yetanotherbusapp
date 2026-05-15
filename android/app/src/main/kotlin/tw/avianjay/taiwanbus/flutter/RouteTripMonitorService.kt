@@ -1442,12 +1442,16 @@ class RouteTripMonitorService : Service() {
         session: TrackingSession,
         snapshot: TrackingSnapshot,
     ): Notification {
+        val openRouteIntent = createOpenRoutePendingIntent(session)
+        val stopIntent = createStopPendingIntent()
+        val markBoardedIntent = createMarkBoardedPendingIntent()
+        val notBoardedIntent = createNotBoardedPendingIntent()
         val builder = NotificationCompat.Builder(this, TRACKING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_status_bus)
             .setContentTitle(snapshot.title)
             .setContentText(snapshot.content)
             .setSubText(snapshot.subText)
-            .setContentIntent(createOpenRoutePendingIntent(session))
+            .setContentIntent(openRouteIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setPublicVersion(buildPublicTrackingNotification(session, snapshot))
             .setOngoing(true)
@@ -1459,7 +1463,7 @@ class RouteTripMonitorService : Service() {
                 NotificationCompat.Action.Builder(
                     0,
                     "停止",
-                    createStopPendingIntent(),
+                    stopIntent,
                 ).build(),
             )
 
@@ -1503,8 +1507,10 @@ class RouteTripMonitorService : Service() {
             notification = notification,
             session = session,
             snapshot = snapshot,
-            contentIntent = createOpenRoutePendingIntent(session),
-            stopIntent = createStopPendingIntent(),
+            contentIntent = openRouteIntent,
+            stopIntent = stopIntent,
+            markBoardedIntent = markBoardedIntent,
+            notBoardedIntent = notBoardedIntent,
         )
     }
 
@@ -1512,12 +1518,16 @@ class RouteTripMonitorService : Service() {
         session: TrackingSession,
         snapshot: TrackingSnapshot,
     ): Notification {
+        val openRouteIntent = createOpenRoutePendingIntent(session)
+        val stopIntent = createStopPendingIntent()
+        val markBoardedIntent = createMarkBoardedPendingIntent()
+        val notBoardedIntent = createNotBoardedPendingIntent()
         val builder = Notification.Builder(this, TRACKING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_status_bus)
             .setContentTitle(snapshot.title)
             .setContentText(snapshot.content)
             .setSubText(snapshot.subText)
-            .setContentIntent(createOpenRoutePendingIntent(session))
+            .setContentIntent(openRouteIntent)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setPublicVersion(buildPublicTrackingNotification(session, snapshot))
             .setOngoing(true)
@@ -1528,7 +1538,7 @@ class RouteTripMonitorService : Service() {
                 Notification.Action.Builder(
                     null,
                     "停止",
-                    createStopPendingIntent(),
+                    stopIntent,
                 ).build(),
             )
 
@@ -1570,8 +1580,10 @@ class RouteTripMonitorService : Service() {
             notification = notification,
             session = session,
             snapshot = snapshot,
-            contentIntent = createOpenRoutePendingIntent(session),
-            stopIntent = createStopPendingIntent(),
+            contentIntent = openRouteIntent,
+            stopIntent = stopIntent,
+            markBoardedIntent = markBoardedIntent,
+            notBoardedIntent = notBoardedIntent,
         )
     }
 

@@ -387,7 +387,10 @@ class RouteTripMonitorService : Service() {
         }
         ioExecutor.execute {
             try {
-                val trackingSnapshot = buildSnapshot(currentSession, latestLocation)
+                val trackingSnapshot = buildSnapshot(
+                    currentSession,
+                    latestLocation ?: createSessionLocation(currentSession),
+                )
                 val notification = buildTrackingNotification(trackingSnapshot)
                 notificationManager.notify(TRACKING_NOTIFICATION_ID, notification)
                 maybeSendTripAlerts(currentSession, trackingSnapshot)

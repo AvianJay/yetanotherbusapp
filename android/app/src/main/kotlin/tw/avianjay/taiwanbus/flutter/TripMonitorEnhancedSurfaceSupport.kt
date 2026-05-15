@@ -187,7 +187,7 @@ object TripMonitorEnhancedSurfaceSupport {
         val progressPercent = deriveProgressPercent(snapshot)
         val hyperStatus = buildHyperIslandStatus(snapshot)
         val routeTitle = compactText(session.routeName.ifBlank { snapshot.title }, HYPER_ROUTE_TITLE_MAX_LENGTH)
-        val routeDetail = buildHyperIslandRouteDetail(session, snapshot)
+        val bigIslandDetail = buildHyperIslandRouteDetail(session, snapshot)
         val openAction = HyperAction(
             key = HYPER_ACTION_OPEN_ROUTE,
             title = "Open",
@@ -252,7 +252,6 @@ object TripMonitorEnhancedSurfaceSupport {
             .setBaseInfo(
                 title = routeTitle,
                 content = compactText(hyperStatus.statusText, HYPER_BASE_CONTENT_MAX_LENGTH),
-                subContent = routeDetail?.let { compactText(it, HYPER_ROUTE_DETAIL_MAX_LENGTH) },
                 pictureKey = HYPER_PICTURE_BUS,
                 colorContent = accentHex,
                 colorContentDark = accentHex,
@@ -293,7 +292,7 @@ object TripMonitorEnhancedSurfaceSupport {
             picInfo = PicInfo(type = 1, pic = HYPER_PICTURE_BUS),
             textInfo = TextInfo(
                 title = routeTitle,
-                content = routeDetail?.let { compactText(it, HYPER_ROUTE_DETAIL_MAX_LENGTH) },
+                content = bigIslandDetail?.let { compactText(it, HYPER_ROUTE_DETAIL_MAX_LENGTH) },
             ),
         )
 
@@ -394,8 +393,13 @@ object TripMonitorEnhancedSurfaceSupport {
         session: TrackingSession,
         snapshot: TrackingSnapshot,
     ): String? {
-        return session.pathName.trim().takeIf { it.isNotEmpty() }
-            ?: snapshot.subText.trim().takeIf { it.isNotEmpty() && !it.contains(session.routeName) }
+        return snapshot.content.trim().takeIf {
+            it.isNotEmpty() &&
+                !it.contains(session.routeName)
+        } ?: snapshot.subText.trim().takeIf {
+                it.isNotEmpty() &&
+                    !it.contains(session.routeName)
+            }
     }
 
     private fun buildHyperIslandStatus(snapshot: TrackingSnapshot): HyperIslandStatus {
@@ -406,10 +410,14 @@ object TripMonitorEnhancedSurfaceSupport {
         val statusText = when {
             showImminentState -> IMMINENT_STATUS_TEXT
             etaText != null && stops != null && stops > 0 && isDurationLikeEta(etaText) ->
-                compactText("$etaText|$stops$STOPS_SUFFIX", HYPER_STATUS_MAX_LENGTH)
+                compactText(
+                    "${formatHyperIslandEtaText(etaText)}|${formatHyperIslandStopsText(stops)}",
+                    HYPER_STATUS_MAX_LENGTH,
+                )
 
-            etaText != null -> compactText(etaText, HYPER_STATUS_MAX_LENGTH)
-            stops != null && stops > 0 -> compactText("$stops$STOPS_SUFFIX", HYPER_STATUS_MAX_LENGTH)
+            etaText != null -> compactText(formatHyperIslandEtaText(etaText), HYPER_STATUS_MAX_LENGTH)
+            stops != null && stops > 0 ->
+                compactText(formatHyperIslandStopsText(stops), HYPER_STATUS_MAX_LENGTH)
             stops != null -> ARRIVING_TEXT
             else -> compactText(snapshot.content.ifBlank { snapshot.title }, HYPER_STATUS_MAX_LENGTH)
         }
@@ -537,6 +545,14 @@ object TripMonitorEnhancedSurfaceSupport {
         val minutes = match.groupValues[1].toLongOrNull() ?: return null
         val seconds = match.groupValues[2].toLongOrNull() ?: return null
         return ((minutes * 60L) + seconds) * 1_000L
+    }
+
+    private fun formatHyperIslandEtaText(etaText: String): String {
+        return etaText.replace(Regex("(?<=\\d)(?=[\\u5206\\u79d2\\u7ad9])"), " ")
+    }
+
+    private fun formatHyperIslandStopsText(stops: Int): String {
+        return "$stops $STOPS_SUFFIX"
     }
 
     private fun looksLikeStopCount(value: String): Boolean {

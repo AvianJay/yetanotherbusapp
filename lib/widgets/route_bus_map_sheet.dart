@@ -1012,8 +1012,8 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                         markers: [
                           Marker(
                             point: _userLocation!,
-                            width: 24,
-                            height: 24,
+                            width: 20,
+                            height: 20,
                             child: const _UserLocationMarker(),
                           ),
                         ],
@@ -2302,15 +2302,15 @@ class _GoogleBusIconRequest {
 class _GoogleUserLocationIconRequest {
   const _GoogleUserLocationIconRequest({required this.pixelRatio});
 
-  static const double baseLogicalSize = 28;
+  static const double baseLogicalSize = 24;
 
   final double pixelRatio;
 
   double get logicalSize => baseLogicalSize;
 
-  double get outerRadius => 12;
+  double get outerRadius => 10;
 
-  double get innerRadius => 8.6;
+  double get innerRadius => 7.2;
 }
 
 enum _BusMotionMode { snappedToRoute, freeFloating }

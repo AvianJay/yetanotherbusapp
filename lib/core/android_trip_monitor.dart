@@ -1,6 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+enum AndroidBackgroundLocationPermissionRequestStatus {
+  granted,
+  denied,
+  openedSettings,
+  unavailable,
+}
+
 class TripMonitorStop {
   const TripMonitorStop({
     required this.stopId,
@@ -99,6 +106,23 @@ class AndroidTripMonitor {
     }
     return await _channel.invokeMethod<bool>('requestNotificationPermission') ??
         false;
+  }
+
+  static Future<AndroidBackgroundLocationPermissionRequestStatus>
+  requestBackgroundLocationPermission() async {
+    if (!_isAndroid) {
+      return AndroidBackgroundLocationPermissionRequestStatus.unavailable;
+    }
+    final status = await _channel.invokeMethod<String>(
+      'requestBackgroundLocationPermission',
+    );
+    return switch (status) {
+      'granted' => AndroidBackgroundLocationPermissionRequestStatus.granted,
+      'opened_settings' =>
+        AndroidBackgroundLocationPermissionRequestStatus.openedSettings,
+      'denied' => AndroidBackgroundLocationPermissionRequestStatus.denied,
+      _ => AndroidBackgroundLocationPermissionRequestStatus.unavailable,
+    };
   }
 
   static Future<void> startOrUpdate(TripMonitorSession session) async {

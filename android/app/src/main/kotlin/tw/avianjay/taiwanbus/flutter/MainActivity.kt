@@ -22,6 +22,7 @@ class MainActivity : FlutterActivity() {
     private var appLaunchChannel: MethodChannel? = null
     private var pendingLaunchPayload: Map<String, Any?>? = null
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
+    private var pendingBackgroundLocationPermissionResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -110,6 +111,10 @@ class MainActivity : FlutterActivity() {
                     requestNotificationPermission(result)
                 }
 
+                "requestBackgroundLocationPermission" -> {
+                    requestBackgroundLocationPermission(result)
+                }
+
                 "startOrUpdateTripMonitor" -> {
                     val session = call.argument<Map<String, Any?>>("session")
                     if (session == null) {
@@ -176,6 +181,17 @@ class MainActivity : FlutterActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_CODE_BACKGROUND_LOCATION) {
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+            pendingBackgroundLocationPermissionResult?.success(
+                if (granted) "granted" else "denied",
+            )
+            pendingBackgroundLocationPermissionResult = null
+            return
+        }
         if (requestCode != REQUEST_CODE_POST_NOTIFICATIONS) {
             return
         }
@@ -199,6 +215,16 @@ class MainActivity : FlutterActivity() {
         val intent = Intent(
             Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
             Uri.parse("package:$packageName"),
+        ).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
+    }
+
+    private fun openAppDetailsSettings() {
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", packageName, null),
         ).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -299,6 +325,34 @@ class MainActivity : FlutterActivity() {
         )
     }
 
+    private fun requestBackgroundLocationPermission(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            result.success("granted")
+            return
+        }
+        if (
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            result.success("granted")
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            openAppDetailsSettings()
+            result.success("opened_settings")
+            return
+        }
+
+        pendingBackgroundLocationPermissionResult = result
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+            REQUEST_CODE_BACKGROUND_LOCATION,
+        )
+    }
+
     companion object {
         private const val UPDATE_INSTALLER_CHANNEL =
             "tw.avianjay.taiwanbus.flutter/update_installer"
@@ -308,6 +362,7 @@ class MainActivity : FlutterActivity() {
             "tw.avianjay.taiwanbus.flutter/home_integration"
         private const val TRIP_MONITOR_CHANNEL =
             "tw.avianjay.taiwanbus.flutter/trip_monitor"
+        private const val REQUEST_CODE_BACKGROUND_LOCATION = 900
         private const val REQUEST_CODE_POST_NOTIFICATIONS = 901
     }
 }

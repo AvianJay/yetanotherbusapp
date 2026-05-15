@@ -173,9 +173,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (state == AppLifecycleState.resumed &&
         _awaitingBackgroundLocationPermission) {
       _awaitingBackgroundLocationPermission = false;
-      unawaited(
-        _configureBackgroundTripMonitorIfNeeded(forcePermissionCheck: true),
-      );
+      if (_isAndroid) {
+        unawaited(_handleReturnedFromAndroidBackgroundLocationSettings());
+      } else {
+        unawaited(
+          _configureBackgroundTripMonitorIfNeeded(forcePermissionCheck: true),
+        );
+      }
     }
     if (state == AppLifecycleState.resumed && _isAndroid) {
       unawaited(_syncBackgroundTripMonitorPausedState());
@@ -497,8 +501,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           _currentPathStops.every(
             (stop) => stop.stopId != _destinationStopId,
           )) {
-        _boardingStopId = null;
-        _boardingStopName = null;
+        final boardingStop = _findStopById(_currentPathStops, _boardingStopId);
+        _boardingStopId = boardingStop?.stopId;
+        _boardingStopName = boardingStop?.stopName;
         _destinationStopId = null;
         _destinationStopName = null;
         _resetLiveActivityRideState();
@@ -1411,16 +1416,40 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (_backgroundLocationAlwaysGranted != hasAlwaysPermission) {
         _backgroundLocationAlwaysGranted = hasAlwaysPermission;
       }
-      if (forcePermissionCheck && !hasAlwaysPermission && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('未啟用「一律允許」定位，背景乘車提醒會改用最後一次定位與公車到站資訊繼續運作。'),
-          ),
-        );
+      if (forcePermissionCheck && !hasAlwaysPermission) {
+        final shouldUpgrade =
+            await _showAndroidBackgroundLocationUpgradePrompt() ?? false;
+        if (shouldUpgrade) {
+          final requestStatus =
+              await AndroidTripMonitor.requestBackgroundLocationPermission();
+          if (!mounted) {
+            return;
+          }
+          if (requestStatus ==
+              AndroidBackgroundLocationPermissionRequestStatus.openedSettings) {
+            _awaitingBackgroundLocationPermission = true;
+            return;
+          }
+        }
+        permission = await Geolocator.checkPermission();
+        final updatedHasAlwaysPermission =
+            permission == LocationPermission.always;
+        if (_backgroundLocationAlwaysGranted != updatedHasAlwaysPermission) {
+          _backgroundLocationAlwaysGranted = updatedHasAlwaysPermission;
+        }
+        if (!updatedHasAlwaysPermission && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('未啟用「一律允許」定位，背景乘車提醒會改用最後一次定位與公車到站資訊繼續運作。'),
+            ),
+          );
+        }
       }
       await TripMonitorNotifications.requestPermission();
       _backgroundTripMonitorReady = true;
     }
+
+    await _ensureLocationTracking(requestPermissionIfNeeded: false);
 
     final pathStops = detail.stopsByPath[pathInfo.pathId] ?? const <StopInfo>[];
     if (pathStops.isEmpty) {
@@ -1435,9 +1464,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     if (_destinationStopId != null &&
         pathStops.every((stop) => stop.stopId != _destinationStopId)) {
+      final boardingStop = _findStopById(pathStops, _boardingStopId);
       setState(() {
-        _boardingStopId = null;
-        _boardingStopName = null;
+        _boardingStopId = boardingStop?.stopId;
+        _boardingStopName = boardingStop?.stopName;
         _destinationStopId = null;
         _destinationStopName = null;
         _resetLiveActivityRideState();
@@ -1487,6 +1517,47 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     );
   }
 
+  Future<bool?> _showAndroidBackgroundLocationUpgradePrompt() {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('要把定位權限改為一律允許嗎？'),
+          content: const Text('YABus 需要一律允許才可以在背景偵測你是否上車或到站。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('先不用'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('去開啟'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _handleReturnedFromAndroidBackgroundLocationSettings() async {
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    final hasAlwaysPermission = permission == LocationPermission.always;
+    if (_backgroundLocationAlwaysGranted != hasAlwaysPermission) {
+      _backgroundLocationAlwaysGranted = hasAlwaysPermission;
+    }
+    if (!hasAlwaysPermission && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('未啟用「一律允許」定位，背景乘車提醒會改用最後一次定位與公車到站資訊繼續運作。'),
+        ),
+      );
+    }
+    await _configureBackgroundTripMonitorIfNeeded();
+  }
+
   Future<void> _maybePromptForDestinationSelection() async {
     if (_destinationPromptShown ||
         _destinationStopId != null ||
@@ -1523,13 +1594,19 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
   }
 
-  Future<void> _pickDestinationStop() async {
+  Future<StopInfo?> _pickTripMonitorStop({
+    required String title,
+    required int? selectedStopId,
+    required IconData selectedIcon,
+    int? blockedStopId,
+    String? blockedReason,
+  }) async {
     final pathStops = _currentPathStops;
     if (pathStops.isEmpty) {
-      return;
+      return null;
     }
 
-    final pickedStop = await showModalBottomSheet<StopInfo>(
+    return showModalBottomSheet<StopInfo>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -1537,34 +1614,110 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         return SafeArea(
           child: SizedBox(
             height: MediaQuery.of(context).size.height * 0.72,
-            child: ListView.separated(
-              itemCount: pathStops.length,
-              separatorBuilder: (_, _) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final stop = pathStops[index];
-                return ListTile(
-                  title: Text(stop.stopName),
-                  subtitle: Text('第 ${index + 1} 站'),
-                  trailing: stop.stopId == _destinationStopId
-                      ? const Icon(Icons.flag_rounded)
-                      : null,
-                  onTap: () => Navigator.of(context).pop(stop),
-                );
-              },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: pathStops.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final stop = pathStops[index];
+                      final isBlocked =
+                          blockedStopId != null && stop.stopId == blockedStopId;
+                      final subtitleParts = <String>['第 ${index + 1} 站'];
+                      if (isBlocked && blockedReason != null) {
+                        subtitleParts.add(blockedReason);
+                      }
+                      return ListTile(
+                        enabled: !isBlocked,
+                        title: Text(stop.stopName),
+                        subtitle: Text(subtitleParts.join(' · ')),
+                        trailing: isBlocked
+                            ? const Icon(Icons.block_rounded)
+                            : stop.stopId == selectedStopId
+                            ? Icon(selectedIcon)
+                            : null,
+                        onTap: isBlocked
+                            ? null
+                            : () => Navigator.of(context).pop(stop),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
         );
       },
     );
+  }
+
+  Future<void> _pickBoardingStop() async {
+    final pickedStop = await _pickTripMonitorStop(
+      title: '設定上車站',
+      selectedStopId: _boardingStopId,
+      selectedIcon: Icons.directions_bus_rounded,
+      blockedStopId: _destinationStopId,
+      blockedReason: '這個站已設為下車站',
+    );
     if (!mounted || pickedStop == null) {
       return;
     }
 
+    await _setBoardingStop(pickedStop);
+  }
+
+  Future<void> _pickDestinationStop() async {
+    final pickedStop = await _pickTripMonitorStop(
+      title: '設定下車提醒',
+      selectedStopId: _destinationStopId,
+      selectedIcon: Icons.flag_rounded,
+      blockedStopId: _resolvedBoardingStop()?.stopId,
+      blockedReason: '這個站已設為上車站',
+    );
+    if (!mounted || pickedStop == null) {
+      return;
+    }
+
+    if (pickedStop.stopId == _resolvedBoardingStop()?.stopId) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('上車站不能同時設為下車站。')));
+      return;
+    }
     await _setDestinationStop(pickedStop);
   }
 
+  Future<void> _setBoardingStop(StopInfo stop) async {
+    setState(() {
+      _resetLiveActivityRideState();
+      if (_isIOS) {
+        _backgroundTripMonitorPaused = false;
+      }
+      _boardingStopId = stop.stopId;
+      _boardingStopName = stop.stopName;
+    });
+    await _configureBackgroundTripMonitorIfNeeded();
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已將 ${stop.stopName} 設為上車站。')));
+  }
+
   Future<void> _setDestinationStop(StopInfo stop) async {
-    final boardingStop = _currentBoardingCandidateStop();
+    final boardingStop = _resolvedBoardingStop();
     setState(() {
       _resetLiveActivityRideState();
       if (_isIOS) {
@@ -1584,6 +1737,31 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     ).showSnackBar(SnackBar(content: Text('已將 ${stop.stopName} 設為下車提醒。')));
   }
 
+  Future<void> _clearBoardingStop() async {
+    if (_boardingStopId == null) {
+      return;
+    }
+    final fallbackBoardingStop = _currentBoardingCandidateStop();
+    setState(() {
+      _resetLiveActivityRideState();
+      if (_isIOS) {
+        _backgroundTripMonitorPaused = false;
+      }
+      _boardingStopId = null;
+      _boardingStopName = null;
+    });
+    await _configureBackgroundTripMonitorIfNeeded();
+    if (!mounted) {
+      return;
+    }
+    final message = fallbackBoardingStop == null
+        ? '已清除手動上車站，之後拿到定位會再自動判斷。'
+        : '已改回使用目前位置判斷上車站。';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _clearDestinationStop() async {
     if (_destinationStopId == null) {
       return;
@@ -1593,8 +1771,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (_isIOS) {
         _backgroundTripMonitorPaused = false;
       }
-      _boardingStopId = null;
-      _boardingStopName = null;
       _destinationStopId = null;
       _destinationStopName = null;
     });
@@ -1657,11 +1833,23 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _updateNearestStops(lastKnown);
     }
 
-    final current = await Geolocator.getCurrentPosition();
+    Position? current;
+    try {
+      current = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 6),
+        ),
+      );
+    } catch (_) {
+      current = null;
+    }
     if (!mounted) {
       return;
     }
-    _updateNearestStops(current);
+    if (current != null) {
+      _updateNearestStops(current);
+    }
 
     final locationSettings = enableBackgroundLocationStream
         ? AppleSettings(
@@ -1693,6 +1881,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   void _updateNearestStops(Position position) {
+    final previousPosition = _lastPosition;
     _lastPosition = position;
     final detail = _detail;
     if (detail == null) {
@@ -1743,6 +1932,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       }
     }
     _maybeScrollToCurrentLocation();
+    if (_isAndroid &&
+        previousPosition == null &&
+        !_backgroundLocationAlwaysGranted &&
+        _backgroundTripMonitorReady &&
+        AppControllerScope.read(
+          context,
+        ).settings.enableRouteBackgroundMonitor) {
+      unawaited(_configureBackgroundTripMonitorIfNeeded());
+    }
     unawaited(_maybeRefreshBackgroundTripMonitor());
   }
 
@@ -1761,6 +1959,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       }
     }
     return null;
+  }
+
+  StopInfo? _resolvedBoardingStop() {
+    return _findStopById(_currentPathStops, _boardingStopId) ??
+        _currentBoardingCandidateStop();
   }
 
   String? _buildDesktopDiscordArrivalStatus(AppSettings settings) {
@@ -2866,6 +3069,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   Widget _buildBackgroundTripMonitorDrawer(BuildContext context) {
     final theme = Theme.of(context);
+    final resolvedBoardingStop = _resolvedBoardingStop();
+    final hasManualBoardingStop = _boardingStopId != null;
+    final boardingName = resolvedBoardingStop?.stopName.trim();
+    final boardingSubtitle = boardingName != null && boardingName.isNotEmpty
+        ? '目前站點：$boardingName'
+        : '沒定位時也可以手動選一個站牌當上車站。';
     final destinationName = _destinationStopName?.trim();
     final destinationSubtitle =
         destinationName != null && destinationName.isNotEmpty
@@ -2932,6 +3141,37 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 );
               },
             ),
+            ListTile(
+              leading: Icon(
+                resolvedBoardingStop == null
+                    ? Icons.directions_bus_outlined
+                    : Icons.directions_bus_rounded,
+              ),
+              title: Text(resolvedBoardingStop == null ? '設定上車站' : '變更上車站'),
+              subtitle: Text(boardingSubtitle),
+              onTap: () {
+                Navigator.of(context).pop();
+                unawaited(_pickBoardingStop());
+              },
+            ),
+            if (hasManualBoardingStop)
+              ListTile(
+                leading: const Icon(Icons.my_location_rounded),
+                title: Text(
+                  _currentBoardingCandidateStop() == null
+                      ? '清除手動上車站'
+                      : '改回目前位置',
+                ),
+                subtitle: Text(
+                  _currentBoardingCandidateStop() == null
+                      ? '先保留背景提醒，之後拿到定位再自動判斷上車站。'
+                      : '重新跟著目前最近的站牌自動判斷上車站。',
+                ),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  unawaited(_clearBoardingStop());
+                },
+              ),
             ListTile(
               leading: Icon(
                 _destinationStopId == null

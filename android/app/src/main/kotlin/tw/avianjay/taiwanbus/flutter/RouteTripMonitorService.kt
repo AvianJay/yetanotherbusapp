@@ -1442,14 +1442,18 @@ class RouteTripMonitorService : Service() {
         session: TrackingSession,
         snapshot: TrackingSnapshot,
     ): Notification {
+        val openRouteIntent = createOpenRoutePendingIntent(session)
+        val stopIntent = createStopPendingIntent()
+        val markBoardedIntent = createMarkBoardedPendingIntent()
+        val notBoardedIntent = createNotBoardedPendingIntent()
         val builder = NotificationCompat.Builder(this, TRACKING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_status_bus)
             .setContentTitle(snapshot.title)
             .setContentText(snapshot.content)
             .setSubText(snapshot.subText)
-            .setContentIntent(createOpenRoutePendingIntent(session))
+            .setContentIntent(openRouteIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPublicVersion(buildPublicTrackingNotification(snapshot))
+            .setPublicVersion(buildPublicTrackingNotification(session, snapshot))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -1459,7 +1463,7 @@ class RouteTripMonitorService : Service() {
                 NotificationCompat.Action.Builder(
                     0,
                     "停止",
-                    createStopPendingIntent(),
+                    stopIntent,
                 ).build(),
             )
 
@@ -1497,21 +1501,35 @@ class RouteTripMonitorService : Service() {
             builder.setProgress(0, 0, false)
         }
 
-        return builder.build()
+        val notification = builder.build()
+        return TripMonitorEnhancedSurfaceSupport.apply(
+            context = this,
+            notification = notification,
+            session = session,
+            snapshot = snapshot,
+            contentIntent = openRouteIntent,
+            stopIntent = stopIntent,
+            markBoardedIntent = markBoardedIntent,
+            notBoardedIntent = notBoardedIntent,
+        )
     }
 
     private fun buildFrameworkTrackingNotification(
         session: TrackingSession,
         snapshot: TrackingSnapshot,
     ): Notification {
+        val openRouteIntent = createOpenRoutePendingIntent(session)
+        val stopIntent = createStopPendingIntent()
+        val markBoardedIntent = createMarkBoardedPendingIntent()
+        val notBoardedIntent = createNotBoardedPendingIntent()
         val builder = Notification.Builder(this, TRACKING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_status_bus)
             .setContentTitle(snapshot.title)
             .setContentText(snapshot.content)
             .setSubText(snapshot.subText)
-            .setContentIntent(createOpenRoutePendingIntent(session))
+            .setContentIntent(openRouteIntent)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setPublicVersion(buildPublicTrackingNotification(snapshot))
+            .setPublicVersion(buildPublicTrackingNotification(session, snapshot))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_NAVIGATION)
@@ -1520,7 +1538,7 @@ class RouteTripMonitorService : Service() {
                 Notification.Action.Builder(
                     null,
                     "停止",
-                    createStopPendingIntent(),
+                    stopIntent,
                 ).build(),
             )
 
@@ -1556,11 +1574,24 @@ class RouteTripMonitorService : Service() {
             builder.setStyle(progressStyle)
         }
 
-        return builder.build()
+        val notification = builder.build()
+        return TripMonitorEnhancedSurfaceSupport.apply(
+            context = this,
+            notification = notification,
+            session = session,
+            snapshot = snapshot,
+            contentIntent = openRouteIntent,
+            stopIntent = stopIntent,
+            markBoardedIntent = markBoardedIntent,
+            notBoardedIntent = notBoardedIntent,
+        )
     }
 
-    private fun buildPublicTrackingNotification(snapshot: TrackingSnapshot): Notification {
-        return NotificationCompat.Builder(this, TRACKING_CHANNEL_ID)
+    private fun buildPublicTrackingNotification(
+        session: TrackingSession,
+        snapshot: TrackingSnapshot,
+    ): Notification {
+        val notification = NotificationCompat.Builder(this, TRACKING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_status_bus)
             .setContentTitle(snapshot.title)
             .setContentText(snapshot.content)
@@ -1569,6 +1600,15 @@ class RouteTripMonitorService : Service() {
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
+        return TripMonitorEnhancedSurfaceSupport.apply(
+            context = this,
+            notification = notification,
+            session = session,
+            snapshot = snapshot,
+            contentIntent = createOpenRoutePendingIntent(session),
+            stopIntent = createStopPendingIntent(),
+            includeHyperIsland = false,
+        )
     }
 
     private fun buildLegacyTrackingNotification(snapshot: TrackingSnapshot): android.app.Notification {

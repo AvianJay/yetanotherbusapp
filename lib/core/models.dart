@@ -1302,6 +1302,28 @@ class EtaPresentation {
   final Color foregroundColor;
 }
 
+String formatEtaBadgeText(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty || trimmed.contains('\n')) {
+    return trimmed;
+  }
+
+  final clockMatch = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(trimmed);
+  if (clockMatch != null) {
+    return '${clockMatch.group(1)}\n${clockMatch.group(2)}';
+  }
+
+  if (trimmed.length == 5) {
+    return '${trimmed.substring(0, 2)}\n${trimmed.substring(2)}';
+  }
+
+  if (trimmed.length == 6) {
+    return '${trimmed.substring(0, 3)}\n${trimmed.substring(3)}';
+  }
+
+  return trimmed;
+}
+
 EtaPresentation buildEtaPresentation(
   StopInfo stop, {
   required bool alwaysShowSeconds,
@@ -1313,23 +1335,7 @@ EtaPresentation buildEtaPresentation(
   final message = stop.msg?.trim() ?? '';
   if (message.isNotEmpty) {
     return EtaPresentation(
-      text: (() {
-        final text = message;
-
-        if (text.contains(':')) {
-          return text;
-        }
-
-        if (text.length == 5) {
-          return '${text.substring(0, 2)}\n${text.substring(2)}';
-        }
-
-        if (text.length == 6) {
-          return '${text.substring(0, 3)}\n${text.substring(3)}';
-        }
-
-        return text;
-      })(),
+      text: formatEtaBadgeText(message),
       backgroundColor:
           cs?.primaryContainer ??
           (isDark ? const Color(0xFF16383D) : Colors.teal.shade50),

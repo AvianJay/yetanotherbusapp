@@ -36,6 +36,8 @@ class EtaBadge extends StatelessWidget {
       child: Text(
         eta.text,
         textAlign: TextAlign.center,
+        softWrap: true,
+        maxLines: 2,
         style: TextStyle(
           color: eta.foregroundColor,
           fontWeight: FontWeight.w700,
@@ -83,6 +85,8 @@ class GenericEtaBadge extends StatelessWidget {
       child: Text(
         eta.text,
         textAlign: TextAlign.center,
+        softWrap: true,
+        maxLines: 2,
         style: TextStyle(
           color: eta.foregroundColor,
           fontWeight: FontWeight.w700,
@@ -106,10 +110,12 @@ EtaPresentation buildGenericEtaPresentation({
 
   if (message != null && message.isNotEmpty) {
     return EtaPresentation(
-      text: message,
-      backgroundColor: cs?.primaryContainer ??
+      text: formatEtaBadgeText(message),
+      backgroundColor:
+          cs?.primaryContainer ??
           (isDark ? const Color(0xFF16383D) : Colors.teal.shade50),
-      foregroundColor: cs?.onPrimaryContainer ??
+      foregroundColor:
+          cs?.onPrimaryContainer ??
           (isDark ? const Color(0xFFBEECEF) : Colors.teal.shade900),
     );
   }
@@ -147,10 +153,10 @@ EtaPresentation buildGenericEtaPresentation({
     backgroundColor: urgent
         ? Colors.orange.shade700
         : (cs?.primary ??
-            (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1))),
+              (isDark ? const Color(0xFF233A41) : const Color(0xFFE2F4F1))),
     foregroundColor: urgent
         ? Colors.white
         : (cs?.onSurface ??
-            (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57))),
+              (isDark ? const Color(0xFFD7F1F3) : const Color(0xFF0D4E57))),
   );
 }

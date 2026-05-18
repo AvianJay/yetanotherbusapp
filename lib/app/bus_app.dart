@@ -23,6 +23,7 @@ import '../screens/account_screen.dart';
 import '../screens/announcement_detail_page.dart';
 import '../screens/announcements_page.dart';
 import '../screens/database_settings_screen.dart';
+import '../screens/feedback_screen.dart';
 import '../screens/favorites_screen.dart';
 import '../screens/main_transit_shell.dart';
 import '../screens/nearby_screen.dart';
@@ -232,6 +233,11 @@ Route<dynamic>? _buildAppRoute(
       return MaterialPageRoute<void>(
         settings: const RouteSettings(name: AppRoutes.account),
         builder: (_) => const AccountScreen(),
+      );
+    case AppRouteKind.feedback:
+      return MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.feedback),
+        builder: (_) => const FeedbackScreen(),
       );
     case AppRouteKind.databaseSettings:
       return MaterialPageRoute<void>(
@@ -466,7 +472,9 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   }
 
   Future<void> _maybeShowAnnouncementPopup() async {
-    if (!mounted || _showingAnnouncementPopup || widget.controller.needsOnboarding) {
+    if (!mounted ||
+        _showingAnnouncementPopup ||
+        widget.controller.needsOnboarding) {
       return;
     }
 
@@ -523,16 +531,12 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
         if (!mounted) {
           return;
         }
-        messenger?.showSnackBar(
-          const SnackBar(content: Text('登入成功。')),
-        );
+        messenger?.showSnackBar(const SnackBar(content: Text('登入成功。')));
       } catch (error) {
         if (!mounted) {
           return;
         }
-        messenger?.showSnackBar(
-          SnackBar(content: Text('登入錯誤: $error')),
-        );
+        messenger?.showSnackBar(SnackBar(content: Text('登入錯誤: $error')));
       }
       return;
     }

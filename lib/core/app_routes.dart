@@ -9,6 +9,7 @@ class AppRoutes {
   static const nearby = '/nearby';
   static const settings = '/settings';
   static const account = '/account';
+  static const feedback = '/feedback';
   static const databaseSettings = '/database-settings';
   static const termsOfService = '/terms-of-service';
   static const privacyPolicy = '/privacy-policy';
@@ -22,6 +23,8 @@ class AppRoutes {
     'nearby': nearby,
     'settings': settings,
     'account': account,
+    'feedback': feedback,
+    'feedbacks': feedback,
     'database_settings': databaseSettings,
     'terms-of-service': termsOfService,
     'privacy-policy': privacyPolicy,
@@ -76,10 +79,8 @@ class AppRoutes {
     final queryParameters = <String, String>{
       if (pathId != null) 'pathId': '$pathId',
       if (stopId != null) 'stopId': '$stopId',
-      if (destinationPathId != null)
-        'destinationPathId': '$destinationPathId',
-      if (destinationStopId != null)
-        'destinationStopId': '$destinationStopId',
+      if (destinationPathId != null) 'destinationPathId': '$destinationPathId',
+      if (destinationStopId != null) 'destinationStopId': '$destinationStopId',
     };
     return Uri(
       pathSegments: ['route', provider.name, '$routeKey'],
@@ -99,6 +100,7 @@ enum AppRouteKind {
   nearby,
   settings,
   account,
+  feedback,
   databaseSettings,
   termsOfService,
   privacyPolicy,
@@ -146,7 +148,10 @@ AppRouteIntent parseAppRoute(String? rawLocation) {
   }
 
   if (uri.path == AppRoutes.home) {
-    return const AppRouteIntent(kind: AppRouteKind.home, location: AppRoutes.home);
+    return const AppRouteIntent(
+      kind: AppRouteKind.home,
+      location: AppRoutes.home,
+    );
   }
   if (uri.path == AppRoutes.search) {
     return const AppRouteIntent(
@@ -178,6 +183,12 @@ AppRouteIntent parseAppRoute(String? rawLocation) {
       location: AppRoutes.account,
     );
   }
+  if (uri.path == AppRoutes.feedback) {
+    return const AppRouteIntent(
+      kind: AppRouteKind.feedback,
+      location: AppRoutes.feedback,
+    );
+  }
   if (uri.path == AppRoutes.databaseSettings) {
     return const AppRouteIntent(
       kind: AppRouteKind.databaseSettings,
@@ -205,7 +216,10 @@ AppRouteIntent parseAppRoute(String? rawLocation) {
 
   final segments = uri.pathSegments;
   if (segments.isEmpty) {
-    return const AppRouteIntent(kind: AppRouteKind.home, location: AppRoutes.home);
+    return const AppRouteIntent(
+      kind: AppRouteKind.home,
+      location: AppRoutes.home,
+    );
   }
 
   if (segments.first == 'announcement' && segments.length >= 2) {

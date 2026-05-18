@@ -638,31 +638,11 @@ class SettingsScreen extends StatelessWidget {
                           trailing: const Icon(Icons.open_in_new_rounded),
                           onTap: () => _openDiscordCommunity(context),
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(18),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '意見回饋',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          '有 bug、想敲功能、或只是想吐槽一下，都可以從這裡直接送到後台。需要先登入才能送出。',
-                        ),
-                        const SizedBox(height: 12),
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: const Icon(Icons.feedback_outlined),
-                          title: const Text('開啟意見回饋'),
-                          subtitle: const Text('標題最多 100 字，內文最多 4000 字'),
+                          title: const Text('意見回饋'),
+                          subtitle: const Text('回報問題、提出功能需求或任何想說的話'),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () {
                             Navigator.of(context).pushNamed(AppRoutes.feedback);

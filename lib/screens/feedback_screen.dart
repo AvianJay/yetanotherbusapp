@@ -52,7 +52,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       _contentController.clear();
       formState.reset();
       messenger.showSnackBar(
-        const SnackBar(content: Text('意見回饋已送出，感謝你幫我們改進。')),
+        const SnackBar(content: Text('意見回饋已送出，感謝你幫助我們改進。')),
       );
     } on AuthTokenExpiredException {
       await controller.logoutAuth();
@@ -66,7 +66,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       }
       final retryAfter = error.retryAfterSeconds;
       final message = retryAfter != null && retryAfter > 0
-          ? '送出太快了，請在 $retryAfter 秒後再試一次。'
+          ? '你已受到速率限制。'
           : error.message;
       messenger.showSnackBar(SnackBar(content: Text(message)));
     } catch (error) {
@@ -90,9 +90,6 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       controller.settings,
       pageKey: 'feedback',
     );
-    final session = controller.authSession;
-    final account = controller.authAccount;
-    final displayName = account?.displayName ?? session?.displayName ?? '已登入帳號';
 
     return BackgroundImageWrapper(
       pageKey: 'feedback',
@@ -105,26 +102,26 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
               children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(18),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '直接把你的想法丟給我們',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          '可以回報 bug、提出功能需求，或告訴我們哪裡用起來卡卡的。標題上限 100 字，內文上限 4000 字。',
-                        ),
-                        const SizedBox(height: 8),
-                        const Text('送出前請避免貼上敏感個資、密碼或完整付款資訊。'),
-                      ],
-                    ),
-                  ),
-                ),
+                // Card(
+                //   child: Padding(
+                //     padding: const EdgeInsets.all(18),
+                //     child: Column(
+                //       crossAxisAlignment: CrossAxisAlignment.start,
+                //       children: [
+                //         Text(
+                //           '直接把你的想法丟給我們',
+                //           style: Theme.of(context).textTheme.titleMedium,
+                //         ),
+                //         const SizedBox(height: 8),
+                //         const Text(
+                //           '可以回報 bug、提出功能需求，或告訴我們哪裡用起來卡卡的。標題上限 100 字，內文上限 4000 字。',
+                //         ),
+                //         const SizedBox(height: 8),
+                //         const Text('送出前請避免貼上敏感個資、密碼或完整付款資訊。'),
+                //       ],
+                //     ),
+                //   ),
+                // ),
                 const SizedBox(height: 12),
                 if (!controller.isAuthenticated) ...[
                   Card(
@@ -134,12 +131,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '需要先登入才能送出',
+                            '請先登入',
                             style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            '這個回饋表單只開放已登入帳號使用，方便我們在 admin 後台追蹤來源與處理狀態。',
                           ),
                           const SizedBox(height: 14),
                           FilledButton.icon(
@@ -156,35 +149,6 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                     ),
                   ),
                 ] else ...[
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: Row(
-                        children: [
-                          const CircleAvatar(
-                            child: Icon(Icons.verified_user_outlined),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '目前將以 $displayName 的身份送出',
-                                  style: Theme.of(context).textTheme.titleSmall,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '帳號 ID：${session?.accountId ?? ''}',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
                   const SizedBox(height: 12),
                   Card(
                     child: Padding(

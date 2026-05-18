@@ -9,44 +9,95 @@ import 'models.dart';
 
 enum AppUpdateStatus { unavailable, upToDate, updateAvailable }
 
-enum AppUpdatePackageFormat {
-  apk,
-  zip,
-  exe,
-  dmg,
-  deb,
-  appImage,
-}
+enum AppUpdatePackageFormat { apk, zip, exe, dmg, deb, appImage }
+
+const _generatedReleaseDownloadTableStart =
+    '<!-- YABUS_RELEASE_DOWNLOAD_TABLE_START -->';
+const _generatedReleaseDownloadTableEnd =
+    '<!-- YABUS_RELEASE_DOWNLOAD_TABLE_END -->';
 
 /// The preferred asset suffix for the current platform when checking
 /// GitHub Release assets for a downloadable update.
 String get _platformAssetSuffix {
-  if (kIsWeb) return '';
-  if (defaultTargetPlatform == TargetPlatform.windows) return '-windows-x64-setup.exe';
-  if (defaultTargetPlatform == TargetPlatform.macOS) return '-macos.dmg';
-  if (defaultTargetPlatform == TargetPlatform.linux) return '-linux-amd64.deb';
+  if (kIsWeb) {
+    return '';
+  }
+  if (defaultTargetPlatform == TargetPlatform.windows) {
+    return '-windows-x64-setup.exe';
+  }
+  if (defaultTargetPlatform == TargetPlatform.macOS) {
+    return '-macos.dmg';
+  }
+  if (defaultTargetPlatform == TargetPlatform.linux) {
+    return '-linux-amd64.deb';
+  }
   return '.apk';
 }
 
 /// Map a release asset filename to the corresponding package format.
 AppUpdatePackageFormat _packageFormatFromAssetName(String name) {
   final lower = name.toLowerCase();
-  if (lower.endsWith('.apk')) return AppUpdatePackageFormat.apk;
-  if (lower.endsWith('setup.exe')) return AppUpdatePackageFormat.exe;
-  if (lower.endsWith('.dmg')) return AppUpdatePackageFormat.dmg;
-  if (lower.endsWith('.deb')) return AppUpdatePackageFormat.deb;
-  if (lower.endsWith('.appimage')) return AppUpdatePackageFormat.appImage;
+  if (lower.endsWith('.apk')) {
+    return AppUpdatePackageFormat.apk;
+  }
+  if (lower.endsWith('setup.exe')) {
+    return AppUpdatePackageFormat.exe;
+  }
+  if (lower.endsWith('.dmg')) {
+    return AppUpdatePackageFormat.dmg;
+  }
+  if (lower.endsWith('.deb')) {
+    return AppUpdatePackageFormat.deb;
+  }
+  if (lower.endsWith('.appimage')) {
+    return AppUpdatePackageFormat.appImage;
+  }
   return AppUpdatePackageFormat.zip;
 }
 
 AppUpdatePackageFormat get _nightlyPackageFormat {
-  if (kIsWeb) return AppUpdatePackageFormat.zip;
+  if (kIsWeb) {
+    return AppUpdatePackageFormat.zip;
+  }
   return switch (defaultTargetPlatform) {
     TargetPlatform.windows => AppUpdatePackageFormat.exe,
     TargetPlatform.macOS => AppUpdatePackageFormat.dmg,
     TargetPlatform.linux => AppUpdatePackageFormat.deb,
     _ => AppUpdatePackageFormat.zip,
   };
+}
+
+String _stripGeneratedReleaseDownloadTable(String markdown) {
+  var result = markdown;
+  while (true) {
+    final start = result.indexOf(_generatedReleaseDownloadTableStart);
+    if (start == -1) {
+      break;
+    }
+    final end = result.indexOf(
+      _generatedReleaseDownloadTableEnd,
+      start + _generatedReleaseDownloadTableStart.length,
+    );
+    if (end == -1) {
+      result = result.substring(0, start);
+      break;
+    }
+    result =
+        result.substring(0, start) +
+        result.substring(end + _generatedReleaseDownloadTableEnd.length);
+  }
+  return result.trim();
+}
+
+String _summarizeReleaseMarkdown(String markdown) {
+  final firstLine = markdown
+      .split('\n')
+      .map((line) => line.trim())
+      .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+  if (firstLine.isEmpty) {
+    return '';
+  }
+  return firstLine.replaceFirst(RegExp(r'^#+\s*'), '').trim();
 }
 
 class AppUpdateInfo {
@@ -226,15 +277,19 @@ class AppUpdateService {
 
     // Fallback: try APK for mobile, generic zip otherwise.
     platformAsset ??= assets.whereType<Map<String, dynamic>>().firstWhere(
-      (asset) => (asset['name'] as String? ?? '').toLowerCase().endsWith('.apk'),
+      (asset) =>
+          (asset['name'] as String? ?? '').toLowerCase().endsWith('.apk'),
       orElse: () => assets.whereType<Map<String, dynamic>>().firstWhere(
-        (asset) => (asset['name'] as String? ?? '').toLowerCase().endsWith('.zip'),
+        (asset) =>
+            (asset['name'] as String? ?? '').toLowerCase().endsWith('.zip'),
         orElse: () => throw StateError('no matching asset'),
       ),
     );
 
     final assetName = platformAsset['name'] as String? ?? '';
     final body = (payload['body'] as String? ?? '').trim();
+    final notes = _stripGeneratedReleaseDownloadTable(body);
+    final summary = _summarizeReleaseMarkdown(notes);
     final releaseUrl = payload['html_url'] as String?;
     final downloadUrl = platformAsset['browser_download_url'] as String? ?? '';
     if (downloadUrl.isEmpty) {
@@ -252,11 +307,11 @@ class AppUpdateService {
         currentVersionLabel: buildInfo.version,
         latestVersionLabel: latestTag,
         title: 'Release 更新：$latestTag',
-        summary: body.isEmpty ? '新的 release 已可下載。' : body.split('\n').first,
+        summary: summary.isEmpty ? '新的 release 已可下載。' : summary,
         downloadUrl: downloadUrl,
         packageFormat: _packageFormatFromAssetName(assetName),
         detailsUrl: releaseUrl,
-        notes: body.isEmpty ? null : body,
+        notes: notes.isEmpty ? null : notes,
       ),
     );
   }
@@ -274,6 +329,6 @@ class AppUpdateService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('HTTP ${response.statusCode}');
     }
-    return jsonDecode(response.body);
+    return jsonDecode(utf8.decode(response.bodyBytes));
   }
 }

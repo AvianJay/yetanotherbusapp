@@ -468,12 +468,36 @@ jobs:
         id: notes
         shell: bash
         run: |
+          RELEASE_DOWNLOAD_BASE="https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}"
+          DOWNLOAD_TABLE=$(cat <<EOF
+          <!-- YABUS_RELEASE_DOWNLOAD_TABLE_START -->
+
+          ## Downloads
+
+          | Platform | Package | Download |
+          | --- | --- | --- |
+          | Android | APK | [YABus-${{ inputs.version }}.apk]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}.apk) |
+          | iOS | Unsigned IPA | [YABus-${{ inputs.version }}.ipa]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}.ipa) |
+          | Windows | Installer | [YABus-${{ inputs.version }}-windows-x64-setup.exe]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}-windows-x64-setup.exe) |
+          | Linux | DEB | [YABus-${{ inputs.version }}-linux-amd64.deb]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}-linux-amd64.deb) |
+          | Linux | AppImage | [YABus-${{ inputs.version }}-linux-x86_64.AppImage]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}-linux-x86_64.AppImage) |
+          | macOS | DMG | [YABus-${{ inputs.version }}-macos.dmg]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}-macos.dmg) |
+          | Web | ZIP | [YABus-${{ inputs.version }}-web.zip]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}-web.zip) |
+
+          <!-- YABUS_RELEASE_DOWNLOAD_TABLE_END -->
+          EOF
+          )
           if [[ -n "${{ inputs.notes }}" ]]; then
             NOTES="${{ inputs.notes }}"
           else
             NOTES="## YABus ${{ inputs.version }}"
             NOTES+=$'\n'"Release build from commit \`${{ github.sha }}\`."
           fi
+          NOTES="${NOTES%"${NOTES##*[![:space:]]}"}"
+          if [[ -n "$NOTES" ]]; then
+            NOTES+=$'\n\n'
+          fi
+          NOTES+="$DOWNLOAD_TABLE"
           echo "body<<EOF" >> "$GITHUB_OUTPUT"
           echo "$NOTES" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"

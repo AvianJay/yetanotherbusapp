@@ -555,9 +555,9 @@ class SettingsScreen extends StatelessWidget {
                           title: const Text('服務條款'),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () {
-                            Navigator.of(context).pushNamed(
-                              AppRoutes.termsOfService,
-                            );
+                            Navigator.of(
+                              context,
+                            ).pushNamed(AppRoutes.termsOfService);
                           },
                         ),
                         ListTile(
@@ -566,9 +566,9 @@ class SettingsScreen extends StatelessWidget {
                           title: const Text('隱私權政策'),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () {
-                            Navigator.of(context).pushNamed(
-                              AppRoutes.privacyPolicy,
-                            );
+                            Navigator.of(
+                              context,
+                            ).pushNamed(AppRoutes.privacyPolicy);
                           },
                         ),
                       ],
@@ -637,6 +637,16 @@ class SettingsScreen extends StatelessWidget {
                           subtitle: const Text('我的 Discord 伺服器 uwu'),
                           trailing: const Icon(Icons.open_in_new_rounded),
                           onTap: () => _openDiscordCommunity(context),
+                        ),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.feedback_outlined),
+                          title: const Text('意見回饋'),
+                          subtitle: const Text('回報問題、提出功能需求或任何想說的話'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            Navigator.of(context).pushNamed(AppRoutes.feedback);
+                          },
                         ),
                       ],
                     ),

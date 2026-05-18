@@ -52,6 +52,7 @@ String? _internalLocationForUri(Uri uri) {
     case AppRouteKind.nearby:
     case AppRouteKind.settings:
     case AppRouteKind.account:
+    case AppRouteKind.feedback:
     case AppRouteKind.databaseSettings:
     case AppRouteKind.termsOfService:
     case AppRouteKind.privacyPolicy:

@@ -4282,6 +4282,14 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
 
     final widgets = <Widget>[];
     for (final entry in grouped.entries) {
+      // Sort entries within each service-day group by departure time.
+      final items = List<RouteScheduleEntry>.of(entry.value)
+        ..sort((a, b) {
+          final aTime = _scheduleEntryStartTime(a);
+          final bTime = _scheduleEntryStartTime(b);
+          return aTime.compareTo(bTime);
+        });
+
       widgets.add(
         Padding(
           padding: const EdgeInsets.only(top: 4, bottom: 2),
@@ -4293,7 +4301,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
           ),
         ),
       );
-      for (final item in entry.value) {
+      for (final item in items) {
         widgets.add(
           Padding(
             padding: const EdgeInsets.only(left: 8, bottom: 2),
@@ -4306,6 +4314,20 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
       }
     }
     return widgets;
+  }
+
+  /// Returns a comparable time string (HH:MM) for a schedule entry,
+  /// used to sort within a service-day group.
+  String _scheduleEntryStartTime(RouteScheduleEntry entry) {
+    if (entry.isFrequency) {
+      return (entry.payload['start'] as String? ?? '');
+    }
+    final stops = entry.payload['stop_times'] as List<dynamic>? ?? [];
+    if (stops.isNotEmpty) {
+      final first = stops.first as Map<String, dynamic>;
+      return (first['departure'] as String? ?? '');
+    }
+    return '';
   }
 }
 

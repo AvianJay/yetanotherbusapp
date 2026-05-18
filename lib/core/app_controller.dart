@@ -139,11 +139,10 @@ class AppController extends ChangeNotifier {
   bool get hasPendingDatabaseUpdates => _pendingDatabaseUpdates.isNotEmpty;
   String? get announcementsError => _announcementsError;
   bool get hasUnreadAnnouncements => _announcements.any(
-    (announcement) =>
-        announcementService.shouldShowRedDot(
-          announcement,
-          _announcementLocalState,
-        ),
+    (announcement) => announcementService.shouldShowRedDot(
+      announcement,
+      _announcementLocalState,
+    ),
   );
 
   bool isDatabaseReady(BusProvider provider) {
@@ -166,10 +165,8 @@ class AppController extends ChangeNotifier {
     await authService.initialize();
     _authSession = authService.session;
     _settings = await storage.loadSettings();
-    final normalizedBackgroundPaths =
-        await _backgroundImageStore.normalizeSettingsPaths(
-          _settings.pageBackgroundImagePaths,
-        );
+    final normalizedBackgroundPaths = await _backgroundImageStore
+        .normalizeSettingsPaths(_settings.pageBackgroundImagePaths);
     final normalizedBackgroundOpacities = Map<String, double>.from(
       _settings.pageBackgroundImageOpacities,
     )..removeWhere((key, _) => !normalizedBackgroundPaths.containsKey(key));
@@ -328,7 +325,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> ensureAnnouncementsLoaded() async {
-    if (_announcementsLoading || _announcements.isNotEmpty || _announcementsError != null) {
+    if (_announcementsLoading ||
+        _announcements.isNotEmpty ||
+        _announcementsError != null) {
       return;
     }
     await refreshAnnouncements(force: true);
@@ -1042,6 +1041,67 @@ class AppController extends ChangeNotifier {
 
   Future<List<RouteAlert>> getRouteAlerts(String routeId) {
     return repository.fetchRouteAlerts(routeId);
+  }
+
+  Set<String> readRouteAlertIdsForRoute(String routeId) {
+    final normalizedRouteId = routeId.trim();
+    if (normalizedRouteId.isEmpty) {
+      return const <String>{};
+    }
+    return _settings.readRouteAlerts
+        .where((entry) => entry.routeId == normalizedRouteId)
+        .map((entry) => entry.alertId)
+        .toSet();
+  }
+
+  Future<void> syncReadRouteAlertsForRoute(
+    String routeId, {
+    required Iterable<String> activeAlertIds,
+    Iterable<String> markAsReadAlertIds = const <String>[],
+  }) async {
+    final normalizedRouteId = routeId.trim();
+    if (normalizedRouteId.isEmpty) {
+      return;
+    }
+
+    final activeIds = activeAlertIds
+        .map((alertId) => alertId.trim())
+        .where((alertId) => alertId.isNotEmpty)
+        .toSet();
+    final readIdsToAdd = markAsReadAlertIds
+        .map((alertId) => alertId.trim())
+        .where((alertId) => alertId.isNotEmpty && activeIds.contains(alertId))
+        .toSet();
+
+    final nextReadRouteAlerts = <ReadRouteAlert>[];
+    final seenAlertIdsForRoute = <String>{};
+
+    for (final entry in _settings.readRouteAlerts) {
+      if (entry.routeId != normalizedRouteId) {
+        nextReadRouteAlerts.add(entry);
+        continue;
+      }
+      if (activeIds.contains(entry.alertId) &&
+          seenAlertIdsForRoute.add(entry.alertId)) {
+        nextReadRouteAlerts.add(entry);
+      }
+    }
+
+    for (final alertId in readIdsToAdd) {
+      if (seenAlertIdsForRoute.add(alertId)) {
+        nextReadRouteAlerts.add(
+          ReadRouteAlert(routeId: normalizedRouteId, alertId: alertId),
+        );
+      }
+    }
+
+    if (listEquals(_settings.readRouteAlerts, nextReadRouteAlerts)) {
+      return;
+    }
+
+    _settings = _settings.copyWith(readRouteAlerts: nextReadRouteAlerts);
+    await storage.saveSettings(_settings);
+    notifyListeners();
   }
 
   Future<List<NearbyStopResult>> getNearbyStops({

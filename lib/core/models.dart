@@ -315,6 +315,7 @@ class AppSettings {
     required this.provider,
     required this.selectedProviders,
     required this.skipDownloadPromptProviders,
+    required this.readRouteAlerts,
     required this.themeMode,
     required this.mobileMapProvider,
     required this.useAmoledDark,
@@ -348,6 +349,7 @@ class AppSettings {
       provider: BusProvider.tpe,
       selectedProviders: const [BusProvider.tpe],
       skipDownloadPromptProviders: const [],
+      readRouteAlerts: const [],
       themeMode: ThemeMode.system,
       mobileMapProvider: MobileMapProvider.googleMaps,
       useAmoledDark: false,
@@ -417,6 +419,17 @@ class AppSettings {
       provider: provider,
       selectedProviders: selectedProviders,
       skipDownloadPromptProviders: skipPromptProviders,
+      readRouteAlerts: ((json['read_alerts'] as List?) ?? const [])
+          .whereType<Map>()
+          .map(
+            (entry) => ReadRouteAlert.fromJson(
+              entry.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .where(
+            (entry) => entry.routeId.isNotEmpty && entry.alertId.isNotEmpty,
+          )
+          .toList(),
       themeMode: themeModeFromString(json['themeMode'] as String? ?? 'system'),
       mobileMapProvider: mobileMapProviderFromString(
         json['mobileMapProvider'] as String? ?? 'googleMaps',
@@ -487,6 +500,7 @@ class AppSettings {
   final BusProvider provider;
   final List<BusProvider> selectedProviders;
   final List<BusProvider> skipDownloadPromptProviders;
+  final List<ReadRouteAlert> readRouteAlerts;
   final ThemeMode themeMode;
   final MobileMapProvider mobileMapProvider;
   final bool useAmoledDark;
@@ -518,6 +532,7 @@ class AppSettings {
     BusProvider? provider,
     List<BusProvider>? selectedProviders,
     List<BusProvider>? skipDownloadPromptProviders,
+    List<ReadRouteAlert>? readRouteAlerts,
     ThemeMode? themeMode,
     MobileMapProvider? mobileMapProvider,
     bool? useAmoledDark,
@@ -551,6 +566,7 @@ class AppSettings {
       selectedProviders: selectedProviders ?? this.selectedProviders,
       skipDownloadPromptProviders:
           skipDownloadPromptProviders ?? this.skipDownloadPromptProviders,
+      readRouteAlerts: readRouteAlerts ?? this.readRouteAlerts,
       themeMode: themeMode ?? this.themeMode,
       mobileMapProvider: mobileMapProvider ?? this.mobileMapProvider,
       useAmoledDark: useAmoledDark ?? this.useAmoledDark,
@@ -604,6 +620,7 @@ class AppSettings {
       'skipDownloadPromptProviders': skipDownloadPromptProviders
           .map((item) => item.name)
           .toList(),
+      'read_alerts': readRouteAlerts.map((entry) => entry.toJson()).toList(),
       'themeMode': themeMode.name,
       'mobileMapProvider': mobileMapProvider.name,
       'useAmoledDark': useAmoledDark,
@@ -1519,6 +1536,34 @@ class RouteAlert {
       effect == 3 ||
       effect == 4 ||
       effect == 7;
+}
+
+class ReadRouteAlert {
+  const ReadRouteAlert({required this.routeId, required this.alertId});
+
+  factory ReadRouteAlert.fromJson(Map<String, dynamic> json) {
+    return ReadRouteAlert(
+      routeId: json['routeid']?.toString().trim() ?? '',
+      alertId: json['alertid']?.toString().trim() ?? '',
+    );
+  }
+
+  final String routeId;
+  final String alertId;
+
+  Map<String, dynamic> toJson() {
+    return {'routeid': routeId, 'alertid': alertId};
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is ReadRouteAlert &&
+        other.routeId == routeId &&
+        other.alertId == alertId;
+  }
+
+  @override
+  int get hashCode => Object.hash(routeId, alertId);
 }
 
 class RouteOperator {

@@ -33,4 +33,20 @@ void main() {
 
     expect(restored.mobileMapProvider, MobileMapProvider.osm);
   });
+
+  test('app settings persist read route alerts', () {
+    final settings = AppSettings.defaults().copyWith(
+      readRouteAlerts: const [
+        ReadRouteAlert(routeId: 'TPE123', alertId: 'alert-a'),
+        ReadRouteAlert(routeId: 'TPE123', alertId: 'alert-b'),
+      ],
+    );
+
+    final restored = AppSettings.fromJson(settings.toJson());
+
+    expect(restored.readRouteAlerts, const [
+      ReadRouteAlert(routeId: 'TPE123', alertId: 'alert-a'),
+      ReadRouteAlert(routeId: 'TPE123', alertId: 'alert-b'),
+    ]);
+  });
 }

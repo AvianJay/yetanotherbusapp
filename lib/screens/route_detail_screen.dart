@@ -105,7 +105,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int? _destinationStopId;
   String? _destinationStopName;
   List<RouteAlert> _alerts = const <RouteAlert>[];
-  static final Set<String> _shownAlertIds = <String>{};
   bool _alertsFetched = false;
   bool _alertsRead = false;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
@@ -306,15 +305,29 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final controller = AppControllerScope.read(context);
       final alerts = await controller.getRouteAlerts(routeId);
       if (!mounted) return;
+      final activeAlertIds = alerts
+          .map((alert) => alert.alertId.trim())
+          .where((alertId) => alertId.isNotEmpty)
+          .toSet();
+      await controller.syncReadRouteAlertsForRoute(
+        routeId,
+        activeAlertIds: activeAlertIds,
+      );
+      final readAlertIds = controller.readRouteAlertIdsForRoute(routeId);
+      final unseenAlerts = alerts
+          .where((alert) => !readAlertIds.contains(alert.alertId.trim()))
+          .toList();
       setState(() {
         _alerts = alerts;
-        if (alerts.isNotEmpty) _alertsRead = false;
+        _alertsRead = alerts.isEmpty || unseenAlerts.isEmpty;
       });
-      final unseenAlerts = alerts
-          .where((a) => !_shownAlertIds.contains(a.alertId))
-          .toList();
       if (unseenAlerts.isNotEmpty) {
-        _shownAlertIds.addAll(unseenAlerts.map((a) => a.alertId));
+        await controller.syncReadRouteAlertsForRoute(
+          routeId,
+          activeAlertIds: activeAlertIds,
+          markAsReadAlertIds: unseenAlerts.map((alert) => alert.alertId),
+        );
+        if (!mounted) return;
         setState(() {
           _alertsRead = true;
         });
@@ -323,6 +336,32 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     } catch (_) {
       // Silently ignore alert fetch errors.
     }
+  }
+
+  Future<void> _markCurrentRouteAlertsAsRead() async {
+    final routeId = _detail?.route.routeId.trim();
+    if (routeId == null || routeId.isEmpty || _alerts.isEmpty) {
+      return;
+    }
+    final controller = AppControllerScope.read(context);
+    await controller.syncReadRouteAlertsForRoute(
+      routeId,
+      activeAlertIds: _alerts.map((alert) => alert.alertId),
+      markAsReadAlertIds: _alerts.map((alert) => alert.alertId),
+    );
+  }
+
+  void _showRouteInfoDialog(RouteDetailData detail) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _RouteInfoDialog(
+          detail: detail,
+          alerts: _alerts,
+          repository: AppControllerScope.read(context).repository,
+        );
+      },
+    );
   }
 
   void _showAlertsDialog() {
@@ -3836,24 +3875,19 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             IconButton(
               onPressed: detail == null
                   ? null
-                  : () {
+                  : () async {
+                      if (_alerts.isNotEmpty) {
+                        await _markCurrentRouteAlertsAsRead();
+                      }
+                      if (!mounted) {
+                        return;
+                      }
                       if (_alerts.isNotEmpty && !_alertsRead) {
                         setState(() {
                           _alertsRead = true;
                         });
                       }
-                      showDialog<void>(
-                        context: context,
-                        builder: (dialogContext) {
-                          return _RouteInfoDialog(
-                            detail: detail,
-                            alerts: _alerts,
-                            repository: AppControllerScope.read(
-                              context,
-                            ).repository,
-                          );
-                        },
-                      );
+                      _showRouteInfoDialog(detail);
                     },
               icon: _alerts.isNotEmpty && !_alertsRead
                   ? const Badge(

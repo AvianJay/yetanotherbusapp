@@ -54,6 +54,10 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       messenger.showSnackBar(
         const SnackBar(content: Text('意見回饋已送出，感謝你幫助我們改進。')),
       );
+      if (!mounted) {
+        return;
+      }
+      Navigator.pop(context);
     } on AuthTokenExpiredException {
       await controller.logoutAuth();
       if (!mounted) {

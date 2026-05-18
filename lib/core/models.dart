@@ -1308,9 +1308,8 @@ String formatEtaBadgeText(String text) {
     return trimmed;
   }
 
-  final clockMatch = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(trimmed);
-  if (clockMatch != null) {
-    return '${clockMatch.group(1)}\n${clockMatch.group(2)}';
+  if (trimmed.contains(':')) {
+    return trimmed;
   }
 
   if (trimmed.length == 5) {

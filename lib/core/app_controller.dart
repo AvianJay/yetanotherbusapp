@@ -56,6 +56,7 @@ class AppController extends ChangeNotifier {
   List<SearchHistoryEntry> _history = const [];
   Map<String, List<FavoriteStop>> _favoriteGroups = const {};
   List<RouteUsageProfile> _routeUsageProfiles = const [];
+  List<FavoriteUsageProfile> _favoriteUsageProfiles = const [];
   bool _initialized = false;
   Map<BusProvider, bool> _databaseReadyByProvider = {
     for (final provider in BusProvider.values) provider: false,
@@ -96,6 +97,33 @@ class AppController extends ChangeNotifier {
             '${entry.lastOpenedAtMs}:'
             '${entry.totalSelections}:'
             '${entry.lastSelectedAtMs}',
+      )
+      .followedBy(
+        _favoriteUsageProfiles.map(
+          (entry) =>
+              '${entry.provider.name}:'
+              '${entry.routeKey}:'
+              '${entry.pathId}:'
+              '${entry.stopId}:'
+              '${entry.totalSelectionsAt()}:'
+              '${entry.lastSelectedAtMsAt()}',
+        ),
+      )
+      .followedBy(
+        _favoriteGroups.entries.expand(
+          (entry) => entry.value.map(
+            (favorite) =>
+                '${entry.key}:'
+                '${favorite.provider.name}:'
+                '${favorite.routeKey}:'
+                '${favorite.pathId}:'
+                '${favorite.stopId}:'
+                '${favorite.stopName ?? ''}:'
+                '${favorite.destinationPathId ?? 0}:'
+                '${favorite.destinationStopId ?? 0}:'
+                '${favorite.destinationStopName ?? ''}',
+          ),
+        ),
       )
       .join('|');
   bool get initialized => _initialized;
@@ -188,6 +216,7 @@ class AppController extends ChangeNotifier {
     _history = await storage.loadHistory();
     _favoriteGroups = await storage.loadFavoriteGroups();
     _routeUsageProfiles = await storage.loadRouteUsageProfiles();
+    _favoriteUsageProfiles = await storage.loadFavoriteUsageProfiles();
     await AndroidHomeIntegration.updateFavoriteWidgetAutoRefreshMinutes(
       _settings.favoriteWidgetAutoRefreshMinutes,
     );
@@ -1159,11 +1188,8 @@ class AppController extends ChangeNotifier {
 
   Future<void> clearRouteUsageProfiles() async {
     _routeUsageProfiles = const [];
-    await storage.saveRouteUsageProfiles(_routeUsageProfiles);
-    await AndroidHomeIntegration.syncSmartRouteNotifications(
-      _settings.enableSmartRouteNotifications,
-    );
-    notifyListeners();
+    _favoriteUsageProfiles = const [];
+    await _persistSmartRouteProfiles();
   }
 
   Future<void> clearRouteSelectionHistory() async {
@@ -1173,22 +1199,20 @@ class AppController extends ChangeNotifier {
             .where((profile) => profile.totalInteractions > 0)
             .toList()
           ..sort(_compareRouteUsageProfiles);
-    await storage.saveRouteUsageProfiles(_routeUsageProfiles);
-    await AndroidHomeIntegration.syncSmartRouteNotifications(
-      _settings.enableSmartRouteNotifications,
-    );
-    notifyListeners();
+    _favoriteUsageProfiles = const [];
+    await _persistSmartRouteProfiles();
   }
 
   Future<void> recordRouteSelection({
     required BusProvider provider,
     required int routeKey,
     required String routeName,
+    FavoriteStop? favorite,
     DateTime? selectedAt,
     String source = 'unknown',
   }) async {
     final timestamp = selectedAt ?? DateTime.now();
-    await _recordRouteActivity(
+    _routeUsageProfiles = _buildUpdatedRouteUsageProfiles(
       provider: provider,
       routeKey: routeKey,
       record: (profile) =>
@@ -1204,6 +1228,19 @@ class AppController extends ChangeNotifier {
         hourlySelections: <int, int>{timestamp.hour: 1},
       ),
     );
+    final selectedFavorite =
+        favorite != null &&
+            favorite.provider == provider &&
+            favorite.routeKey == routeKey
+        ? favorite
+        : null;
+    if (selectedFavorite != null) {
+      _favoriteUsageProfiles = _buildUpdatedFavoriteUsageProfiles(
+        selectedFavorite,
+        timestamp,
+      );
+    }
+    await _persistSmartRouteProfiles();
     await analytics.logRouteSelected(
       provider: provider,
       routeKey: routeKey,
@@ -1217,7 +1254,7 @@ class AppController extends ChangeNotifier {
     DateTime? openedAt,
   }) async {
     final timestamp = openedAt ?? DateTime.now();
-    await _recordRouteActivity(
+    _routeUsageProfiles = _buildUpdatedRouteUsageProfiles(
       provider: provider,
       routeKey: route.routeKey,
       record: (profile) =>
@@ -1231,15 +1268,16 @@ class AppController extends ChangeNotifier {
         hourlyOpens: <int, int>{timestamp.hour: 1},
       ),
     );
+    await _persistSmartRouteProfiles();
     await analytics.logRouteVisit(provider: provider, routeKey: route.routeKey);
   }
 
-  Future<void> _recordRouteActivity({
+  List<RouteUsageProfile> _buildUpdatedRouteUsageProfiles({
     required BusProvider provider,
     required int routeKey,
     required RouteUsageProfile Function(RouteUsageProfile profile) record,
     required RouteUsageProfile Function() create,
-  }) async {
+  }) {
     final next = <RouteUsageProfile>[];
     var found = false;
 
@@ -1257,12 +1295,39 @@ class AppController extends ChangeNotifier {
     }
 
     next.sort(_compareRouteUsageProfiles);
-    _routeUsageProfiles = next;
-    await storage.saveRouteUsageProfiles(_routeUsageProfiles);
-    await AndroidHomeIntegration.syncSmartRouteNotifications(
-      _settings.enableSmartRouteNotifications,
-    );
-    notifyListeners();
+    return next;
+  }
+
+  List<FavoriteUsageProfile> _buildUpdatedFavoriteUsageProfiles(
+    FavoriteStop favorite,
+    DateTime timestamp,
+  ) {
+    final next = <FavoriteUsageProfile>[];
+    var found = false;
+
+    for (final profile in _favoriteUsageProfiles) {
+      if (profile.matchesFavorite(favorite)) {
+        next.add(profile.recordSelection(timestamp));
+        found = true;
+      } else {
+        next.add(profile);
+      }
+    }
+
+    if (!found) {
+      next.add(
+        FavoriteUsageProfile(
+          provider: favorite.provider,
+          routeKey: favorite.routeKey,
+          pathId: favorite.pathId,
+          stopId: favorite.stopId,
+          selectionTimestampsMs: <int>[timestamp.millisecondsSinceEpoch],
+        ),
+      );
+    }
+
+    next.sort(_compareFavoriteUsageProfiles);
+    return next;
   }
 
   int _compareRouteUsageProfiles(
@@ -1286,6 +1351,29 @@ class AppController extends ChangeNotifier {
     return right.totalOpens.compareTo(left.totalOpens);
   }
 
+  int _compareFavoriteUsageProfiles(
+    FavoriteUsageProfile left,
+    FavoriteUsageProfile right,
+  ) {
+    final totalCompare = right.totalSelectionsAt().compareTo(
+      left.totalSelectionsAt(),
+    );
+    if (totalCompare != 0) {
+      return totalCompare;
+    }
+
+    return right.lastSelectedAtMsAt().compareTo(left.lastSelectedAtMsAt());
+  }
+
+  Future<void> _persistSmartRouteProfiles() async {
+    await storage.saveRouteUsageProfiles(_routeUsageProfiles);
+    await storage.saveFavoriteUsageProfiles(_favoriteUsageProfiles);
+    await AndroidHomeIntegration.syncSmartRouteNotifications(
+      _settings.enableSmartRouteNotifications,
+    );
+    notifyListeners();
+  }
+
   Future<SmartRouteSuggestion?> getSmartRouteSuggestion({
     DateTime? now,
     Position? position,
@@ -1301,6 +1389,12 @@ class AppController extends ChangeNotifier {
       profiles: _routeUsageProfiles.where(
         (entry) => entry.provider == _settings.provider,
       ),
+      favoriteProfiles: _favoriteUsageProfiles.where(
+        (entry) => entry.provider == _settings.provider,
+      ),
+      favorites: _favoriteGroups.values
+          .expand((group) => group)
+          .where((favorite) => favorite.provider == _settings.provider),
       now: now ?? DateTime.now(),
       position: position,
     );

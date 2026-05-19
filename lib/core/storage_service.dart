@@ -12,6 +12,7 @@ class StorageService {
   static const _historyKey = 'search_history';
   static const _favoritesKey = 'favorite_groups';
   static const _routeUsageProfilesKey = 'route_usage_profiles';
+  static const _favoriteUsageProfilesKey = 'favorite_usage_profiles';
   static const _announcementLocalStateKey = 'announcement_local_state';
 
   Future<void> migrateLegacyApiDataIfNeeded() async {
@@ -26,6 +27,7 @@ class StorageService {
     await prefs.remove(_favoritesKey);
     await prefs.remove('tracked_buses');
     await prefs.remove(_routeUsageProfilesKey);
+    await prefs.remove(_favoriteUsageProfilesKey);
     await prefs.setInt(_schemaVersionKey, _currentSchemaVersion);
   }
 
@@ -153,6 +155,42 @@ class StorageService {
     );
   }
 
+  Future<List<FavoriteUsageProfile>> loadFavoriteUsageProfiles() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_favoriteUsageProfilesKey);
+    if (raw == null || raw.isEmpty) {
+      return const [];
+    }
+
+    try {
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded
+          .whereType<Map>()
+          .map(
+            (entry) => FavoriteUsageProfile.fromJson(
+              entry.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .where(
+            (entry) =>
+                entry.routeKey > 0 && entry.pathId >= 0 && entry.stopId > 0,
+          )
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> saveFavoriteUsageProfiles(
+    List<FavoriteUsageProfile> profiles,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _favoriteUsageProfilesKey,
+      jsonEncode(profiles.map((entry) => entry.toJson()).toList()),
+    );
+  }
+
   Future<AnnouncementLocalState> loadAnnouncementLocalState() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_announcementLocalStateKey);
@@ -168,9 +206,7 @@ class StorageService {
     }
   }
 
-  Future<void> saveAnnouncementLocalState(
-    AnnouncementLocalState state,
-  ) async {
+  Future<void> saveAnnouncementLocalState(AnnouncementLocalState state) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _announcementLocalStateKey,

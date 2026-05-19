@@ -765,6 +765,122 @@ class FavoriteStop {
   }
 }
 
+class FavoriteUsageProfile {
+  static const Duration selectionHistoryRetention = Duration(days: 7);
+
+  const FavoriteUsageProfile({
+    required this.provider,
+    required this.routeKey,
+    required this.pathId,
+    required this.stopId,
+    this.selectionTimestampsMs = const <int>[],
+  });
+
+  factory FavoriteUsageProfile.fromJson(Map<String, dynamic> json) {
+    return FavoriteUsageProfile(
+      provider: busProviderFromString(json['provider'] as String? ?? 'tpe'),
+      routeKey: (json['routeKey'] as num?)?.toInt() ?? 0,
+      pathId: (json['pathId'] as num?)?.toInt() ?? 0,
+      stopId: (json['stopId'] as num?)?.toInt() ?? 0,
+      selectionTimestampsMs: _decodeRecentSelectionTimestamps(
+        json['selectionTimestampsMs'],
+      ),
+    );
+  }
+
+  final BusProvider provider;
+  final int routeKey;
+  final int pathId;
+  final int stopId;
+  final List<int> selectionTimestampsMs;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'provider': provider.name,
+      'routeKey': routeKey,
+      'pathId': pathId,
+      'stopId': stopId,
+      'selectionTimestampsMs': selectionTimestampsWithin(),
+    };
+  }
+
+  int totalSelectionsAt({DateTime? now}) =>
+      selectionTimestampsWithin(now: now).length;
+
+  int lastSelectedAtMsAt({DateTime? now}) {
+    final timestamps = selectionTimestampsWithin(now: now);
+    return timestamps.isEmpty ? 0 : timestamps.last;
+  }
+
+  int selectionCountAtHour(int hour, {DateTime? now}) {
+    var count = 0;
+    for (final timestamp in selectionTimestampsWithin(now: now)) {
+      if (DateTime.fromMillisecondsSinceEpoch(timestamp).hour == hour) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  List<int> selectionTimestampsWithin({DateTime? now}) {
+    if (selectionTimestampsMs.isEmpty) {
+      return const <int>[];
+    }
+    final referenceTime = now ?? DateTime.now();
+    final cutoffMs = referenceTime
+        .subtract(selectionHistoryRetention)
+        .millisecondsSinceEpoch;
+    final pruned =
+        selectionTimestampsMs
+            .where((timestamp) => timestamp >= cutoffMs)
+            .toList()
+          ..sort();
+    return pruned;
+  }
+
+  FavoriteUsageProfile recordSelection(DateTime selectedAt) {
+    final nextSelectionTimestamps = <int>[
+      ...selectionTimestampsWithin(now: selectedAt),
+      selectedAt.millisecondsSinceEpoch,
+    ]..sort();
+    return FavoriteUsageProfile(
+      provider: provider,
+      routeKey: routeKey,
+      pathId: pathId,
+      stopId: stopId,
+      selectionTimestampsMs: nextSelectionTimestamps,
+    );
+  }
+
+  bool matchesRoute(RouteUsageProfile profile) {
+    return provider == profile.provider && routeKey == profile.routeKey;
+  }
+
+  bool matchesFavorite(FavoriteStop favorite) {
+    return provider == favorite.provider &&
+        routeKey == favorite.routeKey &&
+        pathId == favorite.pathId &&
+        stopId == favorite.stopId;
+  }
+
+  static List<int> _decodeRecentSelectionTimestamps(Object? rawTimestamps) {
+    if (rawTimestamps is! List) {
+      return const <int>[];
+    }
+    final cutoffMs = DateTime.now()
+        .subtract(selectionHistoryRetention)
+        .millisecondsSinceEpoch;
+    final timestamps =
+        rawTimestamps
+            .whereType<num>()
+            .map((value) => value.toInt())
+            .where((timestamp) => timestamp >= cutoffMs)
+            .toList()
+          ..sort();
+    return timestamps;
+  }
+}
+
 class RouteUsageProfile {
   static const Duration selectionHistoryRetention = Duration(days: 7);
 
@@ -1002,6 +1118,9 @@ class SmartRouteSuggestion {
     this.nearestStop,
     this.nearestPath,
     this.distanceMeters,
+    this.favorite,
+    this.favoriteStop,
+    this.favoritePath,
   });
 
   final RouteUsageProfile profile;
@@ -1011,6 +1130,12 @@ class SmartRouteSuggestion {
   final StopInfo? nearestStop;
   final PathInfo? nearestPath;
   final double? distanceMeters;
+  final FavoriteStop? favorite;
+  final StopInfo? favoriteStop;
+  final PathInfo? favoritePath;
+
+  StopInfo? get recommendedStop => favoriteStop ?? nearestStop;
+  PathInfo? get recommendedPath => favoritePath ?? nearestPath;
 }
 
 class RouteSummary {

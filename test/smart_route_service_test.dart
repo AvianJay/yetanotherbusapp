@@ -142,11 +142,15 @@ void main() {
       routeKey: 202,
       routeName: '綠3',
       totalOpens: 3,
-      lastOpenedAtMs: now.subtract(const Duration(days: 1)).millisecondsSinceEpoch,
+      lastOpenedAtMs: now
+          .subtract(const Duration(days: 1))
+          .millisecondsSinceEpoch,
       hourlyOpens: const <int, int>{9: 3},
       selectionTimestampsMs: <int>[
         now.subtract(const Duration(days: 8)).millisecondsSinceEpoch,
-        now.subtract(const Duration(days: 8, minutes: 5)).millisecondsSinceEpoch,
+        now
+            .subtract(const Duration(days: 8, minutes: 5))
+            .millisecondsSinceEpoch,
       ],
     );
 
@@ -175,5 +179,138 @@ void main() {
     ], DateTime(2026, 4, 4, 7, 10));
 
     expect(result, isNull);
+  });
+
+  test(
+    'chooseFavoriteForRoute prefers the favorite used in this time window',
+    () {
+      final now = DateTime(2026, 4, 4, 18, 15);
+      final routeProfile = RouteUsageProfile(
+        provider: BusProvider.nwt,
+        routeKey: 12,
+        routeName: '307',
+        totalOpens: 6,
+        lastOpenedAtMs: now
+            .subtract(const Duration(hours: 1))
+            .millisecondsSinceEpoch,
+        hourlyOpens: const <int, int>{18: 4, 17: 1, 19: 1},
+      );
+      final eveningFavoriteProfile = FavoriteUsageProfile(
+        provider: BusProvider.nwt,
+        routeKey: 12,
+        pathId: 1,
+        stopId: 1001,
+        selectionTimestampsMs: <int>[
+          now.subtract(const Duration(days: 1)).millisecondsSinceEpoch,
+          now
+              .subtract(const Duration(days: 2, minutes: 10))
+              .millisecondsSinceEpoch,
+        ],
+      );
+      final morningFavoriteProfile = FavoriteUsageProfile(
+        provider: BusProvider.nwt,
+        routeKey: 12,
+        pathId: 2,
+        stopId: 2002,
+        selectionTimestampsMs: <int>[
+          DateTime(2026, 4, 4, 7, 20).millisecondsSinceEpoch,
+          DateTime(2026, 4, 3, 7, 10).millisecondsSinceEpoch,
+          DateTime(2026, 4, 2, 7, 0).millisecondsSinceEpoch,
+        ],
+      );
+
+      final result = SmartRouteService.chooseFavoriteForRoute(
+        routeProfile: routeProfile,
+        favoriteProfiles: [eveningFavoriteProfile, morningFavoriteProfile],
+        favorites: const [
+          FavoriteStop(
+            provider: BusProvider.nwt,
+            routeKey: 12,
+            pathId: 1,
+            stopId: 1001,
+            destinationPathId: 1,
+            destinationStopId: 1010,
+            destinationStopName: '市政府',
+          ),
+          FavoriteStop(
+            provider: BusProvider.nwt,
+            routeKey: 12,
+            pathId: 2,
+            stopId: 2002,
+            destinationPathId: 2,
+            destinationStopId: 2020,
+            destinationStopName: '捷運站',
+          ),
+        ],
+        now: now,
+      );
+
+      expect(result?.pathId, 1);
+      expect(result?.stopId, 1001);
+      expect(result?.destinationStopId, 1010);
+    },
+  );
+
+  test('buildSuggestion promotes matched favorite stop', () {
+    const profile = RouteUsageProfile(
+      provider: BusProvider.nwt,
+      routeKey: 12,
+      routeName: '307',
+      totalOpens: 5,
+      lastOpenedAtMs: 1712000000000,
+      hourlyOpens: <int, int>{18: 5},
+    );
+    const favorite = FavoriteStop(
+      provider: BusProvider.nwt,
+      routeKey: 12,
+      pathId: 1,
+      stopId: 1001,
+      destinationPathId: 1,
+      destinationStopId: 1010,
+      destinationStopName: '市政府',
+    );
+    const detail = RouteDetailData(
+      route: RouteSummary(
+        sourceProvider: 'nwt',
+        hashMd5: '',
+        routeKey: 12,
+        routeId: '307',
+        routeName: '307',
+        officialRouteName: '307',
+        description: '忠孝幹線',
+        category: '',
+        sequence: 0,
+        rtrip: 0,
+      ),
+      paths: [PathInfo(routeKey: 12, pathId: 1, name: '往市政府')],
+      stopsByPath: {
+        1: [
+          StopInfo(
+            routeKey: 12,
+            pathId: 1,
+            stopId: 1001,
+            stopName: '捷運國父紀念館站',
+            sequence: 1,
+            lon: 121.553,
+            lat: 25.041,
+            sec: 120,
+          ),
+        ],
+      },
+      hasLiveData: true,
+    );
+
+    final suggestion = SmartRouteService.buildSuggestion(
+      profile: profile,
+      score: 12,
+      reason: '根據使用習慣。',
+      detail: detail,
+      favorite: favorite,
+    );
+
+    expect(suggestion.favorite?.stopId, 1001);
+    expect(suggestion.favorite?.destinationStopId, 1010);
+    expect(suggestion.recommendedStop?.stopId, 1001);
+    expect(suggestion.recommendedPath?.pathId, 1);
   });
 }

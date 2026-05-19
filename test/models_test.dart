@@ -49,4 +49,23 @@ void main() {
       ReadRouteAlert(routeId: 'TPE123', alertId: 'alert-b'),
     ]);
   });
+
+  test('favorite usage profile prunes entries older than seven days', () {
+    final now = DateTime(2026, 4, 10, 18, 10);
+    final profile = FavoriteUsageProfile(
+      provider: BusProvider.nwt,
+      routeKey: 12,
+      pathId: 1,
+      stopId: 1001,
+      selectionTimestampsMs: <int>[
+        now.subtract(const Duration(days: 8)).millisecondsSinceEpoch,
+        now.subtract(const Duration(days: 2)).millisecondsSinceEpoch,
+      ],
+    );
+
+    final updated = profile.recordSelection(now);
+
+    expect(updated.totalSelectionsAt(now: now), 2);
+    expect(updated.selectionCountAtHour(18, now: now), 2);
+  });
 }

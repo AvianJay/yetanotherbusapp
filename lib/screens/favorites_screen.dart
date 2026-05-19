@@ -703,6 +703,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   provider: item.reference.provider,
                   routeKey: item.reference.routeKey,
                   routeName: item.route.routeName,
+                  favorite: item.reference,
                   source: 'favorite',
                 );
                 if (!context.mounted) {
@@ -717,8 +718,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   initialPathId: item.reference.pathId,
                   initialStopId: item.reference.stopId,
                   initialDestinationPathId: item.reference.destinationPathId,
-                  initialDestinationStopId:
-                      item.reference.destinationStopId,
+                  initialDestinationStopId: item.reference.destinationStopId,
                 );
               },
             ),

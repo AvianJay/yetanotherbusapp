@@ -215,7 +215,8 @@ class HomeScreen extends StatelessWidget {
             onPressed: () {
               Navigator.of(context).pushNamed(AppRoutes.announcements);
             },
-            icon: controller.announcementsLoading &&
+            icon:
+                controller.announcementsLoading &&
                     controller.announcements.isEmpty
                 ? const SizedBox.square(
                     dimension: 20,
@@ -298,7 +299,10 @@ class _WebPwaInstallButton extends StatelessWidget {
             children: [
               Text('把 YABus 安裝成應用程式，之後就能像一般應用程式一樣開啟。'),
               SizedBox(height: 12),
-              Text('功能會比原版應用程式少就是了', style: TextStyle(decoration: TextDecoration.lineThrough),),
+              Text(
+                '功能會比原版應用程式少就是了',
+                style: TextStyle(decoration: TextDecoration.lineThrough),
+              ),
             ],
           ),
           actions: [
@@ -326,13 +330,9 @@ class _WebPwaInstallButton extends StatelessWidget {
     final messenger = ScaffoldMessenger.maybeOf(context);
     switch (outcome) {
       case PwaInstallPromptOutcome.accepted:
-        messenger?.showSnackBar(
-          const SnackBar(content: Text('已送出安裝要求。')),
-        );
+        messenger?.showSnackBar(const SnackBar(content: Text('已送出安裝要求。')));
       case PwaInstallPromptOutcome.dismissed:
-        messenger?.showSnackBar(
-          const SnackBar(content: Text('已取消安裝。')),
-        );
+        messenger?.showSnackBar(const SnackBar(content: Text('已取消安裝。')));
       case PwaInstallPromptOutcome.unavailable:
         messenger?.showSnackBar(
           const SnackBar(content: Text('這個裝置目前無法顯示安裝提示。')),
@@ -466,8 +466,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
 
     // Smart route suggestions require local database for usage profiles.
     // On web (or when DB not ready), skip to nearby fallback if location is available.
-    if (controller.databaseReady &&
-        controller.routeUsageProfiles.isNotEmpty) {
+    if (controller.databaseReady && controller.routeUsageProfiles.isNotEmpty) {
       final position = await _resolvePosition();
       final suggestion = await controller.getSmartRouteSuggestion(
         position: position,
@@ -518,12 +517,14 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
 
   Future<void> _openSuggestion(SmartRouteSuggestion suggestion) async {
     final controller = widget.controller;
-    final pathId = suggestion.nearestPath?.pathId;
-    final stopId = suggestion.nearestStop?.stopId;
+    final favorite = suggestion.favorite;
+    final pathId = suggestion.recommendedPath?.pathId;
+    final stopId = suggestion.recommendedStop?.stopId;
     await controller.recordRouteSelection(
       provider: suggestion.profile.provider,
       routeKey: suggestion.profile.routeKey,
       routeName: suggestion.profile.routeName,
+      favorite: favorite,
       source: 'smart_suggestion',
     );
     if (!mounted) {
@@ -535,12 +536,16 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       provider: suggestion.profile.provider,
       initialPathId: pathId,
       initialStopId: stopId,
+      initialDestinationPathId: favorite?.destinationPathId,
+      initialDestinationStopId: favorite?.destinationStopId,
     );
   }
 
   Future<void> _openNearbyFallback(_NearbyFallbackData nearby) async {
     final controller = widget.controller;
-    final routeProvider = busProviderFromString(nearby.result.route.sourceProvider);
+    final routeProvider = busProviderFromString(
+      nearby.result.route.sourceProvider,
+    );
     await controller.recordRouteSelection(
       provider: routeProvider,
       routeKey: nearby.result.route.routeKey,
@@ -686,7 +691,16 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   ) {
     final controller = widget.controller;
     final theme = Theme.of(context);
-    final nearestStop = suggestion.nearestStop;
+    final recommendedStop = suggestion.recommendedStop;
+    final favorite = suggestion.favorite;
+    final destinationLabel =
+        favorite?.destinationStopName?.trim().isNotEmpty == true
+        ? favorite!.destinationStopName!.trim()
+        : favorite?.destinationStopId == null
+        ? null
+        : '目的地站牌 ${favorite!.destinationStopId}';
+    final showDistance =
+        suggestion.favoriteStop == null && suggestion.distanceMeters != null;
     // ignore: unused_local_variable
     final preferredHourLabel = suggestion.profile.preferredHour
         .toString()
@@ -733,35 +747,56 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                   //   ),
                   // ],
                   const SizedBox(height: 10),
-                  if (nearestStop != null)
+                  if (recommendedStop != null)
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.gps_fixed_rounded, size: 18),
+                        Icon(
+                          favorite == null
+                              ? Icons.gps_fixed_rounded
+                              : Icons.favorite_rounded,
+                          size: 18,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                nearestStop.stopName,
+                                recommendedStop.stopName,
                                 style: theme.textTheme.titleMedium,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                suggestion.distanceMeters == null
-                                    ? ''
-                                    : '距離你約 ${formatDistance(suggestion.distanceMeters!)}。',
-                                style: theme.textTheme.bodySmall,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                              if (destinationLabel != null) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  '目的地：$destinationLabel',
+                                  style: theme.textTheme.bodySmall,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                              if (showDistance) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  '距離你約 ${formatDistance(suggestion.distanceMeters!)}。',
+                                  style: theme.textTheme.bodySmall,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
                             ],
                           ),
                         ),
                       ],
+                    )
+                  else if (destinationLabel != null)
+                    Text(
+                      '目的地：$destinationLabel',
+                      style: theme.textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     )
                   else
                     Text('', style: theme.textTheme.bodySmall),
@@ -772,9 +807,9 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                if (nearestStop != null)
+                if (recommendedStop != null)
                   EtaBadge(
-                    stop: nearestStop,
+                    stop: recommendedStop,
                     alwaysShowSeconds: controller.settings.alwaysShowSeconds,
                     size: 64,
                   ),
@@ -1106,10 +1141,7 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
                     children: [
                       Text('附近地圖', style: theme.textTheme.headlineSmall),
                       const SizedBox(height: 6),
-                      Text(
-                        '今天想去哪搭公車？',
-                        style: theme.textTheme.bodyMedium,
-                      ),
+                      Text('今天想去哪搭公車？', style: theme.textTheme.bodyMedium),
                     ],
                   ),
                 ),

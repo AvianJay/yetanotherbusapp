@@ -126,8 +126,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 //     ),
                 //   ),
                 // ),
-                const SizedBox(height: 12),
                 if (!controller.isAuthenticated) ...[
+                  const SizedBox(height: 12),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(18),

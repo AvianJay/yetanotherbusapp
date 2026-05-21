@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'announcement_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'account_sync_models.dart';
 import 'models.dart';
 
 class StorageService {
@@ -14,6 +15,10 @@ class StorageService {
   static const _routeUsageProfilesKey = 'route_usage_profiles';
   static const _favoriteUsageProfilesKey = 'favorite_usage_profiles';
   static const _announcementLocalStateKey = 'announcement_local_state';
+  static const _settingsLastModifiedAtKey = 'app_settings_last_modified_at_ms';
+  static const _favoritesLastModifiedAtKey =
+      'favorite_groups_last_modified_at_ms';
+  static const _accountSyncStateKeyPrefix = 'account_sync_state';
 
   Future<void> migrateLegacyApiDataIfNeeded() async {
     final prefs = await SharedPreferences.getInstance();
@@ -46,9 +51,13 @@ class StorageService {
     }
   }
 
-  Future<void> saveSettings(AppSettings settings) async {
+  Future<void> saveSettings(AppSettings settings, {int? modifiedAtMs}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_settingsKey, jsonEncode(settings.toJson()));
+    await prefs.setInt(
+      _settingsLastModifiedAtKey,
+      modifiedAtMs ?? DateTime.now().millisecondsSinceEpoch,
+    );
   }
 
   Future<List<SearchHistoryEntry>> loadHistory() async {
@@ -114,14 +123,19 @@ class StorageService {
   }
 
   Future<void> saveFavoriteGroups(
-    Map<String, List<FavoriteStop>> favoriteGroups,
-  ) async {
+    Map<String, List<FavoriteStop>> favoriteGroups, {
+    int? modifiedAtMs,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final payload = favoriteGroups.map(
       (key, value) =>
           MapEntry(key, value.map((item) => item.toJson()).toList()),
     );
     await prefs.setString(_favoritesKey, jsonEncode(payload));
+    await prefs.setInt(
+      _favoritesLastModifiedAtKey,
+      modifiedAtMs ?? DateTime.now().millisecondsSinceEpoch,
+    );
   }
 
   Future<List<RouteUsageProfile>> loadRouteUsageProfiles() async {
@@ -212,5 +226,47 @@ class StorageService {
       _announcementLocalStateKey,
       jsonEncode(state.toJson()),
     );
+  }
+
+  Future<int?> loadSettingsLastModifiedAtMs() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_settingsLastModifiedAtKey);
+  }
+
+  Future<int?> loadFavoriteGroupsLastModifiedAtMs() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_favoritesLastModifiedAtKey);
+  }
+
+  Future<AccountSyncLocalState> loadAccountSyncLocalState(
+    String accountId,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_accountSyncStateKey(accountId));
+    if (raw == null || raw.isEmpty) {
+      return AccountSyncLocalState.empty();
+    }
+
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      return AccountSyncLocalState.fromJson(decoded);
+    } catch (_) {
+      return AccountSyncLocalState.empty();
+    }
+  }
+
+  Future<void> saveAccountSyncLocalState(
+    String accountId,
+    AccountSyncLocalState state,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _accountSyncStateKey(accountId),
+      jsonEncode(state.toJson()),
+    );
+  }
+
+  String _accountSyncStateKey(String accountId) {
+    return '$_accountSyncStateKeyPrefix:${accountId.trim()}';
   }
 }

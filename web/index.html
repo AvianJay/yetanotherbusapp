@@ -200,6 +200,14 @@
         }).catch(function (err) {
           console.warn('[YABus] Service Worker registration failed:', err);
         });
+
+        navigator.serviceWorker.register('firebase-messaging-sw.js', {
+          scope: '/firebase-cloud-messaging-push-scope',
+        }).then(function (reg) {
+          console.log('[YABus] Firebase messaging SW registered, scope:', reg.scope);
+        }).catch(function (err) {
+          console.warn('[YABus] Firebase messaging SW registration failed:', err);
+        });
       });
     }
   </script>

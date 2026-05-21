@@ -13,4 +13,17 @@ void main() {
     expect(AppRoutes.normalize('feedback'), AppRoutes.feedback);
     expect(AppRoutes.normalize('feedbacks'), AppRoutes.feedback);
   });
+
+  test('parseAppRoute recognizes announcement detail route', () {
+    final intent = parseAppRoute('/announcement/test-announcement');
+
+    expect(intent.kind, AppRouteKind.announcementDetail);
+    expect(intent.announcementId, 'test-announcement');
+    expect(
+      intent.location,
+      AppRoutes.normalize(
+        AppRoutes.announcementDetailPath('test-announcement'),
+      ),
+    );
+  });
 }

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/announcement_models.dart';
+import '../core/announcement_push_service.dart';
 import '../core/app_controller.dart';
 import '../core/app_analytics.dart';
 import '../core/app_routes.dart';
@@ -323,8 +324,10 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   bool _announcementCheckScheduled = false;
   bool _showingAnnouncementPopup = false;
   AppLaunchAction? _pendingLaunchAction;
+  String? _pendingAnnouncementOpenId;
   final Set<String> _deferredAnnouncementPopupIds = <String>{};
   StreamSubscription<AppLaunchAction>? _launchSubscription;
+  StreamSubscription<String>? _announcementOpenSubscription;
   StreamSubscription<web_update.WebUpdateCheckResult>? _webUpdateSubscription;
 
   @override
@@ -333,10 +336,19 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     unawaited(AndroidHomeIntegration.setApplicationInForeground(true));
     _pendingLaunchAction = AppLaunchService.instance.takePendingInitialAction();
+    _pendingAnnouncementOpenId = AnnouncementPushService.instance
+        .takePendingAnnouncementId();
     _launchSubscription = AppLaunchService.instance.actions.listen((action) {
       _pendingLaunchAction = action;
       _maybeScheduleLaunchAction();
     });
+    _announcementOpenSubscription = AnnouncementPushService
+        .instance
+        .announcementOpens
+        .listen((announcementId) {
+          _pendingAnnouncementOpenId = announcementId;
+          _maybeScheduleAnnouncementOpen();
+        });
     _scheduleIOSWidgetSync();
     _initWebUpdateChecker();
   }
@@ -374,6 +386,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
     unawaited(desktopDiscordPresenceService.dispose());
     WidgetsBinding.instance.removeObserver(this);
     _launchSubscription?.cancel();
+    _announcementOpenSubscription?.cancel();
     _webUpdateSubscription?.cancel();
     super.dispose();
   }
@@ -398,6 +411,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
     super.didChangeDependencies();
     _maybeScheduleStartupCheck();
     _maybeScheduleLaunchAction();
+    _maybeScheduleAnnouncementOpen();
     _maybeScheduleAnnouncementChecks();
   }
 
@@ -406,6 +420,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
     super.didUpdateWidget(oldWidget);
     _maybeScheduleStartupCheck();
     _maybeScheduleLaunchAction();
+    _maybeScheduleAnnouncementOpen();
     _maybeScheduleAnnouncementChecks();
   }
 
@@ -448,6 +463,17 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _consumeLaunchAction();
+    });
+  }
+
+  void _maybeScheduleAnnouncementOpen() {
+    if (_pendingAnnouncementOpenId == null ||
+        widget.controller.needsOnboarding) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_consumeAnnouncementOpen());
     });
   }
 
@@ -515,6 +541,22 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
         unawaited(_maybeShowAnnouncementPopup());
       });
     }
+  }
+
+  Future<void> _consumeAnnouncementOpen() async {
+    final announcementId = _pendingAnnouncementOpenId;
+    if (!mounted || announcementId == null || announcementId.isEmpty) {
+      return;
+    }
+    _pendingAnnouncementOpenId = null;
+
+    await widget.controller.refreshAnnouncements(force: true);
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(
+      context,
+    ).pushNamed(AppRoutes.announcementDetailPath(announcementId));
   }
 
   Future<void> _consumeLaunchAction() async {

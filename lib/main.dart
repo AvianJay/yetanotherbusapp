@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import 'app/bus_app.dart';
+import 'core/announcement_push_service.dart';
 import 'core/app_controller.dart';
 import 'core/app_analytics.dart';
 import 'core/app_build_info.dart';
@@ -35,6 +38,7 @@ Future<void> main(List<String> args) async {
     );
     await controller.initialize();
     runApp(BusApp(controller: controller, analytics: analytics));
+    unawaited(AnnouncementPushService.instance.initialize());
   } catch (error) {
     runApp(_StartupErrorApp(error: '$error'));
   } finally {

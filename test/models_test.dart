@@ -71,22 +71,25 @@ void main() {
   });
 
   test('account sync local state preserves namespace metadata', () {
-    final state = AccountSyncLocalState.empty().copyWithNamespace(
-      AccountSyncNamespace.preferences,
-      const AccountSyncNamespaceLocalState(
-        lastSuccessfulSyncAtMs: 1716000000000,
-        lastSyncedLocalModifiedAtMs: 1716000000000,
-        lastSyncedServerRevision: 4,
-        lastSyncedServerEtag: '"etag"',
-        lastSyncedServerUpdatedAt: '2026-05-21T10:00:00Z',
-        preservedPayload: {
-          'appearance': {'themeMode': 'dark'},
-        },
-      ),
-    );
+    final state = AccountSyncLocalState.empty()
+        .copyWith(syncEnabled: true)
+        .copyWithNamespace(
+          AccountSyncNamespace.preferences,
+          const AccountSyncNamespaceLocalState(
+            lastSuccessfulSyncAtMs: 1716000000000,
+            lastSyncedLocalModifiedAtMs: 1716000000000,
+            lastSyncedServerRevision: 4,
+            lastSyncedServerEtag: '"etag"',
+            lastSyncedServerUpdatedAt: '2026-05-21T10:00:00Z',
+            preservedPayload: {
+              'appearance': {'themeMode': 'dark'},
+            },
+          ),
+        );
 
     final restored = AccountSyncLocalState.fromJson(state.toJson());
 
+    expect(restored.syncEnabled, isTrue);
     expect(restored.preferences.lastSyncedServerRevision, 4);
     expect(
       restored.preferences.preservedPayload?['appearance']['themeMode'],

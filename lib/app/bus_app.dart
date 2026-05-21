@@ -322,7 +322,9 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   bool _startupCheckScheduled = false;
   bool _widgetSyncScheduled = false;
   bool _announcementCheckScheduled = false;
+  bool _accountSyncPromptScheduled = false;
   bool _showingAnnouncementPopup = false;
+  bool _showingAccountSyncPrompt = false;
   AppLaunchAction? _pendingLaunchAction;
   String? _pendingAnnouncementOpenId;
   final Set<String> _deferredAnnouncementPopupIds = <String>{};
@@ -334,6 +336,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.controller.addListener(_handleControllerChanged);
     unawaited(AndroidHomeIntegration.setApplicationInForeground(true));
     _pendingLaunchAction = AppLaunchService.instance.takePendingInitialAction();
     _pendingAnnouncementOpenId = AnnouncementPushService.instance
@@ -385,6 +388,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
     unawaited(AndroidHomeIntegration.setApplicationInForeground(false));
     unawaited(desktopDiscordPresenceService.dispose());
     WidgetsBinding.instance.removeObserver(this);
+    widget.controller.removeListener(_handleControllerChanged);
     _launchSubscription?.cancel();
     _announcementOpenSubscription?.cancel();
     _webUpdateSubscription?.cancel();
@@ -403,6 +407,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
     unawaited(AndroidHomeIntegration.setApplicationInForeground(isForeground));
     if (state == AppLifecycleState.resumed) {
       _syncIOSWidgets();
+      widget.controller.scheduleForegroundAccountSync();
     }
   }
 
@@ -410,6 +415,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _maybeScheduleStartupCheck();
+    _maybeScheduleAccountSyncPrompt();
     _maybeScheduleLaunchAction();
     _maybeScheduleAnnouncementOpen();
     _maybeScheduleAnnouncementChecks();
@@ -418,10 +424,19 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(covariant _AppHome oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleControllerChanged);
+      widget.controller.addListener(_handleControllerChanged);
+    }
     _maybeScheduleStartupCheck();
+    _maybeScheduleAccountSyncPrompt();
     _maybeScheduleLaunchAction();
     _maybeScheduleAnnouncementOpen();
     _maybeScheduleAnnouncementChecks();
+  }
+
+  void _handleControllerChanged() {
+    _maybeScheduleAccountSyncPrompt();
   }
 
   void _maybeScheduleStartupCheck() {
@@ -433,6 +448,71 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _runStartupCheck();
     });
+  }
+
+  void _maybeScheduleAccountSyncPrompt() {
+    if (_accountSyncPromptScheduled ||
+        _showingAccountSyncPrompt ||
+        !widget.controller.shouldPromptToEnableAccountSync) {
+      return;
+    }
+    _accountSyncPromptScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _accountSyncPromptScheduled = false;
+      unawaited(_showAccountSyncPromptIfNeeded());
+    });
+  }
+
+  Future<void> _showAccountSyncPromptIfNeeded() async {
+    if (!mounted ||
+        _showingAccountSyncPrompt ||
+        !widget.controller.shouldPromptToEnableAccountSync) {
+      return;
+    }
+    _showingAccountSyncPrompt = true;
+    final enabled = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('啟用雲端同步？'),
+          content: const Text(
+            '登入後可以自動同步最愛站牌與偏好設定。之後進入 app 時會自動更新，資料變更後也會稍後自動同步。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('先不要'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('開啟同步'),
+            ),
+          ],
+        );
+      },
+    );
+    _showingAccountSyncPrompt = false;
+    if (!mounted) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await widget.controller.setAccountSyncEnabled(enabled == true);
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(enabled == true ? '已開啟雲端同步。' : '已略過自動同步，你之後仍可手動同步。'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(SnackBar(content: Text('設定同步偏好失敗：$error')));
+    }
   }
 
   void _scheduleIOSWidgetSync() {

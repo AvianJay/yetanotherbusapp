@@ -315,15 +315,18 @@ class AccountSyncNamespaceLocalState {
 
 class AccountSyncLocalState {
   const AccountSyncLocalState({
+    required this.syncEnabled,
     required this.favorites,
     required this.preferences,
   });
 
+  final bool? syncEnabled;
   final AccountSyncNamespaceLocalState favorites;
   final AccountSyncNamespaceLocalState preferences;
 
   factory AccountSyncLocalState.empty() {
     return const AccountSyncLocalState(
+      syncEnabled: null,
       favorites: AccountSyncNamespaceLocalState(),
       preferences: AccountSyncNamespaceLocalState(),
     );
@@ -333,6 +336,9 @@ class AccountSyncLocalState {
     final rawFavorites = json['favorites'];
     final rawPreferences = json['preferences'];
     return AccountSyncLocalState(
+      syncEnabled: json['sync_enabled'] is bool
+          ? json['sync_enabled'] as bool
+          : null,
       favorites: rawFavorites is Map
           ? AccountSyncNamespaceLocalState.fromJson(
               rawFavorites.map((key, value) => MapEntry(key.toString(), value)),
@@ -361,23 +367,42 @@ class AccountSyncLocalState {
   ) {
     return switch (namespace) {
       AccountSyncNamespace.favorites => AccountSyncLocalState(
+        syncEnabled: syncEnabled,
         favorites: state,
         preferences: preferences,
       ),
       AccountSyncNamespace.preferences => AccountSyncLocalState(
+        syncEnabled: syncEnabled,
         favorites: favorites,
         preferences: state,
       ),
     };
   }
 
+  AccountSyncLocalState copyWith({
+    Object? syncEnabled = _missingAccountSyncValue,
+    AccountSyncNamespaceLocalState? favorites,
+    AccountSyncNamespaceLocalState? preferences,
+  }) {
+    return AccountSyncLocalState(
+      syncEnabled: identical(syncEnabled, _missingAccountSyncValue)
+          ? this.syncEnabled
+          : syncEnabled as bool?,
+      favorites: favorites ?? this.favorites,
+      preferences: preferences ?? this.preferences,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
+      if (syncEnabled != null) 'sync_enabled': syncEnabled,
       'favorites': favorites.toJson(),
       'preferences': preferences.toJson(),
     };
   }
 }
+
+const Object _missingAccountSyncValue = Object();
 
 class AccountSyncNamespaceStatus {
   const AccountSyncNamespaceStatus({

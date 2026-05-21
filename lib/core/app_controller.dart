@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -39,6 +41,8 @@ class AppController extends ChangeNotifier {
   }) : announcementService = announcementService ?? AnnouncementService();
 
   static const defaultFavoriteGroupName = '收藏';
+  static const Duration _accountSyncDebounce = Duration(seconds: 3);
+  static const Duration _foregroundAccountSyncCooldown = Duration(minutes: 1);
 
   final BusRepository repository;
   final StorageService storage;
@@ -82,6 +86,8 @@ class AppController extends ChangeNotifier {
   Map<BusProvider, int> _pendingDatabaseUpdates = const {};
   String? _announcementsError;
   String? _accountSyncError;
+  Timer? _scheduledAccountSyncTimer;
+  int? _lastForegroundAccountSyncAtMs;
 
   AppSettings get settings => _settings;
   AuthSession? get authSession => _authSession;
@@ -179,10 +185,27 @@ class AppController extends ChangeNotifier {
   bool get hasPendingDatabaseUpdates => _pendingDatabaseUpdates.isNotEmpty;
   String? get announcementsError => _announcementsError;
   String? get accountSyncError => _accountSyncError;
+  bool get accountSyncEnabled => _accountSyncLocalState.syncEnabled == true;
+  bool get shouldPromptToEnableAccountSync =>
+      isAuthenticated && _accountSyncLocalState.syncEnabled == null;
   DateTime? get settingsLastModifiedAt =>
       _dateTimeFromMs(_settingsLastModifiedAtMs);
   DateTime? get favoriteGroupsLastModifiedAt =>
       _dateTimeFromMs(_favoriteGroupsLastModifiedAtMs);
+  DateTime? get lastAccountSyncAt {
+    final timestamps = <int>[
+      if (_accountSyncLocalState.favorites.lastSuccessfulSyncAtMs != null)
+        _accountSyncLocalState.favorites.lastSuccessfulSyncAtMs!,
+      if (_accountSyncLocalState.preferences.lastSuccessfulSyncAtMs != null)
+        _accountSyncLocalState.preferences.lastSuccessfulSyncAtMs!,
+    ];
+    if (timestamps.isEmpty) {
+      return null;
+    }
+    timestamps.sort();
+    return DateTime.fromMillisecondsSinceEpoch(timestamps.last);
+  }
+
   bool get hasUnreadAnnouncements => _announcements.any(
     (announcement) => announcementService.shouldShowRedDot(
       announcement,
@@ -266,6 +289,10 @@ class AppController extends ChangeNotifier {
       }
     }
 
+    if (accountSyncEnabled) {
+      scheduleForegroundAccountSync(force: true);
+    }
+
     _initialized = true;
     notifyListeners();
   }
@@ -288,6 +315,9 @@ class AppController extends ChangeNotifier {
             await _forceLocalLogout();
           } catch (_) {
             _authAccount = null;
+          }
+          if (accountSyncEnabled) {
+            scheduleForegroundAccountSync(force: true);
           }
         } else {
           _clearAccountSyncSessionData();
@@ -324,6 +354,9 @@ class AppController extends ChangeNotifier {
       await _forceLocalLogout();
     } catch (_) {
       _authAccount = null;
+    }
+    if (accountSyncEnabled) {
+      scheduleForegroundAccountSync(force: true);
     }
     notifyListeners();
   }
@@ -362,6 +395,7 @@ class AppController extends ChangeNotifier {
       await authService.logout();
       _authSession = null;
       _authAccount = null;
+      _cancelScheduledAccountSync();
       _clearAccountSyncSessionData();
     } finally {
       _authBusy = false;
@@ -376,18 +410,28 @@ class AppController extends ChangeNotifier {
     await authService.logout();
     _authSession = null;
     _authAccount = null;
+    _cancelScheduledAccountSync();
     _clearAccountSyncSessionData();
     notifyListeners();
   }
 
-  Future<void> _persistSettings({int? modifiedAtMs}) async {
+  Future<void> _persistSettings({
+    int? modifiedAtMs,
+    bool scheduleSync = true,
+  }) async {
     final effectiveModifiedAtMs =
         modifiedAtMs ?? DateTime.now().millisecondsSinceEpoch;
     await storage.saveSettings(_settings, modifiedAtMs: effectiveModifiedAtMs);
     _settingsLastModifiedAtMs = effectiveModifiedAtMs;
+    if (scheduleSync) {
+      _scheduleChangeDrivenAccountSync();
+    }
   }
 
-  Future<void> _persistFavoriteGroups({int? modifiedAtMs}) async {
+  Future<void> _persistFavoriteGroups({
+    int? modifiedAtMs,
+    bool scheduleSync = true,
+  }) async {
     final effectiveModifiedAtMs =
         modifiedAtMs ?? DateTime.now().millisecondsSinceEpoch;
     await storage.saveFavoriteGroups(
@@ -395,6 +439,9 @@ class AppController extends ChangeNotifier {
       modifiedAtMs: effectiveModifiedAtMs,
     );
     _favoriteGroupsLastModifiedAtMs = effectiveModifiedAtMs;
+    if (scheduleSync) {
+      _scheduleChangeDrivenAccountSync();
+    }
   }
 
   Future<void> _loadAccountSyncLocalState() async {
@@ -422,6 +469,77 @@ class AppController extends ChangeNotifier {
     _accountSyncLocalState = AccountSyncLocalState.empty();
     _accountSyncSummary = null;
     _accountSyncError = null;
+  }
+
+  Future<void> setAccountSyncEnabled(
+    bool enabled, {
+    bool syncNow = true,
+  }) async {
+    _accountSyncLocalState = _accountSyncLocalState.copyWith(
+      syncEnabled: enabled,
+    );
+    await _saveAccountSyncLocalState();
+    notifyListeners();
+    if (!enabled) {
+      _cancelScheduledAccountSync();
+      return;
+    }
+    if (syncNow) {
+      await syncAllAccountData();
+    } else {
+      scheduleForegroundAccountSync(force: true);
+    }
+  }
+
+  void scheduleForegroundAccountSync({bool force = false}) {
+    if (!accountSyncEnabled || !isAuthenticated) {
+      return;
+    }
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (!force &&
+        _lastForegroundAccountSyncAtMs != null &&
+        nowMs - _lastForegroundAccountSyncAtMs! <
+            _foregroundAccountSyncCooldown.inMilliseconds) {
+      return;
+    }
+    _lastForegroundAccountSyncAtMs = nowMs;
+    _scheduleAccountSync(delay: Duration.zero);
+  }
+
+  void _scheduleChangeDrivenAccountSync() {
+    if (!accountSyncEnabled || !isAuthenticated) {
+      return;
+    }
+    _scheduleAccountSync(delay: _accountSyncDebounce);
+  }
+
+  void _scheduleAccountSync({required Duration delay}) {
+    _scheduledAccountSyncTimer?.cancel();
+    _scheduledAccountSyncTimer = Timer(delay, () {
+      _scheduledAccountSyncTimer = null;
+      unawaited(_runScheduledAccountSync());
+    });
+  }
+
+  void _cancelScheduledAccountSync() {
+    _scheduledAccountSyncTimer?.cancel();
+    _scheduledAccountSyncTimer = null;
+  }
+
+  Future<void> _runScheduledAccountSync() async {
+    if (!accountSyncEnabled || !isAuthenticated) {
+      return;
+    }
+    if (_accountSyncBusy) {
+      _scheduleAccountSync(delay: _accountSyncDebounce);
+      return;
+    }
+    try {
+      await syncAllAccountData();
+    } catch (_) {
+      // Keep the last sync error on the controller, but avoid interrupting
+      // the user with an automatic-sync exception.
+    }
   }
 
   AccountSyncNamespaceStatus accountSyncStatusFor(
@@ -454,6 +572,7 @@ class AppController extends ChangeNotifier {
     AccountSyncConflictPolicy conflictPolicy = AccountSyncConflictPolicy.abort,
   }) {
     return _runAccountSyncOperation(() async {
+      _cancelScheduledAccountSync();
       await _syncAccountNamespaceCore(
         namespace,
         conflictPolicy: conflictPolicy,
@@ -463,6 +582,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> restoreAccountNamespace(AccountSyncNamespace namespace) {
     return _runAccountSyncOperation(() async {
+      _cancelScheduledAccountSync();
       await _restoreAccountNamespaceCore(namespace);
     });
   }
@@ -471,19 +591,18 @@ class AppController extends ChangeNotifier {
     AccountSyncConflictPolicy conflictPolicy = AccountSyncConflictPolicy.abort,
   }) {
     return _runAccountSyncOperation(() async {
-      await _syncAccountNamespaceCore(
-        AccountSyncNamespace.favorites,
-        conflictPolicy: conflictPolicy,
+      _cancelScheduledAccountSync();
+      await _refreshAccountSyncStatusCore();
+      await _syncFavoritesWithSmartStrategy(
+        preferredConflictPolicy: conflictPolicy,
       );
-      await _syncAccountNamespaceCore(
-        AccountSyncNamespace.preferences,
-        conflictPolicy: conflictPolicy,
-      );
+      await _syncPreferencesWithSmartStrategy();
     });
   }
 
   Future<void> restoreAllAccountData() {
     return _runAccountSyncOperation(() async {
+      _cancelScheduledAccountSync();
       await _restoreAccountNamespaceCore(AccountSyncNamespace.favorites);
       await _restoreAccountNamespaceCore(AccountSyncNamespace.preferences);
     });
@@ -493,6 +612,65 @@ class AppController extends ChangeNotifier {
     final summary = await accountSyncService.fetchSummary();
     _accountSyncSummary = summary;
     _accountSyncError = null;
+  }
+
+  Future<void> _syncFavoritesWithSmartStrategy({
+    required AccountSyncConflictPolicy preferredConflictPolicy,
+  }) async {
+    final namespace = AccountSyncNamespace.favorites;
+    final status = accountSyncStatusFor(namespace);
+    final localFavoriteCount = _favoriteGroups.values.fold<int>(
+      0,
+      (total, group) => total + group.length,
+    );
+    final effectiveConflictPolicy =
+        preferredConflictPolicy == AccountSyncConflictPolicy.abort
+        ? AccountSyncConflictPolicy.merge
+        : preferredConflictPolicy;
+
+    if (localFavoriteCount == 0 && status.hasCloudData) {
+      await _restoreAccountNamespaceCore(namespace);
+      return;
+    }
+    if (!status.hasCloudData) {
+      if (localFavoriteCount > 0 || status.localChanges) {
+        await _syncAccountNamespaceCore(
+          namespace,
+          conflictPolicy: effectiveConflictPolicy,
+        );
+      }
+      return;
+    }
+    if (status.cloudChanges && !status.localChanges) {
+      await _restoreAccountNamespaceCore(namespace);
+      return;
+    }
+    if (status.localChanges || !status.hasEverSynced) {
+      await _syncAccountNamespaceCore(
+        namespace,
+        conflictPolicy: effectiveConflictPolicy,
+      );
+    }
+  }
+
+  Future<void> _syncPreferencesWithSmartStrategy() async {
+    final namespace = AccountSyncNamespace.preferences;
+    final status = accountSyncStatusFor(namespace);
+
+    if (status.hasCloudData && !status.hasEverSynced && !status.localChanges) {
+      await _restoreAccountNamespaceCore(namespace);
+      return;
+    }
+    if (status.cloudChanges && !status.localChanges) {
+      await _restoreAccountNamespaceCore(namespace);
+      return;
+    }
+    if (!status.hasCloudData || status.localChanges || !status.hasEverSynced) {
+      await _syncAccountNamespaceCore(
+        namespace,
+        conflictPolicy: AccountSyncConflictPolicy.clientWins,
+      );
+    }
   }
 
   Future<void> _syncAccountNamespaceCore(
@@ -554,12 +732,15 @@ class AppController extends ChangeNotifier {
     switch (namespace) {
       case AccountSyncNamespace.favorites:
         _favoriteGroups = _favoriteGroupsFromSyncPayload(document.payload);
-        await _persistFavoriteGroups(modifiedAtMs: updatedAtMs);
+        await _persistFavoriteGroups(
+          modifiedAtMs: updatedAtMs,
+          scheduleSync: false,
+        );
         await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
         await AndroidHomeIntegration.refreshFavoriteWidgets();
       case AccountSyncNamespace.preferences:
         _settings = _settingsFromSyncPayload(document.payload);
-        await _persistSettings(modifiedAtMs: updatedAtMs);
+        await _persistSettings(modifiedAtMs: updatedAtMs, scheduleSync: false);
         await _applySettingsSideEffects();
     }
 
@@ -1961,7 +2142,7 @@ class AppController extends ChangeNotifier {
             key,
             value.map((item) => item.toJson()).toList(growable: false),
           ),
-        ),
+        )..removeWhere((_, value) => value.isEmpty),
       },
       AccountSyncNamespace.preferences => _mergeJsonMaps(
         _accountSyncLocalState.preferences.preservedPayload ?? const {},
@@ -2068,6 +2249,12 @@ class AppController extends ChangeNotifier {
       return DatabaseConnectionKind.unknown;
     }
     return DatabaseConnectionKind.unknown;
+  }
+
+  @override
+  void dispose() {
+    _cancelScheduledAccountSync();
+    super.dispose();
   }
 }
 

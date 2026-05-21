@@ -20,6 +20,7 @@ const CACHE_FIRST_EXTENSIONS = [
 /// Paths that must always bypass the cache (network-only).
 const NETWORK_ONLY_PATHS = [
   '/sw.js',
+  '/firebase-messaging-sw.js',
 ];
 
 /// Paths that should prefer the network but still fall back to cache when

@@ -24,6 +24,18 @@ class FirebaseBootstrapState {
 class FirebaseBootstrap {
   FirebaseBootstrap._();
 
+  static const _defaultWebMessagingConfig = _WebMessagingConfig(
+    appBaseUrl: 'https://busapp.avianjay.sbs',
+    apiKey: 'AIzaSyAMzgL6WxQarMcuXYrrqOHZsxUFVytkcuM',
+    authDomain: 'yabus-111c1.firebaseapp.com',
+    projectId: 'yabus-111c1',
+    storageBucket: 'yabus-111c1.firebasestorage.app',
+    messagingSenderId: '1011547280811',
+    appId: '1:1011547280811:web:7e1e0c0a1baa160df7aeee',
+    measurementId: 'G-RB7WBXXRQN',
+    vapidKey: '',
+  );
+
   static Future<FirebaseBootstrapState>? _initializationFuture;
 
   static Future<FirebaseBootstrapState> initialize() {
@@ -61,13 +73,6 @@ class FirebaseBootstrap {
     }
 
     final webConfig = await _loadWebMessagingConfig();
-    if (webConfig == null) {
-      return const FirebaseBootstrapState(
-        firebaseReady: false,
-        messagingReady: false,
-        appBaseUrl: 'https://busapp.avianjay.sbs',
-      );
-    }
 
     try {
       if (Firebase.apps.isEmpty) {
@@ -99,7 +104,7 @@ class FirebaseBootstrap {
     }
   }
 
-  static Future<_WebMessagingConfig?> _loadWebMessagingConfig() async {
+  static Future<_WebMessagingConfig> _loadWebMessagingConfig() async {
     try {
       final response = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/api/v1/push/public-config'),
@@ -109,34 +114,56 @@ class FirebaseBootstrap {
         }),
       );
       if (response.statusCode != 200) {
-        return null;
+        return _defaultWebMessagingConfig;
       }
 
       final decoded = jsonDecode(utf8.decode(response.bodyBytes));
       if (decoded is! Map) {
-        return null;
+        return _defaultWebMessagingConfig;
       }
       final payload = decoded.map((key, value) => MapEntry('$key', value));
       final rawWeb = payload['web'];
-      if (rawWeb is! Map) {
-        return null;
-      }
-      final web = rawWeb.map((key, value) => MapEntry('$key', '$value'));
-      return _WebMessagingConfig(
-        appBaseUrl:
-            '${payload['app_base_url'] ?? 'https://busapp.avianjay.sbs'}',
-        apiKey: web['apiKey'] ?? '',
-        authDomain: web['authDomain'] ?? '',
-        projectId: web['projectId'] ?? '',
-        storageBucket: web['storageBucket'] ?? '',
-        messagingSenderId: web['messagingSenderId'] ?? '',
-        appId: web['appId'] ?? '',
-        measurementId: web['measurementId'] ?? '',
-        vapidKey: web['vapidKey'] ?? '',
+      final webEnabled = payload['web_enabled'] != false;
+      final web = rawWeb is Map
+          ? rawWeb.map((key, value) => MapEntry('$key', '$value'))
+          : const <String, String>{};
+      return _defaultWebMessagingConfig.copyWith(
+        appBaseUrl: _mergedString(
+          payload['app_base_url'],
+          _defaultWebMessagingConfig.appBaseUrl,
+        ),
+        apiKey: _mergedString(web['apiKey'], _defaultWebMessagingConfig.apiKey),
+        authDomain: _mergedString(
+          web['authDomain'],
+          _defaultWebMessagingConfig.authDomain,
+        ),
+        projectId: _mergedString(
+          web['projectId'],
+          _defaultWebMessagingConfig.projectId,
+        ),
+        storageBucket: _mergedString(
+          web['storageBucket'],
+          _defaultWebMessagingConfig.storageBucket,
+        ),
+        messagingSenderId: _mergedString(
+          web['messagingSenderId'],
+          _defaultWebMessagingConfig.messagingSenderId,
+        ),
+        appId: _mergedString(web['appId'], _defaultWebMessagingConfig.appId),
+        measurementId: _mergedString(
+          web['measurementId'],
+          _defaultWebMessagingConfig.measurementId,
+        ),
+        vapidKey: webEnabled ? _mergedString(web['vapidKey'], '') : '',
       );
     } catch (_) {
-      return null;
+      return _defaultWebMessagingConfig;
     }
+  }
+
+  static String _mergedString(Object? value, String fallback) {
+    final text = '${value ?? ''}'.trim();
+    return text.isEmpty ? fallback : text;
   }
 }
 
@@ -162,4 +189,28 @@ class _WebMessagingConfig {
   final String appId;
   final String measurementId;
   final String vapidKey;
+
+  _WebMessagingConfig copyWith({
+    String? appBaseUrl,
+    String? apiKey,
+    String? authDomain,
+    String? projectId,
+    String? storageBucket,
+    String? messagingSenderId,
+    String? appId,
+    String? measurementId,
+    String? vapidKey,
+  }) {
+    return _WebMessagingConfig(
+      appBaseUrl: appBaseUrl ?? this.appBaseUrl,
+      apiKey: apiKey ?? this.apiKey,
+      authDomain: authDomain ?? this.authDomain,
+      projectId: projectId ?? this.projectId,
+      storageBucket: storageBucket ?? this.storageBucket,
+      messagingSenderId: messagingSenderId ?? this.messagingSenderId,
+      appId: appId ?? this.appId,
+      measurementId: measurementId ?? this.measurementId,
+      vapidKey: vapidKey ?? this.vapidKey,
+    );
+  }
 }

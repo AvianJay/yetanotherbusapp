@@ -534,6 +534,9 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       context,
       routeKey: suggestion.profile.routeKey,
       provider: suggestion.profile.provider,
+      routeIdHint: suggestion.detail?.route.routeId ?? suggestion.favorite?.routeId,
+      routeNameHint:
+          suggestion.detail?.route.routeName ?? suggestion.profile.routeName,
       initialPathId: pathId,
       initialStopId: stopId,
       initialDestinationPathId: favorite?.destinationPathId,

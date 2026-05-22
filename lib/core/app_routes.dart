@@ -50,6 +50,23 @@ class AppRoutes {
       normalized = normalized.substring(1);
     }
 
+    final absoluteUri = Uri.tryParse(normalized);
+    if (absoluteUri != null && absoluteUri.hasScheme) {
+      final scheme = absoluteUri.scheme.trim().toLowerCase();
+      if ((scheme == 'http' || scheme == 'https') &&
+          isSupportedInternalHost(absoluteUri.host)) {
+        normalized = Uri(
+          path: absoluteUri.path.isEmpty ? home : absoluteUri.path,
+          queryParameters: absoluteUri.queryParameters.isEmpty
+              ? null
+              : absoluteUri.queryParameters,
+          fragment: absoluteUri.fragment.isEmpty ? null : absoluteUri.fragment,
+        ).toString();
+      } else {
+        return home;
+      }
+    }
+
     if (!normalized.startsWith('/')) {
       final alias = _legacyAliases[normalized];
       if (alias != null) {
@@ -71,12 +88,16 @@ class AppRoutes {
   static String routeDetailPath({
     required BusProvider provider,
     required int routeKey,
+    String? routeId,
     int? pathId,
     int? stopId,
     int? destinationPathId,
     int? destinationStopId,
   }) {
+    final normalizedRouteId = routeId?.trim();
     final queryParameters = <String, String>{
+      if (normalizedRouteId != null && normalizedRouteId.isNotEmpty)
+        'routeId': normalizedRouteId,
       if (pathId != null) 'pathId': '$pathId',
       if (stopId != null) 'stopId': '$stopId',
       if (destinationPathId != null) 'destinationPathId': '$destinationPathId',
@@ -117,6 +138,7 @@ class AppRouteIntent {
     required this.location,
     this.provider,
     this.routeKey,
+    this.routeId,
     this.pathId,
     this.stopId,
     this.destinationPathId,
@@ -129,6 +151,7 @@ class AppRouteIntent {
   final String location;
   final BusProvider? provider;
   final int? routeKey;
+  final String? routeId;
   final int? pathId;
   final int? stopId;
   final int? destinationPathId;
@@ -239,6 +262,7 @@ AppRouteIntent parseAppRoute(String? rawLocation) {
         location: location,
         provider: provider,
         routeKey: routeKey,
+        routeId: _nonEmptyText(uri.queryParameters['routeId']),
         pathId: _tryParseInt(uri.queryParameters['pathId']),
         stopId: _tryParseInt(uri.queryParameters['stopId']),
         destinationPathId: _tryParseInt(
@@ -267,6 +291,11 @@ int? _tryParseInt(String? value) {
     return null;
   }
   return int.tryParse(value.trim());
+}
+
+String? _nonEmptyText(String? value) {
+  final trimmed = (value ?? '').trim();
+  return trimmed.isEmpty ? null : trimmed;
 }
 
 BusProvider? _providerFromName(String rawValue) {

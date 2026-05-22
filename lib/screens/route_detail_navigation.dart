@@ -19,6 +19,7 @@ Route<void> buildRouteDetailRoute({
       name: AppRoutes.routeDetailPath(
         provider: provider,
         routeKey: routeKey,
+        routeId: routeIdHint,
         pathId: initialPathId,
         stopId: initialStopId,
         destinationPathId: initialDestinationPathId,

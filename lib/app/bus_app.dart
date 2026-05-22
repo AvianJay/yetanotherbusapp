@@ -278,6 +278,7 @@ Route<dynamic>? _buildAppRoute(
       return buildRouteDetailRoute(
         routeKey: routeKey,
         provider: provider,
+        routeIdHint: intent.routeId,
         initialPathId: intent.pathId,
         initialStopId: intent.stopId,
         initialDestinationPathId: intent.destinationPathId,

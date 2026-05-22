@@ -93,6 +93,8 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   bool _isGeneratingGoogleUserLocationIcon = false;
   late int _activePathId;
   bool? _lastUseGoogleMapsRouteProvider;
+  bool _osmMapReady = false;
+  int _mapWidgetGeneration = 0;
 
   bool get _useGoogleMapsRouteProvider => useGoogleMapsProviderFor(
     AppControllerScope.read(context).settings.mobileMapProvider,
@@ -138,6 +140,34 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         oldWidget.stopsByPath != widget.stopsByPath) {
       _applyStopsByPathSnapshot(widget.stopsByPath);
     }
+    final routeIdentityChanged =
+        oldWidget.routeKey != widget.routeKey ||
+        oldWidget.provider != widget.provider ||
+        oldWidget.routeId != widget.routeId ||
+        oldWidget.embedded != widget.embedded;
+    if (routeIdentityChanged) {
+      _refreshTimer?.cancel();
+      _refreshProgressController
+        ..stop()
+        ..value = 0;
+      _invalidateMapLifecycle();
+      final nextPathId =
+          widget.selectedPathIdListenable.value ??
+          (widget.paths.isNotEmpty ? widget.paths.first.pathId : _activePathId);
+      setState(() {
+        _activePathId = nextPathId;
+        _stopsByPath = _copyStopsByPath(widget.stopsByPath);
+        _selectedBusId = null;
+        _selectedStopId = null;
+        _followSelectedBus = false;
+        _didFitCurrentPathWithUserLocation = false;
+        _didFocusInitialUserLocation = false;
+        _error = null;
+        _geometry = null;
+        _busStates = <String, _AnimatedBusState>{};
+      });
+      unawaited(_loadMapData(fitCamera: true));
+    }
   }
 
   @override
@@ -151,7 +181,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     _refreshTimer?.cancel();
     _simulationTimer?.cancel();
     _userLocationSubscription?.cancel();
-    _googleMapController?.dispose();
+    _invalidateMapLifecycle();
     _refreshProgressController.dispose();
     super.dispose();
   }
@@ -166,6 +196,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       return;
     }
     _lastUseGoogleMapsRouteProvider = useGoogleMapsRouteProvider;
+    _invalidateMapLifecycle();
     final geometry = _geometry;
     if (geometry != null) {
       _fitCameraToGeometry(geometry);
@@ -235,6 +266,23 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     });
   }
 
+  void _invalidateMapLifecycle({bool disposeGoogleController = true}) {
+    _refreshRequestSerial += 1;
+    _mapWidgetGeneration += 1;
+    _osmMapReady = false;
+    _googleCameraPosition = null;
+    _isMovingGoogleCameraProgrammatically = false;
+    final controller = _googleMapController;
+    _googleMapController = null;
+    if (disposeGoogleController && controller != null) {
+      try {
+        controller.dispose();
+      } catch (_) {
+        // Ignore cleanup races while the platform view is tearing down.
+      }
+    }
+  }
+
   void _switchPath(int pathId, {required bool notifyParent}) {
     if (_activePathId == pathId) {
       return;
@@ -247,6 +295,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     _refreshProgressController
       ..stop()
       ..value = 0;
+    _invalidateMapLifecycle();
     setState(() {
       _activePathId = pathId;
       _selectedBusId = null;
@@ -438,9 +487,12 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     }
   }
 
-  void _fitCameraToGeometry(_RouteGeometry geometry) {
+  void _fitCameraToGeometry(_RouteGeometry geometry, {int? mapGeneration}) {
+    final targetMapGeneration = mapGeneration ?? _mapWidgetGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || geometry.points.isEmpty) {
+      if (!mounted ||
+          targetMapGeneration != _mapWidgetGeneration ||
+          geometry.points.isEmpty) {
         return;
       }
       try {
@@ -466,24 +518,36 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   }
 
   bool _fitOsmCameraToPoints(List<LatLng> fitPoints) {
-    if (fitPoints.length == 1) {
-      _mapController.move(fitPoints.first, 16);
-      return true;
+    if (!_osmMapReady) {
+      return false;
     }
-    final bounds = LatLngBounds.fromPoints(fitPoints);
-    final clampedBounds = LatLngBounds(
-      LatLng(bounds.south.clamp(-85.0, 85.0), bounds.west.clamp(-180.0, 180.0)),
-      LatLng(bounds.north.clamp(-85.0, 85.0), bounds.east.clamp(-180.0, 180.0)),
-    );
-    _mapController.fitCamera(
-      CameraFit.bounds(
-        bounds: clampedBounds,
-        padding: _userLocation != null
-            ? const EdgeInsets.fromLTRB(20, 20, 20, 168)
-            : _cameraPadding,
-      ),
-    );
-    return true;
+    try {
+      if (fitPoints.length == 1) {
+        return _moveOsmCamera(fitPoints.first, 16);
+      }
+      final bounds = LatLngBounds.fromPoints(fitPoints);
+      final clampedBounds = LatLngBounds(
+        LatLng(
+          bounds.south.clamp(-85.0, 85.0),
+          bounds.west.clamp(-180.0, 180.0),
+        ),
+        LatLng(
+          bounds.north.clamp(-85.0, 85.0),
+          bounds.east.clamp(-180.0, 180.0),
+        ),
+      );
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: clampedBounds,
+          padding: _userLocation != null
+              ? const EdgeInsets.fromLTRB(20, 20, 20, 168)
+              : _cameraPadding,
+        ),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   bool _fitGoogleCameraToPoints(List<LatLng> fitPoints) {
@@ -492,18 +556,16 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       return false;
     }
     if (fitPoints.length == 1) {
-      _moveGoogleCamera(
+      return _moveGoogleCamera(
         gmaps.CameraUpdate.newLatLngZoom(toGoogleLatLng(fitPoints.first), 16),
       );
-      return true;
     }
-    _moveGoogleCamera(
+    return _moveGoogleCamera(
       gmaps.CameraUpdate.newLatLngBounds(
         googleBoundsFromLatLngs(fitPoints),
         _userLocation != null ? 168 : 140,
       ),
     );
-    return true;
   }
 
   bool _focusOnUserLocation({bool markInitial = false}) {
@@ -516,14 +578,18 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       if (_googleMapController == null) {
         return false;
       }
-      _moveGoogleCamera(
+      if (!_moveGoogleCamera(
         gmaps.CameraUpdate.newLatLngZoom(
           toGoogleLatLng(userLocation),
           _userLocationFocusZoom,
         ),
-      );
+      )) {
+        return false;
+      }
     } else {
-      _mapController.move(userLocation, _userLocationFocusZoom);
+      if (!_moveOsmCamera(userLocation, _userLocationFocusZoom)) {
+        return false;
+      }
     }
 
     _didFitCurrentPathWithUserLocation = true;
@@ -546,15 +612,45 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     _focusOnUserLocation(markInitial: true);
   }
 
-  void _moveGoogleCamera(gmaps.CameraUpdate update) {
+  bool _moveOsmCamera(LatLng center, double zoom) {
+    if (!_osmMapReady) {
+      return false;
+    }
+    try {
+      _mapController.move(center, zoom);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _moveGoogleCamera(gmaps.CameraUpdate update) {
     final controller = _googleMapController;
     if (controller == null) {
-      return;
+      return false;
     }
     _isMovingGoogleCameraProgrammatically = true;
-    controller.animateCamera(update).whenComplete(() {
+    try {
+      unawaited(
+        controller
+            .animateCamera(update)
+            .catchError((Object _) {
+              if (identical(_googleMapController, controller)) {
+                _googleMapController = null;
+              }
+            })
+            .whenComplete(() {
+              _isMovingGoogleCameraProgrammatically = false;
+            }),
+      );
+      return true;
+    } catch (_) {
       _isMovingGoogleCameraProgrammatically = false;
-    });
+      if (identical(_googleMapController, controller)) {
+        _googleMapController = null;
+      }
+      return false;
+    }
   }
 
   LatLng? get _googleCameraCenter {
@@ -587,14 +683,34 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         _moveGoogleCamera(gmaps.CameraUpdate.newLatLng(toGoogleLatLng(point)));
         return;
       }
-      final currentCenter = _mapController.camera.center;
+      if (!_osmMapReady) {
+        return;
+      }
+      final currentCamera = _mapController.camera;
+      final currentCenter = currentCamera.center;
       if (!force && _distanceMetersBetween(currentCenter, point) < 8) {
         return;
       }
-      _mapController.move(point, _mapController.camera.zoom);
+      _moveOsmCamera(point, currentCamera.zoom);
     } catch (_) {
       // Ignore early camera lifecycle errors before the map is ready.
     }
+  }
+
+  void _applyViewportAfterMapReady(
+    _RouteGeometry geometry, {
+    required int mapGeneration,
+  }) {
+    if (!mounted || mapGeneration != _mapWidgetGeneration) {
+      return;
+    }
+    final didFocusUser =
+        !_didFocusInitialUserLocation &&
+        _focusOnUserLocation(markInitial: true);
+    if (!didFocusUser) {
+      _fitCameraToGeometry(geometry, mapGeneration: mapGeneration);
+    }
+    _syncSelectedBusCamera(force: true);
   }
 
   Map<String, _AnimatedBusState> _buildAnimatedBusStates(
@@ -945,6 +1061,12 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       _ensureGoogleBusIcons(displayBuses);
       _ensureGoogleUserLocationIcon();
     }
+    final mapGeneration = _mapWidgetGeneration;
+    final mapKey = ValueKey<String>(
+      '${_useGoogleMapsRouteProvider ? 'google' : 'osm'}:'
+      '${widget.provider.name}:${widget.routeId}:$_activePathId:'
+      '${widget.embedded ? 'embedded' : 'sheet'}',
+    );
 
     final hasGoogleBottomOverlay =
         _useGoogleMapsRouteProvider &&
@@ -956,16 +1078,29 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         Positioned.fill(
           child: _useGoogleMapsRouteProvider
               ? _buildGoogleRouteMap(
+                  key: mapKey,
+                  mapGeneration: mapGeneration,
                   theme: theme,
                   geometry: geometry,
                   displayStops: displayStops,
                   displayBuses: displayBuses,
                 )
               : FlutterMap(
+                  key: mapKey,
                   mapController: _mapController,
                   options: MapOptions(
                     initialCenter: geometry.points.first,
                     initialZoom: 13.5,
+                    onMapReady: () {
+                      if (!mounted || mapGeneration != _mapWidgetGeneration) {
+                        return;
+                      }
+                      _osmMapReady = true;
+                      _applyViewportAfterMapReady(
+                        geometry,
+                        mapGeneration: mapGeneration,
+                      );
+                    },
                     onTap: (_, point) {
                       if (_selectedBusId == null && _selectedStopId == null) {
                         return;
@@ -1545,12 +1680,15 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   }
 
   Widget _buildGoogleRouteMap({
+    required Key key,
+    required int mapGeneration,
     required ThemeData theme,
     required _RouteGeometry geometry,
     required List<_DisplayedStop> displayStops,
     required List<_DisplayedBus> displayBuses,
   }) {
     return gmaps.GoogleMap(
+      key: key,
       initialCameraPosition: gmaps.CameraPosition(
         target: toGoogleLatLng(geometry.points.first),
         zoom: 13.5,
@@ -1571,12 +1709,25 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         displayBuses: displayBuses,
       ),
       onMapCreated: (controller) {
+        if (!mounted || mapGeneration != _mapWidgetGeneration) {
+          controller.dispose();
+          return;
+        }
+        final previousController = _googleMapController;
         _googleMapController = controller;
         _googleCameraPosition = gmaps.CameraPosition(
           target: toGoogleLatLng(geometry.points.first),
           zoom: 13.5,
         );
-        _fitCameraToGeometry(geometry);
+        if (previousController != null &&
+            !identical(previousController, controller)) {
+          try {
+            previousController.dispose();
+          } catch (_) {
+            // Ignore replacement races while rebuilding the map view.
+          }
+        }
+        _applyViewportAfterMapReady(geometry, mapGeneration: mapGeneration);
       },
       onTap: (_) {
         if (_selectedBusId == null && _selectedStopId == null) {

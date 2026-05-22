@@ -196,7 +196,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       return;
     }
     _lastUseGoogleMapsRouteProvider = useGoogleMapsRouteProvider;
-    _invalidateMapLifecycle();
+    _invalidateMapLifecycle(invalidateRequests: false);
     final geometry = _geometry;
     if (geometry != null) {
       _fitCameraToGeometry(geometry);
@@ -266,8 +266,13 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     });
   }
 
-  void _invalidateMapLifecycle({bool disposeGoogleController = true}) {
-    _refreshRequestSerial += 1;
+  void _invalidateMapLifecycle({
+    bool disposeGoogleController = true,
+    bool invalidateRequests = true,
+  }) {
+    if (invalidateRequests) {
+      _refreshRequestSerial += 1;
+    }
     _mapWidgetGeneration += 1;
     _osmMapReady = false;
     _googleCameraPosition = null;

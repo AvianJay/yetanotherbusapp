@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
+import '../core/bus_repository.dart';
 import '../core/models.dart';
 import '../widgets/eta_badge.dart';
 import 'favorite_groups_screen.dart';
@@ -265,10 +266,49 @@ class _FavoritesScreenState extends State<FavoritesScreen>
         routeSummariesByKey.putIfAbsent(routeRequestKey, () => item.route);
       }
 
+      // --- Batch realtime fetch to avoid 429 ---
+      // Collect unique route IDs and fetch all realtime data in a single
+      // batch request.  The batch API accepts up to 25 route IDs which
+      // matches the account-sync favourite limit.
+      final routeIdByRequestKey = <String, String>{};
+      for (final entry in uniqueRoutes.entries) {
+        final routeId = entry.value.routeId?.trim();
+        final routeSummary = routeSummariesByKey[entry.key];
+        final effectiveRouteId =
+            (routeId?.isNotEmpty == true ? routeId : null) ??
+            routeSummary?.routeId;
+        if (effectiveRouteId != null && effectiveRouteId.isNotEmpty) {
+          routeIdByRequestKey[entry.key] = effectiveRouteId;
+        }
+      }
+
+      Map<String, Map<String, LiveStopPayload>> batchLiveMap;
+      if (routeIdByRequestKey.isNotEmpty) {
+        try {
+          batchLiveMap = await controller.repository.getBatchLiveStopMaps(
+            routeIdByRequestKey.values.toList(),
+          );
+        } catch (_) {
+          batchLiveMap = const {};
+        }
+      } else {
+        batchLiveMap = const {};
+      }
+
       final detailEntries = await Future.wait(
         uniqueRoutes.entries.map((entry) async {
           try {
             final routeSummary = routeSummariesByKey[entry.key];
+            final routeId = routeIdByRequestKey[entry.key];
+            // If we already have batch realtime data for this route, inject
+            // it into the repository-level cache so that getRouteDetail can
+            // pick it up without making another HTTP request.
+            if (routeId != null) {
+              final liveForRoute = batchLiveMap[routeId];
+              if (liveForRoute != null) {
+                controller.repository.preloadRealtimeCache(routeId, liveForRoute);
+              }
+            }
             final detail = await controller.getRouteDetail(
               entry.value.routeKey,
               provider: entry.value.provider,

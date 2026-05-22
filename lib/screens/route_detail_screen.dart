@@ -2872,10 +2872,23 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       routeName: _detail?.route.routeName,
       stopName: stop.stopName,
     );
-    final selectedGroup = await controller.addFavoriteStop(
-      favorite,
-      groupName: groupName,
-    );
+    String selectedGroup;
+    try {
+      selectedGroup = await controller.addFavoriteStop(
+        favorite,
+        groupName: groupName,
+      );
+    } on FavoriteGroupFullException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('我的最愛已達上限 ${e.maxStops} 站，無法再加入'),
+        ),
+      );
+      return;
+    }
     if (!mounted) {
       return;
     }

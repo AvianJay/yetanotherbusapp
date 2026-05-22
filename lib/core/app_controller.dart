@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +26,18 @@ import 'live_activity_service.dart';
 import 'models.dart';
 import 'smart_route_service.dart';
 import 'storage_service.dart';
+
+/// Thrown when the total number of favorite stops across all groups
+/// has reached the maximum allowed limit.
+class FavoriteGroupFullException implements Exception {
+  final String groupName;
+  final int maxStops;
+  FavoriteGroupFullException(this.groupName, this.maxStops);
+
+  @override
+  String toString() =>
+      'FavoriteGroupFullException: already have $maxStops favorite stops total';
+}
 
 class AppController extends ChangeNotifier {
   AppController({
@@ -1887,6 +1899,19 @@ class AppController extends ChangeNotifier {
         : (_favoriteGroups.isEmpty
               ? defaultFavoriteGroupName
               : _favoriteGroups.keys.first);
+
+    // Enforce maximum 25 stops across all groups (matches batch API limit
+    // and account-sync server setting).
+    const maxFavoritesTotal = 25;
+    final currentTotal = _favoriteGroups.values
+        .fold<int>(0, (sum, list) => sum + list.length);
+    final alreadyExists = _favoriteGroups[targetGroup]?.any(
+          (item) => item.sameAs(favorite),
+        ) ??
+        false;
+    if (!alreadyExists && currentTotal >= maxFavoritesTotal) {
+      throw FavoriteGroupFullException(targetGroup, maxFavoritesTotal);
+    }
 
     final next = <String, List<FavoriteStop>>{
       for (final entry in _favoriteGroups.entries)

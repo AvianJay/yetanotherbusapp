@@ -45,6 +45,7 @@ class BusRepository {
   static const _routeDetailCacheTtl = Duration(seconds: 2);
   static const _searchApiCacheTtl = Duration(seconds: 2);
   static const _realtimeCacheTtl = Duration(seconds: 2);
+  static const _batchRealtimeCacheTtl = Duration(seconds: 2);
   static const _routeStopsApiCacheTtl = Duration(minutes: 30);
   static const _routePathGeometryCacheTtl = Duration(minutes: 30);
   static const _routeRealtimeBusesCacheTtl = Duration(seconds: 2);
@@ -56,10 +57,14 @@ class BusRepository {
       <String, _TimedValue<List<RouteSummary>>>{};
   final Map<String, Future<List<RouteSummary>>> _searchRoutesApiInFlight =
       <String, Future<List<RouteSummary>>>{};
-  final Map<String, _TimedValue<Map<String, _LiveStopPayload>>> _realtimeCache =
-      <String, _TimedValue<Map<String, _LiveStopPayload>>>{};
-  final Map<String, Future<Map<String, _LiveStopPayload>>> _realtimeInFlight =
-      <String, Future<Map<String, _LiveStopPayload>>>{};
+  final Map<String, _TimedValue<LiveStopMap>> _realtimeCache =
+      <String, _TimedValue<LiveStopMap>>{};
+  final Map<String, Future<LiveStopMap>> _realtimeInFlight =
+      <String, Future<LiveStopMap>>{};
+  final Map<String, _TimedValue<BatchLiveStopMap>> _batchRealtimeCache =
+      <String, _TimedValue<BatchLiveStopMap>>{};
+  final Map<String, Future<BatchLiveStopMap>> _batchRealtimeInFlight =
+      <String, Future<BatchLiveStopMap>>{};
   final Map<String, _TimedValue<Map<String, dynamic>>> _routeStopsApiCache =
       <String, _TimedValue<Map<String, dynamic>>>{};
   final Map<String, Future<Map<String, dynamic>>> _routeStopsApiInFlight =
@@ -989,12 +994,12 @@ class BusRepository {
       );
 
       var hasLiveData = true;
-      Map<String, _LiveStopPayload> liveMap;
+      LiveStopMap liveMap;
       try {
         liveMap = await _getLiveStopMap(routeId);
       } catch (_) {
         hasLiveData = false;
-        liveMap = const <String, _LiveStopPayload>{};
+        liveMap = const <String, LiveStopPayload>{};
       }
 
       return _buildRouteDetailFromLocalRows(
@@ -1282,7 +1287,7 @@ class BusRepository {
     required List<_MetadataPathRow> routeRows,
     required List<_CityStopRow> stopRows,
     required bool hasLiveData,
-    required Map<String, _LiveStopPayload> liveMap,
+    required LiveStopMap liveMap,
     String? routeNameHint,
   }) {
     if (routeRows.isEmpty) {
@@ -1390,12 +1395,12 @@ class BusRepository {
     );
 
     var hasLiveData = true;
-    Map<String, _LiveStopPayload> liveMap;
+    LiveStopMap liveMap;
     try {
       liveMap = await _getLiveStopMap(routeId);
     } catch (_) {
       hasLiveData = false;
-      liveMap = const <String, _LiveStopPayload>{};
+      liveMap = const <String, LiveStopPayload>{};
     }
 
     final routeKey = _routeKeyForRouteId(routeId);
@@ -1492,12 +1497,12 @@ class BusRepository {
     }
 
     var hasLiveData = true;
-    Map<String, _LiveStopPayload> liveMap;
+    LiveStopMap liveMap;
     try {
       liveMap = await _getLiveStopMap(routeId);
     } catch (_) {
       hasLiveData = false;
-      liveMap = const <String, _LiveStopPayload>{};
+      liveMap = const <String, LiveStopPayload>{};
     }
 
     if (hasLiveData) {
@@ -1700,7 +1705,7 @@ class BusRepository {
     return metadata;
   }
 
-  Future<Map<String, _LiveStopPayload>> _getLiveStopMap(String routeId) async {
+  Future<LiveStopMap> _getLiveStopMap(String routeId) async {
     final cached = _readFreshCache(_realtimeCache, routeId, _realtimeCacheTtl);
     if (cached != null) {
       return cached;
@@ -1715,7 +1720,7 @@ class BusRepository {
     _realtimeInFlight[routeId] = future;
     try {
       final result = await future;
-      _realtimeCache[routeId] = _TimedValue<Map<String, _LiveStopPayload>>(
+      _realtimeCache[routeId] = _TimedValue<LiveStopMap>(
         result,
       );
       return result;
@@ -1726,7 +1731,7 @@ class BusRepository {
     }
   }
 
-  Future<Map<String, _LiveStopPayload>> _loadLiveStopMap(String routeId) async {
+  Future<LiveStopMap> _loadLiveStopMap(String routeId) async {
     final response = await _client.get(
       Uri.parse(
         '$_apiBaseUrl/api/v1/routes/${Uri.encodeComponent(routeId)}/realtime',
@@ -1742,7 +1747,7 @@ class BusRepository {
 
     final decoded =
         jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    final result = <String, _LiveStopPayload>{};
+    final result = <String, LiveStopPayload>{};
 
     for (final rawPath in decoded['paths'] as List<dynamic>? ?? const []) {
       if (rawPath is! Map) {
@@ -1754,7 +1759,7 @@ class BusRepository {
           continue;
         }
         final stopId = _parseStopId(rawStop['stopid']);
-        result[_stopCompositeKey(pathId, stopId)] = _LiveStopPayload(
+        result[_stopCompositeKey(pathId, stopId)] = LiveStopPayload(
           sec: _nullableInt(rawStop['eta']),
           msg: rawStop['message']?.toString(),
           t: rawStop['updated_at']?.toString(),
@@ -1767,6 +1772,164 @@ class BusRepository {
     }
 
     return result;
+  }
+
+  /// Fetches realtime data for multiple routes in a single HTTP request.
+  ///
+  /// [routeIds] must contain at most 25 unique, non-empty route IDs.
+  /// Duplicate IDs are silently de-duplicated.
+  ///
+  /// Returns a map of routeId -> live-stop-payload map for each route that
+  /// the server was able to resolve.  Results are cached both as a batch
+  /// (keyed by the sorted, joined ID list) and individually so that
+  /// subsequent single-route lookups via [_getLiveStopMap] also benefit.
+  Future<BatchLiveStopMap> getBatchLiveStopMaps(
+    List<String> routeIds,
+  ) async {
+    final deduped = <String>[];
+    final seen = <String>{};
+    for (final id in routeIds) {
+      final trimmed = id.trim();
+      if (trimmed.isEmpty || !seen.add(trimmed)) {
+        continue;
+      }
+      deduped.add(trimmed);
+    }
+    if (deduped.isEmpty) {
+      return const {};
+    }
+    if (deduped.length > 25) {
+      deduped.removeRange(25, deduped.length);
+    }
+
+    // Check per-route caches first; if *every* route is fresh we can skip
+    // the batch HTTP request entirely.
+    final allCached = <String, LiveStopMap>{};
+    var allFresh = true;
+    for (final routeId in deduped) {
+      final cached = _readFreshCache(
+        _realtimeCache,
+        routeId,
+        _realtimeCacheTtl,
+      );
+      if (cached != null) {
+        allCached[routeId] = cached;
+      } else {
+        allFresh = false;
+      }
+    }
+    if (allFresh) {
+      return allCached;
+    }
+
+    final cacheKey = [...deduped]..sort();
+    final cacheKeyStr = cacheKey.join(',');
+    final batchCached = _readFreshCache(
+      _batchRealtimeCache,
+      cacheKeyStr,
+      _batchRealtimeCacheTtl,
+    );
+    if (batchCached != null) {
+      return batchCached;
+    }
+
+    final inFlight = _batchRealtimeInFlight[cacheKeyStr];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _loadBatchLiveStopMaps(deduped);
+    _batchRealtimeInFlight[cacheKeyStr] = future;
+    try {
+      final result = await future;
+      _batchRealtimeCache[cacheKeyStr] = _TimedValue(result);
+      // Also populate the per-route cache so single-route lookups benefit.
+      for (final entry in result.entries) {
+        _realtimeCache[entry.key] = _TimedValue<LiveStopMap>(entry.value);
+      }
+      return result;
+    } finally {
+      if (identical(_batchRealtimeInFlight[cacheKeyStr], future)) {
+        _batchRealtimeInFlight.remove(cacheKeyStr);
+      }
+    }
+  }
+
+  Future<BatchLiveStopMap> _loadBatchLiveStopMaps(List<String> routeIds) async {
+    final joinedIds = routeIds.map(Uri.encodeComponent).join(',');
+    final uri = Uri.parse(
+      '$_apiBaseUrl/api/v1/batchroutes/$joinedIds/realtime',
+    );
+    final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
+    if (response.statusCode != 200) {
+      throw HttpException(
+        '批次即時資料暫時無法取得 (${response.statusCode})。',
+      );
+    }
+
+    final decoded =
+        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final routesRaw = decoded['routes'] as Map<String, dynamic>? ??
+        const <String, dynamic>{};
+
+    final result = <String, LiveStopMap>{};
+    for (final routeEntry in routesRaw.entries) {
+      final routeId = routeEntry.key;
+      final routePayload = routeEntry.value;
+      if (routePayload is! Map<String, dynamic>) {
+        continue;
+      }
+      final liveMap = <String, LiveStopPayload>{};
+      for (final rawPath
+          in routePayload['paths'] as List<dynamic>? ?? const []) {
+        if (rawPath is! Map) {
+          continue;
+        }
+        final pathId = _toInt(rawPath['pathid']);
+        for (final rawStop
+            in rawPath['stops'] as List<dynamic>? ?? const []) {
+          if (rawStop is! Map) {
+            continue;
+          }
+          final stopId = _parseStopId(rawStop['stopid']);
+          liveMap[_stopCompositeKey(pathId, stopId)] = LiveStopPayload(
+            sec: _nullableInt(rawStop['eta']),
+            msg: rawStop['message']?.toString(),
+            t: rawStop['updated_at']?.toString(),
+            buses: (rawStop['buses'] as List<dynamic>? ?? const [])
+                .whereType<Map>()
+                .map(_parseBusVehicle)
+                .toList(),
+          );
+        }
+      }
+      result[routeId] = liveMap;
+    }
+
+    return result;
+  }
+
+  /// Preloads the per-route realtime cache with data obtained externally
+  /// (e.g. from a batch API call).  This allows subsequent calls to
+  /// [_getLiveStopMap] to return the data immediately without making
+  /// another HTTP request.
+  void preloadRealtimeCache(
+    String routeId,
+    LiveStopMap liveMap,
+  ) {
+    // Only preload if there is no fresh entry already – don't overwrite
+    // newer data that may have been fetched individually.
+    final existing = _realtimeCache[routeId];
+    if (existing != null &&
+        DateTime.now().difference(existing.createdAt) <= _realtimeCacheTtl) {
+      return;
+    }
+    _realtimeCache[routeId] = _TimedValue<LiveStopMap>(
+      liveMap,
+    );
   }
 
   Future<List<RoutePathPoint>> _loadRoutePathPoints(
@@ -2985,8 +3148,8 @@ class BusRepository {
   }
 }
 
-class _LiveStopPayload {
-  const _LiveStopPayload({
+class LiveStopPayload {
+  const LiveStopPayload({
     required this.sec,
     required this.msg,
     required this.t,
@@ -2998,6 +3161,9 @@ class _LiveStopPayload {
   final String? t;
   final List<BusVehicle> buses;
 }
+
+typedef LiveStopMap = Map<String, LiveStopPayload>;
+typedef BatchLiveStopMap = Map<String, Map<String, LiveStopPayload>>;
 
 class _MetadataPathRow {
   const _MetadataPathRow({

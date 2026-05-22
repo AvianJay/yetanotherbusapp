@@ -464,7 +464,7 @@ class _DatabaseStep extends StatelessWidget {
         Text('下載資料庫', style: theme.textTheme.headlineSmall),
         const SizedBox(height: 10),
         Text(
-          '可複選要在這台裝置使用的縣市資料庫。即使先不下載，仍可先進入首頁。',
+          '可複選要在這台裝置使用的縣市資料庫。',
           style: theme.textTheme.bodyLarge,
         ),
         const SizedBox(height: 16),
@@ -563,7 +563,7 @@ class _DatabaseStep extends StatelessWidget {
                         }
                       },
                 child: Text(
-                  controller.downloadingDatabase ? '下載中...' : '下載並進入首頁',
+                  controller.downloadingDatabase ? '下載中...' : '下載',
                 ),
               ),
             ),
@@ -574,7 +574,7 @@ class _DatabaseStep extends StatelessWidget {
           width: double.infinity,
           child: FilledButton.tonal(
             onPressed: onFinish,
-            child: Text(controller.databaseReady ? '完成並進入首頁' : '稍後再說，先進首頁'),
+            child: Text(controller.databaseReady ? '完成' : '稍後再說'),
           ),
         ),
       ],

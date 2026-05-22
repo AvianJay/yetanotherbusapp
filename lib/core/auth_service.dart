@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'api_config.dart';
 import 'api_user_agent.dart';
 import 'auth_token_store.dart';
+import 'http_error_utils.dart';
 
 class AuthSession {
   const AuthSession({
@@ -355,7 +356,12 @@ class AuthService {
       throw const AuthTokenExpiredException();
     }
     if (response.statusCode != 200) {
-      throw Exception('Could not load account (${response.statusCode}).');
+      throw Exception(
+        httpStatusMessage(
+          response.statusCode,
+          'Could not load account (${response.statusCode}).',
+        ),
+      );
     }
 
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
@@ -428,7 +434,8 @@ class AuthService {
         final match = RegExp(r'(\d+)').firstMatch(version);
         final major = match?.group(1) ?? '';
         // Detect iPad via the version string or model hint
-        final isIpad = version.toLowerCase().contains('ipad') ||
+        final isIpad =
+            version.toLowerCase().contains('ipad') ||
             Platform.environment.containsKey('SIMULATOR_DEVICE_NAME') &&
                 (Platform.environment['SIMULATOR_DEVICE_NAME'] ?? '')
                     .toLowerCase()
@@ -510,16 +517,5 @@ int? _jsonInt(Object? value) {
 }
 
 String _authErrorMessage(http.Response response, String fallback) {
-  try {
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-    if (decoded is Map) {
-      final detail = decoded['detail'];
-      if (detail != null && '$detail'.trim().isNotEmpty) {
-        return '$detail';
-      }
-    }
-  } catch (_) {
-    // Fall through to the status-based fallback.
-  }
-  return '$fallback (${response.statusCode}).';
+  return httpErrorMessage(response, '$fallback (${response.statusCode}).');
 }

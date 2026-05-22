@@ -6,6 +6,7 @@ import 'account_sync_models.dart';
 import 'api_config.dart';
 import 'api_user_agent.dart';
 import 'auth_token_store.dart';
+import 'http_error_utils.dart';
 
 class AccountSyncService {
   AccountSyncService({http.Client? client}) : _client = client ?? http.Client();
@@ -126,23 +127,5 @@ Map<String, dynamic> _decodedMap(http.Response response) {
   return decoded.map((key, value) => MapEntry(key.toString(), value));
 }
 
-String _errorMessage(http.Response response, String fallback) {
-  try {
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-    if (decoded is Map && decoded['detail'] != null) {
-      final detail = '${decoded['detail']}'.trim();
-      if (detail.isNotEmpty) {
-        return detail;
-      }
-    }
-    if (decoded is Map && decoded['message'] != null) {
-      final message = '${decoded['message']}'.trim();
-      if (message.isNotEmpty) {
-        return message;
-      }
-    }
-  } catch (_) {
-    // Ignore malformed payloads and keep the fallback.
-  }
-  return fallback;
-}
+String _errorMessage(http.Response response, String fallback) =>
+    httpErrorMessage(response, fallback);

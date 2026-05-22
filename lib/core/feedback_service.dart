@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'api_config.dart';
 import 'api_user_agent.dart';
 import 'auth_token_store.dart';
+import 'http_error_utils.dart';
 
 class FeedbackRateLimitException implements Exception {
   const FeedbackRateLimitException({
@@ -48,16 +49,16 @@ class FeedbackService {
     final cleanedTitle = title.trim();
     final cleanedContent = content.trim();
     if (cleanedTitle.isEmpty) {
-      throw ArgumentError('請輸入標題。');
+      throw ArgumentError('標題不能為空。');
     }
     if (cleanedTitle.length > 100) {
-      throw ArgumentError('標題最多 100 個字。');
+      throw ArgumentError('標題不能超過 100 字。');
     }
     if (cleanedContent.isEmpty) {
-      throw ArgumentError('請輸入內容。');
+      throw ArgumentError('內容不能為空。');
     }
     if (cleanedContent.length > 4000) {
-      throw ArgumentError('內文最多 4000 個字。');
+      throw ArgumentError('內容不能超過 4000 字。');
     }
 
     final response = await _client.post(
@@ -75,12 +76,12 @@ class FeedbackService {
     }
     if (response.statusCode == 429) {
       throw FeedbackRateLimitException(
-        message: _errorMessage(response, '意見回饋送出太快了，請稍後再試。'),
+        message: rateLimitedErrorMessage,
         retryAfterSeconds: int.tryParse(response.headers['retry-after'] ?? ''),
       );
     }
     if (response.statusCode != 201) {
-      throw Exception(_errorMessage(response, '送出意見回饋失敗。'));
+      throw Exception(httpErrorMessage(response, '送出意見回饋失敗。'));
     }
 
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
@@ -91,21 +92,6 @@ class FeedbackService {
       decoded.map((key, value) => MapEntry(key.toString(), value)),
     );
   }
-}
-
-String _errorMessage(http.Response response, String fallback) {
-  try {
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-    if (decoded is Map && decoded['detail'] != null) {
-      final detail = '${decoded['detail']}'.trim();
-      if (detail.isNotEmpty) {
-        return detail;
-      }
-    }
-  } catch (_) {
-    // Ignore malformed error payloads and keep the fallback.
-  }
-  return fallback;
 }
 
 int _jsonInt(Object? value) {

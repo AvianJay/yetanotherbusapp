@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'api_user_agent.dart';
 import 'api_config.dart';
+import 'http_error_utils.dart';
 import 'models.dart';
 import 'native_sqlite_bridge.dart';
 import 'route_search_ranking.dart';
@@ -530,6 +531,9 @@ class BusRepository {
       '?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
     );
     final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       throw HttpException(
         '無法查詢 ${provider.label} 路線 (${response.statusCode})。',
@@ -567,6 +571,9 @@ class BusRepository {
       '?query=${Uri.encodeQueryComponent(query)}&limit=$limit',
     );
     final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       throw HttpException('無法查詢全部路線 (${response.statusCode})。');
     }
@@ -680,6 +687,9 @@ class BusRepository {
       '?query=${Uri.encodeQueryComponent(routeId)}&limit=10',
     );
     final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       return null;
     }
@@ -761,6 +771,9 @@ class BusRepository {
       '?query=${Uri.encodeQueryComponent(routeId)}&limit=10',
     );
     final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       return const [];
     }
@@ -1037,6 +1050,9 @@ class BusRepository {
       ),
       headers: _apiJsonHeaders,
     );
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       throw HttpException('無法取得 $routeId 的路線站牌 (${response.statusCode})。');
     }
@@ -1153,6 +1169,9 @@ class BusRepository {
       '?lat=$latitude&lon=$longitude&radius=$radiusMeters&limit=$limit',
     );
     final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       return const [];
     }
@@ -1588,6 +1607,9 @@ class BusRepository {
       ),
       headers: _apiJsonHeaders,
     );
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
 
     if (response.statusCode != 200) {
       throw HttpException(
@@ -1617,6 +1639,9 @@ class BusRepository {
       Uri.parse('$_apiBaseUrl/downloads/${Uri.encodeComponent(cityName)}.db'),
       headers: _downloadHeaders,
     );
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       throw HttpException(
         '無法下載 ${provider.label} 資料庫 (${response.statusCode})。',
@@ -1632,6 +1657,9 @@ class BusRepository {
       Uri.parse('$_apiBaseUrl/downloads/bus.db'),
       headers: _downloadHeaders,
     );
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       throw HttpException(
         'Download failed (/downloads/bus.db, ${response.statusCode})',
@@ -1705,6 +1733,9 @@ class BusRepository {
       ),
       headers: _apiJsonHeaders,
     );
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       throw HttpException('即時資料暫時無法取得：$routeId (${response.statusCode})。');
     }
@@ -1748,6 +1779,9 @@ class BusRepository {
       ),
       headers: _apiJsonHeaders,
     );
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       throw HttpException(
         '無法取得路線地圖路徑：$routeId / $pathId (${response.statusCode})',
@@ -1789,6 +1823,9 @@ class BusRepository {
       ),
       headers: _apiJsonHeaders,
     );
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       throw HttpException('無法取得公車地圖即時資料：$routeId (${response.statusCode})');
     }
@@ -1844,6 +1881,9 @@ class BusRepository {
       ),
       headers: _apiJsonHeaders,
     );
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       return const <RouteAlert>[];
     }
@@ -2901,6 +2941,9 @@ class BusRepository {
     }
     final uri = Uri.parse('$_apiBaseUrl/api/v1/routes/$routeId/operators');
     final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode == 429) {
+      throw Exception(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       throw Exception('Failed to fetch operators: ${response.statusCode}');
     }
@@ -2926,6 +2969,9 @@ class BusRepository {
     }
     final uri = Uri.parse('$_apiBaseUrl/api/v1/routes/$routeId/schedule');
     final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode == 429) {
+      throw Exception(rateLimitedErrorMessage);
+    }
     if (response.statusCode != 200) {
       throw Exception('Failed to fetch schedule: ${response.statusCode}');
     }

@@ -61,11 +61,7 @@ void main() {
       () => service.submitFeedback(title: 'A', content: 'B'),
       throwsA(
         isA<FeedbackRateLimitException>()
-            .having(
-              (error) => error.message,
-              'message',
-              'Feedback submissions are limited to 1 per minute.',
-            )
+            .having((error) => error.message, 'message', '你已受到速率限制。')
             .having(
               (error) => error.retryAfterSeconds,
               'retryAfterSeconds',

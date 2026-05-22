@@ -7,9 +7,11 @@ import 'announcement_models.dart';
 import 'api_config.dart';
 import 'api_user_agent.dart';
 import 'app_build_info.dart';
+import 'http_error_utils.dart';
 
 class AnnouncementService {
-  AnnouncementService({http.Client? client}) : _client = client ?? http.Client();
+  AnnouncementService({http.Client? client})
+    : _client = client ?? http.Client();
 
   final http.Client _client;
 
@@ -100,19 +102,21 @@ class AnnouncementService {
     AnnouncementLocalState localState, {
     Set<String> sessionDeferredIds = const <String>{},
   }) {
-    final pending = announcements.where((announcement) {
-      if (sessionDeferredIds.contains(announcement.id)) {
-        return false;
-      }
-      switch (announcement.behavior.popup) {
-        case AnnouncementRepeatBehavior.none:
-          return false;
-        case AnnouncementRepeatBehavior.once:
-          return !localState.shownPopupIds.contains(announcement.id);
-        case AnnouncementRepeatBehavior.forever:
-          return !localState.dismissedPopupIds.contains(announcement.id);
-      }
-    }).toList(growable: false);
+    final pending = announcements
+        .where((announcement) {
+          if (sessionDeferredIds.contains(announcement.id)) {
+            return false;
+          }
+          switch (announcement.behavior.popup) {
+            case AnnouncementRepeatBehavior.none:
+              return false;
+            case AnnouncementRepeatBehavior.once:
+              return !localState.shownPopupIds.contains(announcement.id);
+            case AnnouncementRepeatBehavior.forever:
+              return !localState.dismissedPopupIds.contains(announcement.id);
+          }
+        })
+        .toList(growable: false);
     pending.sort((left, right) => right.createdAt.compareTo(left.createdAt));
     return pending;
   }
@@ -184,20 +188,8 @@ class AnnouncementService {
   }
 }
 
-String _errorMessage(http.Response response, String fallback) {
-  try {
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-    if (decoded is Map && decoded['detail'] != null) {
-      final detail = '${decoded['detail']}'.trim();
-      if (detail.isNotEmpty) {
-        return detail;
-      }
-    }
-  } catch (_) {
-    // Ignore malformed error payloads and keep the fallback.
-  }
-  return fallback;
-}
+String _errorMessage(http.Response response, String fallback) =>
+    httpErrorMessage(response, fallback);
 
 String? _normalizedVersion(String rawVersion) {
   final normalized = rawVersion.trim();
@@ -253,7 +245,10 @@ bool _matchesVersionConstraint(String currentVersion, String constraint) {
 }
 
 List<int> _parseVersion(String value) {
-  return value.split('.').map((part) => int.parse(part)).toList(growable: false);
+  return value
+      .split('.')
+      .map((part) => int.parse(part))
+      .toList(growable: false);
 }
 
 int _compareVersions(List<int> left, List<int> right) {

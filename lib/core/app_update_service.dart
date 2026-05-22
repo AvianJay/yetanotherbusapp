@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'api_user_agent.dart';
 import 'app_build_info.dart';
+import 'http_error_utils.dart';
 import 'models.dart';
 
 enum AppUpdateStatus { unavailable, upToDate, updateAvailable }
@@ -327,7 +328,9 @@ class AppUpdateService {
         )
         .timeout(const Duration(seconds: 10));
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('HTTP ${response.statusCode}');
+      throw Exception(
+        httpStatusMessage(response.statusCode, 'HTTP ${response.statusCode}'),
+      );
     }
     return jsonDecode(utf8.decode(response.bodyBytes));
   }

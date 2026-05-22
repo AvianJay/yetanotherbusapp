@@ -4,9 +4,11 @@ import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
 import 'api_user_agent.dart';
+import 'http_error_utils.dart';
 
 class LegalDocumentService {
-  LegalDocumentService({http.Client? client}) : _client = client ?? http.Client();
+  LegalDocumentService({http.Client? client})
+    : _client = client ?? http.Client();
 
   final http.Client _client;
 
@@ -44,17 +46,5 @@ class LegalDocumentService {
   }
 }
 
-String _errorMessage(http.Response response, String fallback) {
-  try {
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-    if (decoded is Map && decoded['detail'] != null) {
-      final detail = '${decoded['detail']}'.trim();
-      if (detail.isNotEmpty) {
-        return detail;
-      }
-    }
-  } catch (_) {
-    // Ignore malformed error payloads and fall back to the generic message.
-  }
-  return fallback;
-}
+String _errorMessage(http.Response response, String fallback) =>
+    httpErrorMessage(response, fallback);

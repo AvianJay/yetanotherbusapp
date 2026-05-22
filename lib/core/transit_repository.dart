@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import 'api_user_agent.dart';
 import 'api_config.dart';
+import 'http_error_utils.dart';
 
 // import 'models.dart';
 
@@ -55,7 +56,12 @@ class TransitRepository {
     final uri = Uri.parse('$_apiBaseUrl$path');
     final response = await _client.get(uri, headers: _headers);
     if (response.statusCode != 200) {
-      throw Exception('API error ${response.statusCode}: ${response.body}');
+      throw Exception(
+        httpErrorMessage(
+          response,
+          'API error ${response.statusCode}: ${response.body}',
+        ),
+      );
     }
     final decoded = json.decode(response.body);
     return decoded is List ? decoded : [];
@@ -66,7 +72,12 @@ class TransitRepository {
     final uri = Uri.parse('$_apiBaseUrl$path');
     final response = await _client.get(uri, headers: _headers);
     if (response.statusCode != 200) {
-      throw Exception('API error ${response.statusCode}: ${response.body}');
+      throw Exception(
+        httpErrorMessage(
+          response,
+          'API error ${response.statusCode}: ${response.body}',
+        ),
+      );
     }
     final decoded = json.decode(response.body);
     return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
@@ -147,7 +158,12 @@ class TransitRepository {
       );
       final response = await _client.get(uri, headers: _headers);
       if (response.statusCode != 200) {
-        throw Exception('API error ${response.statusCode}: ${response.body}');
+        throw Exception(
+          httpErrorMessage(
+            response,
+            'API error ${response.statusCode}: ${response.body}',
+          ),
+        );
       }
       final decoded = json.decode(response.body) as Map<String, dynamic>;
       return MetroEtaResponse.fromJson(decoded);

@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'app_update_installer.dart';
+import 'http_error_utils.dart';
 import 'app_update_service.dart';
 
 class IoAppUpdateInstaller extends AppUpdateInstaller {
@@ -136,7 +137,10 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
           .send(http.Request('GET', Uri.parse(url)))
           .timeout(const Duration(seconds: 30));
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException('HTTP ${response.statusCode}', uri: Uri.parse(url));
+        throw HttpException(
+          httpStatusMessage(response.statusCode, 'HTTP ${response.statusCode}'),
+          uri: Uri.parse(url),
+        );
       }
 
       final sink = targetFile.openWrite();

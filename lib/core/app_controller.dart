@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -6,6 +8,8 @@ import 'package:geolocator/geolocator.dart';
 import 'android_home_integration.dart';
 import 'announcement_models.dart';
 import 'announcement_service.dart';
+import 'account_sync_models.dart';
+import 'account_sync_service.dart';
 import 'android_trip_monitor.dart';
 import 'app_analytics.dart';
 import 'app_build_info.dart';
@@ -32,10 +36,13 @@ class AppController extends ChangeNotifier {
     required this.appUpdateService,
     required this.appUpdateInstaller,
     required this.authService,
+    required this.accountSyncService,
     AnnouncementService? announcementService,
   }) : announcementService = announcementService ?? AnnouncementService();
 
-  static const defaultFavoriteGroupName = '我的最愛';
+  static const defaultFavoriteGroupName = '收藏';
+  static const Duration _accountSyncDebounce = Duration(seconds: 3);
+  static const Duration _foregroundAccountSyncCooldown = Duration(minutes: 1);
 
   final BusRepository repository;
   final StorageService storage;
@@ -44,12 +51,15 @@ class AppController extends ChangeNotifier {
   final AppUpdateService appUpdateService;
   final AppUpdateInstaller appUpdateInstaller;
   final AuthService authService;
+  final AccountSyncService accountSyncService;
   final AnnouncementService announcementService;
   final BackgroundImageStore _backgroundImageStore = BackgroundImageStore();
 
   AppSettings _settings = AppSettings.defaults();
   AuthSession? _authSession;
   AuthAccount? _authAccount;
+  AccountSyncLocalState _accountSyncLocalState = AccountSyncLocalState.empty();
+  AccountSyncSummary? _accountSyncSummary;
   AnnouncementLocalState _announcementLocalState =
       AnnouncementLocalState.empty();
   List<AppAnnouncement> _announcements = const [];
@@ -57,6 +67,8 @@ class AppController extends ChangeNotifier {
   Map<String, List<FavoriteStop>> _favoriteGroups = const {};
   List<RouteUsageProfile> _routeUsageProfiles = const [];
   List<FavoriteUsageProfile> _favoriteUsageProfiles = const [];
+  int? _settingsLastModifiedAtMs;
+  int? _favoriteGroupsLastModifiedAtMs;
   bool _initialized = false;
   Map<BusProvider, bool> _databaseReadyByProvider = {
     for (final provider in BusProvider.values) provider: false,
@@ -66,16 +78,21 @@ class AppController extends ChangeNotifier {
   bool _checkingAppUpdate = false;
   bool _authBusy = false;
   bool _authAccountLoading = false;
+  bool _accountSyncBusy = false;
   bool _announcementsLoading = false;
   bool _startupAppUpdateChecked = false;
   bool _startupDatabaseUpdateChecked = false;
   AppUpdateCheckResult? _lastAppUpdateResult;
   Map<BusProvider, int> _pendingDatabaseUpdates = const {};
   String? _announcementsError;
+  String? _accountSyncError;
+  Timer? _scheduledAccountSyncTimer;
+  int? _lastForegroundAccountSyncAtMs;
 
   AppSettings get settings => _settings;
   AuthSession? get authSession => _authSession;
   AuthAccount? get authAccount => _authAccount;
+  AccountSyncSummary? get accountSyncSummary => _accountSyncSummary;
   bool get isAuthenticated => _authSession?.isAuthenticated ?? false;
   List<AppAnnouncement> get announcements => List.unmodifiable(_announcements);
   List<SearchHistoryEntry> get history => List.unmodifiable(_history);
@@ -160,12 +177,35 @@ class AppController extends ChangeNotifier {
   bool get checkingAppUpdate => _checkingAppUpdate;
   bool get authBusy => _authBusy;
   bool get authAccountLoading => _authAccountLoading;
+  bool get accountSyncBusy => _accountSyncBusy;
   bool get announcementsLoading => _announcementsLoading;
   AppUpdateCheckResult? get lastAppUpdateResult => _lastAppUpdateResult;
   Map<BusProvider, int> get pendingDatabaseUpdates =>
       Map.unmodifiable(_pendingDatabaseUpdates);
   bool get hasPendingDatabaseUpdates => _pendingDatabaseUpdates.isNotEmpty;
   String? get announcementsError => _announcementsError;
+  String? get accountSyncError => _accountSyncError;
+  bool get accountSyncEnabled => _accountSyncLocalState.syncEnabled == true;
+  bool get shouldPromptToEnableAccountSync =>
+      isAuthenticated && _accountSyncLocalState.syncEnabled == null;
+  DateTime? get settingsLastModifiedAt =>
+      _dateTimeFromMs(_settingsLastModifiedAtMs);
+  DateTime? get favoriteGroupsLastModifiedAt =>
+      _dateTimeFromMs(_favoriteGroupsLastModifiedAtMs);
+  DateTime? get lastAccountSyncAt {
+    final timestamps = <int>[
+      if (_accountSyncLocalState.favorites.lastSuccessfulSyncAtMs != null)
+        _accountSyncLocalState.favorites.lastSuccessfulSyncAtMs!,
+      if (_accountSyncLocalState.preferences.lastSuccessfulSyncAtMs != null)
+        _accountSyncLocalState.preferences.lastSuccessfulSyncAtMs!,
+    ];
+    if (timestamps.isEmpty) {
+      return null;
+    }
+    timestamps.sort();
+    return DateTime.fromMillisecondsSinceEpoch(timestamps.last);
+  }
+
   bool get hasUnreadAnnouncements => _announcements.any(
     (announcement) => announcementService.shouldShowRedDot(
       announcement,
@@ -192,7 +232,9 @@ class AppController extends ChangeNotifier {
     await storage.migrateLegacyApiDataIfNeeded();
     await authService.initialize();
     _authSession = authService.session;
+    await _loadAccountSyncLocalState();
     _settings = await storage.loadSettings();
+    _settingsLastModifiedAtMs = await storage.loadSettingsLastModifiedAtMs();
     final normalizedBackgroundPaths = await _backgroundImageStore
         .normalizeSettingsPaths(_settings.pageBackgroundImagePaths);
     final normalizedBackgroundOpacities = Map<String, double>.from(
@@ -210,11 +252,13 @@ class AppController extends ChangeNotifier {
         pageBackgroundImagePaths: normalizedBackgroundPaths,
         pageBackgroundImageOpacities: normalizedBackgroundOpacities,
       );
-      await storage.saveSettings(_settings);
+      await _persistSettings(modifiedAtMs: _settingsLastModifiedAtMs);
     }
     _announcementLocalState = await storage.loadAnnouncementLocalState();
     _history = await storage.loadHistory();
     _favoriteGroups = await storage.loadFavoriteGroups();
+    _favoriteGroupsLastModifiedAtMs = await storage
+        .loadFavoriteGroupsLastModifiedAtMs();
     _routeUsageProfiles = await storage.loadRouteUsageProfiles();
     _favoriteUsageProfiles = await storage.loadFavoriteUsageProfiles();
     await AndroidHomeIntegration.updateFavoriteWidgetAutoRefreshMinutes(
@@ -245,6 +289,10 @@ class AppController extends ChangeNotifier {
       }
     }
 
+    if (accountSyncEnabled) {
+      scheduleForegroundAccountSync(force: true);
+    }
+
     _initialized = true;
     notifyListeners();
   }
@@ -260,6 +308,7 @@ class AppController extends ChangeNotifier {
       if (authService.session != _authSession) {
         _authSession = authService.session;
         if (_authSession != null) {
+          await _loadAccountSyncLocalState();
           try {
             _authAccount = await authService.fetchAccount();
           } on AuthTokenExpiredException {
@@ -267,6 +316,11 @@ class AppController extends ChangeNotifier {
           } catch (_) {
             _authAccount = null;
           }
+          if (accountSyncEnabled) {
+            scheduleForegroundAccountSync(force: true);
+          }
+        } else {
+          _clearAccountSyncSessionData();
         }
       }
       return opened;
@@ -293,12 +347,16 @@ class AppController extends ChangeNotifier {
       displayName: action.authDisplayName ?? '',
     );
     _authSession = authService.session;
+    await _loadAccountSyncLocalState();
     try {
       _authAccount = await authService.fetchAccount();
     } on AuthTokenExpiredException {
       await _forceLocalLogout();
     } catch (_) {
       _authAccount = null;
+    }
+    if (accountSyncEnabled) {
+      scheduleForegroundAccountSync(force: true);
     }
     notifyListeners();
   }
@@ -337,6 +395,8 @@ class AppController extends ChangeNotifier {
       await authService.logout();
       _authSession = null;
       _authAccount = null;
+      _cancelScheduledAccountSync();
+      _clearAccountSyncSessionData();
     } finally {
       _authBusy = false;
       notifyListeners();
@@ -350,7 +410,400 @@ class AppController extends ChangeNotifier {
     await authService.logout();
     _authSession = null;
     _authAccount = null;
+    _cancelScheduledAccountSync();
+    _clearAccountSyncSessionData();
     notifyListeners();
+  }
+
+  Future<void> _persistSettings({
+    int? modifiedAtMs,
+    bool scheduleSync = true,
+  }) async {
+    final effectiveModifiedAtMs =
+        modifiedAtMs ?? DateTime.now().millisecondsSinceEpoch;
+    await storage.saveSettings(_settings, modifiedAtMs: effectiveModifiedAtMs);
+    _settingsLastModifiedAtMs = effectiveModifiedAtMs;
+    if (scheduleSync) {
+      _scheduleChangeDrivenAccountSync();
+    }
+  }
+
+  Future<void> _persistFavoriteGroups({
+    int? modifiedAtMs,
+    bool scheduleSync = true,
+  }) async {
+    final effectiveModifiedAtMs =
+        modifiedAtMs ?? DateTime.now().millisecondsSinceEpoch;
+    await storage.saveFavoriteGroups(
+      _favoriteGroups,
+      modifiedAtMs: effectiveModifiedAtMs,
+    );
+    _favoriteGroupsLastModifiedAtMs = effectiveModifiedAtMs;
+    if (scheduleSync) {
+      _scheduleChangeDrivenAccountSync();
+    }
+  }
+
+  Future<void> _loadAccountSyncLocalState() async {
+    final accountId = _authSession?.accountId.trim() ?? '';
+    if (accountId.isEmpty) {
+      _accountSyncLocalState = AccountSyncLocalState.empty();
+      _accountSyncSummary = null;
+      _accountSyncError = null;
+      return;
+    }
+    _accountSyncLocalState = await storage.loadAccountSyncLocalState(accountId);
+    _accountSyncSummary = null;
+    _accountSyncError = null;
+  }
+
+  Future<void> _saveAccountSyncLocalState() async {
+    final accountId = _authSession?.accountId.trim() ?? '';
+    if (accountId.isEmpty) {
+      return;
+    }
+    await storage.saveAccountSyncLocalState(accountId, _accountSyncLocalState);
+  }
+
+  void _clearAccountSyncSessionData() {
+    _accountSyncLocalState = AccountSyncLocalState.empty();
+    _accountSyncSummary = null;
+    _accountSyncError = null;
+  }
+
+  Future<void> setAccountSyncEnabled(
+    bool enabled, {
+    bool syncNow = true,
+  }) async {
+    _accountSyncLocalState = _accountSyncLocalState.copyWith(
+      syncEnabled: enabled,
+    );
+    await _saveAccountSyncLocalState();
+    notifyListeners();
+    if (!enabled) {
+      _cancelScheduledAccountSync();
+      return;
+    }
+    if (syncNow) {
+      await syncAllAccountData();
+    } else {
+      scheduleForegroundAccountSync(force: true);
+    }
+  }
+
+  void scheduleForegroundAccountSync({bool force = false}) {
+    if (!accountSyncEnabled || !isAuthenticated) {
+      return;
+    }
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (!force &&
+        _lastForegroundAccountSyncAtMs != null &&
+        nowMs - _lastForegroundAccountSyncAtMs! <
+            _foregroundAccountSyncCooldown.inMilliseconds) {
+      return;
+    }
+    _lastForegroundAccountSyncAtMs = nowMs;
+    _scheduleAccountSync(delay: Duration.zero);
+  }
+
+  void _scheduleChangeDrivenAccountSync() {
+    if (!accountSyncEnabled || !isAuthenticated) {
+      return;
+    }
+    _scheduleAccountSync(delay: _accountSyncDebounce);
+  }
+
+  void _scheduleAccountSync({required Duration delay}) {
+    _scheduledAccountSyncTimer?.cancel();
+    _scheduledAccountSyncTimer = Timer(delay, () {
+      _scheduledAccountSyncTimer = null;
+      unawaited(_runScheduledAccountSync());
+    });
+  }
+
+  void _cancelScheduledAccountSync() {
+    _scheduledAccountSyncTimer?.cancel();
+    _scheduledAccountSyncTimer = null;
+  }
+
+  Future<void> _runScheduledAccountSync() async {
+    if (!accountSyncEnabled || !isAuthenticated) {
+      return;
+    }
+    if (_accountSyncBusy) {
+      _scheduleAccountSync(delay: _accountSyncDebounce);
+      return;
+    }
+    try {
+      await syncAllAccountData();
+    } catch (_) {
+      // Keep the last sync error on the controller, but avoid interrupting
+      // the user with an automatic-sync exception.
+    }
+  }
+
+  AccountSyncNamespaceStatus accountSyncStatusFor(
+    AccountSyncNamespace namespace,
+  ) {
+    return AccountSyncNamespaceStatus(
+      namespace: namespace,
+      localState: _accountSyncLocalState.stateFor(namespace),
+      serverDocument: _accountSyncSummary?.documents[namespace],
+      localModifiedAt: switch (namespace) {
+        AccountSyncNamespace.favorites => favoriteGroupsLastModifiedAt,
+        AccountSyncNamespace.preferences => settingsLastModifiedAt,
+      },
+    );
+  }
+
+  Future<void> refreshAccountSyncStatus() {
+    if (_authSession == null) {
+      _clearAccountSyncSessionData();
+      notifyListeners();
+      return Future.value();
+    }
+    return _runAccountSyncOperation(() async {
+      await _refreshAccountSyncStatusCore();
+    });
+  }
+
+  Future<void> syncAccountNamespace(
+    AccountSyncNamespace namespace, {
+    AccountSyncConflictPolicy conflictPolicy = AccountSyncConflictPolicy.abort,
+  }) {
+    return _runAccountSyncOperation(() async {
+      _cancelScheduledAccountSync();
+      await _syncAccountNamespaceCore(
+        namespace,
+        conflictPolicy: conflictPolicy,
+      );
+    });
+  }
+
+  Future<void> restoreAccountNamespace(AccountSyncNamespace namespace) {
+    return _runAccountSyncOperation(() async {
+      _cancelScheduledAccountSync();
+      await _restoreAccountNamespaceCore(namespace);
+    });
+  }
+
+  Future<void> syncAllAccountData({
+    AccountSyncConflictPolicy conflictPolicy = AccountSyncConflictPolicy.abort,
+  }) {
+    return _runAccountSyncOperation(() async {
+      _cancelScheduledAccountSync();
+      await _refreshAccountSyncStatusCore();
+      await _syncFavoritesWithSmartStrategy(
+        preferredConflictPolicy: conflictPolicy,
+      );
+      await _syncPreferencesWithSmartStrategy();
+    });
+  }
+
+  Future<void> restoreAllAccountData() {
+    return _runAccountSyncOperation(() async {
+      _cancelScheduledAccountSync();
+      await _restoreAccountNamespaceCore(AccountSyncNamespace.favorites);
+      await _restoreAccountNamespaceCore(AccountSyncNamespace.preferences);
+    });
+  }
+
+  Future<void> _refreshAccountSyncStatusCore() async {
+    final summary = await accountSyncService.fetchSummary();
+    _accountSyncSummary = summary;
+    _accountSyncError = null;
+  }
+
+  Future<void> _syncFavoritesWithSmartStrategy({
+    required AccountSyncConflictPolicy preferredConflictPolicy,
+  }) async {
+    final namespace = AccountSyncNamespace.favorites;
+    final status = accountSyncStatusFor(namespace);
+    final localFavoriteCount = _favoriteGroups.values.fold<int>(
+      0,
+      (total, group) => total + group.length,
+    );
+    final effectiveConflictPolicy =
+        preferredConflictPolicy == AccountSyncConflictPolicy.abort
+        ? AccountSyncConflictPolicy.merge
+        : preferredConflictPolicy;
+
+    if (localFavoriteCount == 0 && status.hasCloudData) {
+      await _restoreAccountNamespaceCore(namespace);
+      return;
+    }
+    if (!status.hasCloudData) {
+      if (localFavoriteCount > 0 || status.localChanges) {
+        await _syncAccountNamespaceCore(
+          namespace,
+          conflictPolicy: effectiveConflictPolicy,
+        );
+      }
+      return;
+    }
+    if (status.cloudChanges && !status.localChanges) {
+      await _restoreAccountNamespaceCore(namespace);
+      return;
+    }
+    if (status.localChanges || !status.hasEverSynced) {
+      await _syncAccountNamespaceCore(
+        namespace,
+        conflictPolicy: effectiveConflictPolicy,
+      );
+    }
+  }
+
+  Future<void> _syncPreferencesWithSmartStrategy() async {
+    final namespace = AccountSyncNamespace.preferences;
+    final status = accountSyncStatusFor(namespace);
+
+    if (status.hasCloudData && !status.hasEverSynced && !status.localChanges) {
+      await _restoreAccountNamespaceCore(namespace);
+      return;
+    }
+    if (status.cloudChanges && !status.localChanges) {
+      await _restoreAccountNamespaceCore(namespace);
+      return;
+    }
+    if (!status.hasCloudData || status.localChanges || !status.hasEverSynced) {
+      await _syncAccountNamespaceCore(
+        namespace,
+        conflictPolicy: AccountSyncConflictPolicy.clientWins,
+      );
+    }
+  }
+
+  Future<void> _syncAccountNamespaceCore(
+    AccountSyncNamespace namespace, {
+    required AccountSyncConflictPolicy conflictPolicy,
+  }) async {
+    final session = _authSession;
+    if (session == null || !session.isAuthenticated) {
+      throw const AuthTokenExpiredException('登入後才能同步帳號資料。');
+    }
+
+    final localState = _accountSyncLocalState.stateFor(namespace);
+    final localModifiedAtMs =
+        _localModifiedAtMsForNamespace(namespace) ??
+        DateTime.now().millisecondsSinceEpoch;
+    final result = await accountSyncService.upsertDocument(
+      namespace: namespace,
+      payload: _buildSyncPayload(namespace),
+      clientModifiedAt: DateTime.fromMillisecondsSinceEpoch(localModifiedAtMs),
+      schemaVersion: namespace.schemaVersion,
+      conflictPolicy: conflictPolicy,
+      baseRevision: localState.lastSyncedServerRevision,
+      baseEtag: localState.lastSyncedServerEtag,
+    );
+
+    final document = result.document;
+    if (document != null) {
+      await _applyRemoteDocument(namespace, document);
+      return;
+    }
+
+    await _refreshAccountSyncStatusCore();
+  }
+
+  Future<void> _restoreAccountNamespaceCore(
+    AccountSyncNamespace namespace,
+  ) async {
+    final session = _authSession;
+    if (session == null || !session.isAuthenticated) {
+      throw const AuthTokenExpiredException('登入後才能同步帳號資料。');
+    }
+
+    final document = await accountSyncService.fetchDocument(namespace);
+    if (!document.hasData || document.payload == null) {
+      throw Exception('${namespace.label} 尚未有可用的雲端備份。');
+    }
+
+    await _applyRemoteDocument(namespace, document);
+  }
+
+  Future<void> _applyRemoteDocument(
+    AccountSyncNamespace namespace,
+    AccountSyncDocument document,
+  ) async {
+    final updatedAtMs =
+        document.updatedAt?.millisecondsSinceEpoch ??
+        DateTime.now().millisecondsSinceEpoch;
+
+    switch (namespace) {
+      case AccountSyncNamespace.favorites:
+        _favoriteGroups = _favoriteGroupsFromSyncPayload(document.payload);
+        await _persistFavoriteGroups(
+          modifiedAtMs: updatedAtMs,
+          scheduleSync: false,
+        );
+        await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
+        await AndroidHomeIntegration.refreshFavoriteWidgets();
+      case AccountSyncNamespace.preferences:
+        _settings = _settingsFromSyncPayload(document.payload);
+        await _persistSettings(modifiedAtMs: updatedAtMs, scheduleSync: false);
+        await _applySettingsSideEffects();
+    }
+
+    final previous = _accountSyncLocalState.stateFor(namespace);
+    _accountSyncLocalState = _accountSyncLocalState.copyWithNamespace(
+      namespace,
+      previous.copyWith(
+        lastSuccessfulSyncAtMs:
+            document.lastSyncedAt?.millisecondsSinceEpoch ??
+            DateTime.now().millisecondsSinceEpoch,
+        lastSyncedLocalModifiedAtMs: updatedAtMs,
+        lastSyncedServerRevision: document.revision,
+        lastSyncedServerEtag: document.etag,
+        lastSyncedServerUpdatedAt: document.updatedAt
+            ?.toUtc()
+            .toIso8601String(),
+        preservedPayload: namespace == AccountSyncNamespace.preferences
+            ? document.payload
+            : null,
+        clearPreservedPayload: namespace == AccountSyncNamespace.favorites,
+      ),
+    );
+    await _saveAccountSyncLocalState();
+    _accountSyncSummary =
+        (_accountSyncSummary ??
+                const AccountSyncSummary(serverTime: null, documents: {}))
+            .copyWithDocument(document);
+    _accountSyncError = null;
+  }
+
+  Future<void> _applySettingsSideEffects() async {
+    await AndroidHomeIntegration.updateFavoriteWidgetAutoRefreshMinutes(
+      _settings.favoriteWidgetAutoRefreshMinutes,
+    );
+    await AndroidHomeIntegration.syncSmartRouteNotifications(
+      _settings.enableSmartRouteNotifications,
+    );
+    await desktopDiscordPresenceService.refresh(settings: _settings);
+  }
+
+  Future<void> _runAccountSyncOperation(Future<void> Function() action) async {
+    if (_accountSyncBusy) {
+      throw StateError('同步進行中，請稍後再試。');
+    }
+
+    _accountSyncBusy = true;
+    _accountSyncError = null;
+    notifyListeners();
+    try {
+      await action();
+    } on AuthTokenExpiredException {
+      _accountSyncError = null;
+      await _forceLocalLogout();
+      rethrow;
+    } catch (error) {
+      if (error is! AccountSyncConflictException) {
+        _accountSyncError = '$error';
+      }
+      rethrow;
+    } finally {
+      _accountSyncBusy = false;
+      notifyListeners();
+    }
   }
 
   Future<void> ensureAnnouncementsLoaded() async {
@@ -469,7 +922,7 @@ class AppController extends ChangeNotifier {
       provider: provider,
       selectedProviders: selected.toList(),
     );
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await analytics.logProviderChanged(
       provider: provider,
       selectedCount: _settings.selectedProviders.length,
@@ -497,7 +950,7 @@ class AppController extends ChangeNotifier {
       provider: provider,
       selectedProviders: normalized,
     );
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await analytics.logSelectedProvidersChanged(
       currentProvider: provider,
       selectedCount: normalized.length,
@@ -536,26 +989,26 @@ class AppController extends ChangeNotifier {
       next.remove(provider);
     }
     _settings = _settings.copyWith(skipDownloadPromptProviders: next.toList());
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
   Future<void> updateThemeMode(ThemeMode themeMode) async {
     _settings = _settings.copyWith(themeMode: themeMode);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await analytics.logThemeModeChanged(themeMode);
     notifyListeners();
   }
 
   Future<void> updateMobileMapProvider(MobileMapProvider provider) async {
     _settings = _settings.copyWith(mobileMapProvider: provider);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
   Future<void> updateUseAmoledDark(bool value) async {
     _settings = _settings.copyWith(useAmoledDark: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await analytics.logAmoledPreferenceChanged(value);
     notifyListeners();
   }
@@ -566,14 +1019,14 @@ class AppController extends ChangeNotifier {
     } else {
       _settings = _settings.copyWith(clearSeedColor: true);
     }
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await analytics.logSeedColorChanged(usesCustomColor: color != null);
     notifyListeners();
   }
 
   Future<void> updateHomeBackgroundOpacity(double value) async {
     _settings = _settings.copyWith(homeBackgroundOpacity: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
@@ -614,7 +1067,7 @@ class AppController extends ChangeNotifier {
     );
     updated[pageKey] = opacity;
     _settings = _settings.copyWith(pageBackgroundImageOpacities: updated);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
@@ -630,7 +1083,7 @@ class AppController extends ChangeNotifier {
       updated[key] = opacity;
     }
     _settings = _settings.copyWith(pageBackgroundImageOpacities: updated);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
@@ -685,37 +1138,37 @@ class AppController extends ChangeNotifier {
       pageBackgroundImagePaths: normalizedPaths,
       pageBackgroundImageOpacities: normalizedOpacities,
     );
-    await storage.saveSettings(_settings);
+    await _persistSettings();
   }
 
   Future<void> updateOverlayOpacity(double value) async {
     _settings = _settings.copyWith(overlayOpacity: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
   Future<void> updateAlwaysShowSeconds(bool value) async {
     _settings = _settings.copyWith(alwaysShowSeconds: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
   Future<void> updateEnableSmartRecommendations(bool value) async {
     _settings = _settings.copyWith(enableSmartRecommendations: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
   Future<void> updateEnableSmartRouteNotifications(bool value) async {
     _settings = _settings.copyWith(enableSmartRouteNotifications: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await AndroidHomeIntegration.syncSmartRouteNotifications(value);
     notifyListeners();
   }
 
   Future<void> updateKeepScreenAwakeOnRouteDetail(bool value) async {
     _settings = _settings.copyWith(keepScreenAwakeOnRouteDetail: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
@@ -728,7 +1181,7 @@ class AppController extends ChangeNotifier {
       hasSeenRouteBackgroundMonitorPrompt:
           markPromptSeen || _settings.hasSeenRouteBackgroundMonitorPrompt,
     );
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     if (!value) {
       await AndroidTripMonitor.stop();
       await LiveActivityService.endLiveActivity();
@@ -738,40 +1191,40 @@ class AppController extends ChangeNotifier {
 
   Future<void> updateFavoriteWidgetAutoRefreshMinutes(int value) async {
     _settings = _settings.copyWith(favoriteWidgetAutoRefreshMinutes: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await AndroidHomeIntegration.updateFavoriteWidgetAutoRefreshMinutes(value);
     notifyListeners();
   }
 
   Future<void> updateBusUpdateTime(int value) async {
     _settings = _settings.copyWith(busUpdateTime: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
   Future<void> updateBusErrorUpdateTime(int value) async {
     _settings = _settings.copyWith(busErrorUpdateTime: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
   Future<void> updateMaxHistory(int value) async {
     _settings = _settings.copyWith(maxHistory: value);
     _history = _history.take(value).toList();
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await storage.saveHistory(_history);
     notifyListeners();
   }
 
   Future<void> updateAppUpdateChannel(AppUpdateChannel value) async {
     _settings = _settings.copyWith(appUpdateChannel: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
   Future<void> updateAppUpdateCheckMode(AppUpdateCheckMode value) async {
     _settings = _settings.copyWith(appUpdateCheckMode: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
@@ -779,47 +1232,47 @@ class AppController extends ChangeNotifier {
     DatabaseAutoUpdateMode value,
   ) async {
     _settings = _settings.copyWith(databaseAutoUpdateMode: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
   Future<void> updateDesktopDiscordPresenceEnabled(bool value) async {
     _settings = _settings.copyWith(desktopDiscordPresenceEnabled: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await desktopDiscordPresenceService.refresh(settings: _settings);
     notifyListeners();
   }
 
   Future<void> updateDesktopDiscordShowProvider(bool value) async {
     _settings = _settings.copyWith(desktopDiscordShowProvider: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await desktopDiscordPresenceService.refresh(settings: _settings);
     notifyListeners();
   }
 
   Future<void> updateDesktopDiscordShowScreen(bool value) async {
     _settings = _settings.copyWith(desktopDiscordShowScreen: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await desktopDiscordPresenceService.refresh(settings: _settings);
     notifyListeners();
   }
 
   Future<void> updateDesktopDiscordShowRouteName(bool value) async {
     _settings = _settings.copyWith(desktopDiscordShowRouteName: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     await desktopDiscordPresenceService.refresh(settings: _settings);
     notifyListeners();
   }
 
   Future<void> completeOnboarding() async {
     _settings = _settings.copyWith(hasCompletedOnboarding: true);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
   Future<void> setOnboardingCompleted(bool value) async {
     _settings = _settings.copyWith(hasCompletedOnboarding: value);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
@@ -856,7 +1309,7 @@ class AppController extends ChangeNotifier {
       provider: active,
       selectedProviders: selected.toList(),
     );
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
@@ -890,7 +1343,7 @@ class AppController extends ChangeNotifier {
       return _lastAppUpdateResult ??
           const AppUpdateCheckResult(
             status: AppUpdateStatus.unavailable,
-            message: '正在檢查更新中，請稍候。',
+            message: '正在檢查 App 更新，請稍後再試。',
           );
     }
 
@@ -1129,7 +1582,7 @@ class AppController extends ChangeNotifier {
     }
 
     _settings = _settings.copyWith(readRouteAlerts: nextReadRouteAlerts);
-    await storage.saveSettings(_settings);
+    await _persistSettings();
     notifyListeners();
   }
 
@@ -1407,7 +1860,7 @@ class AppController extends ChangeNotifier {
     }
 
     _favoriteGroups = {..._favoriteGroups, trimmed: <FavoriteStop>[]};
-    await storage.saveFavoriteGroups(_favoriteGroups);
+    await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
     await analytics.logFavoriteGroupCreated(groupCount: _favoriteGroups.length);
@@ -1418,7 +1871,7 @@ class AppController extends ChangeNotifier {
     final next = {..._favoriteGroups};
     next.remove(name);
     _favoriteGroups = next;
-    await storage.saveFavoriteGroups(_favoriteGroups);
+    await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
     await analytics.logFavoriteGroupDeleted(groupCount: _favoriteGroups.length);
@@ -1484,7 +1937,7 @@ class AppController extends ChangeNotifier {
     }
 
     _favoriteGroups = next;
-    await storage.saveFavoriteGroups(_favoriteGroups);
+    await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
     final savedFavorite = next[targetGroup]!.firstWhere(
@@ -1560,7 +2013,7 @@ class AppController extends ChangeNotifier {
     }
 
     _favoriteGroups = {..._favoriteGroups, groupName: updatedGroup};
-    await storage.saveFavoriteGroups(_favoriteGroups);
+    await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
     notifyListeners();
@@ -1577,7 +2030,7 @@ class AppController extends ChangeNotifier {
     };
     next[groupName]?.removeWhere((item) => item.sameAs(favorite));
     _favoriteGroups = next;
-    await storage.saveFavoriteGroups(_favoriteGroups);
+    await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
     await analytics.logFavoriteStopRemoved(
@@ -1669,9 +2122,112 @@ class AppController extends ChangeNotifier {
     }
 
     _favoriteGroups = {..._favoriteGroups, groupName: updatedGroup};
-    await storage.saveFavoriteGroups(_favoriteGroups);
+    await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+  }
+
+  int? _localModifiedAtMsForNamespace(AccountSyncNamespace namespace) {
+    return switch (namespace) {
+      AccountSyncNamespace.favorites => _favoriteGroupsLastModifiedAtMs,
+      AccountSyncNamespace.preferences => _settingsLastModifiedAtMs,
+    };
+  }
+
+  Map<String, dynamic> _buildSyncPayload(AccountSyncNamespace namespace) {
+    return switch (namespace) {
+      AccountSyncNamespace.favorites => {
+        'groups': _favoriteGroups.map(
+          (key, value) => MapEntry(
+            key,
+            value.map((item) => item.toJson()).toList(growable: false),
+          ),
+        )..removeWhere((_, value) => value.isEmpty),
+      },
+      AccountSyncNamespace.preferences => _mergeJsonMaps(
+        _accountSyncLocalState.preferences.preservedPayload ?? const {},
+        _preferencesSyncPayloadFromSettings(_settings),
+      ),
+    };
+  }
+
+  AppSettings _settingsFromSyncPayload(Map<String, dynamic>? payload) {
+    final merged = Map<String, dynamic>.from(_settings.toJson());
+    final root = payload ?? const <String, dynamic>{};
+    final appearance = _stringMap(root['appearance']);
+    if (appearance != null) {
+      _copyKnownKey(appearance, merged, 'themeMode');
+      _copyKnownKey(appearance, merged, 'useAmoledDark');
+      _copyKnownKey(appearance, merged, 'seedColor');
+      _copyKnownKey(appearance, merged, 'homeBackgroundOpacity');
+      _copyKnownKey(appearance, merged, 'overlayOpacity');
+    }
+
+    final usage = _stringMap(root['usage']);
+    if (usage != null) {
+      _copyKnownKey(usage, merged, 'alwaysShowSeconds');
+      _copyKnownKey(usage, merged, 'enableSmartRecommendations');
+      _copyKnownKey(usage, merged, 'enableSmartRouteNotifications');
+      _copyKnownKey(usage, merged, 'keepScreenAwakeOnRouteDetail');
+      _copyKnownKey(usage, merged, 'enableRouteBackgroundMonitor');
+      _copyKnownKey(usage, merged, 'maxHistory');
+    }
+
+    final updates = _stringMap(root['updates']);
+    if (updates != null) {
+      _copyKnownKey(updates, merged, 'favoriteWidgetAutoRefreshMinutes');
+      _copyKnownKey(updates, merged, 'busUpdateTime');
+      _copyKnownKey(updates, merged, 'busErrorUpdateTime');
+      _copyKnownKey(updates, merged, 'appUpdateChannel');
+      _copyKnownKey(updates, merged, 'appUpdateCheckMode');
+      _copyKnownKey(updates, merged, 'databaseAutoUpdateMode');
+    }
+
+    final platform = _stringMap(root['platform']);
+    final mobile = _stringMap(platform?['mobile']);
+    if (mobile != null) {
+      _copyKnownKey(mobile, merged, 'mobileMapProvider');
+    }
+    final desktop = _stringMap(platform?['desktop']);
+    if (desktop != null) {
+      _copyKnownKey(desktop, merged, 'desktopDiscordPresenceEnabled');
+      _copyKnownKey(desktop, merged, 'desktopDiscordShowProvider');
+      _copyKnownKey(desktop, merged, 'desktopDiscordShowScreen');
+      _copyKnownKey(desktop, merged, 'desktopDiscordShowRouteName');
+    }
+
+    return AppSettings.fromJson(merged);
+  }
+
+  Map<String, List<FavoriteStop>> _favoriteGroupsFromSyncPayload(
+    Map<String, dynamic>? payload,
+  ) {
+    final rawGroups = _stringMap(payload?['groups']);
+    if (rawGroups == null) {
+      return {};
+    }
+
+    final groups = <String, List<FavoriteStop>>{};
+    for (final entry in rawGroups.entries) {
+      final groupName = entry.key.trim();
+      final value = entry.value;
+      if (groupName.isEmpty || value is! List) {
+        continue;
+      }
+      final favorites = value
+          .whereType<Map>()
+          .map(
+            (item) => FavoriteStop.fromJson(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .where((favorite) => favorite.routeKey > 0 && favorite.stopId > 0)
+          .toList(growable: false);
+      if (favorites.isNotEmpty) {
+        groups[groupName] = favorites;
+      }
+    }
+    return groups;
   }
 
   Future<DatabaseConnectionKind> _resolveDatabaseConnectionKind() async {
@@ -1694,4 +2250,111 @@ class AppController extends ChangeNotifier {
     }
     return DatabaseConnectionKind.unknown;
   }
+
+  @override
+  void dispose() {
+    _cancelScheduledAccountSync();
+    super.dispose();
+  }
+}
+
+Map<String, dynamic> _preferencesSyncPayloadFromSettings(AppSettings settings) {
+  final json = settings.toJson();
+  return {
+    'appearance': {
+      'themeMode': json['themeMode'],
+      'useAmoledDark': json['useAmoledDark'],
+      'seedColor': json['seedColor'],
+      'homeBackgroundOpacity': json['homeBackgroundOpacity'],
+      'overlayOpacity': json['overlayOpacity'],
+    },
+    'usage': {
+      'alwaysShowSeconds': json['alwaysShowSeconds'],
+      'enableSmartRecommendations': json['enableSmartRecommendations'],
+      'enableSmartRouteNotifications': json['enableSmartRouteNotifications'],
+      'keepScreenAwakeOnRouteDetail': json['keepScreenAwakeOnRouteDetail'],
+      'enableRouteBackgroundMonitor': json['enableRouteBackgroundMonitor'],
+      'maxHistory': json['maxHistory'],
+    },
+    'updates': {
+      'favoriteWidgetAutoRefreshMinutes':
+          json['favoriteWidgetAutoRefreshMinutes'],
+      'busUpdateTime': json['busUpdateTime'],
+      'busErrorUpdateTime': json['busErrorUpdateTime'],
+      'appUpdateChannel': json['appUpdateChannel'],
+      'appUpdateCheckMode': json['appUpdateCheckMode'],
+      'databaseAutoUpdateMode': json['databaseAutoUpdateMode'],
+    },
+    'platform': {
+      'mobile': {'mobileMapProvider': json['mobileMapProvider']},
+      'desktop': {
+        'desktopDiscordPresenceEnabled': json['desktopDiscordPresenceEnabled'],
+        'desktopDiscordShowProvider': json['desktopDiscordShowProvider'],
+        'desktopDiscordShowScreen': json['desktopDiscordShowScreen'],
+        'desktopDiscordShowRouteName': json['desktopDiscordShowRouteName'],
+      },
+    },
+  };
+}
+
+Map<String, dynamic> _mergeJsonMaps(
+  Map<String, dynamic> base,
+  Map<String, dynamic> overlay,
+) {
+  final result = <String, dynamic>{
+    for (final entry in base.entries) entry.key: _deepCloneJson(entry.value),
+  };
+
+  for (final entry in overlay.entries) {
+    final existing = result[entry.key];
+    final value = entry.value;
+    if (existing is Map && value is Map) {
+      result[entry.key] = _mergeJsonMaps(
+        existing.map((key, value) => MapEntry(key.toString(), value)),
+        value.map((key, value) => MapEntry(key.toString(), value)),
+      );
+      continue;
+    }
+    result[entry.key] = _deepCloneJson(value);
+  }
+  return result;
+}
+
+void _copyKnownKey(
+  Map<String, dynamic> from,
+  Map<String, dynamic> to,
+  String key,
+) {
+  if (from.containsKey(key)) {
+    to[key] = _deepCloneJson(from[key]);
+  }
+}
+
+Map<String, dynamic>? _stringMap(Object? value) {
+  if (value is! Map) {
+    return null;
+  }
+  return value.map((key, item) => MapEntry(key.toString(), item));
+}
+
+DateTime? _dateTimeFromMs(int? value) {
+  if (value == null) {
+    return null;
+  }
+  return DateTime.fromMillisecondsSinceEpoch(value);
+}
+
+Object? _deepCloneJson(Object? value) {
+  if (value == null || value is num || value is bool || value is String) {
+    return value;
+  }
+  if (value is List) {
+    return value.map(_deepCloneJson).toList(growable: false);
+  }
+  if (value is Map) {
+    return value.map(
+      (key, item) => MapEntry(key.toString(), _deepCloneJson(item)),
+    );
+  }
+  return '$value';
 }

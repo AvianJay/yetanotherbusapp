@@ -5,6 +5,7 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import 'app/bus_app.dart';
 import 'core/announcement_push_service.dart';
+import 'core/account_sync_service.dart';
 import 'core/app_controller.dart';
 import 'core/app_analytics.dart';
 import 'core/app_build_info.dart';
@@ -35,6 +36,7 @@ Future<void> main(List<String> args) async {
       appUpdateService: AppUpdateService(buildInfo: buildInfo),
       appUpdateInstaller: createAppUpdateInstaller(),
       authService: AuthService(),
+      accountSyncService: AccountSyncService(),
     );
     await controller.initialize();
     runApp(BusApp(controller: controller, analytics: analytics));

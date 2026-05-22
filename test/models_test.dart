@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:taiwanbus_flutter/core/account_sync_models.dart';
 import 'package:taiwanbus_flutter/core/models.dart';
 
 void main() {
@@ -67,5 +68,59 @@ void main() {
 
     expect(updated.totalSelectionsAt(now: now), 2);
     expect(updated.selectionCountAtHour(18, now: now), 2);
+  });
+
+  test('account sync local state preserves namespace metadata', () {
+    final state = AccountSyncLocalState.empty()
+        .copyWith(syncEnabled: true)
+        .copyWithNamespace(
+          AccountSyncNamespace.preferences,
+          const AccountSyncNamespaceLocalState(
+            lastSuccessfulSyncAtMs: 1716000000000,
+            lastSyncedLocalModifiedAtMs: 1716000000000,
+            lastSyncedServerRevision: 4,
+            lastSyncedServerEtag: '"etag"',
+            lastSyncedServerUpdatedAt: '2026-05-21T10:00:00Z',
+            preservedPayload: {
+              'appearance': {'themeMode': 'dark'},
+            },
+          ),
+        );
+
+    final restored = AccountSyncLocalState.fromJson(state.toJson());
+
+    expect(restored.syncEnabled, isTrue);
+    expect(restored.preferences.lastSyncedServerRevision, 4);
+    expect(
+      restored.preferences.preservedPayload?['appearance']['themeMode'],
+      'dark',
+    );
+  });
+
+  test('account sync namespace status detects conflicts', () {
+    final status = AccountSyncNamespaceStatus(
+      namespace: AccountSyncNamespace.favorites,
+      localState: const AccountSyncNamespaceLocalState(
+        lastSyncedLocalModifiedAtMs: 100,
+        lastSyncedServerRevision: 1,
+      ),
+      serverDocument: AccountSyncDocument(
+        namespace: AccountSyncNamespace.favorites,
+        hasData: true,
+        schemaVersion: 1,
+        revision: 2,
+        etag: '"etag"',
+        updatedAt: DateTime(2026, 5, 21, 9, 0),
+        lastSyncedAt: DateTime(2026, 5, 21, 9, 1),
+        lastClientModifiedAt: DateTime(2026, 5, 21, 8, 59),
+        payloadSizeBytes: 64,
+        payload: const {'groups': {}},
+      ),
+      localModifiedAt: DateTime.fromMillisecondsSinceEpoch(200),
+    );
+
+    expect(status.health, AccountSyncHealth.conflict);
+    expect(status.localChanges, isTrue);
+    expect(status.cloudChanges, isTrue);
   });
 }

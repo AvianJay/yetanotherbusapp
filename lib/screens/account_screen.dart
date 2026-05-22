@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../app/bus_app.dart';
+import '../core/account_sync_models.dart';
 import '../core/app_controller.dart';
 import '../core/auth_service.dart';
 
@@ -25,7 +26,6 @@ class _AccountScreenState extends State<AccountScreen> {
     if (!controller.isAuthenticated) {
       return;
     }
-
     _requestedInitialRefresh = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
@@ -45,12 +45,20 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted || opened) {
         return;
       }
-      messenger.showSnackBar(const SnackBar(content: Text('無法開啟登入頁面 :(')));
+      messenger.showSnackBar(const SnackBar(content: Text('無法開啟登入頁面。')));
     } catch (error) {
       if (!mounted) {
         return;
       }
-      messenger.showSnackBar(SnackBar(content: Text('登入失敗: $error')));
+      // is 429?
+      if (error.toString().contains('Too Many Requests') ||
+          error.toString().contains('429')) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('你已受到速率限制。')),
+        );
+        return;
+      }
+      messenger.showSnackBar(SnackBar(content: Text('登入失敗：$error')));
     }
   }
 
@@ -65,7 +73,144 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted || quiet) {
         return;
       }
-      messenger.showSnackBar(SnackBar(content: Text('無法刷新帳戶資訊: $error')));
+      if (error.toString().contains('Too Many Requests') ||
+          error.toString().contains('429')) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('你已受到速率限制。')),
+        );
+        return;
+      }
+      messenger.showSnackBar(SnackBar(content: Text('重新整理帳號失敗：$error')));
+    }
+  }
+
+  Future<void> _toggleSync(AppController controller, bool enabled) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await controller.setAccountSyncEnabled(enabled, syncNow: enabled);
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(content: Text(enabled ? '已開啟自動同步。' : '已關閉自動同步。')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      if (error.toString().contains('Too Many Requests') ||
+          error.toString().contains('429')) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('你已受到速率限制。')),
+        );
+        return;
+      }
+      messenger.showSnackBar(SnackBar(content: Text('更新同步設定失敗：$error')));
+    }
+  }
+
+  Future<void> _manualSync(AppController controller) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await controller.syncAllAccountData();
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(const SnackBar(content: Text('同步完成。')));
+    } catch (error) {
+      if (error is AccountSyncConflictException) {
+        await _showSyncConflictDialog(controller, error);
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
+      if (error.toString().contains('Too Many Requests') ||
+          error.toString().contains('429')) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('你已受到速率限制。')),
+        );
+        return;
+      }
+      messenger.showSnackBar(SnackBar(content: Text('同步失敗：$error')));
+    }
+  }
+
+  Future<void> _showSyncConflictDialog(
+    AppController controller,
+    AccountSyncConflictException conflict,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final namespace = conflict.namespace;
+    final action = await showDialog<_SyncConflictAction>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('同步發生衝突'),
+          content: Text(
+            conflict.message.trim().isNotEmpty
+                ? conflict.message
+                : '${namespace.label} 同步時發生衝突。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_SyncConflictAction.cancel),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_SyncConflictAction.useCloud),
+              child: const Text('使用雲端'),
+            ),
+            if (conflict.canMerge)
+              TextButton(
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(_SyncConflictAction.merge),
+                child: const Text('嘗試合併'),
+              ),
+            FilledButton(
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop(_SyncConflictAction.overwriteCloud),
+              child: const Text('覆蓋雲端'),
+            ),
+          ],
+        );
+      },
+    );
+    if (!mounted || action == null || action == _SyncConflictAction.cancel) {
+      return;
+    }
+
+    try {
+      switch (action) {
+        case _SyncConflictAction.cancel:
+          return;
+        case _SyncConflictAction.useCloud:
+          await controller.restoreAccountNamespace(namespace);
+        case _SyncConflictAction.merge:
+          await controller.syncAccountNamespace(
+            namespace,
+            conflictPolicy: AccountSyncConflictPolicy.merge,
+          );
+        case _SyncConflictAction.overwriteCloud:
+          await controller.syncAccountNamespace(
+            namespace,
+            conflictPolicy: namespace == AccountSyncNamespace.preferences
+                ? AccountSyncConflictPolicy.clientWins
+                : AccountSyncConflictPolicy.clientWins,
+          );
+      }
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(const SnackBar(content: Text('同步完成。')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(SnackBar(content: Text('處理同步衝突失敗：$error')));
     }
   }
 
@@ -85,7 +230,7 @@ class _AccountScreenState extends State<AccountScreen> {
     final account = controller.authAccount;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('帳戶')),
+      appBar: AppBar(title: const Text('帳號')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
@@ -101,34 +246,38 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
                 _AuthActionsCard(
                   title: '登入',
-                  description: '登入來備份你的最愛站牌與設定！（WIP）',
+                  description: '登入來備份你的最愛站牌與設定！',
                   busy: controller.authBusy,
                   onDiscord: () => _startAuthLogin(controller, 'discord'),
                   onGoogle: () => _startAuthLogin(controller, 'google'),
                 ),
               ] else ...[
-                // _AccountSummaryCard(
-                //   account: account,
-                //   session: session,
-                //   loading: controller.authAccountLoading,
-                //   onRefresh: () => _refreshAccount(controller),
-                // ),
-                // const SizedBox(height: 12),
                 _LinkedProvidersCard(
                   account: account,
                   session: session,
                   loading: controller.authAccountLoading,
                 ),
                 const SizedBox(height: 12),
+                _SyncCard(
+                  enabled: controller.accountSyncEnabled,
+                  busy: controller.accountSyncBusy,
+                  lastSyncAt: controller.lastAccountSyncAt,
+                  onChanged: (value) => _toggleSync(controller, value),
+                  onSyncNow: () => _manualSync(controller),
+                ),
+                const SizedBox(height: 12),
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(18),
-                    child: OutlinedButton.icon(
-                      onPressed: controller.authBusy
-                          ? null
-                          : () => _logout(controller),
-                      icon: const Icon(Icons.logout_rounded),
-                      label: const Text('登出'),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        onPressed: controller.authBusy
+                            ? null
+                            : () => _logout(controller),
+                        icon: const Icon(Icons.logout_rounded),
+                        label: const Text('登出'),
+                      ),
                     ),
                   ),
                 ),
@@ -179,61 +328,6 @@ class _IntroCard extends StatelessWidget {
                 ],
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ignore: unused_element
-class _AccountSummaryCard extends StatelessWidget {
-  const _AccountSummaryCard({
-    required this.account,
-    required this.session,
-    required this.loading,
-    required this.onRefresh,
-  });
-
-  final AuthAccount? account;
-  final AuthSession? session;
-  final bool loading;
-  final VoidCallback onRefresh;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    // final accountId = account?.accountId ?? session?.accountId ?? '';
-    // final deviceId = account?.deviceId ?? session?.deviceId ?? '';
-    // final role = account?.role ?? session?.role ?? 'user';
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text('當前帳戶資訊', style: theme.textTheme.titleMedium),
-                ),
-                IconButton(
-                  tooltip: '刷新',
-                  onPressed: loading ? null : onRefresh,
-                  icon: loading
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh_rounded),
-                ),
-              ],
-            ),
-            // const SizedBox(height: 8),
-            // _DetailRow(label: 'Account ID', value: accountId),
-            // _DetailRow(label: 'Device ID', value: deviceId),
-            // _DetailRow(label: 'Role', value: role),
           ],
         ),
       ),
@@ -292,6 +386,67 @@ class _LinkedProvidersCard extends StatelessWidget {
   }
 }
 
+class _SyncCard extends StatelessWidget {
+  const _SyncCard({
+    required this.enabled,
+    required this.busy,
+    required this.lastSyncAt,
+    required this.onChanged,
+    required this.onSyncNow,
+  });
+
+  final bool enabled;
+  final bool busy;
+  final DateTime? lastSyncAt;
+  final ValueChanged<bool> onChanged;
+  final VoidCallback onSyncNow;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('雲端同步', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: enabled,
+              onChanged: busy ? null : onChanged,
+              title: const Text('啟用雲端同步'),
+              subtitle: Text(
+                enabled
+                    ? '最後同步時間：${_formatDateTime(lastSyncAt)}'
+                    : '同步已關閉。',
+              ),
+            ),
+            // const Divider(height: 24),
+            // ListTile(
+            //   contentPadding: EdgeInsets.zero,
+            //   leading: const Icon(Icons.schedule_rounded),
+            //   title: const Text(''),
+            //   subtitle: Text(_formatDateTime(lastSyncAt)),
+            // ),
+            if (busy) ...[
+              const SizedBox(height: 8),
+              const LinearProgressIndicator(),
+            ],
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: busy ? null : onSyncNow,
+              icon: const Icon(Icons.sync_rounded),
+              label: const Text('立即同步'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AuthActionsCard extends StatelessWidget {
   const _AuthActionsCard({
     required this.title,
@@ -343,36 +498,19 @@ class _AuthActionsCard extends StatelessWidget {
   }
 }
 
-// ignore: unused_element
-class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 96,
-            child: Text(label, style: theme.textTheme.bodySmall),
-          ),
-          Expanded(
-            child: SelectableText(
-              value.trim().isEmpty ? '-' : value,
-              style: theme.textTheme.bodyMedium,
-            ),
-          ),
-        ],
-      ),
-    );
+String _formatDateTime(DateTime? value) {
+  if (value == null) {
+    return '尚未同步';
   }
+  final local = value.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '${local.year}-$month-$day $hour:$minute';
 }
+
+enum _SyncConflictAction { cancel, useCloud, merge, overwriteCloud }
 
 class _ProviderTile extends StatelessWidget {
   const _ProviderTile({

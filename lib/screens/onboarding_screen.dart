@@ -60,10 +60,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       longitude: position.longitude,
     );
     _suggestedProvider = suggested;
-    if (_manualProviderSelection || controller.settings.provider == suggested) {
+    final hasExactSuggestedSelection =
+        controller.settings.provider == suggested &&
+        controller.selectedProviders.length == 1 &&
+        controller.selectedProviders.first == suggested;
+    if (_manualProviderSelection || hasExactSuggestedSelection) {
       return;
     }
-    await controller.updateProvider(suggested);
+    await controller.updateSelectedProviders([suggested]);
   }
 
   Future<Position?> _resolveCurrentPosition() async {
@@ -463,10 +467,7 @@ class _DatabaseStep extends StatelessWidget {
         const SizedBox(height: 12),
         Text('下載資料庫', style: theme.textTheme.headlineSmall),
         const SizedBox(height: 10),
-        Text(
-          '可複選要在這台裝置使用的縣市資料庫。',
-          style: theme.textTheme.bodyLarge,
-        ),
+        Text('可複選要在這台裝置使用的縣市資料庫。', style: theme.textTheme.bodyLarge),
         const SizedBox(height: 16),
         Expanded(
           child: Column(
@@ -562,9 +563,7 @@ class _DatabaseStep extends StatelessWidget {
                           );
                         }
                       },
-                child: Text(
-                  controller.downloadingDatabase ? '下載中...' : '下載',
-                ),
+                child: Text(controller.downloadingDatabase ? '下載中...' : '下載'),
               ),
             ),
           ],

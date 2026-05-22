@@ -472,9 +472,9 @@ jobs:
           DOWNLOAD_TABLE=$(cat <<EOF
           <!-- YABUS_RELEASE_DOWNLOAD_TABLE_START -->
 
-          ## Downloads
+          ## 下載
 
-          | Platform | Package | Download |
+          | 平台 | 包裝 | 下載 |
           | --- | --- | --- |
           | Android | APK | [YABus-${{ inputs.version }}.apk]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}.apk) |
           | iOS | Unsigned IPA | [YABus-${{ inputs.version }}.ipa]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}.ipa) |

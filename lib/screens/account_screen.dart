@@ -51,7 +51,8 @@ class _AccountScreenState extends State<AccountScreen> {
         return;
       }
       // is 429?
-      if (error.toString().contains('429')) {
+      if (error.toString().contains('Too Many Requests') ||
+          error.toString().contains('429')) {
         messenger.showSnackBar(
           const SnackBar(content: Text('你已受到速率限制。')),
         );
@@ -72,7 +73,8 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted || quiet) {
         return;
       }
-      if (error.toString().contains('429')) {
+      if (error.toString().contains('Too Many Requests') ||
+          error.toString().contains('429')) {
         messenger.showSnackBar(
           const SnackBar(content: Text('你已受到速率限制。')),
         );
@@ -96,7 +98,8 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted) {
         return;
       }
-      if (error.toString().contains('429')) {
+      if (error.toString().contains('Too Many Requests') ||
+          error.toString().contains('429')) {
         messenger.showSnackBar(
           const SnackBar(content: Text('你已受到速率限制。')),
         );
@@ -122,7 +125,8 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted) {
         return;
       }
-      if (error.toString().contains('429')) {
+      if (error.toString().contains('Too Many Requests') ||
+          error.toString().contains('429')) {
         messenger.showSnackBar(
           const SnackBar(content: Text('你已受到速率限制。')),
         );
@@ -242,7 +246,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
                 _AuthActionsCard(
                   title: '登入',
-                  description: '登入來備份你的最愛站牌與設定！（WIP）',
+                  description: '登入來備份你的最愛站牌與設定！',
                   busy: controller.authBusy,
                   onDiscord: () => _startAuthLogin(controller, 'discord'),
                   onGoogle: () => _startAuthLogin(controller, 'google'),

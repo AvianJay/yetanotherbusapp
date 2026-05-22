@@ -4,6 +4,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../app/bus_app.dart';
 import '../core/account_sync_models.dart';
 import '../core/app_controller.dart';
+import '../core/auth_service.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -49,6 +50,13 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted) {
         return;
       }
+      // is 429?
+      if (error.toString().contains('429')) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('你已受到速率限制。')),
+        );
+        return;
+      }
       messenger.showSnackBar(SnackBar(content: Text('登入失敗：$error')));
     }
   }
@@ -62,6 +70,12 @@ class _AccountScreenState extends State<AccountScreen> {
       await controller.refreshAuthAccount();
     } catch (error) {
       if (!mounted || quiet) {
+        return;
+      }
+      if (error.toString().contains('429')) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('你已受到速率限制。')),
+        );
         return;
       }
       messenger.showSnackBar(SnackBar(content: Text('重新整理帳號失敗：$error')));
@@ -82,6 +96,12 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted) {
         return;
       }
+      if (error.toString().contains('429')) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('你已受到速率限制。')),
+        );
+        return;
+      }
       messenger.showSnackBar(SnackBar(content: Text('更新同步設定失敗：$error')));
     }
   }
@@ -100,6 +120,12 @@ class _AccountScreenState extends State<AccountScreen> {
         return;
       }
       if (!mounted) {
+        return;
+      }
+      if (error.toString().contains('429')) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('你已受到速率限制。')),
+        );
         return;
       }
       messenger.showSnackBar(SnackBar(content: Text('同步失敗：$error')));
@@ -209,20 +235,23 @@ class _AccountScreenState extends State<AccountScreen> {
             children: [
               const SizedBox(height: 12),
               if (!controller.isAuthenticated) ...[
-                _AccountHeroCard(
-                  title: '登入帳號',
-                  subtitle: '登入後可以啟用最愛站牌與偏好設定的雲端同步。',
+                _IntroCard(
+                  isAuthenticated: controller.isAuthenticated,
+                  displayName:
+                      account?.displayName ?? session?.displayName ?? '',
                 ),
-                const SizedBox(height: 12),
                 _AuthActionsCard(
+                  title: '登入',
+                  description: '登入來備份你的最愛站牌與設定！（WIP）',
                   busy: controller.authBusy,
                   onDiscord: () => _startAuthLogin(controller, 'discord'),
                   onGoogle: () => _startAuthLogin(controller, 'google'),
                 ),
               ] else ...[
-                _AccountHeroCard(
-                  title: account?.displayName ?? session?.displayName ?? '已登入',
-                  subtitle: '同步設定都集中在這裡。',
+                _LinkedProvidersCard(
+                  account: account,
+                  session: session,
+                  loading: controller.authAccountLoading,
                 ),
                 const SizedBox(height: 12),
                 _SyncCard(
@@ -257,40 +286,95 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 }
 
-class _AccountHeroCard extends StatelessWidget {
-  const _AccountHeroCard({required this.title, required this.subtitle});
+class _IntroCard extends StatelessWidget {
+  const _IntroCard({required this.isAuthenticated, required this.displayName});
 
-  final String title;
-  final String subtitle;
+  final bool isAuthenticated;
+  final String displayName;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final title = isAuthenticated ? '已登入' : '尚未登入。';
+    final subtitle = isAuthenticated
+        ? (displayName.trim().isEmpty ? 'Ciallo～(∠・ω< )⌒☆' : displayName)
+        : '使用 Discord 或 Google 繼續以建立或連結您的帳戶。';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 26,
+              child: Icon(
+                isAuthenticated
+                    ? Icons.verified_user_outlined
+                    : Icons.account_circle_outlined,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text(subtitle, style: theme.textTheme.bodyMedium),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LinkedProvidersCard extends StatelessWidget {
+  const _LinkedProvidersCard({
+    required this.account,
+    required this.session,
+    required this.loading,
+  });
+
+  final AuthAccount? account;
+  final AuthSession? session;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final identities = account?.identities ?? const <AuthIdentity>[];
+    final fallbackProvider = session?.provider ?? '';
+    final theme = Theme.of(context);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                const CircleAvatar(
-                  radius: 24,
-                  child: Icon(Icons.account_circle_outlined),
+            Text('已登入', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            if (loading && identities.isEmpty)
+              const LinearProgressIndicator()
+            else if (identities.isEmpty && fallbackProvider.isNotEmpty)
+              _ProviderTile(
+                provider: fallbackProvider,
+                label: session?.displayName ?? fallbackProvider,
+                detail: '從當前登入令牌載入',
+              )
+            else if (identities.isEmpty)
+              const Text('尚未載入任何連結的提供者詳細資訊。')
+            else
+              for (final identity in identities)
+                _ProviderTile(
+                  provider: identity.provider,
+                  label: identity.label,
+                  detail: identity.email.isEmpty
+                      ? identity.providerUserId
+                      : identity.email,
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: theme.textTheme.titleMedium),
-                      const SizedBox(height: 4),
-                      Text(subtitle, style: theme.textTheme.bodyMedium),
-                    ],
-                  ),
-                ),
-              ],
-            ),
           ],
         ),
       ),
@@ -328,20 +412,20 @@ class _SyncCard extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               value: enabled,
               onChanged: busy ? null : onChanged,
-              title: const Text('自動同步最愛與偏好設定'),
+              title: const Text('啟用雲端同步'),
               subtitle: Text(
                 enabled
-                    ? '進入 app 時會自動同步，資料變更後也會稍後自動同步。'
-                    : '關閉後不會自動同步，但你仍可手動同步。',
+                    ? '最後同步時間：${_formatDateTime(lastSyncAt)}'
+                    : '同步已關閉。',
               ),
             ),
-            const Divider(height: 24),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.schedule_rounded),
-              title: const Text('最後同步時間'),
-              subtitle: Text(_formatDateTime(lastSyncAt)),
-            ),
+            // const Divider(height: 24),
+            // ListTile(
+            //   contentPadding: EdgeInsets.zero,
+            //   leading: const Icon(Icons.schedule_rounded),
+            //   title: const Text(''),
+            //   subtitle: Text(_formatDateTime(lastSyncAt)),
+            // ),
             if (busy) ...[
               const SizedBox(height: 8),
               const LinearProgressIndicator(),
@@ -361,33 +445,47 @@ class _SyncCard extends StatelessWidget {
 
 class _AuthActionsCard extends StatelessWidget {
   const _AuthActionsCard({
+    required this.title,
+    required this.description,
     required this.busy,
     required this.onDiscord,
     required this.onGoogle,
   });
 
+  final String title;
+  final String description;
   final bool busy;
   final VoidCallback onDiscord;
   final VoidCallback onGoogle;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
-        child: Wrap(
-          spacing: 12,
-          runSpacing: 12,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            FilledButton.icon(
-              onPressed: busy ? null : onDiscord,
-              icon: const FaIcon(FontAwesomeIcons.discord, size: 18),
-              label: const Text('使用 Discord 登入'),
-            ),
-            FilledButton.tonalIcon(
-              onPressed: busy ? null : onGoogle,
-              icon: const FaIcon(FontAwesomeIcons.google, size: 18),
-              label: const Text('使用 Google 登入'),
+            Text(title, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(description),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                FilledButton.icon(
+                  onPressed: busy ? null : onDiscord,
+                  icon: const FaIcon(FontAwesomeIcons.discord, size: 18),
+                  label: const Text('使用 Discord 繼續'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: busy ? null : onGoogle,
+                  icon: const FaIcon(FontAwesomeIcons.google, size: 18),
+                  label: const Text('使用 Google 繼續'),
+                ),
+              ],
             ),
           ],
         ),
@@ -409,3 +507,47 @@ String _formatDateTime(DateTime? value) {
 }
 
 enum _SyncConflictAction { cancel, useCloud, merge, overwriteCloud }
+
+class _ProviderTile extends StatelessWidget {
+  const _ProviderTile({
+    required this.provider,
+    required this.label,
+    required this.detail,
+  });
+
+  final String provider;
+  final String label;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(child: _providerIcon(provider)),
+      title: Text(label.trim().isEmpty ? _providerName(provider) : label),
+      subtitle: Text(detail.trim().isEmpty ? _providerName(provider) : detail),
+    );
+  }
+}
+
+Widget _providerIcon(String provider) {
+  switch (provider) {
+    case 'discord':
+      return const FaIcon(FontAwesomeIcons.discord, size: 18);
+    case 'google':
+      return const FaIcon(FontAwesomeIcons.google, size: 18);
+    default:
+      return const Icon(Icons.link_rounded, size: 18);
+  }
+}
+
+String _providerName(String provider) {
+  switch (provider) {
+    case 'discord':
+      return 'Discord';
+    case 'google':
+      return 'Google';
+    default:
+      return provider.trim().isEmpty ? 'OAuth' : provider;
+  }
+}

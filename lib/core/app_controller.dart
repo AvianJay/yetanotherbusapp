@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -1512,6 +1512,21 @@ class AppController extends ChangeNotifier {
     return results;
   }
 
+  Future<List<StopRouteSearchResult>> searchRoutesByStopAcrossSelected(
+    String query,
+  ) async {
+    final results = <StopRouteSearchResult>[];
+    for (final provider in searchProviders) {
+      if (!isDatabaseReady(provider)) {
+        continue;
+      }
+      results.addAll(
+        await repository.searchRoutesByStopName(query, provider: provider),
+      );
+    }
+    return results;
+  }
+
   Future<List<RouteSummary>> searchRoutesViaApi(
     String query, {
     required BusProvider provider,
@@ -1530,6 +1545,18 @@ class AppController extends ChangeNotifier {
       provider: provider ?? _settings.provider,
       routeIdHint: routeIdHint,
       routeNameHint: routeNameHint,
+    );
+  }
+
+  Future<List<StopInfo>> getStopsByRoute(
+    int routeKey, {
+    required BusProvider provider,
+    String? routeIdHint,
+  }) {
+    return repository.getStopsByRoute(
+      routeKey,
+      provider: provider,
+      routeIdHint: routeIdHint,
     );
   }
 
@@ -1903,11 +1930,12 @@ class AppController extends ChangeNotifier {
     // Enforce maximum 25 stops across all groups (matches batch API limit
     // and account-sync server setting).
     const maxFavoritesTotal = 25;
-    final currentTotal = _favoriteGroups.values
-        .fold<int>(0, (sum, list) => sum + list.length);
-    final alreadyExists = _favoriteGroups[targetGroup]?.any(
-          (item) => item.sameAs(favorite),
-        ) ??
+    final currentTotal = _favoriteGroups.values.fold<int>(
+      0,
+      (sum, list) => sum + list.length,
+    );
+    final alreadyExists =
+        _favoriteGroups[targetGroup]?.any((item) => item.sameAs(favorite)) ??
         false;
     if (!alreadyExists && currentTotal >= maxFavoritesTotal) {
       throw FavoriteGroupFullException(targetGroup, maxFavoritesTotal);

@@ -82,6 +82,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _destinationPromptShown = false;
   bool _liveActivityActive = false;
   bool _showWideMapPanel = true;
+  bool _pendingAutoDestinationSelection = true;
+  bool _autoDestinationSelectionInProgress = false;
   int? _liveActivityStopId;
   int? _liveActivityPathId;
   bool _liveActivityBoardingWindowOpen = false;
@@ -278,6 +280,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _scrollToInitialStopIfNeeded();
       _recalculateNearestStops();
       await _applyRequestedDestinationIfPossible();
+      await _maybeAutoSelectDestinationForBackgroundMonitor();
       unawaited(_ensureLocationTracking());
       unawaited(_maybePromptForBackgroundTripMonitor());
       unawaited(_configureBackgroundTripMonitorIfNeeded());
@@ -679,6 +682,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _requestedStopId = requestedStopId;
       _requestedDestinationPathId = requestedDestinationPathId;
       _requestedDestinationStopId = requestedDestinationStopId;
+      _pendingAutoDestinationSelection = requestedDestinationStopId == null;
       _targetInitialPathId = resolvedPathId;
       _didScrollToInitialStop = requestedStopId == null;
       _didAutoScrollToCurrentLocation = false;
@@ -706,6 +710,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     await _applyRequestedDestinationIfPossible();
+    await _maybeAutoSelectDestinationForBackgroundMonitor();
     _scrollToInitialStopIfNeeded();
     unawaited(_configureBackgroundTripMonitorIfNeeded());
     unawaited(_refresh());
@@ -804,6 +809,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
     setState(() {
+      _pendingAutoDestinationSelection = false;
       _resetLiveActivityRideState();
       if (_isIOS) {
         _backgroundTripMonitorPaused = false;
@@ -817,6 +823,72 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     });
 
     await _configureBackgroundTripMonitorIfNeeded();
+  }
+
+  Future<void> _maybeAutoSelectDestinationForBackgroundMonitor() async {
+    if (_autoDestinationSelectionInProgress ||
+        !_pendingAutoDestinationSelection ||
+        _destinationStopId != null ||
+        _requestedDestinationStopId != null ||
+        !mounted) {
+      return;
+    }
+
+    final controller = AppControllerScope.read(context);
+    if (!controller.settings.enableRouteBackgroundMonitor) {
+      return;
+    }
+
+    final pathStops = _currentPathStops;
+    if (pathStops.isEmpty) {
+      return;
+    }
+
+    final boardingStop = _autoDestinationBoardingReferenceStop();
+    if (boardingStop == null) {
+      return;
+    }
+
+    final boardingIndex = pathStops.indexWhere(
+      (stop) => stop.stopId == boardingStop.stopId,
+    );
+    if (boardingIndex == -1 || boardingIndex >= pathStops.length - 1) {
+      _pendingAutoDestinationSelection = false;
+      return;
+    }
+
+    final destinationStop = pathStops.last;
+    if (destinationStop.stopId == boardingStop.stopId) {
+      _pendingAutoDestinationSelection = false;
+      return;
+    }
+
+    _autoDestinationSelectionInProgress = true;
+    try {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _pendingAutoDestinationSelection = false;
+        _resetLiveActivityRideState();
+        if (_isIOS) {
+          _backgroundTripMonitorPaused = false;
+        }
+        _boardingStopId = boardingStop.stopId;
+        _boardingStopName = boardingStop.stopName;
+        _destinationStopId = destinationStop.stopId;
+        _destinationStopName = destinationStop.stopName;
+      });
+      await _configureBackgroundTripMonitorIfNeeded();
+    } finally {
+      _autoDestinationSelectionInProgress = false;
+    }
+  }
+
+  StopInfo? _autoDestinationBoardingReferenceStop() {
+    return _findStopById(_currentPathStops, _boardingStopId) ??
+        _findStopById(_currentPathStops, _requestedStopId) ??
+        _currentBoardingCandidateStop();
   }
 
   StopInfo? _findStopById(List<StopInfo> stops, int? stopId) {
@@ -1739,6 +1811,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   Future<void> _setBoardingStop(StopInfo stop) async {
     setState(() {
+      _pendingAutoDestinationSelection = _destinationStopId == null;
       _resetLiveActivityRideState();
       if (_isIOS) {
         _backgroundTripMonitorPaused = false;
@@ -1747,6 +1820,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _boardingStopName = stop.stopName;
     });
     await _configureBackgroundTripMonitorIfNeeded();
+    await _maybeAutoSelectDestinationForBackgroundMonitor();
     if (!mounted) {
       return;
     }
@@ -1758,6 +1832,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   Future<void> _setDestinationStop(StopInfo stop) async {
     final boardingStop = _resolvedBoardingStop();
     setState(() {
+      _pendingAutoDestinationSelection = false;
       _resetLiveActivityRideState();
       if (_isIOS) {
         _backgroundTripMonitorPaused = false;
@@ -1806,6 +1881,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
     setState(() {
+      _pendingAutoDestinationSelection = false;
       _resetLiveActivityRideState();
       if (_isIOS) {
         _backgroundTripMonitorPaused = false;
@@ -1968,6 +2044,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           });
           unawaited(_configureBackgroundTripMonitorIfNeeded());
         }
+      }
+      if (_destinationStopId == null) {
+        unawaited(_maybeAutoSelectDestinationForBackgroundMonitor());
       }
     }
     _maybeScrollToCurrentLocation();
@@ -2882,11 +2961,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('我的最愛已達上限 ${e.maxStops} 站，無法再加入'),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('我的最愛已達上限 ${e.maxStops} 站，無法再加入')));
       return;
     }
     if (!mounted) {

@@ -428,29 +428,9 @@ class _SearchScreenState extends State<SearchScreen> {
         }
 
         if (stopResults.isNotEmpty) {
-          setState(() {
-            _results = stopResults.map(_SearchDisplayItem.stop).toList();
-            _isLoading = false;
-          });
-
-          final position = await _resolveSearchPosition();
-          if (!mounted || token != _activeSearchToken) {
-            return;
-          }
-
-          if (position != null) {
-            setState(() {
-              _isResolvingStopDistances = true;
-            });
-            await _progressivelyResolveStopSearchResults(
-              stopResults,
-              query: trimmedQuery,
-              position: position,
-              token: token,
-              busController: busController,
-            );
-          }
-
+          // `_runProgressiveStopSearchFallback` owns the staged UI updates for
+          // stop results, including nearest-stop resolution, so we must not
+          // overwrite `_results` here with the older unresolved snapshot.
           unawaited(
             busController.analytics.logSearchExecuted(
               queryLength: trimmedQuery.length,
@@ -598,20 +578,24 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         _isResolvingStopDistances = false;
       });
-      return collectedResults;
+      return _sortStopResults(
+        collectedResults,
+        query,
+        busController,
+        baseOrder: baseOrder,
+      );
     }
 
-    await _progressivelyResolveStopSearchResults(
+    return _progressivelyResolveStopSearchResults(
       collectedResults,
       query: query,
       position: position,
       token: token,
       busController: busController,
     );
-    return collectedResults;
   }
 
-  Future<void> _progressivelyResolveStopSearchResults(
+  Future<List<StopRouteSearchResult>> _progressivelyResolveStopSearchResults(
     List<StopRouteSearchResult> initialResults, {
     required String query,
     required Position position,
@@ -628,7 +612,7 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       for (final result in initialResults) {
         if (!mounted || token != _activeSearchToken) {
-          return;
+          return workingResults;
         }
 
         final resolvedResult = await _resolveNearestStopSearchResult(
@@ -638,7 +622,7 @@ class _SearchScreenState extends State<SearchScreen> {
           routeStopsCache: routeStopsCache,
         );
         if (!mounted || token != _activeSearchToken) {
-          return;
+          return workingResults;
         }
 
         final resultKey = _stopResultKey(result);
@@ -667,6 +651,13 @@ class _SearchScreenState extends State<SearchScreen> {
         });
       }
     }
+
+    return _sortStopResults(
+      workingResults,
+      query,
+      busController,
+      baseOrder: baseOrder,
+    );
   }
 
   Future<StopRouteSearchResult> _resolveNearestStopSearchResult(

@@ -640,7 +640,7 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
 
-    return '$routeMeta\n${details.join(' · ')}';
+    return '$routeMeta\n${details.join('\n')}';
   }
 
   Future<void> _openRoute({

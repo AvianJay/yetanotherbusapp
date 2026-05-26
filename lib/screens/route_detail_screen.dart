@@ -3903,6 +3903,17 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final canShowInlineMap =
         isWideLayout && detail != null && currentPathId != null;
     final showInlineMap = canShowInlineMap && _showWideMapPanel;
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+    final baseBottomBarColor =
+        theme.bottomAppBarTheme.color ??
+        (hasRouteDetailBackgroundImage && !isAmoled
+            ? theme.colorScheme.surface.withValues(
+                alpha: (theme.appBarTheme.backgroundColor?.a ?? 1.0),
+              )
+            : theme.colorScheme.surface);
+    final bottomBarColor = baseBottomBarColor.a < 0.92
+        ? baseBottomBarColor.withValues(alpha: 0.92)
+        : baseBottomBarColor;
 
     unawaited(
       desktopDiscordPresenceService.updateScreen(
@@ -3988,36 +3999,44 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             ),
           ],
         ),
-        bottomNavigationBar: Material(
-          color:
-              theme.bottomAppBarTheme.color ??
-              (hasRouteDetailBackgroundImage && !isAmoled
-                  ? theme.colorScheme.surface.withValues(
-                      alpha: (theme.appBarTheme.backgroundColor?.a ?? 1.0),
-                    )
-                  : theme.colorScheme.surface),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildBottomProgressIndicator(),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      _statusMessage ??
-                          (_remainingSeconds > 0
-                              ? '$_remainingSeconds 秒後更新'
-                              : '正在更新'),
-                      style: theme.textTheme.bodySmall,
+        bottomNavigationBar: DecoratedBox(
+          decoration: BoxDecoration(
+            color: bottomBarColor,
+            border: Border(
+              top: BorderSide(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+              ),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 18,
+                offset: const Offset(0, -2),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildBottomProgressIndicator(),
+              Padding(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, bottomInset + 10),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _statusMessage ??
+                        (_remainingSeconds > 0
+                            ? '$_remainingSeconds 秒後更新'
+                            : '正在更新'),
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
         body: _isLoading && detail == null

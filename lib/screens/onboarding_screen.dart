@@ -162,8 +162,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     return Scaffold(
       body: SafeArea(
+        bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
           child: Column(
             children: [
               Row(
@@ -272,9 +273,8 @@ class _IntroStep extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return _OnboardingStepLayout(
+      content: [
         const SizedBox(height: 12),
         Container(
           width: 84,
@@ -309,7 +309,8 @@ class _IntroStep extends StatelessWidget {
           title: '附近站牌',
           subtitle: '配合定位權限快速找周邊站點。',
         ),
-        const Spacer(),
+      ],
+      footer: [
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: Center(
@@ -354,7 +355,13 @@ class _IntroStep extends StatelessWidget {
         ),
         SizedBox(
           width: double.infinity,
-          child: FilledButton(onPressed: onNext, child: const Text('開始設定')),
+          child: FilledButton(
+            onPressed: onNext,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 52),
+            ),
+            child: const Text('開始設定'),
+          ),
         ),
       ],
     );
@@ -381,9 +388,8 @@ class _PermissionStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final busy = requestingPermission || resolvingLocation;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return _OnboardingStepLayout(
+      content: [
         const SizedBox(height: 12),
         Text('定位權限', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 10),
@@ -408,26 +414,32 @@ class _PermissionStep extends StatelessWidget {
             ),
           ),
         ),
-        const Spacer(),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(onPressed: onBack, child: const Text('返回')),
+      ],
+      footer: [
+        _OnboardingButtonRow(
+          leading: OutlinedButton(
+            onPressed: onBack,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 52),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton(
-                onPressed: busy ? null : onRequestPermission,
-                child: Text(busy ? '處理中...' : '授權並繼續'),
-              ),
+            child: const Text('返回'),
+          ),
+          trailing: FilledButton(
+            onPressed: busy ? null : onRequestPermission,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 52),
             ),
-          ],
+            child: Text(busy ? '處理中...' : '授權並繼續'),
+          ),
         ),
         const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
           child: TextButton(
             onPressed: busy ? null : onSkip,
+            style: TextButton.styleFrom(
+              minimumSize: const Size(double.infinity, 48),
+            ),
             child: const Text('手動選擇資料庫'),
           ),
         ),
@@ -461,121 +473,173 @@ class _DatabaseStep extends StatelessWidget {
         .length;
     final theme = Theme.of(context);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return _OnboardingStepLayout(
+      content: [
         const SizedBox(height: 12),
         Text('下載資料庫', style: theme.textTheme.headlineSmall),
         const SizedBox(height: 10),
         Text('可複選要在這台裝置使用的縣市資料庫。', style: theme.textTheme.bodyLarge),
         const SizedBox(height: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('縣市清單', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Expanded(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: theme.colorScheme.outlineVariant),
-                  ),
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(12),
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: downloadableBusProviders().map((item) {
-                        return FilterChip(
-                          label: Text(item.label),
-                          selected: selectedProviders.contains(item),
-                          onSelected: (selected) {
-                            onProviderToggled(item, selected);
-                          },
-                          avatar: controller.isDatabaseReady(item)
-                              ? const Icon(
-                                  Icons.download_done_rounded,
-                                  size: 18,
-                                )
-                              : const Icon(Icons.cloud_outlined, size: 18),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-              ),
-              if (suggestedProvider != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  '最近建議：${suggestedProvider!.label}',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ],
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('預設資料來源：${provider.label}'),
-                      const SizedBox(height: 8),
-                      Text(
-                        '已選資料庫：${selectedProviders.map((item) => item.label).join('、')}',
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '已下載 $downloadedCount / ${selectedProviders.length} 份資料庫',
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+        Text('縣市清單', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: downloadableBusProviders().map((item) {
+                return FilterChip(
+                  label: Text(item.label),
+                  selected: selectedProviders.contains(item),
+                  onSelected: (selected) {
+                    onProviderToggled(item, selected);
+                  },
+                  avatar: controller.isDatabaseReady(item)
+                      ? const Icon(Icons.download_done_rounded, size: 18)
+                      : const Icon(Icons.cloud_outlined, size: 18),
+                );
+              }).toList(),
+            ),
           ),
         ),
+        if (suggestedProvider != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            '最近建議：${suggestedProvider!.label}',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ],
         const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(onPressed: onBack, child: const Text('返回')),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('預設資料來源：${provider.label}'),
+                const SizedBox(height: 8),
+                Text(
+                  '已選資料庫：${selectedProviders.map((item) => item.label).join('、')}',
+                ),
+                const SizedBox(height: 8),
+                Text('已下載 $downloadedCount / ${selectedProviders.length} 份資料庫'),
+              ],
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton(
-                onPressed: controller.downloadingDatabase
-                    ? null
-                    : () async {
-                        try {
-                          await controller.downloadSelectedProviderDatabases();
-                          if (!context.mounted) {
-                            return;
-                          }
-                          await onFinish();
-                        } catch (error) {
-                          if (!context.mounted) {
-                            return;
-                          }
-                          final messenger = ScaffoldMessenger.of(context);
-                          messenger.showSnackBar(
-                            SnackBar(content: Text('下載失敗：$error')),
-                          );
-                        }
-                      },
-                child: Text(controller.downloadingDatabase ? '下載中...' : '下載'),
-              ),
+          ),
+        ),
+      ],
+      footer: [
+        _OnboardingButtonRow(
+          leading: OutlinedButton(
+            onPressed: onBack,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 52),
             ),
-          ],
+            child: const Text('返回'),
+          ),
+          trailing: FilledButton(
+            onPressed: controller.downloadingDatabase
+                ? null
+                : () async {
+                    try {
+                      await controller.downloadSelectedProviderDatabases();
+                      if (!context.mounted) {
+                        return;
+                      }
+                      await onFinish();
+                    } catch (error) {
+                      if (!context.mounted) {
+                        return;
+                      }
+                      final messenger = ScaffoldMessenger.of(context);
+                      messenger.showSnackBar(
+                        SnackBar(content: Text('下載失敗：$error')),
+                      );
+                    }
+                  },
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 52),
+            ),
+            child: Text(controller.downloadingDatabase ? '下載中...' : '下載'),
+          ),
         ),
         const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
           child: FilledButton.tonal(
             onPressed: onFinish,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 52),
+            ),
             child: Text(controller.databaseReady ? '完成' : '稍後再說'),
           ),
         ),
+      ],
+    );
+  }
+}
+
+class _OnboardingStepLayout extends StatelessWidget {
+  const _OnboardingStepLayout({required this.content, required this.footer});
+
+  final List<Widget> content;
+  final List<Widget> footer;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          padding: EdgeInsets.only(bottom: bottomInset + 20),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: IntrinsicHeight(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ...content,
+                  const Spacer(),
+                  const SizedBox(height: 20),
+                  ...footer,
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _OnboardingButtonRow extends StatelessWidget {
+  const _OnboardingButtonRow({required this.leading, required this.trailing});
+
+  final Widget leading;
+  final Widget trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final shouldStack =
+        MediaQuery.sizeOf(context).width < 360 ||
+        MediaQuery.textScalerOf(context).scale(1) > 1.15;
+    if (shouldStack) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [trailing, const SizedBox(height: 12), leading],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(child: leading),
+        const SizedBox(width: 12),
+        Expanded(child: trailing),
       ],
     );
   }

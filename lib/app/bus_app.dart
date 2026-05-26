@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/announcement_models.dart';
 import '../core/announcement_push_service.dart';
@@ -71,6 +72,28 @@ class BusApp extends StatelessWidget {
                   DesktopDiscordRouteObserver(controller),
                   if (analytics.observer != null) analytics.observer!,
                 ],
+                builder: (context, child) {
+                  final theme = Theme.of(context);
+                  final isDark = theme.brightness == Brightness.dark;
+                  return AnnotatedRegion<SystemUiOverlayStyle>(
+                    value: SystemUiOverlayStyle(
+                      statusBarColor: Colors.transparent,
+                      statusBarIconBrightness: isDark
+                          ? Brightness.light
+                          : Brightness.dark,
+                      statusBarBrightness: isDark
+                          ? Brightness.dark
+                          : Brightness.light,
+                      systemNavigationBarColor: theme.scaffoldBackgroundColor,
+                      systemNavigationBarDividerColor: Colors.transparent,
+                      systemNavigationBarIconBrightness: isDark
+                          ? Brightness.light
+                          : Brightness.dark,
+                      systemNavigationBarContrastEnforced: false,
+                    ),
+                    child: child ?? const SizedBox.shrink(),
+                  );
+                },
                 onGenerateRoute: (settings) =>
                     _buildAppRoute(settings, controller),
                 onGenerateInitialRoutes: (initialRoute) =>

@@ -33,6 +33,7 @@ class RouteDetailScreen extends StatefulWidget {
     this.initialStopId,
     this.initialDestinationPathId,
     this.initialDestinationStopId,
+    this.suppressAutoDestinationSelection = false,
     super.key,
   });
 
@@ -44,6 +45,7 @@ class RouteDetailScreen extends StatefulWidget {
   final int? initialStopId;
   final int? initialDestinationPathId;
   final int? initialDestinationStopId;
+  final bool suppressAutoDestinationSelection;
 
   @override
   State<RouteDetailScreen> createState() => _RouteDetailScreenState();
@@ -130,6 +132,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _requestedStopId = widget.initialStopId;
     _requestedDestinationPathId = widget.initialDestinationPathId;
     _requestedDestinationStopId = widget.initialDestinationStopId;
+    _pendingAutoDestinationSelection =
+        !widget.suppressAutoDestinationSelection &&
+        widget.initialDestinationStopId == null;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_refresh());
     });

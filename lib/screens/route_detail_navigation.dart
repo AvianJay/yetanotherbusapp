@@ -13,6 +13,7 @@ Route<void> buildRouteDetailRoute({
   int? initialStopId,
   int? initialDestinationPathId,
   int? initialDestinationStopId,
+  bool suppressAutoDestinationSelection = false,
 }) {
   return MaterialPageRoute<void>(
     settings: RouteSettings(
@@ -35,6 +36,7 @@ Route<void> buildRouteDetailRoute({
       initialStopId: initialStopId,
       initialDestinationPathId: initialDestinationPathId,
       initialDestinationStopId: initialDestinationStopId,
+      suppressAutoDestinationSelection: suppressAutoDestinationSelection,
     ),
   );
 }
@@ -49,6 +51,7 @@ Future<void> openRouteDetailPage(
   int? initialStopId,
   int? initialDestinationPathId,
   int? initialDestinationStopId,
+  bool suppressAutoDestinationSelection = false,
 }) {
   return Navigator.of(context).push(
     buildRouteDetailRoute(
@@ -60,6 +63,7 @@ Future<void> openRouteDetailPage(
       initialStopId: initialStopId,
       initialDestinationPathId: initialDestinationPathId,
       initialDestinationStopId: initialDestinationStopId,
+      suppressAutoDestinationSelection: suppressAutoDestinationSelection,
     ),
   );
 }

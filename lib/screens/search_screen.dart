@@ -27,6 +27,7 @@ class _SearchScreenState extends State<SearchScreen> {
   String? _error;
   List<_SearchDisplayItem> _results = const <_SearchDisplayItem>[];
   BusProvider? _webPreferredProvider;
+  Position? _lastResolvedSearchPosition;
   int _activeSearchToken = 0;
 
   @override
@@ -268,17 +269,25 @@ class _SearchScreenState extends State<SearchScreen> {
 
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        if (lastKnown != null) {
+          _lastResolvedSearchPosition = lastKnown;
+        }
         return lastKnown;
       }
 
       try {
-        return await Geolocator.getCurrentPosition(
+        final currentPosition = await Geolocator.getCurrentPosition(
           locationSettings: const LocationSettings(
             accuracy: LocationAccuracy.medium,
             timeLimit: Duration(seconds: 5),
           ),
         );
+        _lastResolvedSearchPosition = currentPosition;
+        return currentPosition;
       } catch (_) {
+        if (lastKnown != null) {
+          _lastResolvedSearchPosition = lastKnown;
+        }
         return lastKnown;
       }
     } catch (_) {
@@ -724,6 +733,184 @@ class _SearchScreenState extends State<SearchScreen> {
     ].join(':');
   }
 
+  Future<_ResolvedStopSearchLaunch> _resolveStopSearchLaunch(
+    StopRouteSearchResult stopSearch,
+    AppController busController,
+  ) async {
+    final enableAutoDestination =
+        busController.settings.enableRouteBackgroundMonitor;
+    final fallbackInitialStop =
+        stopSearch.nearestStop ?? stopSearch.matchedStop;
+    final fallbackSuppressAutoDestination =
+        enableAutoDestination &&
+        stopSearch.nearestStop != null &&
+        _isSamePhysicalStop(fallbackInitialStop, stopSearch.matchedStop);
+    final fallback = _ResolvedStopSearchLaunch(
+      pathId: stopSearch.matchedStop.pathId,
+      stopId: fallbackInitialStop.stopId,
+      destinationPathId:
+          enableAutoDestination && !fallbackSuppressAutoDestination
+          ? stopSearch.matchedStop.pathId
+          : null,
+      destinationStopId:
+          enableAutoDestination && !fallbackSuppressAutoDestination
+          ? stopSearch.matchedStop.stopId
+          : null,
+      suppressAutoDestinationSelection: fallbackSuppressAutoDestination,
+    );
+
+    final position =
+        _lastResolvedSearchPosition ?? await _resolveSearchPosition();
+    if (position == null) {
+      return fallback;
+    }
+
+    final provider = busProviderFromString(stopSearch.route.sourceProvider);
+    final routeStops = await busController.getStopsByRoute(
+      stopSearch.route.routeKey,
+      provider: provider,
+      routeIdHint: stopSearch.route.routeId,
+    );
+    if (routeStops.isEmpty) {
+      return fallback;
+    }
+
+    final normalizedTargetStopName = _normalizeSearchText(
+      stopSearch.matchedStop.stopName,
+    );
+    final stopsByPath = <int, List<StopInfo>>{};
+    for (final stop in routeStops) {
+      stopsByPath.putIfAbsent(stop.pathId, () => <StopInfo>[]).add(stop);
+    }
+
+    final candidates = <_StopSearchPathCandidate>[];
+    for (final entry in stopsByPath.entries) {
+      final pathStops = List<StopInfo>.of(entry.value)
+        ..sort((left, right) => left.sequence.compareTo(right.sequence));
+      final nearestStop = _nearestStopForPath(pathStops, position);
+      if (nearestStop == null) {
+        continue;
+      }
+      final nearestDistanceMeters = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        nearestStop.lat,
+        nearestStop.lon,
+      );
+      final destinationStops = pathStops
+          .where(
+            (stop) =>
+                _normalizeSearchText(stop.stopName) == normalizedTargetStopName,
+          )
+          .toList();
+      for (final destinationStop in destinationStops) {
+        candidates.add(
+          _StopSearchPathCandidate(
+            pathId: entry.key,
+            nearestStop: nearestStop,
+            destinationStop: destinationStop,
+            nearestDistanceMeters: nearestDistanceMeters,
+            sequenceGap: destinationStop.sequence - nearestStop.sequence,
+            samePhysicalStop: _isSamePhysicalStop(nearestStop, destinationStop),
+          ),
+        );
+      }
+    }
+
+    if (candidates.isEmpty) {
+      return fallback;
+    }
+
+    final forwardCandidates = candidates
+        .where((candidate) => candidate.sequenceGap > 0)
+        .toList();
+    if (forwardCandidates.isEmpty) {
+      return _ResolvedStopSearchLaunch(
+        pathId: fallback.pathId,
+        stopId: fallback.stopId,
+        destinationPathId: null,
+        destinationStopId: null,
+        suppressAutoDestinationSelection: enableAutoDestination,
+      );
+    }
+
+    forwardCandidates.sort((left, right) {
+      if (left.samePhysicalStop != right.samePhysicalStop) {
+        return left.samePhysicalStop ? 1 : -1;
+      }
+      final distanceCompare = left.nearestDistanceMeters.compareTo(
+        right.nearestDistanceMeters,
+      );
+      if (distanceCompare != 0) {
+        return distanceCompare;
+      }
+      if (left.pathId == stopSearch.matchedStop.pathId &&
+          right.pathId != stopSearch.matchedStop.pathId) {
+        return -1;
+      }
+      if (right.pathId == stopSearch.matchedStop.pathId &&
+          left.pathId != stopSearch.matchedStop.pathId) {
+        return 1;
+      }
+      return left.sequenceGap.compareTo(right.sequenceGap);
+    });
+
+    final bestCandidate = forwardCandidates.first;
+    final suppressAutoDestination =
+        enableAutoDestination && bestCandidate.samePhysicalStop;
+    return _ResolvedStopSearchLaunch(
+      pathId: bestCandidate.pathId,
+      stopId: bestCandidate.nearestStop.stopId,
+      destinationPathId: enableAutoDestination && !suppressAutoDestination
+          ? bestCandidate.destinationStop.pathId
+          : null,
+      destinationStopId: enableAutoDestination && !suppressAutoDestination
+          ? bestCandidate.destinationStop.stopId
+          : null,
+      suppressAutoDestinationSelection: suppressAutoDestination,
+    );
+  }
+
+  StopInfo? _nearestStopForPath(List<StopInfo> pathStops, Position position) {
+    StopInfo? nearestStop;
+    double? nearestDistanceMeters;
+    for (final stop in pathStops) {
+      if (stop.lat == 0 || stop.lon == 0) {
+        continue;
+      }
+      final distanceMeters = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        stop.lat,
+        stop.lon,
+      );
+      if (nearestDistanceMeters == null ||
+          distanceMeters < nearestDistanceMeters) {
+        nearestStop = stop;
+        nearestDistanceMeters = distanceMeters;
+      }
+    }
+    return nearestStop;
+  }
+
+  bool _isSamePhysicalStop(StopInfo left, StopInfo right) {
+    final normalizedLeft = _normalizeSearchText(left.stopName);
+    final normalizedRight = _normalizeSearchText(right.stopName);
+    if (normalizedLeft.isNotEmpty && normalizedLeft == normalizedRight) {
+      return true;
+    }
+    if (left.lat == 0 || left.lon == 0 || right.lat == 0 || right.lon == 0) {
+      return false;
+    }
+    final distanceMeters = Geolocator.distanceBetween(
+      left.lat,
+      left.lon,
+      right.lat,
+      right.lon,
+    );
+    return distanceMeters <= 80;
+  }
+
   String _subtitleForResult(_SearchDisplayItem item) {
     final route = item.route;
     final providerLabel = busProviderFromString(route.sourceProvider).label;
@@ -756,6 +943,7 @@ class _SearchScreenState extends State<SearchScreen> {
     int? initialStopId,
     int? initialDestinationPathId,
     int? initialDestinationStopId,
+    bool suppressAutoDestinationSelection = false,
     RouteSummary? route,
     bool saveHistory = false,
     String source = 'search_result',
@@ -783,6 +971,7 @@ class _SearchScreenState extends State<SearchScreen> {
       initialStopId: initialStopId,
       initialDestinationPathId: initialDestinationPathId,
       initialDestinationStopId: initialDestinationStopId,
+      suppressAutoDestinationSelection: suppressAutoDestinationSelection,
     );
   }
 
@@ -886,14 +1075,16 @@ class _SearchScreenState extends State<SearchScreen> {
                         child: Text(
                           item.route.routeName.trim().isEmpty
                               ? '?'
-                              : item.route.routeName.characters.take(3).toString(),
+                              : item.route.routeName.characters
+                                    .take(3)
+                                    .toString(),
                         ),
                       ),
                       title: item.stopSearch?.matchedStop.stopName != null
-                        ? Text(
-                            "${item.stopSearch!.matchedStop.stopName} (${item.route.routeName})",
-                          )
-                        : Text(item.route.routeName),
+                          ? Text(
+                              "${item.stopSearch!.matchedStop.stopName} (${item.route.routeName})",
+                            )
+                          : Text(item.route.routeName),
                       subtitle: Text(
                         _subtitleForResult(item),
                         maxLines: item.isStopSearchResult ? 3 : 1,
@@ -904,30 +1095,30 @@ class _SearchScreenState extends State<SearchScreen> {
                         final routeProvider = busProviderFromString(
                           route.sourceProvider,
                         );
-                        final initialStopId =
-                            stopSearch?.nearestStop?.stopId ??
-                            stopSearch?.matchedStop.stopId;
-                        final enableAutoDestination =
-                            busController.settings.enableRouteBackgroundMonitor;
-                        final initialDestinationStopId =
-                            enableAutoDestination &&
-                                stopSearch != null &&
-                                stopSearch.matchedStop.stopId != initialStopId
-                            ? stopSearch.matchedStop.stopId
-                            : null;
+                        final resolvedStopSearchLaunch = stopSearch == null
+                            ? null
+                            : await _resolveStopSearchLaunch(
+                                stopSearch,
+                                busController,
+                              );
                         await _openRoute(
                           provider: routeProvider,
                           routeKey: route.routeKey,
                           routeName: route.routeName,
                           routeIdHint: route.routeId,
                           initialPathId:
-                              stopSearch?.matchedStop.pathId ?? route.rtrip,
-                          initialStopId: initialStopId,
+                              resolvedStopSearchLaunch?.pathId ??
+                              stopSearch?.matchedStop.pathId ??
+                              route.rtrip,
+                          initialStopId: resolvedStopSearchLaunch?.stopId,
                           initialDestinationPathId:
-                              initialDestinationStopId == null
-                              ? null
-                              : stopSearch?.matchedStop.pathId,
-                          initialDestinationStopId: initialDestinationStopId,
+                              resolvedStopSearchLaunch?.destinationPathId,
+                          initialDestinationStopId:
+                              resolvedStopSearchLaunch?.destinationStopId,
+                          suppressAutoDestinationSelection:
+                              resolvedStopSearchLaunch
+                                  ?.suppressAutoDestinationSelection ??
+                              false,
                           route: route,
                           saveHistory: true,
                           source: stopSearch == null
@@ -964,6 +1155,40 @@ class _StopSearchBatch {
 
   final int providerIndex;
   final List<StopRouteSearchResult> results;
+}
+
+class _ResolvedStopSearchLaunch {
+  const _ResolvedStopSearchLaunch({
+    required this.pathId,
+    required this.stopId,
+    required this.destinationPathId,
+    required this.destinationStopId,
+    required this.suppressAutoDestinationSelection,
+  });
+
+  final int pathId;
+  final int? stopId;
+  final int? destinationPathId;
+  final int? destinationStopId;
+  final bool suppressAutoDestinationSelection;
+}
+
+class _StopSearchPathCandidate {
+  const _StopSearchPathCandidate({
+    required this.pathId,
+    required this.nearestStop,
+    required this.destinationStop,
+    required this.nearestDistanceMeters,
+    required this.sequenceGap,
+    required this.samePhysicalStop,
+  });
+
+  final int pathId;
+  final StopInfo nearestStop;
+  final StopInfo destinationStop;
+  final double nearestDistanceMeters;
+  final int sequenceGap;
+  final bool samePhysicalStop;
 }
 
 class _HistorySection extends StatelessWidget {

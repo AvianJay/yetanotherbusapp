@@ -754,6 +754,8 @@ class _SearchScreenState extends State<SearchScreen> {
     String? routeIdHint,
     int? initialPathId,
     int? initialStopId,
+    int? initialDestinationPathId,
+    int? initialDestinationStopId,
     RouteSummary? route,
     bool saveHistory = false,
     String source = 'search_result',
@@ -779,6 +781,8 @@ class _SearchScreenState extends State<SearchScreen> {
       routeNameHint: routeName,
       initialPathId: initialPathId,
       initialStopId: initialStopId,
+      initialDestinationPathId: initialDestinationPathId,
+      initialDestinationStopId: initialDestinationStopId,
     );
   }
 
@@ -896,6 +900,17 @@ class _SearchScreenState extends State<SearchScreen> {
                         final routeProvider = busProviderFromString(
                           route.sourceProvider,
                         );
+                        final initialStopId =
+                            stopSearch?.nearestStop?.stopId ??
+                            stopSearch?.matchedStop.stopId;
+                        final enableAutoDestination =
+                            busController.settings.enableRouteBackgroundMonitor;
+                        final initialDestinationStopId =
+                            enableAutoDestination &&
+                                stopSearch != null &&
+                                stopSearch.matchedStop.stopId != initialStopId
+                            ? stopSearch.matchedStop.stopId
+                            : null;
                         await _openRoute(
                           provider: routeProvider,
                           routeKey: route.routeKey,
@@ -903,9 +918,12 @@ class _SearchScreenState extends State<SearchScreen> {
                           routeIdHint: route.routeId,
                           initialPathId:
                               stopSearch?.matchedStop.pathId ?? route.rtrip,
-                          initialStopId:
-                              stopSearch?.nearestStop?.stopId ??
-                              stopSearch?.matchedStop.stopId,
+                          initialStopId: initialStopId,
+                          initialDestinationPathId:
+                              initialDestinationStopId == null
+                              ? null
+                              : stopSearch?.matchedStop.pathId,
+                          initialDestinationStopId: initialDestinationStopId,
                           route: route,
                           saveHistory: true,
                           source: stopSearch == null

@@ -735,7 +735,7 @@ class _SearchScreenState extends State<SearchScreen> {
       return routeMeta;
     }
 
-    final details = <String>['符合站牌：${stopSearch.matchedStop.stopName}'];
+    final details = <String>[routeMeta];
     final nearestStop = stopSearch.nearestStop;
     final nearestDistanceMeters = stopSearch.nearestDistanceMeters;
     if (nearestStop != null && nearestDistanceMeters != null) {
@@ -862,7 +862,7 @@ class _SearchScreenState extends State<SearchScreen> {
               const Card(
                 child: Padding(
                   padding: EdgeInsets.all(16),
-                  child: Text('正在搜尋站牌，結果會陸續出現…'),
+                  child: Text('正在搜尋站牌…'),
                 ),
               )
             else if (_results.isEmpty)
@@ -886,10 +886,14 @@ class _SearchScreenState extends State<SearchScreen> {
                         child: Text(
                           item.route.routeName.trim().isEmpty
                               ? '?'
-                              : item.route.routeName.characters.first,
+                              : item.route.routeName.characters.take(3).toString(),
                         ),
                       ),
-                      title: Text(item.route.routeName),
+                      title: item.stopSearch?.matchedStop.stopName != null
+                        ? Text(
+                            "${item.stopSearch!.matchedStop.stopName} (${item.route.routeName})",
+                          )
+                        : Text(item.route.routeName),
                       subtitle: Text(
                         _subtitleForResult(item),
                         maxLines: item.isStopSearchResult ? 3 : 1,

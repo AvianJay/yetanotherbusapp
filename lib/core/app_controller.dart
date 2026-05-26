@@ -1527,6 +1527,13 @@ class AppController extends ChangeNotifier {
     return results;
   }
 
+  Future<List<StopRouteSearchResult>> searchRoutesByStop(
+    String query, {
+    required BusProvider provider,
+  }) {
+    return repository.searchRoutesByStopName(query, provider: provider);
+  }
+
   Future<List<RouteSummary>> searchRoutesViaApi(
     String query, {
     required BusProvider provider,

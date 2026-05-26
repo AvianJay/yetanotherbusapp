@@ -391,10 +391,12 @@ class _SearchScreenState extends State<SearchScreen> {
         )
         .length;
     final remoteProviderCount = providerCount - localProviderCount;
+    final likelyStopSearch =
+        localProviderCount > 0 && !_looksLikeRouteQuery(trimmedQuery);
 
     setState(() {
       _isLoading = true;
-      _isResolvingStopDistances = false;
+      _isResolvingStopDistances = likelyStopSearch;
       _error = null;
     });
 
@@ -415,10 +417,10 @@ class _SearchScreenState extends State<SearchScreen> {
           !_hasStrongRouteMatch(trimmedQuery, routeResults);
 
       if (shouldTryStopSearch) {
-        final stopResults = _sortStopResults(
-          await busController.searchRoutesByStopAcrossSelected(trimmedQuery),
+        final stopResults = await _runProgressiveStopSearchFallback(
           trimmedQuery,
-          busController,
+          token: token,
+          busController: busController,
         );
 
         if (!mounted || token != _activeSearchToken) {
@@ -465,6 +467,7 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         _results = routeResults.map(_SearchDisplayItem.route).toList();
         _isLoading = false;
+        _isResolvingStopDistances = false;
       });
 
       unawaited(
@@ -482,6 +485,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
       setState(() {
         _error = '$error';
+        _isResolvingStopDistances = false;
       });
       unawaited(
         busController.analytics.logSearchFailed(
@@ -496,6 +500,115 @@ class _SearchScreenState extends State<SearchScreen> {
         });
       }
     }
+  }
+
+  Future<List<StopRouteSearchResult>> _runProgressiveStopSearchFallback(
+    String query, {
+    required int token,
+    required AppController busController,
+  }) async {
+    final providers = busController.searchProviders
+        .where(busController.isDatabaseReady)
+        .toList();
+    if (providers.isEmpty) {
+      if (mounted && token == _activeSearchToken) {
+        setState(() {
+          _isResolvingStopDistances = false;
+        });
+      }
+      return const <StopRouteSearchResult>[];
+    }
+
+    final positionFuture = _resolveSearchPosition();
+    final collectedResults = <StopRouteSearchResult>[];
+    final baseOrder = <String, int>{};
+    var nextBaseOrder = 0;
+
+    if (mounted && token == _activeSearchToken) {
+      setState(() {
+        _isLoading = false;
+        _isResolvingStopDistances = true;
+        _results = const <_SearchDisplayItem>[];
+      });
+    }
+
+    final pendingBatches = <int, Future<_StopSearchBatch>>{
+      for (var index = 0; index < providers.length; index += 1)
+        index: busController
+            .searchRoutesByStop(query, provider: providers[index])
+            .then(
+              (results) =>
+                  _StopSearchBatch(providerIndex: index, results: results),
+            ),
+    };
+
+    while (pendingBatches.isNotEmpty) {
+      final batch = await Future.any(pendingBatches.values);
+      pendingBatches.remove(batch.providerIndex);
+      if (!mounted || token != _activeSearchToken) {
+        return const <StopRouteSearchResult>[];
+      }
+
+      final sortedProviderResults = _sortStopResults(
+        batch.results,
+        query,
+        busController,
+      );
+      var didAppend = false;
+      for (final result in sortedProviderResults) {
+        final resultKey = _stopResultKey(result);
+        if (baseOrder.containsKey(resultKey)) {
+          continue;
+        }
+        baseOrder[resultKey] = nextBaseOrder;
+        nextBaseOrder += 1;
+        collectedResults.add(result);
+        didAppend = true;
+
+        setState(() {
+          _results = _sortStopResults(
+            collectedResults,
+            query,
+            busController,
+            baseOrder: baseOrder,
+          ).map(_SearchDisplayItem.stop).toList();
+        });
+      }
+
+      if (!didAppend) {
+        continue;
+      }
+    }
+
+    if (collectedResults.isEmpty) {
+      if (mounted && token == _activeSearchToken) {
+        setState(() {
+          _isResolvingStopDistances = false;
+        });
+      }
+      return const <StopRouteSearchResult>[];
+    }
+
+    final position = await positionFuture;
+    if (!mounted || token != _activeSearchToken) {
+      return collectedResults;
+    }
+
+    if (position == null) {
+      setState(() {
+        _isResolvingStopDistances = false;
+      });
+      return collectedResults;
+    }
+
+    await _progressivelyResolveStopSearchResults(
+      collectedResults,
+      query: query,
+      position: position,
+      token: token,
+      busController: busController,
+    );
+    return collectedResults;
   }
 
   Future<void> _progressivelyResolveStopSearchResults(
@@ -718,7 +831,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            if (_isResolvingStopDistances && _results.isNotEmpty) ...[
+            if (_isResolvingStopDistances) ...[
               const LinearProgressIndicator(),
               const SizedBox(height: 12),
             ],
@@ -748,6 +861,13 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Text('搜尋失敗：$_error'),
+                ),
+              )
+            else if (_isResolvingStopDistances && _results.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('正在搜尋站牌，結果會陸續出現…'),
                 ),
               )
             else if (_results.isEmpty)
@@ -824,6 +944,13 @@ class _SearchDisplayItem {
   final StopRouteSearchResult? stopSearch;
 
   bool get isStopSearchResult => stopSearch != null;
+}
+
+class _StopSearchBatch {
+  const _StopSearchBatch({required this.providerIndex, required this.results});
+
+  final int providerIndex;
+  final List<StopRouteSearchResult> results;
 }
 
 class _HistorySection extends StatelessWidget {

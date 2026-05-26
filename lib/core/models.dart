@@ -1408,6 +1408,38 @@ class RouteDetailData {
   final bool hasLiveData;
 }
 
+class StopRouteSearchResult {
+  const StopRouteSearchResult({
+    required this.route,
+    required this.matchedStop,
+    this.nearestStop,
+    this.nearestDistanceMeters,
+  });
+
+  final RouteSummary route;
+  final StopInfo matchedStop;
+  final StopInfo? nearestStop;
+  final double? nearestDistanceMeters;
+
+  StopRouteSearchResult copyWith({
+    RouteSummary? route,
+    StopInfo? matchedStop,
+    StopInfo? nearestStop,
+    double? nearestDistanceMeters,
+    bool clearNearestStop = false,
+    bool clearNearestDistanceMeters = false,
+  }) {
+    return StopRouteSearchResult(
+      route: route ?? this.route,
+      matchedStop: matchedStop ?? this.matchedStop,
+      nearestStop: clearNearestStop ? null : (nearestStop ?? this.nearestStop),
+      nearestDistanceMeters: clearNearestDistanceMeters
+          ? null
+          : (nearestDistanceMeters ?? this.nearestDistanceMeters),
+    );
+  }
+}
+
 class NearbyStopResult {
   const NearbyStopResult({
     required this.route,

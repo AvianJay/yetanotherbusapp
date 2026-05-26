@@ -324,6 +324,7 @@ class BusRepository {
   Future<List<_CityStopRow>> _loadCityStopRows({
     required BusProvider provider,
     String? routeId,
+    String? stopNameQuery,
     double? latitude,
     double? longitude,
     double? latDelta,
@@ -346,6 +347,7 @@ class BusRepository {
           return _queryCityStopRowsSqlite(
             database,
             routeId: routeId,
+            stopNameQuery: stopNameQuery,
             latitude: latitude,
             longitude: longitude,
             latDelta: latDelta,
@@ -366,6 +368,7 @@ class BusRepository {
       return await _queryCityStopRows(
         database,
         routeId: routeId,
+        stopNameQuery: stopNameQuery,
         latitude: latitude,
         longitude: longitude,
         latDelta: latDelta,
@@ -407,6 +410,96 @@ class BusRepository {
       _collapseRouteSummariesByRouteId(summaries),
       query: query,
     );
+  }
+
+  Future<List<StopRouteSearchResult>> searchRoutesByStopName(
+    String query, {
+    required BusProvider provider,
+    int limit = 40,
+  }) async {
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isEmpty) {
+      return const <StopRouteSearchResult>[];
+    }
+
+    final rows = await _loadCityStopRows(
+      provider: provider,
+      stopNameQuery: normalizedQuery,
+      limit: limit * 6,
+    );
+    if (rows.isEmpty) {
+      return const <StopRouteSearchResult>[];
+    }
+
+    final routeMetadata = await _loadRouteMetadataMapFromLocalStore(
+      provider: provider,
+      routeIds: rows
+          .map((row) => row.routeId)
+          .where((routeId) => routeId.isNotEmpty)
+          .toSet(),
+    );
+
+    final grouped = <String, List<_CityStopRow>>{};
+    for (final row in rows) {
+      if (row.routeId.isEmpty) {
+        continue;
+      }
+      final group = grouped.putIfAbsent(
+        '${row.routeId}:${row.pathId}',
+        () => <_CityStopRow>[],
+      );
+      group.add(row);
+    }
+
+    final results = <StopRouteSearchResult>[];
+    for (final entry in grouped.entries) {
+      final groupRows = entry.value;
+      groupRows.sort(
+        (left, right) =>
+            _compareCityStopRowsForSearch(left, right, normalizedQuery),
+      );
+      final matchedRow = groupRows.firstOrNull;
+      if (matchedRow == null) {
+        continue;
+      }
+
+      final routeMetadataEntry =
+          routeMetadata['${matchedRow.routeId}:${matchedRow.pathId}'];
+      if (routeMetadataEntry == null) {
+        continue;
+      }
+
+      results.add(
+        StopRouteSearchResult(
+          route: _routeSummaryFromPathRow(
+            provider: provider,
+            routeId: matchedRow.routeId,
+            routeName: routeMetadataEntry.routeName,
+            routeNameEn: routeMetadataEntry.routeNameEn,
+            pathId: matchedRow.pathId,
+            pathName: routeMetadataEntry.pathName,
+          ),
+          matchedStop: StopInfo(
+            routeKey: _routeKeyForRouteId(matchedRow.routeId),
+            pathId: matchedRow.pathId,
+            stopId: _parseStopId(matchedRow.stopId),
+            stopName: matchedRow.stopName,
+            sequence: matchedRow.sequence,
+            lon: matchedRow.lon,
+            lat: matchedRow.lat,
+          ),
+        ),
+      );
+    }
+
+    results.sort(
+      (left, right) =>
+          _compareStopRouteSearchResults(left, right, query: normalizedQuery),
+    );
+    if (results.length <= limit) {
+      return results;
+    }
+    return results.take(limit).toList();
   }
 
   Future<bool> routeMetadataDatabaseExists() async {
@@ -1571,6 +1664,105 @@ class BusRepository {
     );
   }
 
+  int _compareCityStopRowsForSearch(
+    _CityStopRow left,
+    _CityStopRow right,
+    String query,
+  ) {
+    final leftName = _normalizeStopSearchText(left.stopName);
+    final rightName = _normalizeStopSearchText(right.stopName);
+    final normalizedQuery = _normalizeStopSearchText(query);
+    final leftTier = _stopSearchMatchTier(leftName, normalizedQuery);
+    final rightTier = _stopSearchMatchTier(rightName, normalizedQuery);
+    if (leftTier != rightTier) {
+      return leftTier.compareTo(rightTier);
+    }
+
+    final leftLengthGap = normalizedQuery.isEmpty
+        ? 0
+        : (leftName.length - normalizedQuery.length).abs();
+    final rightLengthGap = normalizedQuery.isEmpty
+        ? 0
+        : (rightName.length - normalizedQuery.length).abs();
+    if (leftLengthGap != rightLengthGap) {
+      return leftLengthGap.compareTo(rightLengthGap);
+    }
+    if (leftName.length != rightName.length) {
+      return leftName.length.compareTo(rightName.length);
+    }
+
+    final stopNameCompare = leftName.compareTo(rightName);
+    if (stopNameCompare != 0) {
+      return stopNameCompare;
+    }
+    return left.sequence.compareTo(right.sequence);
+  }
+
+  int _compareStopRouteSearchResults(
+    StopRouteSearchResult left,
+    StopRouteSearchResult right, {
+    required String query,
+  }) {
+    final stopCompare = _compareCityStopRowsForSearch(
+      _CityStopRow(
+        routeId: left.route.routeId,
+        pathId: left.matchedStop.pathId,
+        stopId: left.matchedStop.stopId,
+        stopName: left.matchedStop.stopName,
+        sequence: left.matchedStop.sequence,
+        lon: left.matchedStop.lon,
+        lat: left.matchedStop.lat,
+      ),
+      _CityStopRow(
+        routeId: right.route.routeId,
+        pathId: right.matchedStop.pathId,
+        stopId: right.matchedStop.stopId,
+        stopName: right.matchedStop.stopName,
+        sequence: right.matchedStop.sequence,
+        lon: right.matchedStop.lon,
+        lat: right.matchedStop.lat,
+      ),
+      query,
+    );
+    if (stopCompare != 0) {
+      return stopCompare;
+    }
+
+    final routeNameCompare = left.route.routeName.compareTo(
+      right.route.routeName,
+    );
+    if (routeNameCompare != 0) {
+      return routeNameCompare;
+    }
+
+    final routeIdCompare = left.route.routeId.compareTo(right.route.routeId);
+    if (routeIdCompare != 0) {
+      return routeIdCompare;
+    }
+
+    return left.matchedStop.pathId.compareTo(right.matchedStop.pathId);
+  }
+
+  int _stopSearchMatchTier(String stopName, String query) {
+    if (query.isEmpty) {
+      return 0;
+    }
+    if (stopName == query) {
+      return 0;
+    }
+    if (stopName.startsWith(query)) {
+      return 1;
+    }
+    if (stopName.contains(query)) {
+      return 2;
+    }
+    return 3;
+  }
+
+  String _normalizeStopSearchText(String value) {
+    return value.trim().toLowerCase();
+  }
+
   List<RouteSummary> _collapseRouteSummariesByRouteId(
     List<RouteSummary> items,
   ) {
@@ -1720,9 +1912,7 @@ class BusRepository {
     _realtimeInFlight[routeId] = future;
     try {
       final result = await future;
-      _realtimeCache[routeId] = _TimedValue<LiveStopMap>(
-        result,
-      );
+      _realtimeCache[routeId] = _TimedValue<LiveStopMap>(result);
       return result;
     } finally {
       if (identical(_realtimeInFlight[routeId], future)) {
@@ -1783,9 +1973,7 @@ class BusRepository {
   /// the server was able to resolve.  Results are cached both as a batch
   /// (keyed by the sorted, joined ID list) and individually so that
   /// subsequent single-route lookups via [_getLiveStopMap] also benefit.
-  Future<BatchLiveStopMap> getBatchLiveStopMaps(
-    List<String> routeIds,
-  ) async {
+  Future<BatchLiveStopMap> getBatchLiveStopMaps(List<String> routeIds) async {
     final deduped = <String>[];
     final seen = <String>{};
     for (final id in routeIds) {
@@ -1865,15 +2053,13 @@ class BusRepository {
       throw const HttpException(rateLimitedErrorMessage);
     }
     if (response.statusCode != 200) {
-      throw HttpException(
-        '批次即時資料暫時無法取得 (${response.statusCode})。',
-      );
+      throw HttpException('批次即時資料暫時無法取得 (${response.statusCode})。');
     }
 
     final decoded =
         jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    final routesRaw = decoded['routes'] as Map<String, dynamic>? ??
-        const <String, dynamic>{};
+    final routesRaw =
+        decoded['routes'] as Map<String, dynamic>? ?? const <String, dynamic>{};
 
     final result = <String, LiveStopMap>{};
     for (final routeEntry in routesRaw.entries) {
@@ -1889,8 +2075,7 @@ class BusRepository {
           continue;
         }
         final pathId = _toInt(rawPath['pathid']);
-        for (final rawStop
-            in rawPath['stops'] as List<dynamic>? ?? const []) {
+        for (final rawStop in rawPath['stops'] as List<dynamic>? ?? const []) {
           if (rawStop is! Map) {
             continue;
           }
@@ -1916,10 +2101,7 @@ class BusRepository {
   /// (e.g. from a batch API call).  This allows subsequent calls to
   /// [_getLiveStopMap] to return the data immediately without making
   /// another HTTP request.
-  void preloadRealtimeCache(
-    String routeId,
-    LiveStopMap liveMap,
-  ) {
+  void preloadRealtimeCache(String routeId, LiveStopMap liveMap) {
     // Only preload if there is no fresh entry already – don't overwrite
     // newer data that may have been fetched individually.
     final existing = _realtimeCache[routeId];
@@ -1927,9 +2109,7 @@ class BusRepository {
         DateTime.now().difference(existing.createdAt) <= _realtimeCacheTtl) {
       return;
     }
-    _realtimeCache[routeId] = _TimedValue<LiveStopMap>(
-      liveMap,
-    );
+    _realtimeCache[routeId] = _TimedValue<LiveStopMap>(liveMap);
   }
 
   Future<List<RoutePathPoint>> _loadRoutePathPoints(
@@ -2659,6 +2839,7 @@ class BusRepository {
   Future<List<_CityStopRow>> _queryCityStopRows(
     Database database, {
     String? routeId,
+    String? stopNameQuery,
     double? latitude,
     double? longitude,
     double? latDelta,
@@ -2670,6 +2851,11 @@ class BusRepository {
     if (routeId != null && routeId.isNotEmpty) {
       whereClauses.add('stops.routeid = ?');
       parameters.add(routeId);
+    }
+    final normalizedStopNameQuery = stopNameQuery?.trim() ?? '';
+    if (normalizedStopNameQuery.isNotEmpty) {
+      whereClauses.add('stops.name LIKE ?');
+      parameters.add('%$normalizedStopNameQuery%');
     }
     if (latitude != null &&
         longitude != null &&
@@ -2720,6 +2906,7 @@ class BusRepository {
   List<_CityStopRow> _queryCityStopRowsSqlite(
     NativeSqliteDatabase database, {
     String? routeId,
+    String? stopNameQuery,
     double? latitude,
     double? longitude,
     double? latDelta,
@@ -2731,6 +2918,11 @@ class BusRepository {
     if (routeId != null && routeId.isNotEmpty) {
       whereClauses.add('stops.routeid = ?');
       parameters.add(routeId);
+    }
+    final normalizedStopNameQuery = stopNameQuery?.trim() ?? '';
+    if (normalizedStopNameQuery.isNotEmpty) {
+      whereClauses.add('stops.name LIKE ?');
+      parameters.add('%$normalizedStopNameQuery%');
     }
     if (latitude != null &&
         longitude != null &&

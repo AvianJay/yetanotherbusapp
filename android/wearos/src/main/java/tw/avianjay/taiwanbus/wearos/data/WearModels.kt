@@ -29,6 +29,9 @@ data class FavoriteStop(
 
     val displayStopName: String
         get() = stopName?.takeIf { it.isNotBlank() } ?: "Stop $stopId"
+
+    val realtimeRouteId: String?
+        get() = routeId?.trim()?.takeIf { it.isNotEmpty() }
 }
 
 @Serializable
@@ -41,7 +44,7 @@ data class FavoritePayload(
 data class BusArrival(
     val favoriteId: String,
     val etaText: String,
-    val statusText: String = "Mock",
+    val statusText: String,
     val arrivalEpochMs: Long? = null,
     val updatedAtMs: Long = 0L,
 )
@@ -52,6 +55,8 @@ data class WearHomeState(
     val arrivals: List<BusArrival> = emptyList(),
     val lastSyncedAtMs: Long? = null,
     val lastRefreshAtMs: Long? = null,
+    val isRefreshing: Boolean = false,
+    val lastRefreshError: String? = null,
 ) {
     val hasSyncedFavorites: Boolean
         get() = settings.syncEnabled && favorites.isNotEmpty()
@@ -61,6 +66,7 @@ data class WearHomeState(
 }
 
 data class RouteSearchResult(
+    val routeId: String,
     val routeName: String,
     val description: String,
     val provider: String,

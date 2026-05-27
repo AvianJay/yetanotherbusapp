@@ -282,11 +282,7 @@ class AppController extends ChangeNotifier {
       waitForBridge: true,
     );
     await _normalizeWearSelectedFavoriteIds(scheduleSync: false);
-    await WearOsIntegration.syncAll(
-      _favoriteGroups,
-      _settings,
-      requestRefresh: false,
-    );
+    await _syncWearOsSnapshot(requestRefresh: false);
     await AndroidHomeIntegration.syncSmartRouteNotifications(
       _settings.enableSmartRouteNotifications,
     );
@@ -836,6 +832,91 @@ class AppController extends ChangeNotifier {
     await _persistSettings(scheduleSync: scheduleSync);
   }
 
+  List<_WearFavoriteSelection> _selectedWearFavorites() {
+    if (!_settings.wearSyncEnabled) {
+      return const <_WearFavoriteSelection>[];
+    }
+
+    final selectedIds = _settings.wearSelectedFavoriteIds.toSet();
+    if (selectedIds.isEmpty) {
+      return const <_WearFavoriteSelection>[];
+    }
+
+    final result = <_WearFavoriteSelection>[];
+    for (final entry in _favoriteGroups.entries) {
+      for (final favorite in entry.value) {
+        if (!selectedIds.contains(favorite.stableKey)) {
+          continue;
+        }
+        result.add(
+          _WearFavoriteSelection(groupName: entry.key, favorite: favorite),
+        );
+      }
+    }
+    return result;
+  }
+
+  Future<List<Map<String, dynamic>>> _buildWearFavoritePayload() async {
+    final selectedFavorites = _selectedWearFavorites();
+    if (selectedFavorites.isEmpty) {
+      return const <Map<String, dynamic>>[];
+    }
+
+    final needsMetadata = selectedFavorites
+        .map((entry) => entry.favorite)
+        .where(
+          (favorite) =>
+              favorite.routeId?.trim().isNotEmpty != true ||
+              favorite.routeName?.trim().isNotEmpty != true ||
+              favorite.stopName?.trim().isNotEmpty != true,
+        )
+        .toList(growable: false);
+
+    final resolvedByKey = <String, FavoriteResolvedItem>{};
+    if (needsMetadata.isNotEmpty) {
+      try {
+        final resolvedItems = await repository.resolveFavoriteGroup(
+          needsMetadata,
+        );
+        for (final item in resolvedItems) {
+          resolvedByKey[item.reference.stableKey] = item;
+        }
+      } catch (_) {
+        // Keep syncing any favorites that already have enough metadata.
+      }
+    }
+
+    final payload = <Map<String, dynamic>>[];
+    for (final selection in selectedFavorites) {
+      final favorite = selection.favorite;
+      final resolved = resolvedByKey[favorite.stableKey];
+      final routeId = favorite.routeId?.trim().isNotEmpty == true
+          ? favorite.routeId!.trim()
+          : (resolved?.route.routeId.trim() ?? '');
+      if (routeId.isEmpty) {
+        continue;
+      }
+
+      final routeName = favorite.routeName?.trim().isNotEmpty == true
+          ? favorite.routeName!.trim()
+          : resolved?.route.routeName;
+      final stopName = favorite.stopName?.trim().isNotEmpty == true
+          ? favorite.stopName!.trim()
+          : resolved?.stop.stopName;
+
+      payload.add({
+        'id': favorite.stableKey,
+        'groupName': selection.groupName,
+        ...favorite.toJson(),
+        'routeId': routeId,
+        if (routeName != null && routeName.isNotEmpty) 'routeName': routeName,
+        if (stopName != null && stopName.isNotEmpty) 'stopName': stopName,
+      });
+    }
+
+    return payload;
+  }
+
   Future<WearOsSyncStatus> syncWearOsNow({bool requestRefresh = true}) async {
     await _syncWearOsSnapshot(requestRefresh: requestRefresh);
     return WearOsIntegration.getStatus();
@@ -843,9 +924,11 @@ class AppController extends ChangeNotifier {
 
   Future<void> _syncWearOsSnapshot({bool requestRefresh = false}) async {
     await _normalizeWearSelectedFavoriteIds();
+    final favorites = await _buildWearFavoritePayload();
     await WearOsIntegration.syncAll(
-      _favoriteGroups,
-      _settings,
+      syncEnabled: _settings.wearSyncEnabled,
+      selectedFavoriteIds: _settings.wearSelectedFavoriteIds,
+      favorites: favorites,
       requestRefresh: requestRefresh,
     );
   }
@@ -2407,6 +2490,16 @@ class AppController extends ChangeNotifier {
     _cancelScheduledAccountSync();
     super.dispose();
   }
+}
+
+class _WearFavoriteSelection {
+  const _WearFavoriteSelection({
+    required this.groupName,
+    required this.favorite,
+  });
+
+  final String groupName;
+  final FavoriteStop favorite;
 }
 
 Map<String, dynamic> _preferencesSyncPayloadFromSettings(AppSettings settings) {

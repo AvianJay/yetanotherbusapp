@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,8 +24,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
+import androidx.wear.compose.foundation.lazy.TransformingLazyColumnScope
 import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.Button
@@ -36,11 +38,11 @@ import androidx.wear.compose.material3.SurfaceTransformation
 import androidx.wear.compose.material3.Text
 import androidx.wear.compose.material3.lazy.rememberTransformationSpec
 import androidx.wear.compose.material3.lazy.transformedHeight
+import kotlinx.coroutines.delay
 import tw.avianjay.taiwanbus.wearos.data.FavoriteStop
 import tw.avianjay.taiwanbus.wearos.data.RouteSearchResult
 import tw.avianjay.taiwanbus.wearos.data.WearDataRepository
 import tw.avianjay.taiwanbus.wearos.data.WearHomeState
-import tw.avianjay.taiwanbus.wearos.data.WearNodeMessenger
 import tw.avianjay.taiwanbus.wearos.presentation.theme.AndroidTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -56,9 +58,10 @@ class MainActivity : ComponentActivity() {
                     state = WearDataRepository.state,
                     onRefresh = {
                         WearDataRepository.refresh(applicationContext)
-                        WearNodeMessenger.requestRefresh(applicationContext)
                     },
-                    onSearch = WearDataRepository::searchRoutes,
+                    onSearch = { query ->
+                        WearDataRepository.searchRoutes(query)
+                    },
                 )
             }
         }
@@ -74,11 +77,42 @@ private enum class WearScreen {
 private fun WearApp(
     state: WearHomeState,
     onRefresh: () -> Unit,
-    onSearch: (String) -> List<RouteSearchResult>,
+    onSearch: suspend (String) -> List<RouteSearchResult>,
 ) {
     var screen by rememberSaveable { mutableStateOf(WearScreen.Favorites) }
     var query by rememberSaveable { mutableStateOf("") }
-    val searchResults = remember(query) { onSearch(query) }
+    var searchResults by remember { mutableStateOf<List<RouteSearchResult>>(emptyList()) }
+    var searchLoading by remember { mutableStateOf(false) }
+    var searchError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(screen, query) {
+        if (screen != WearScreen.Search) {
+            searchLoading = false
+            return@LaunchedEffect
+        }
+
+        val normalized = query.trim()
+        if (normalized.isEmpty()) {
+            searchResults = emptyList()
+            searchLoading = false
+            searchError = null
+            return@LaunchedEffect
+        }
+
+        delay(250)
+        searchLoading = true
+        searchError = null
+        runCatching {
+            onSearch(normalized)
+        }.onSuccess { results ->
+            searchResults = results
+            searchLoading = false
+        }.onFailure { error ->
+            searchResults = emptyList()
+            searchLoading = false
+            searchError = error.message ?: "Route search failed."
+        }
+    }
 
     AppScaffold {
         val listState = rememberTransformingLazyColumnState()
@@ -122,16 +156,16 @@ private fun WearApp(
                             Text(
                                 when {
                                     screen == WearScreen.Search ->
-                                        "Mock results ready for future API wiring"
+                                        "Search uses the live network API directly"
 
                                     state.settings.syncEnabled && state.hasSyncedFavorites ->
-                                        "Watch favorites synced from phone"
+                                        "Favorites sync from phone, arrivals refresh from live API"
 
                                     state.settings.syncEnabled ->
-                                        "No favorites selected for Wear OS yet"
+                                        "No synced favorites yet. Search still works online."
 
                                     else ->
-                                        "Turn on Wear OS sync in the phone app"
+                                        "Turn on Wear OS sync in the phone app for favorites"
                                 },
                             )
                         }
@@ -150,6 +184,8 @@ private fun WearApp(
                         searchContent(
                             query = query,
                             results = searchResults,
+                            loading = searchLoading,
+                            error = searchError,
                             onQueryChange = { query = it },
                             onUseRoute = { query = it.routeName },
                         )
@@ -160,26 +196,23 @@ private fun WearApp(
     }
 }
 
-private fun androidx.wear.compose.foundation.lazy.TransformingLazyColumnScope.favoritesContent(
+private fun TransformingLazyColumnScope.favoritesContent(
     state: WearHomeState,
     onOpenSearch: () -> Unit,
 ) {
-    if (!state.settings.syncEnabled || state.favorites.isEmpty()) {
-        item {
-            Button(
-                onClick = onOpenSearch,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ),
-            ) {
-                Column {
-                    Text("Search routes")
-                    Text("Try mock route results while favorites are empty")
-                }
+    item {
+        Button(
+            onClick = onOpenSearch,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column {
+                Text("Search routes")
+                Text("Live API search works even without a phone connection")
             }
         }
+    }
+
+    if (!state.settings.syncEnabled || state.favorites.isEmpty()) {
         item {
             WearInfoCard(
                 title = if (state.settings.syncEnabled) {
@@ -197,15 +230,21 @@ private fun androidx.wear.compose.foundation.lazy.TransformingLazyColumnScope.fa
         return
     }
 
-    item {
-        Button(
-            onClick = onOpenSearch,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column {
-                Text("Search routes")
-                Text("Mock search results for the first Wear build")
-            }
+    if (state.isRefreshing) {
+        item {
+            WearInfoCard(
+                title = "Refreshing",
+                subtitle = "Loading live arrivals from the API...",
+            )
+        }
+    }
+
+    state.lastRefreshError?.let { error ->
+        item {
+            WearInfoCard(
+                title = "Refresh failed",
+                subtitle = error,
+            )
         }
     }
 
@@ -221,16 +260,18 @@ private fun androidx.wear.compose.foundation.lazy.TransformingLazyColumnScope.fa
     state.lastRefreshAtMs?.let { refreshedAtMs ->
         item {
             WearInfoCard(
-                title = "Last refresh",
+                title = "Last update",
                 subtitle = formatClockTime(refreshedAtMs),
             )
         }
     }
 }
 
-private fun androidx.wear.compose.foundation.lazy.TransformingLazyColumnScope.searchContent(
+private fun TransformingLazyColumnScope.searchContent(
     query: String,
     results: List<RouteSearchResult>,
+    loading: Boolean,
+    error: String?,
     onQueryChange: (String) -> Unit,
     onUseRoute: (RouteSearchResult) -> Unit,
 ) {
@@ -241,11 +282,41 @@ private fun androidx.wear.compose.foundation.lazy.TransformingLazyColumnScope.se
         )
     }
 
+    if (query.trim().isEmpty()) {
+        item {
+            WearInfoCard(
+                title = "Search live routes",
+                subtitle = "Type a route number or keyword to query the API.",
+            )
+        }
+        return
+    }
+
+    if (loading) {
+        item {
+            WearInfoCard(
+                title = "Searching",
+                subtitle = "Looking up live route data...",
+            )
+        }
+        return
+    }
+
+    if (error != null) {
+        item {
+            WearInfoCard(
+                title = "Search failed",
+                subtitle = error,
+            )
+        }
+        return
+    }
+
     if (results.isEmpty()) {
         item {
             WearInfoCard(
-                title = "No mock matches",
-                subtitle = "Try 307, 605, 965, R26 or Blue 15.",
+                title = "No matches",
+                subtitle = "No live routes matched this query.",
             )
         }
         return
@@ -280,16 +351,19 @@ private fun FavoriteArrivalCard(
     Button(
         onClick = {},
         modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
-            ) {
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
+    ) {
         Column {
             Text(favorite.displayRouteName)
             Text(favorite.displayStopName)
-            Text(arrival?.etaText ?: "Mock arrival unavailable")
-            Text(favorite.groupName.ifBlank { favorite.provider })
+            Text(arrival?.etaText ?: "No realtime data")
+            arrival?.arrivalEpochMs?.let { arrivalAtMs ->
+                Text("At ${formatClockTime(arrivalAtMs)}")
+            }
+            Text(arrival?.statusText ?: favorite.groupName.ifBlank { favorite.provider })
         }
     }
 }
@@ -344,7 +418,7 @@ private fun SearchBox(
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
                 if (value.isEmpty()) {
-                    Text("307 / 605 / R26 / airport")
+                    Text("307 / airport / Taipei")
                 }
                 innerTextField()
             }

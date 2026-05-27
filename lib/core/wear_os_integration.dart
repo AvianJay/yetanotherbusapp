@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import 'models.dart';
-
 class WearOsSyncStatus {
   const WearOsSyncStatus({
     required this.connectedNodeCount,
@@ -64,28 +62,35 @@ class WearOsIntegration {
     }
   }
 
-  static Future<void> syncSettings(AppSettings settings) async {
+  static Future<void> syncSettings({
+    required bool syncEnabled,
+    required List<String> selectedFavoriteIds,
+  }) async {
     if (!_supported) {
       return;
     }
 
     await _invokeVoid('syncWearSettings', {
-      'payloadJson': jsonEncode(_buildSettingsPayload(settings)),
+      'payloadJson': jsonEncode({
+        'syncEnabled': syncEnabled,
+        'selectedFavoriteIds': selectedFavoriteIds,
+        'lastUpdatedAtMs': DateTime.now().millisecondsSinceEpoch,
+      }),
     });
   }
 
   static Future<void> syncFavorites(
-    Map<String, List<FavoriteStop>> favoriteGroups,
-    AppSettings settings,
+    List<Map<String, dynamic>> favorites,
   ) async {
     if (!_supported) {
       return;
     }
 
     await _invokeVoid('syncWearFavorites', {
-      'payloadJson': jsonEncode(
-        _buildFavoritesPayload(favoriteGroups, settings),
-      ),
+      'payloadJson': jsonEncode({
+        'favorites': favorites,
+        'lastUpdatedAtMs': DateTime.now().millisecondsSinceEpoch,
+      }),
     });
   }
 
@@ -97,56 +102,25 @@ class WearOsIntegration {
     await _invokeVoid('requestWearRefresh');
   }
 
-  static Future<WearOsSyncStatus> syncAll(
-    Map<String, List<FavoriteStop>> favoriteGroups,
-    AppSettings settings, {
+  static Future<WearOsSyncStatus> syncAll({
+    required bool syncEnabled,
+    required List<String> selectedFavoriteIds,
+    required List<Map<String, dynamic>> favorites,
     bool requestRefresh = false,
   }) async {
     if (!_supported) {
       return WearOsSyncStatus.empty;
     }
 
-    await syncSettings(settings);
-    await syncFavorites(favoriteGroups, settings);
+    await syncSettings(
+      syncEnabled: syncEnabled,
+      selectedFavoriteIds: selectedFavoriteIds,
+    );
+    await syncFavorites(favorites);
     if (requestRefresh) {
       await WearOsIntegration.requestRefresh();
     }
     return getStatus();
-  }
-
-  static Map<String, dynamic> _buildSettingsPayload(AppSettings settings) {
-    return {
-      'syncEnabled': settings.wearSyncEnabled,
-      'selectedFavoriteIds': settings.wearSelectedFavoriteIds,
-      'lastUpdatedAtMs': DateTime.now().millisecondsSinceEpoch,
-    };
-  }
-
-  static Map<String, dynamic> _buildFavoritesPayload(
-    Map<String, List<FavoriteStop>> favoriteGroups,
-    AppSettings settings,
-  ) {
-    final favorites = <Map<String, dynamic>>[];
-    final selectedIds = settings.wearSelectedFavoriteIds.toSet();
-    if (settings.wearSyncEnabled) {
-      for (final entry in favoriteGroups.entries) {
-        for (final favorite in entry.value) {
-          if (!selectedIds.contains(favorite.stableKey)) {
-            continue;
-          }
-          favorites.add({
-            'id': favorite.stableKey,
-            'groupName': entry.key,
-            ...favorite.toJson(),
-          });
-        }
-      }
-    }
-
-    return {
-      'favorites': favorites,
-      'lastUpdatedAtMs': DateTime.now().millisecondsSinceEpoch,
-    };
   }
 
   static Future<void> _invokeVoid(

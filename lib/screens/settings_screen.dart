@@ -303,7 +303,7 @@ class SettingsScreen extends StatelessWidget {
                             contentPadding: EdgeInsets.zero,
                             title: const Text('Sync favorites to watch'),
                             subtitle: const Text(
-                              'The watch will prioritize selected favorites and mock arrivals.',
+                              'The watch will sync selected favorites and load live arrivals from the network.',
                             ),
                             value: controller.settings.wearSyncEnabled,
                             onChanged: controller.updateWearSyncEnabled,

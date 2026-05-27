@@ -5,6 +5,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
 object WearDataRepository {
@@ -15,7 +21,8 @@ object WearDataRepository {
     private const val keyLastRefreshAtMs = "last_refresh_at_ms"
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val dataSource: BusDataSource = MockBusDataSource
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var refreshJob: Job? = null
     private var loaded = false
 
     var state by mutableStateOf(WearHomeState())
@@ -46,16 +53,13 @@ object WearDataRepository {
             preferences.getString(keyArrivalsJson, null),
         )?.filter { arrival ->
             favorites.any { favorite -> favorite.id == arrival.favoriteId }
-        } ?: buildArrivals(
-            favorites = favorites,
-            updatedAtMs = lastRefreshAtMs ?: System.currentTimeMillis(),
-        )
+        } ?: emptyList()
 
         applyState(
             WearHomeState(
                 settings = settings,
                 favorites = favorites,
-                arrivals = if (favorites.isEmpty()) emptyList() else arrivals,
+                arrivals = arrivals,
                 lastSyncedAtMs = listOf(
                     settings.lastUpdatedAtMs,
                     favoritePayload.lastUpdatedAtMs,
@@ -64,6 +68,10 @@ object WearDataRepository {
                 lastRefreshAtMs = lastRefreshAtMs,
             ),
         )
+
+        if (settings.syncEnabled && favorites.isNotEmpty()) {
+            refresh(context)
+        }
     }
 
     fun updateSettings(
@@ -78,16 +86,17 @@ object WearDataRepository {
             .apply()
 
         if (!settings.syncEnabled) {
+            refreshJob?.cancel()
             preferences.edit()
                 .remove(keyFavoritesJson)
                 .remove(keyArrivalsJson)
+                .remove(keyLastRefreshAtMs)
                 .apply()
             applyState(
                 WearHomeState(
                     settings = settings,
                     lastSyncedAtMs = settings.lastUpdatedAtMs.takeIf { it > 0L }
                         ?: state.lastSyncedAtMs,
-                    lastRefreshAtMs = state.lastRefreshAtMs,
                 ),
             )
             return
@@ -100,6 +109,9 @@ object WearDataRepository {
                     ?: state.lastSyncedAtMs,
             ),
         )
+        if (state.favorites.isNotEmpty()) {
+            refresh(context)
+        }
     }
 
     fun updateFavorites(
@@ -113,62 +125,85 @@ object WearDataRepository {
         } else {
             emptyList()
         }
-        val refreshedAtMs = System.currentTimeMillis()
-        val arrivals = buildArrivals(
-            favorites = favorites,
-            updatedAtMs = refreshedAtMs,
-        )
 
         val preferences = preferences(context)
-        preferences.edit()
+        val editor = preferences.edit()
             .putString(keyFavoritesJson, payloadJson)
-            .putString(keyArrivalsJson, encode(arrivals))
-            .putLong(keyLastRefreshAtMs, refreshedAtMs)
-            .apply()
+        if (favorites.isEmpty()) {
+            editor.remove(keyArrivalsJson).remove(keyLastRefreshAtMs)
+        }
+        editor.apply()
 
         applyState(
             state.copy(
                 favorites = favorites,
-                arrivals = arrivals,
+                arrivals = if (favorites.isEmpty()) emptyList() else state.arrivals,
                 lastSyncedAtMs = payload.lastUpdatedAtMs.takeIf { it > 0L }
                     ?: state.lastSyncedAtMs,
-                lastRefreshAtMs = refreshedAtMs.takeIf { favorites.isNotEmpty() },
+                lastRefreshAtMs = if (favorites.isEmpty()) null else state.lastRefreshAtMs,
+                lastRefreshError = null,
             ),
         )
+
+        if (favorites.isNotEmpty()) {
+            refresh(context)
+        }
     }
 
     fun refresh(context: Context) {
         ensureLoaded(context)
-        val refreshedAtMs = System.currentTimeMillis()
-        val arrivals = buildArrivals(
-            favorites = state.favorites,
-            updatedAtMs = refreshedAtMs,
-        )
-        preferences(context).edit()
-            .putString(keyArrivalsJson, encode(arrivals))
-            .putLong(keyLastRefreshAtMs, refreshedAtMs)
-            .apply()
+        val favoritesSnapshot = state.favorites
+        if (favoritesSnapshot.isEmpty()) {
+            applyState(
+                state.copy(
+                    arrivals = emptyList(),
+                    isRefreshing = false,
+                    lastRefreshError = null,
+                ),
+            )
+            return
+        }
 
+        refreshJob?.cancel()
         applyState(
             state.copy(
-                arrivals = arrivals,
-                lastRefreshAtMs = refreshedAtMs.takeIf { state.favorites.isNotEmpty() },
+                isRefreshing = true,
+                lastRefreshError = null,
             ),
         )
-    }
 
-    fun searchRoutes(query: String): List<RouteSearchResult> {
-        return dataSource.searchRoutes(query)
-    }
+        refreshJob = scope.launch {
+            try {
+                val arrivals = BusApiService.fetchArrivals(favoritesSnapshot)
+                val refreshedAtMs = System.currentTimeMillis()
+                preferences(context).edit()
+                    .putString(keyArrivalsJson, encode(arrivals))
+                    .putLong(keyLastRefreshAtMs, refreshedAtMs)
+                    .apply()
 
-    private fun buildArrivals(
-        favorites: List<FavoriteStop>,
-        updatedAtMs: Long,
-    ): List<BusArrival> {
-        if (favorites.isEmpty()) {
-            return emptyList()
+                applyState(
+                    state.copy(
+                        arrivals = arrivals,
+                        isRefreshing = false,
+                        lastRefreshAtMs = refreshedAtMs,
+                        lastRefreshError = null,
+                    ),
+                )
+            } catch (_: CancellationException) {
+                return@launch
+            } catch (error: Throwable) {
+                applyState(
+                    state.copy(
+                        isRefreshing = false,
+                        lastRefreshError = error.message ?: "Realtime refresh failed.",
+                    ),
+                )
+            }
         }
-        return dataSource.buildArrivals(favorites, updatedAtMs)
+    }
+
+    suspend fun searchRoutes(query: String): List<RouteSearchResult> {
+        return BusApiService.searchRoutes(query)
     }
 
     private fun preferences(context: Context) =

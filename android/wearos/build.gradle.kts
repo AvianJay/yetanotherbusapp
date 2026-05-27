@@ -5,6 +5,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+fun escapeBuildConfigString(value: String): String {
+    return value.replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
+val wearApiBaseUrl = (System.getenv("YABUS_API_BASE_URL") ?: "https://bus.avianjay.sbs")
+    .trim()
+    .ifEmpty { "https://bus.avianjay.sbs" }
+
 android {
     namespace = "tw.avianjay.taiwanbus.wearos"
     compileSdk = 36
@@ -15,7 +23,11 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-
+        buildConfigField(
+            "String",
+            "WEAR_API_BASE_URL",
+            "\"${escapeBuildConfigString(wearApiBaseUrl)}\"",
+        )
     }
 
     buildTypes {
@@ -36,6 +48,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

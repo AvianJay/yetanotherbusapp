@@ -27,6 +27,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         pendingLaunchPayload = AppLaunchConstants.extractLaunchPayload(intent)
+        val wearSyncBridge = WearSyncBridge(this)
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -99,6 +100,15 @@ class MainActivity : FlutterActivity() {
                 }
 
                 else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            WEAR_OS_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            if (!wearSyncBridge.handle(call, result)) {
+                result.notImplemented()
             }
         }
 
@@ -360,6 +370,8 @@ class MainActivity : FlutterActivity() {
             "tw.avianjay.taiwanbus.flutter/app_launch"
         private const val HOME_INTEGRATION_CHANNEL =
             "tw.avianjay.taiwanbus.flutter/home_integration"
+        private const val WEAR_OS_CHANNEL =
+            "tw.avianjay.taiwanbus.flutter/wear_os"
         private const val TRIP_MONITOR_CHANNEL =
             "tw.avianjay.taiwanbus.flutter/trip_monitor"
         private const val REQUEST_CODE_BACKGROUND_LOCATION = 900

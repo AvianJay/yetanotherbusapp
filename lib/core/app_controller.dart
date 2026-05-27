@@ -26,6 +26,7 @@ import 'live_activity_service.dart';
 import 'models.dart';
 import 'smart_route_service.dart';
 import 'storage_service.dart';
+import 'wear_os_integration.dart';
 
 /// Thrown when the total number of favorite stops across all groups
 /// has reached the maximum allowed limit.
@@ -279,6 +280,12 @@ class AppController extends ChangeNotifier {
     await IOSWidgetIntegration.syncFavoriteGroups(
       _favoriteGroups,
       waitForBridge: true,
+    );
+    await _normalizeWearSelectedFavoriteIds(scheduleSync: false);
+    await WearOsIntegration.syncAll(
+      _favoriteGroups,
+      _settings,
+      requestRefresh: false,
     );
     await AndroidHomeIntegration.syncSmartRouteNotifications(
       _settings.enableSmartRouteNotifications,
@@ -750,6 +757,7 @@ class AppController extends ChangeNotifier {
         );
         await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
         await AndroidHomeIntegration.refreshFavoriteWidgets();
+        await _syncWearOsSnapshot(requestRefresh: false);
       case AccountSyncNamespace.preferences:
         _settings = _settingsFromSyncPayload(document.payload);
         await _persistSettings(modifiedAtMs: updatedAtMs, scheduleSync: false);
@@ -791,6 +799,55 @@ class AppController extends ChangeNotifier {
       _settings.enableSmartRouteNotifications,
     );
     await desktopDiscordPresenceService.refresh(settings: _settings);
+    await _syncWearOsSnapshot(requestRefresh: false);
+  }
+
+  List<String> _availableWearFavoriteIds() {
+    final seen = <String>{};
+    final ids = <String>[];
+    for (final favorites in _favoriteGroups.values) {
+      for (final favorite in favorites) {
+        if (seen.add(favorite.stableKey)) {
+          ids.add(favorite.stableKey);
+        }
+      }
+    }
+    return ids;
+  }
+
+  Future<void> _normalizeWearSelectedFavoriteIds({
+    bool selectAllIfEmpty = false,
+    bool scheduleSync = true,
+  }) async {
+    final availableIds = _availableWearFavoriteIds();
+    final availableSet = availableIds.toSet();
+    var nextIds = _settings.wearSelectedFavoriteIds
+        .where(availableSet.contains)
+        .toSet()
+        .toList(growable: false);
+    if (selectAllIfEmpty && nextIds.isEmpty && availableIds.isNotEmpty) {
+      nextIds = availableIds;
+    }
+    if (listEquals(nextIds, _settings.wearSelectedFavoriteIds)) {
+      return;
+    }
+
+    _settings = _settings.copyWith(wearSelectedFavoriteIds: nextIds);
+    await _persistSettings(scheduleSync: scheduleSync);
+  }
+
+  Future<WearOsSyncStatus> syncWearOsNow({bool requestRefresh = true}) async {
+    await _syncWearOsSnapshot(requestRefresh: requestRefresh);
+    return WearOsIntegration.getStatus();
+  }
+
+  Future<void> _syncWearOsSnapshot({bool requestRefresh = false}) async {
+    await _normalizeWearSelectedFavoriteIds();
+    await WearOsIntegration.syncAll(
+      _favoriteGroups,
+      _settings,
+      requestRefresh: requestRefresh,
+    );
   }
 
   Future<void> _runAccountSyncOperation(Future<void> Function() action) async {
@@ -1015,6 +1072,32 @@ class AppController extends ChangeNotifier {
   Future<void> updateMobileMapProvider(MobileMapProvider provider) async {
     _settings = _settings.copyWith(mobileMapProvider: provider);
     await _persistSettings();
+    notifyListeners();
+  }
+
+  Future<void> updateWearSyncEnabled(bool value) async {
+    final selectedIds = value && _settings.wearSelectedFavoriteIds.isEmpty
+        ? _availableWearFavoriteIds()
+        : _settings.wearSelectedFavoriteIds;
+    _settings = _settings.copyWith(
+      wearSyncEnabled: value,
+      wearSelectedFavoriteIds: selectedIds,
+    );
+    await _persistSettings();
+    await _syncWearOsSnapshot(requestRefresh: false);
+    notifyListeners();
+  }
+
+  Future<void> updateWearSelectedFavoriteIds(List<String> ids) async {
+    final availableSet = _availableWearFavoriteIds().toSet();
+    final normalized = ids
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty && availableSet.contains(item))
+        .toSet()
+        .toList(growable: false);
+    _settings = _settings.copyWith(wearSelectedFavoriteIds: normalized);
+    await _persistSettings();
+    await _syncWearOsSnapshot(requestRefresh: false);
     notifyListeners();
   }
 
@@ -1909,6 +1992,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
     await analytics.logFavoriteGroupCreated(groupCount: _favoriteGroups.length);
     notifyListeners();
   }
@@ -1920,6 +2004,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
     await analytics.logFavoriteGroupDeleted(groupCount: _favoriteGroups.length);
     notifyListeners();
   }
@@ -2000,6 +2085,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
     final savedFavorite = next[targetGroup]!.firstWhere(
       (item) => item.sameAs(favorite),
       orElse: () => favorite,
@@ -2076,6 +2162,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
     notifyListeners();
     return true;
   }
@@ -2093,6 +2180,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
     await analytics.logFavoriteStopRemoved(
       provider: favorite.provider,
       routeKey: favorite.routeKey,
@@ -2185,6 +2273,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
   }
 
   int? _localModifiedAtMsForNamespace(AccountSyncNamespace namespace) {
@@ -2247,6 +2336,8 @@ class AppController extends ChangeNotifier {
     final mobile = _stringMap(platform?['mobile']);
     if (mobile != null) {
       _copyKnownKey(mobile, merged, 'mobileMapProvider');
+      _copyKnownKey(mobile, merged, 'wearSyncEnabled');
+      _copyKnownKey(mobile, merged, 'wearSelectedFavoriteIds');
     }
     final desktop = _stringMap(platform?['desktop']);
     if (desktop != null) {
@@ -2346,7 +2437,11 @@ Map<String, dynamic> _preferencesSyncPayloadFromSettings(AppSettings settings) {
       'databaseAutoUpdateMode': json['databaseAutoUpdateMode'],
     },
     'platform': {
-      'mobile': {'mobileMapProvider': json['mobileMapProvider']},
+      'mobile': {
+        'mobileMapProvider': json['mobileMapProvider'],
+        'wearSyncEnabled': json['wearSyncEnabled'],
+        'wearSelectedFavoriteIds': json['wearSelectedFavoriteIds'],
+      },
       'desktop': {
         'desktopDiscordPresenceEnabled': json['desktopDiscordPresenceEnabled'],
         'desktopDiscordShowProvider': json['desktopDiscordShowProvider'],

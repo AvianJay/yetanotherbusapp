@@ -8,6 +8,7 @@ import '../core/android_trip_monitor.dart';
 import '../core/app_routes.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
+import '../core/wear_os_integration.dart';
 import '../widgets/app_update_dialog.dart';
 import 'account_screen.dart';
 import 'database_settings_screen.dart';
@@ -85,6 +86,41 @@ class SettingsScreen extends StatelessWidget {
     messenger.showSnackBar(const SnackBar(content: Text('無法開啟 Discord 社群連結。')));
   }
 
+  Future<void> _syncWearOs(
+    BuildContext context,
+    AppController controller, {
+    bool requestRefresh = false,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final status = await controller.syncWearOsNow(
+      requestRefresh: requestRefresh,
+    );
+    if (!context.mounted) {
+      return;
+    }
+
+    final message = status.hasConnectedNodes
+        ? requestRefresh
+              ? 'Wear OS refresh request sent.'
+              : 'Wear OS sync sent.'
+        : 'Wear OS sync saved. The watch will receive it when connected.';
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _toggleWearFavoriteSelection(
+    AppController controller,
+    FavoriteStop favorite,
+    bool selected,
+  ) {
+    final next = controller.settings.wearSelectedFavoriteIds.toSet();
+    if (selected) {
+      next.add(favorite.stableKey);
+    } else {
+      next.remove(favorite.stableKey);
+    }
+    return controller.updateWearSelectedFavoriteIds(next.toList());
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
@@ -98,6 +134,13 @@ class SettingsScreen extends StatelessWidget {
     final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     final supportsRouteBackgroundMonitor = isAndroid || isIOS;
     final authSession = controller.authSession;
+    final wearFavoriteEntries = [
+      for (final entry in controller.favoriteGroups.entries)
+        for (final favorite in entry.value)
+          _WearFavoriteEntry(groupName: entry.key, favorite: favorite),
+    ];
+    final wearSelectedFavoriteIds = controller.settings.wearSelectedFavoriteIds
+        .toSet();
     // final databaseProviders = controller.selectedProviders
     //     .map((provider) => provider.label)
     //     .join('、');
@@ -217,6 +260,141 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (isAndroid) ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Wear OS',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          FutureBuilder<WearOsSyncStatus>(
+                            future: WearOsIntegration.getStatus(),
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState ==
+                                  ConnectionState.waiting) {
+                                return const Text(
+                                  'Checking watch connection...',
+                                );
+                              }
+
+                              final status =
+                                  snapshot.data ?? WearOsSyncStatus.empty;
+                              if (status.hasConnectedNodes) {
+                                return Text(
+                                  'Connected watch: ${status.connectedNodeNames.join(', ')}',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                );
+                              }
+
+                              return Text(
+                                'No connected Wear OS watch detected right now.',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Sync favorites to watch'),
+                            subtitle: const Text(
+                              'The watch will prioritize selected favorites and mock arrivals.',
+                            ),
+                            value: controller.settings.wearSyncEnabled,
+                            onChanged: controller.updateWearSyncEnabled,
+                          ),
+                          if (wearFavoriteEntries.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 8),
+                              child: Text(
+                                'No favorites yet. Add a favorite stop first, then sync again.',
+                              ),
+                            )
+                          else ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              'Choose favorites for Wear OS',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                ActionChip(
+                                  label: const Text('Select all'),
+                                  onPressed: () {
+                                    controller.updateWearSelectedFavoriteIds(
+                                      wearFavoriteEntries
+                                          .map(
+                                            (entry) => entry.favorite.stableKey,
+                                          )
+                                          .toList(growable: false),
+                                    );
+                                  },
+                                ),
+                                ActionChip(
+                                  label: const Text('Clear'),
+                                  onPressed: () {
+                                    controller.updateWearSelectedFavoriteIds(
+                                      const [],
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            for (final entry in wearFavoriteEntries)
+                              CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                value: wearSelectedFavoriteIds.contains(
+                                  entry.favorite.stableKey,
+                                ),
+                                onChanged: (value) {
+                                  _toggleWearFavoriteSelection(
+                                    controller,
+                                    entry.favorite,
+                                    value ?? false,
+                                  );
+                                },
+                                title: Text(
+                                  '${entry.favorite.routeName ?? entry.favorite.routeKey} - ${entry.favorite.stopName ?? 'Stop ${entry.favorite.stopId}'}',
+                                ),
+                                subtitle: Text(entry.groupName),
+                              ),
+                          ],
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              FilledButton.tonalIcon(
+                                onPressed: () =>
+                                    _syncWearOs(context, controller),
+                                icon: const Icon(Icons.watch_outlined),
+                                label: const Text('Sync now'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () => _syncWearOs(
+                                  context,
+                                  controller,
+                                  requestRefresh: true,
+                                ),
+                                icon: const Icon(Icons.refresh_rounded),
+                                label: const Text('Sync and refresh'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
                 if (!kIsWeb) ...[
                   const SizedBox(height: 12),
                   Card(
@@ -659,4 +837,11 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _WearFavoriteEntry {
+  const _WearFavoriteEntry({required this.groupName, required this.favorite});
+
+  final String groupName;
+  final FavoriteStop favorite;
 }

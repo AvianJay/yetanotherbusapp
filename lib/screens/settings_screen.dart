@@ -101,9 +101,9 @@ class SettingsScreen extends StatelessWidget {
 
     final message = status.hasConnectedNodes
         ? requestRefresh
-              ? 'Wear OS refresh request sent.'
-              : 'Wear OS sync sent.'
-        : 'Wear OS sync saved. The watch will receive it when connected.';
+              ? '已傳送重新整理請求到手錶'
+              : '已同步資料到已連接的手錶'
+        : '同步設定已儲存，手錶連線後將自動接收';
     messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
@@ -278,8 +278,9 @@ class SettingsScreen extends StatelessWidget {
                             builder: (context, snapshot) {
                               if (snapshot.connectionState ==
                                   ConnectionState.waiting) {
-                                return const Text(
-                                  'Checking watch connection...',
+                                return Text(
+                                  '檢查手錶連線中...',
+                                  style: Theme.of(context).textTheme.bodyMedium,
                                 );
                               }
 
@@ -287,13 +288,14 @@ class SettingsScreen extends StatelessWidget {
                                   snapshot.data ?? WearOsSyncStatus.empty;
                               if (status.hasConnectedNodes) {
                                 return Text(
-                                  'Connected watch: ${status.connectedNodeNames.join(', ')}',
+                                  '已連接的手錶：${status.connectedNodeNames.join('、')}'
+                                  '${status.connectedNodeCount > 1 ? ' 等 ${status.connectedNodeCount} 台' : ''}',
                                   style: Theme.of(context).textTheme.bodyMedium,
                                 );
                               }
 
                               return Text(
-                                'No connected Wear OS watch detected right now.',
+                                '未偵測到已連接的 Wear OS 手錶',
                                 style: Theme.of(context).textTheme.bodyMedium,
                               );
                             },
@@ -301,24 +303,25 @@ class SettingsScreen extends StatelessWidget {
                           const SizedBox(height: 12),
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: const Text('Sync favorites to watch'),
+                            title: const Text('同步我的最愛到手錶'),
                             subtitle: const Text(
-                              'The watch will sync selected favorites and load live arrivals from the network.',
+                              '手錶會同步已選擇的最愛站牌，並從網路載入即時到站資料',
                             ),
                             value: controller.settings.wearSyncEnabled,
                             onChanged: controller.updateWearSyncEnabled,
                           ),
                           if (wearFavoriteEntries.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 8),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
                               child: Text(
-                                'No favorites yet. Add a favorite stop first, then sync again.',
+                                '尚無最愛站牌。請先新增最愛，再進行同步。',
+                                style: Theme.of(context).textTheme.bodyMedium,
                               ),
                             )
                           else ...[
                             const SizedBox(height: 8),
                             Text(
-                              'Choose favorites for Wear OS',
+                              '選擇要同步到手錶的最愛',
                               style: Theme.of(context).textTheme.titleSmall,
                             ),
                             const SizedBox(height: 8),
@@ -327,7 +330,7 @@ class SettingsScreen extends StatelessWidget {
                               runSpacing: 8,
                               children: [
                                 ActionChip(
-                                  label: const Text('Select all'),
+                                  label: const Text('全選'),
                                   onPressed: () {
                                     controller.updateWearSelectedFavoriteIds(
                                       wearFavoriteEntries
@@ -339,7 +342,7 @@ class SettingsScreen extends StatelessWidget {
                                   },
                                 ),
                                 ActionChip(
-                                  label: const Text('Clear'),
+                                  label: const Text('清除'),
                                   onPressed: () {
                                     controller.updateWearSelectedFavoriteIds(
                                       const [],
@@ -377,7 +380,7 @@ class SettingsScreen extends StatelessWidget {
                                 onPressed: () =>
                                     _syncWearOs(context, controller),
                                 icon: const Icon(Icons.watch_outlined),
-                                label: const Text('Sync now'),
+                                label: const Text('立即同步'),
                               ),
                               OutlinedButton.icon(
                                 onPressed: () => _syncWearOs(
@@ -386,7 +389,7 @@ class SettingsScreen extends StatelessWidget {
                                   requestRefresh: true,
                                 ),
                                 icon: const Icon(Icons.refresh_rounded),
-                                label: const Text('Sync and refresh'),
+                                label: const Text('同步並重新整理'),
                               ),
                             ],
                           ),

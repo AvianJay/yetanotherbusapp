@@ -195,7 +195,7 @@ object WearDataRepository {
                 applyState(
                     state.copy(
                         isRefreshing = false,
-                        lastRefreshError = error.message ?: "Realtime refresh failed.",
+                        lastRefreshError = error.message ?: "刷新失敗",
                     ),
                 )
             }

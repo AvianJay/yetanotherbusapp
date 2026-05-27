@@ -217,17 +217,17 @@ object BusApiService {
         val etaText = when {
             message.isNotBlank() -> message
             etaSeconds == null -> "--"
-            etaSeconds <= 0 -> "Arriving"
-            etaSeconds < 60 -> "${etaSeconds}s"
-            else -> "${etaSeconds / 60} min"
+            etaSeconds <= 0 -> "即將到站"
+            etaSeconds < 60 -> "${etaSeconds}秒"
+            else -> "${etaSeconds / 60} 分"
         }
         val statusText = when {
             busCount > 0 -> {
-                val label = if (busCount == 1) "1 bus" else "$busCount buses"
+                val label = if (busCount == 1) "1 車" else "$busCount 車"
                 "$label | ${timeFormatter.format(Date(updatedAtMs))}"
             }
 
-            updatedAtMs > 0L -> "Updated ${timeFormatter.format(Date(updatedAtMs))}"
+            updatedAtMs > 0L -> "更新於 ${timeFormatter.format(Date(updatedAtMs))}"
             else -> fallbackStatus
         }
         return BusArrival(

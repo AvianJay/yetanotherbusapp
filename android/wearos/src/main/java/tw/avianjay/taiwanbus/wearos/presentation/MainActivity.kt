@@ -68,9 +68,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class WearScreen {
-    Favorites,
-    Search,
+private sealed class WearRoute {
+    object Favorites : WearRoute()
+    object Search : WearRoute()
+    data class RouteDetail(val route: RouteSearchResult) : WearRoute()
 }
 
 @Composable
@@ -79,14 +80,14 @@ private fun WearApp(
     onRefresh: () -> Unit,
     onSearch: suspend (String) -> List<RouteSearchResult>,
 ) {
-    var screen by rememberSaveable { mutableStateOf(WearScreen.Favorites) }
+    var screen by rememberSaveable { mutableStateOf<WearRoute>(WearRoute.Favorites) }
     var query by rememberSaveable { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<RouteSearchResult>>(emptyList()) }
     var searchLoading by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(screen, query) {
-        if (screen != WearScreen.Search) {
+        if (screen !is WearRoute.Search) {
             searchLoading = false
             return@LaunchedEffect
         }
@@ -110,7 +111,7 @@ private fun WearApp(
         }.onFailure { error ->
             searchResults = emptyList()
             searchLoading = false
-            searchError = error.message ?: "Route search failed."
+            searchError = error.message ?: "搜尋失敗"
         }
     }
 
@@ -123,10 +124,9 @@ private fun WearApp(
             edgeButton = {
                 EdgeButton(
                     onClick = {
-                        if (screen == WearScreen.Search) {
-                            screen = WearScreen.Favorites
-                        } else {
-                            onRefresh()
+                        when (screen) {
+                            is WearRoute.Search, is WearRoute.RouteDetail -> screen = WearRoute.Favorites
+                            WearRoute.Favorites -> onRefresh()
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -134,7 +134,12 @@ private fun WearApp(
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                     ),
                 ) {
-                    Text(if (screen == WearScreen.Search) "Back" else "Refresh")
+                    Text(
+                        when (screen) {
+                            is WearRoute.Search, is WearRoute.RouteDetail -> "返回"
+                            WearRoute.Favorites -> "整理"
+                        }
+                    )
                 }
             },
         ) { contentPadding ->
@@ -147,25 +152,28 @@ private fun WearApp(
                     ) {
                         Column {
                             Text(
-                                if (screen == WearScreen.Favorites) {
-                                    "My favorites"
-                                } else {
-                                    "Route search"
+                                when (screen) {
+                                    WearRoute.Favorites -> "我的最愛"
+                                    is WearRoute.Search -> "搜尋公車"
+                                    is WearRoute.RouteDetail -> (screen as WearRoute.RouteDetail).route.routeName
                                 },
                             )
                             Text(
                                 when {
-                                    screen == WearScreen.Search ->
-                                        "Search uses the live network API directly"
+                                    screen is WearRoute.Search ->
+                                        "使用即時網路 API"
+
+                                    screen is WearRoute.RouteDetail ->
+                                        (screen as WearRoute.RouteDetail).route.description
 
                                     state.settings.syncEnabled && state.hasSyncedFavorites ->
-                                        "Favorites sync from phone, arrivals refresh from live API"
+                                        "已同步最愛，即時到站資料來自網路"
 
                                     state.settings.syncEnabled ->
-                                        "No synced favorites yet. Search still works online."
+                                        "尚未同步最愛，搜尋功能仍可使用"
 
                                     else ->
-                                        "Turn on Wear OS sync in the phone app for favorites"
+                                        "在手機應用中開啟 Wear OS 同步"
                                 },
                             )
                         }
@@ -173,21 +181,28 @@ private fun WearApp(
                 }
 
                 when (screen) {
-                    WearScreen.Favorites -> {
+                    WearRoute.Favorites -> {
                         favoritesContent(
                             state = state,
-                            onOpenSearch = { screen = WearScreen.Search },
+                            onOpenSearch = { screen = WearRoute.Search },
                         )
                     }
 
-                    WearScreen.Search -> {
+                    is WearRoute.Search -> {
                         searchContent(
                             query = query,
                             results = searchResults,
                             loading = searchLoading,
                             error = searchError,
                             onQueryChange = { query = it },
-                            onUseRoute = { query = it.routeName },
+                            onSelectRoute = { route -> screen = WearRoute.RouteDetail(route) },
+                        )
+                    }
+
+                    is WearRoute.RouteDetail -> {
+                        val routeDetail = screen as WearRoute.RouteDetail
+                        routeDetailContent(
+                            route = routeDetail.route,
                         )
                     }
                 }
@@ -206,8 +221,8 @@ private fun TransformingLazyColumnScope.favoritesContent(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column {
-                Text("Search routes")
-                Text("Live API search works even without a phone connection")
+                Text("搜尋公車")
+                Text("即時搜尋，無需手機連線")
             }
         }
     }
@@ -216,14 +231,14 @@ private fun TransformingLazyColumnScope.favoritesContent(
         item {
             WearInfoCard(
                 title = if (state.settings.syncEnabled) {
-                    "No synced favorites"
+                    "無最愛"
                 } else {
-                    "Sync is off"
+                    "同步未開啟"
                 },
                 subtitle = if (state.settings.syncEnabled) {
-                    "Pick favorites in the phone app and sync again."
+                    "請在手機應用選擇最愛後再同步"
                 } else {
-                    "Open YABus on Android and enable Wear OS sync."
+                    "請在手機應用開啟 Wear OS 同步"
                 },
             )
         }
@@ -233,8 +248,8 @@ private fun TransformingLazyColumnScope.favoritesContent(
     if (state.isRefreshing) {
         item {
             WearInfoCard(
-                title = "Refreshing",
-                subtitle = "Loading live arrivals from the API...",
+                title = "整理中",
+                subtitle = "載入即時到站資料...",
             )
         }
     }
@@ -242,7 +257,7 @@ private fun TransformingLazyColumnScope.favoritesContent(
     state.lastRefreshError?.let { error ->
         item {
             WearInfoCard(
-                title = "Refresh failed",
+                title = "整理失敗",
                 subtitle = error,
             )
         }
@@ -260,7 +275,7 @@ private fun TransformingLazyColumnScope.favoritesContent(
     state.lastRefreshAtMs?.let { refreshedAtMs ->
         item {
             WearInfoCard(
-                title = "Last update",
+                title = "最後更新",
                 subtitle = formatClockTime(refreshedAtMs),
             )
         }
@@ -273,7 +288,7 @@ private fun TransformingLazyColumnScope.searchContent(
     loading: Boolean,
     error: String?,
     onQueryChange: (String) -> Unit,
-    onUseRoute: (RouteSearchResult) -> Unit,
+    onSelectRoute: (RouteSearchResult) -> Unit,
 ) {
     item {
         SearchBox(
@@ -285,8 +300,8 @@ private fun TransformingLazyColumnScope.searchContent(
     if (query.trim().isEmpty()) {
         item {
             WearInfoCard(
-                title = "Search live routes",
-                subtitle = "Type a route number or keyword to query the API.",
+                title = "搜尋公車",
+                subtitle = "輸入路線號碼搜尋",
             )
         }
         return
@@ -295,8 +310,8 @@ private fun TransformingLazyColumnScope.searchContent(
     if (loading) {
         item {
             WearInfoCard(
-                title = "Searching",
-                subtitle = "Looking up live route data...",
+                title = "搜尋中",
+                subtitle = "查詢即時資料...",
             )
         }
         return
@@ -305,7 +320,7 @@ private fun TransformingLazyColumnScope.searchContent(
     if (error != null) {
         item {
             WearInfoCard(
-                title = "Search failed",
+                title = "搜尋失敗",
                 subtitle = error,
             )
         }
@@ -315,8 +330,8 @@ private fun TransformingLazyColumnScope.searchContent(
     if (results.isEmpty()) {
         item {
             WearInfoCard(
-                title = "No matches",
-                subtitle = "No live routes matched this query.",
+                title = "無結果",
+                subtitle = "沒有符合的即時資料",
             )
         }
         return
@@ -325,7 +340,7 @@ private fun TransformingLazyColumnScope.searchContent(
     results.forEach { route ->
         item {
             Button(
-                onClick = { onUseRoute(route) },
+                onClick = { onSelectRoute(route) },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -359,12 +374,29 @@ private fun FavoriteArrivalCard(
         Column {
             Text(favorite.displayRouteName)
             Text(favorite.displayStopName)
-            Text(arrival?.etaText ?: "No realtime data")
+            Text(arrival?.etaText ?: "--")
             arrival?.arrivalEpochMs?.let { arrivalAtMs ->
-                Text("At ${formatClockTime(arrivalAtMs)}")
+                Text(formatClockTime(arrivalAtMs))
             }
             Text(arrival?.statusText ?: favorite.groupName.ifBlank { favorite.provider })
         }
+    }
+}
+
+private fun TransformingLazyColumnScope.routeDetailContent(
+    route: RouteSearchResult,
+) {
+    item {
+        WearInfoCard(
+            title = "資料來源",
+            subtitle = route.provider,
+        )
+    }
+    item {
+        WearInfoCard(
+            title = "路線 ID",
+            subtitle = route.routeId,
+        )
     }
 }
 
@@ -418,7 +450,7 @@ private fun SearchBox(
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
                 if (value.isEmpty()) {
-                    Text("307 / airport / Taipei")
+                    Text("輸入路線號碼...")
                 }
                 innerTextField()
             }

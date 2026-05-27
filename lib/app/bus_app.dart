@@ -14,6 +14,7 @@ import '../core/app_launch_service.dart';
 import '../core/android_home_integration.dart';
 import '../core/desktop_discord_presence_service.dart';
 import '../core/desktop_discord_route_observer.dart';
+import '../core/app_route_observer.dart';
 import '../core/ios_widget_integration.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
@@ -69,6 +70,7 @@ class BusApp extends StatelessWidget {
                   dynamicColorScheme: darkDynamic,
                 ),
                 navigatorObservers: [
+                  appRouteObserver,
                   DesktopDiscordRouteObserver(controller),
                   if (analytics.observer != null) analytics.observer!,
                 ],

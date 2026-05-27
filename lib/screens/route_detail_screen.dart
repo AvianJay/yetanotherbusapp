@@ -12,6 +12,7 @@ import '../core/android_home_integration.dart';
 import '../core/android_trip_monitor.dart';
 import '../core/app_controller.dart';
 import '../core/app_launch_service.dart';
+import '../core/app_route_observer.dart';
 import '../core/bus_repository.dart';
 import '../core/desktop_discord_presence_service.dart';
 import '../core/live_activity_service.dart';
@@ -52,13 +53,14 @@ class RouteDetailScreen extends StatefulWidget {
 }
 
 class _RouteDetailScreenState extends State<RouteDetailScreen>
-    with TickerProviderStateMixin, WidgetsBindingObserver {
+    with TickerProviderStateMixin, WidgetsBindingObserver, RouteAware {
   static const double _wideLayoutBreakpoint = 1080;
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final RouteDetailLaunchHandler _launchHandler;
   late final ValueNotifier<int?> _selectedMapPathId;
   late final ValueNotifier<Map<int, List<StopInfo>>> _liveMapStopsByPath;
+  ModalRoute<dynamic>? _route;
   bool _isLoading = true;
   String? _error;
   String? _statusMessage;
@@ -86,6 +88,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _showWideMapPanel = true;
   bool _pendingAutoDestinationSelection = true;
   bool _autoDestinationSelectionInProgress = false;
+  bool _isRouteVisible = true;
   int? _liveActivityStopId;
   int? _liveActivityPathId;
   bool _liveActivityBoardingWindowOpen = false;
@@ -111,6 +114,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   List<RouteAlert> _alerts = const <RouteAlert>[];
   bool _alertsFetched = false;
   bool _alertsRead = false;
+  int _refreshRequestId = 0;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
   Map<int, int> _nearestStopByPath = const <int, int>{};
   final Map<int, GlobalKey> _stopKeys = <int, GlobalKey>{};
@@ -143,6 +147,19 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (_route != route) {
+      if (_route != null) {
+        appRouteObserver.unsubscribe(this);
+      }
+      _route = route;
+      if (route != null) {
+        appRouteObserver.subscribe(this, route);
+        _isRouteVisible = route.isCurrent;
+      } else {
+        _isRouteVisible = true;
+      }
+    }
     _syncWakelock(
       AppControllerScope.of(context).settings.keepScreenAwakeOnRouteDetail,
     );
@@ -151,6 +168,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   @override
   void dispose() {
+    if (_route != null) {
+      appRouteObserver.unsubscribe(this);
+    }
     WidgetsBinding.instance.removeObserver(this);
     RouteDetailLaunchBridge.instance.detach(_launchHandler);
     _countdownTimer?.cancel();
@@ -228,6 +248,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (_shouldSuspendForegroundRefreshes) {
       return;
     }
+    final requestId = ++_refreshRequestId;
     final controller = AppControllerScope.read(context);
     final previousDetail = _detail;
 
@@ -244,7 +265,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         routeIdHint: widget.routeIdHint,
         routeNameHint: widget.routeNameHint,
       );
-      if (!mounted) {
+      if (!mounted ||
+          requestId != _refreshRequestId ||
+          _shouldSuspendForegroundRefreshes) {
         return;
       }
 
@@ -290,7 +313,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       unawaited(_maybePromptForBackgroundTripMonitor());
       unawaited(_configureBackgroundTripMonitorIfNeeded());
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || requestId != _refreshRequestId) {
         return;
       }
       setState(() {
@@ -1081,14 +1104,43 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _appLifecycleState == AppLifecycleState.inactive;
 
   bool get _shouldSuspendForegroundRefreshes =>
-      _isAndroid &&
-      !_appIsForeground &&
-      _backgroundTripMonitorReady &&
-      AppControllerScope.read(context).settings.enableRouteBackgroundMonitor;
+      !_isRouteVisible ||
+      (_isAndroid &&
+          !_appIsForeground &&
+          _backgroundTripMonitorReady &&
+          AppControllerScope.read(
+            context,
+          ).settings.enableRouteBackgroundMonitor);
 
-  void _pauseForegroundRefreshLoop() {
+  void _pauseForegroundRefreshLoop({bool invalidateRequest = false}) {
     _countdownTimer?.cancel();
     _countdownProgressController.stop();
+    if (invalidateRequest) {
+      _refreshRequestId += 1;
+    }
+  }
+
+  @override
+  void didPush() {
+    _isRouteVisible = true;
+  }
+
+  @override
+  void didPopNext() {
+    _isRouteVisible = true;
+    unawaited(_refresh());
+  }
+
+  @override
+  void didPushNext() {
+    _isRouteVisible = false;
+    _pauseForegroundRefreshLoop(invalidateRequest: true);
+  }
+
+  @override
+  void didPop() {
+    _isRouteVisible = false;
+    _pauseForegroundRefreshLoop(invalidateRequest: true);
   }
 
   void _syncSelectedMapPathId([int? pathId]) {

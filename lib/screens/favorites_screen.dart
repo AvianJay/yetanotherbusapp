@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
+import '../core/app_route_observer.dart';
 import '../core/bus_repository.dart';
 import '../core/models.dart';
 import '../widgets/eta_badge.dart';
@@ -21,12 +22,14 @@ class FavoritesScreen extends StatefulWidget {
 }
 
 class _FavoritesScreenState extends State<FavoritesScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, RouteAware {
   TabController? _tabController;
   Timer? _countdownTimer;
   late final AnimationController _countdownProgressController;
+  ModalRoute<dynamic>? _route;
   List<FavoriteResolvedItem> _items = const [];
   bool _isLoading = false;
+  bool _isRouteVisible = true;
   String? _error;
   String? _statusMessage;
   String? _loadedGroupName;
@@ -34,6 +37,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
   String? _refreshingGroupName;
   String _refreshingSignature = '';
   bool _refreshScheduled = false;
+  bool _forceResolveStaticOnResume = false;
   int _refreshRequestId = 0;
   int _remainingSeconds = 0;
 
@@ -44,7 +48,29 @@ class _FavoritesScreenState extends State<FavoritesScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (_route == route) {
+      return;
+    }
+    if (_route != null) {
+      appRouteObserver.unsubscribe(this);
+    }
+    _route = route;
+    if (route != null) {
+      appRouteObserver.subscribe(this, route);
+      _isRouteVisible = route.isCurrent;
+    } else {
+      _isRouteVisible = true;
+    }
+  }
+
+  @override
   void dispose() {
+    if (_route != null) {
+      appRouteObserver.unsubscribe(this);
+    }
     _countdownTimer?.cancel();
     _countdownProgressController.dispose();
     _tabController?.dispose();
@@ -135,6 +161,11 @@ class _FavoritesScreenState extends State<FavoritesScreen>
   }
 
   void _scheduleRefresh({bool forceResolveStatic = false}) {
+    if (!_isRouteVisible) {
+      _forceResolveStaticOnResume =
+          _forceResolveStaticOnResume || forceResolveStatic;
+      return;
+    }
     if (_refreshScheduled) {
       return;
     }
@@ -171,6 +202,9 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       ..stop()
       ..duration = Duration(seconds: seconds <= 0 ? 1 : seconds)
       ..value = 0;
+    if (!_isRouteVisible) {
+      return;
+    }
     if (seconds > 0) {
       unawaited(_countdownProgressController.forward(from: 0));
     }
@@ -223,6 +257,11 @@ class _FavoritesScreenState extends State<FavoritesScreen>
   }
 
   Future<void> _refreshCurrentGroup({bool forceResolveStatic = false}) async {
+    if (!_isRouteVisible) {
+      _forceResolveStaticOnResume =
+          _forceResolveStaticOnResume || forceResolveStatic;
+      return;
+    }
     final controller = AppControllerScope.read(context);
     final groups = controller.favoriteGroupNames;
     final groupName = _currentGroupName(groups);
@@ -306,7 +345,10 @@ class _FavoritesScreenState extends State<FavoritesScreen>
             if (routeId != null) {
               final liveForRoute = batchLiveMap[routeId];
               if (liveForRoute != null) {
-                controller.repository.preloadRealtimeCache(routeId, liveForRoute);
+                controller.repository.preloadRealtimeCache(
+                  routeId,
+                  liveForRoute,
+                );
               }
             }
             final detail = await controller.getRouteDetail(
@@ -407,6 +449,43 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       });
       _startCountdown(controller.settings.busErrorUpdateTime);
     }
+  }
+
+  void _pauseRefreshLoop({bool invalidateRequest = false}) {
+    _countdownTimer?.cancel();
+    _countdownProgressController.stop();
+    if (invalidateRequest) {
+      _refreshRequestId += 1;
+    }
+  }
+
+  void _resumeRefreshLoop() {
+    _isRouteVisible = true;
+    final shouldForceResolveStatic = _forceResolveStaticOnResume;
+    _forceResolveStaticOnResume = false;
+    _scheduleRefresh(forceResolveStatic: shouldForceResolveStatic);
+  }
+
+  @override
+  void didPush() {
+    _isRouteVisible = true;
+  }
+
+  @override
+  void didPopNext() {
+    _resumeRefreshLoop();
+  }
+
+  @override
+  void didPushNext() {
+    _isRouteVisible = false;
+    _pauseRefreshLoop(invalidateRequest: true);
+  }
+
+  @override
+  void didPop() {
+    _isRouteVisible = false;
+    _pauseRefreshLoop(invalidateRequest: true);
   }
 
   StopInfo? _findStopInDetail(RouteDetailData detail, FavoriteStop favorite) {

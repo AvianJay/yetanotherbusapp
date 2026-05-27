@@ -3142,14 +3142,207 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     ).showSnackBar(const SnackBar(content: Text('無法開啟 Google Maps。')));
   }
 
+  bool _canShowRelatedStopRoutesAction(StopInfo stop) {
+    final stopName = stop.stopName.trim();
+    if (stopName.isEmpty || !widget.provider.supportsLocalDatabase) {
+      return false;
+    }
+    return AppControllerScope.read(context).isDatabaseReady(widget.provider);
+  }
+
+  String _normalizeStopRouteLookupName(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
+  }
+
+  Future<List<StopRouteSearchResult>> _loadRelatedStopRoutes(
+    StopInfo stop,
+  ) async {
+    if (!_canShowRelatedStopRoutesAction(stop)) {
+      return const <StopRouteSearchResult>[];
+    }
+
+    final controller = AppControllerScope.read(context);
+    final normalizedStopName = _normalizeStopRouteLookupName(stop.stopName);
+    final currentRouteId =
+        _detail?.route.routeId.trim() ?? widget.routeIdHint?.trim() ?? '';
+    final results = await controller.searchRoutesByStop(
+      stop.stopName,
+      provider: widget.provider,
+    );
+
+    return results
+        .where((result) {
+          if (_normalizeStopRouteLookupName(result.matchedStop.stopName) !=
+              normalizedStopName) {
+            return false;
+          }
+          if (result.route.routeKey == widget.routeKey) {
+            return false;
+          }
+          if (currentRouteId.isNotEmpty &&
+              result.route.routeId.trim() == currentRouteId) {
+            return false;
+          }
+          return true;
+        })
+        .toList(growable: false);
+  }
+
+  Future<void> _openRelatedRouteDetail(StopRouteSearchResult result) async {
+    final controller = AppControllerScope.read(context);
+    final provider = busProviderFromString(result.route.sourceProvider);
+    await controller.recordRouteSelection(
+      provider: provider,
+      routeKey: result.route.routeKey,
+      routeName: result.route.routeName,
+      source: 'route_detail_related_stop_routes',
+    );
+    if (!mounted) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RouteDetailScreen(
+          routeKey: result.route.routeKey,
+          provider: provider,
+          routeIdHint: result.route.routeId,
+          routeNameHint: result.route.routeName,
+          initialPathId: result.matchedStop.pathId,
+          initialStopId: result.matchedStop.stopId,
+          suppressAutoDestinationSelection: true,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openRelatedStopRoutes(StopInfo stop) async {
+    if (!_canShowRelatedStopRoutesAction(stop)) {
+      return;
+    }
+
+    final stopName = stop.stopName.trim();
+    final relatedRoutesFuture = _loadRelatedStopRoutes(stop);
+    final selectedRoute = await showModalBottomSheet<StopRouteSearchResult>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * 0.72,
+            child: FutureBuilder<List<StopRouteSearchResult>>(
+              future: relatedRoutesFuture,
+              builder: (context, snapshot) {
+                Widget content;
+                if (snapshot.connectionState != ConnectionState.done) {
+                  content = const Center(child: CircularProgressIndicator());
+                } else if (snapshot.hasError) {
+                  content = Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Text(
+                        '載入站牌經過路線時發生錯誤',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  );
+                } else {
+                  final routes =
+                      snapshot.data ?? const <StopRouteSearchResult>[];
+                  if (routes.isEmpty) {
+                    content = Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                          '找不到「$stopName」的其他路線',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                    );
+                  } else {
+                    content = ListView.separated(
+                      itemCount: routes.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final result = routes[index];
+                        final route = result.route;
+                        final subtitleParts = <String>[
+                          if (route.description.trim().isNotEmpty)
+                            route.description.trim(),
+                          if (result.matchedStop.sequence > 0)
+                            '第 ${result.matchedStop.sequence} 站',
+                        ];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            child: Text(
+                              route.routeName.trim().isEmpty
+                                  ? '?'
+                                  : route.routeName.characters
+                                        .take(3)
+                                        .toString(),
+                            ),
+                          ),
+                          title: Text(route.routeName),
+                          subtitle: subtitleParts.isEmpty
+                              ? null
+                              : Text(subtitleParts.join(' · ')),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                          onTap: () => Navigator.of(context).pop(result),
+                        );
+                      },
+                    );
+                  }
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                      child: Text(
+                        '站牌經過路線',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                      child: Text(
+                        stopName,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    Expanded(child: content),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || selectedRoute == null) {
+      return;
+    }
+    await _openRelatedRouteDetail(selectedRoute);
+  }
+
   Future<void> _openStopActionsWithShortcut(StopInfo stop) async {
+    final controller = AppControllerScope.read(context);
     final showDestinationAction =
-        AppControllerScope.read(
-          context,
-        ).settings.enableRouteBackgroundMonitor &&
+        controller.settings.enableRouteBackgroundMonitor &&
         _currentPathStops.isNotEmpty;
     final showShortcutAction = _isAndroid;
     final showGoogleMapsAction = _canOpenStopInGoogleMaps(stop);
+    final showRelatedRoutesAction = _canShowRelatedStopRoutesAction(stop);
     final action = await showDialog<_StopAction>(
       context: context,
       builder: (context) {
@@ -3165,6 +3358,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 onPressed: () =>
                     Navigator.of(context).pop(_StopAction.destination),
                 child: Text(_isDestinationStop(stop) ? '清除下車提醒' : '設為下車提醒'),
+              ),
+            if (showRelatedRoutesAction)
+              SimpleDialogOption(
+                onPressed: () =>
+                    Navigator.of(context).pop(_StopAction.relatedRoutes),
+                child: const Text('站牌經過路線'),
               ),
             if (showGoogleMapsAction)
               SimpleDialogOption(
@@ -3194,6 +3393,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       await _handleFavorite(stop);
     } else if (action == _StopAction.destination) {
       await _handleDestinationAction(stop);
+    } else if (action == _StopAction.relatedRoutes) {
+      await _openRelatedStopRoutes(stop);
     } else if (action == _StopAction.googleMaps) {
       await _openStopInGoogleMaps(stop);
     } else if (action == _StopAction.shortcut) {
@@ -4445,6 +4646,6 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
   }
 }
 
-enum _StopAction { favorite, destination, googleMaps, shortcut }
+enum _StopAction { favorite, destination, relatedRoutes, googleMaps, shortcut }
 
 enum _VehicleAction { twBusForum }

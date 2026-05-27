@@ -121,6 +121,72 @@ jobs:
           name: android-apk-release
           path: build/app/outputs/flutter-apk/app-release.apk
 
+  build-wearos:
+    name: Build Wear OS APK
+    runs-on: ubuntu-latest
+    needs: verify
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Prepare Wear OS signing files
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          if [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_ALIAS" && -n "$KEYSTORE_PASSWORD" ]]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > android/wearos/upload-keystore.jks
+            printf '%s\n' \
+              "storePassword=$KEYSTORE_PASSWORD" \
+              "keyPassword=$KEYSTORE_PASSWORD" \
+              "keyAlias=$KEYSTORE_ALIAS" \
+              "storeFile=upload-keystore.jks" \
+              > android/wearos/key.properties
+          else
+            echo "Signing secrets are missing; skip generating release keystore files."
+          fi
+
+      - name: Print signing mode
+        shell: bash
+        run: |
+          if [[ -f android/wearos/key.properties ]]; then
+            echo "Using configured release keystore for Wear OS."
+          else
+            echo "No signing secrets available; falling back to debug signing for Wear OS."
+          fi
+
+      - name: Build Wear OS APK
+        env:
+          APP_GIT_SHA: ${{ github.sha }}
+        run: |
+          cd android
+          ./gradlew :wearos:assembleRelease
+
+      - name: Upload Wear OS artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: wearos-apk-release
+          path: android/wearos/build/outputs/apk/release/wearos-release.apk
+
   build-web:
     name: Build Web
     runs-on: ubuntu-latest

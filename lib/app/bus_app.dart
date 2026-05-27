@@ -101,7 +101,6 @@ class BusApp extends StatelessWidget {
                 onGenerateInitialRoutes: (initialRoute) =>
                     _buildInitialRoutes(initialRoute, controller),
                 onUnknownRoute: (_) => _buildHomeRoute(controller),
-                home: _AppHome(controller: controller),
               );
             },
           );

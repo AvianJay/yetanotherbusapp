@@ -174,7 +174,7 @@ object WearDataRepository {
 
         refreshJob = scope.launch {
             try {
-                val arrivals = BusApiService.fetchArrivals(favoritesSnapshot)
+                val arrivals = BusApiService.fetchArrivals(context, favoritesSnapshot)
                 val refreshedAtMs = System.currentTimeMillis()
                 preferences(context).edit()
                     .putString(keyArrivalsJson, encode(arrivals))
@@ -202,8 +202,11 @@ object WearDataRepository {
         }
     }
 
-    suspend fun searchRoutes(query: String): List<RouteSearchResult> {
-        return BusApiService.searchRoutes(query)
+    suspend fun searchRoutes(
+        context: Context,
+        query: String,
+    ): List<RouteSearchResult> {
+        return BusApiService.searchRoutes(context, query)
     }
 
     private fun preferences(context: Context) =

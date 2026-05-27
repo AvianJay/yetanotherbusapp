@@ -1,5 +1,9 @@
 package tw.avianjay.taiwanbus.wearos.data
 
+import android.content.Context
+import com.google.android.gms.common.GooglePlayServicesNotAvailableException
+import com.google.android.gms.common.GooglePlayServicesRepairableException
+import com.google.android.gms.security.ProviderInstaller
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -19,13 +23,22 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.LinkedHashMap
 import java.util.Locale
+import javax.net.ssl.SSLException
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
 
 object BusApiService {
     private val json = Json { ignoreUnknownKeys = true }
     private val timeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
+    @Volatile
+    private var securityProviderPrepared = false
 
-    suspend fun fetchArrivals(favorites: List<FavoriteStop>): List<BusArrival> =
+    suspend fun fetchArrivals(
+        context: Context,
+        favorites: List<FavoriteStop>,
+    ): List<BusArrival> =
         withContext(Dispatchers.IO) {
+            ensureSecurityProvider(context)
             val routableFavorites = favorites.filter { it.realtimeRouteId != null }
             if (routableFavorites.isEmpty()) {
                 return@withContext emptyList()
@@ -75,9 +88,11 @@ object BusApiService {
         }
 
     suspend fun searchRoutes(
+        context: Context,
         query: String,
         limit: Int = 20,
     ): List<RouteSearchResult> = withContext(Dispatchers.IO) {
+        ensureSecurityProvider(context)
         val normalized = query.trim()
         if (normalized.isEmpty()) {
             return@withContext emptyList()
@@ -122,26 +137,52 @@ object BusApiService {
     }
 
     private fun requestJson(url: String): JsonElement {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 10_000
-            readTimeout = 10_000
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "YABus-Wear/1.0")
+        try {
+            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 10_000
+                readTimeout = 10_000
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "YABus-Wear/1.0")
+            }
+
+            return connection.use {
+                val status = connection.responseCode
+                val stream = if (status in 200..299) {
+                    connection.inputStream
+                } else {
+                    connection.errorStream ?: connection.inputStream
+                }
+                val body = stream.bufferedReader(StandardCharsets.UTF_8).use(BufferedReader::readText)
+                if (status != HttpURLConnection.HTTP_OK) {
+                    throw IllegalStateException("API request failed ($status).")
+                }
+                json.parseToJsonElement(body)
+            }
+        } catch (error: Throwable) {
+            throw mapNetworkError(error)
+        }
+    }
+
+    private fun ensureSecurityProvider(context: Context) {
+        if (securityProviderPrepared) {
+            return
         }
 
-        return connection.use {
-            val status = connection.responseCode
-            val stream = if (status in 200..299) {
-                connection.inputStream
-            } else {
-                connection.errorStream ?: connection.inputStream
+        synchronized(this) {
+            if (securityProviderPrepared) {
+                return
             }
-            val body = stream.bufferedReader(StandardCharsets.UTF_8).use(BufferedReader::readText)
-            if (status != HttpURLConnection.HTTP_OK) {
-                throw IllegalStateException("API request failed ($status).")
+
+            try {
+                ProviderInstaller.installIfNeeded(context.applicationContext)
+            } catch (_: GooglePlayServicesRepairableException) {
+                return
+            } catch (_: GooglePlayServicesNotAvailableException) {
+                return
             }
-            json.parseToJsonElement(body)
+
+            securityProviderPrepared = true
         }
     }
 
@@ -234,6 +275,33 @@ object BusApiService {
         } finally {
             disconnect()
         }
+    }
+
+    private fun mapNetworkError(error: Throwable): Throwable {
+        if (error is IllegalStateException) {
+            return error
+        }
+
+        return if (error.isCertificateChainError()) {
+            IllegalStateException(
+                "Secure connection failed on this watch. Check Google Play services and the watch date/time.",
+                error,
+            )
+        } else {
+            error
+        }
+    }
+
+    private fun Throwable.isCertificateChainError(): Boolean {
+        if (this is SSLHandshakeException || this is SSLPeerUnverifiedException || this is SSLException) {
+            val message = message.orEmpty().lowercase(Locale.US)
+            if ("chain validation failed" in message || "trust anchor" in message || "certificate" in message) {
+                return true
+            }
+        }
+
+        val cause = cause ?: return false
+        return cause !== this && cause.isCertificateChainError()
     }
 }
 

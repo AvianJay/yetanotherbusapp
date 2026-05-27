@@ -60,7 +60,7 @@ class MainActivity : ComponentActivity() {
                         WearDataRepository.refresh(applicationContext)
                     },
                     onSearch = { query ->
-                        WearDataRepository.searchRoutes(query)
+                        WearDataRepository.searchRoutes(applicationContext, query)
                     },
                 )
             }

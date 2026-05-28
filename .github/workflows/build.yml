@@ -177,6 +177,12 @@ jobs:
       - name: Generate Gradle files
         run: flutter build apk --config-only
 
+      - name: Create local.properties for Wear OS
+        run: |
+          FLUTTER_SDK=$(dirname $(dirname $(flutter sdk-path)))
+          echo "flutter.sdk=$FLUTTER_SDK" > android/wearos/local.properties
+          cat android/wearos/local.properties
+
       - name: Build Wear OS APK
         env:
           APP_GIT_SHA: ${{ github.sha }}

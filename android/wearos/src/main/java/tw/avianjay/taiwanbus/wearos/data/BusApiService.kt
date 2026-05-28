@@ -136,6 +136,70 @@ object BusApiService {
         }
     }
 
+    suspend fun fetchRouteDetail(
+        context: Context,
+        routeId: String,
+        provider: String,
+    ): WearRouteDetail = withContext(Dispatchers.IO) {
+        ensureSecurityProvider(context)
+        val payload = requestJson(
+            "${BuildConfig.WEAR_API_BASE_URL}/api/v1/routes/${encodePathSegment(routeId)}/realtime",
+        ).jsonObject
+
+        val routeName = payload.string("name").ifBlank { routeId }
+        val requestedAtMs = System.currentTimeMillis()
+
+        val paths = payload.paths().map { pathObj ->
+            val pathId = pathObj.int("pathid") ?: 0
+            val pathName = pathObj.string("name").ifBlank {
+                val dest = pathObj.string("destination")
+                if (dest.isNotBlank()) "往 $dest" else "方向 $pathId"
+            }
+            
+            val stops = pathObj.stops().map { stopObj ->
+                val etaSeconds = stopObj.int("eta")
+                val message = stopObj.string("message")
+                val updatedAtMs = parseUpdatedAt(stopObj.string("updated_at")) ?: requestedAtMs
+                val busCount = (stopObj["buses"] as? JsonArray)?.size ?: 0
+                val etaText = when {
+                    message.isNotBlank() -> message
+                    etaSeconds == null -> "--"
+                    etaSeconds <= 0 -> "即將到站"
+                    etaSeconds < 60 -> "${etaSeconds}秒"
+                    else -> "${etaSeconds / 60}分"
+                }
+                val statusText = when {
+                    busCount > 0 -> {
+                        val label = if (busCount == 1) "1車" else "$busCount車"
+                        "$label | ${timeFormatter.format(Date(updatedAtMs))}"
+                    }
+                    updatedAtMs > 0L -> "更新於 ${timeFormatter.format(Date(updatedAtMs))}"
+                    else -> ""
+                }
+                WearRouteStop(
+                    stopId = parseStopId(stopObj["stopid"]),
+                    name = stopObj.string("name"),
+                    sequence = stopObj.int("seq") ?: 0,
+                    etaText = etaText,
+                    statusText = statusText,
+                )
+            }
+
+            WearRoutePath(
+                pathId = pathId,
+                name = pathName,
+                stops = stops,
+            )
+        }
+
+        WearRouteDetail(
+            routeId = routeId,
+            routeName = routeName,
+            provider = provider,
+            paths = paths,
+        )
+    }
+
     private fun requestJson(url: String): JsonElement {
         try {
             val connection = (URL(url).openConnection() as HttpURLConnection).apply {

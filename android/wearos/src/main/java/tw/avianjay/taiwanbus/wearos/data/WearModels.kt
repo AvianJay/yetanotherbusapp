@@ -71,3 +71,28 @@ data class RouteSearchResult(
     val description: String,
     val provider: String,
 )
+
+@Serializable
+data class WearRouteDetail(
+    val routeId: String,
+    val routeName: String,
+    val provider: String,
+    val paths: List<WearRoutePath> = emptyList(),
+)
+
+@Serializable
+data class WearRoutePath(
+    val pathId: Int,
+    val name: String,
+    val stops: List<WearRouteStop> = emptyList(),
+)
+
+@Serializable
+data class WearRouteStop(
+    val stopId: Int,
+    val name: String,
+    val sequence: Int,
+    val etaText: String,
+    val statusText: String,
+)
+

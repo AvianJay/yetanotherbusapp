@@ -38,7 +38,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "tw.avianjay.taiwanbus.wearos"
+        applicationId = "tw.avianjay.taiwanbus.flutter"
         minSdk = 30
         targetSdk = 36
         versionCode = 1

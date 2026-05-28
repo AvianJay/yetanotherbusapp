@@ -43,6 +43,9 @@ import tw.avianjay.taiwanbus.wearos.data.FavoriteStop
 import tw.avianjay.taiwanbus.wearos.data.RouteSearchResult
 import tw.avianjay.taiwanbus.wearos.data.WearDataRepository
 import tw.avianjay.taiwanbus.wearos.data.WearHomeState
+import tw.avianjay.taiwanbus.wearos.data.WearRouteDetail
+import tw.avianjay.taiwanbus.wearos.data.WearRoutePath
+import tw.avianjay.taiwanbus.wearos.data.WearRouteStop
 import tw.avianjay.taiwanbus.wearos.presentation.theme.AndroidTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -87,6 +90,13 @@ private fun WearApp(
     var searchLoading by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
 
+    var detailRefreshTrigger by remember { mutableStateOf(0) }
+    var routeDetail by remember { mutableStateOf<WearRouteDetail?>(null) }
+    var routeDetailLoading by remember { mutableStateOf(false) }
+    var routeDetailError by remember { mutableStateOf<String?>(null) }
+    var activePathIndex by remember { mutableStateOf(0) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     LaunchedEffect(screen, query) {
         if (screen != WearScreen.Search) {
             searchLoading = false
@@ -116,6 +126,30 @@ private fun WearApp(
         }
     }
 
+    LaunchedEffect(selectedRoute, detailRefreshTrigger) {
+        val route = selectedRoute
+        if (route == null) {
+            routeDetail = null
+            routeDetailLoading = false
+            routeDetailError = null
+            activePathIndex = 0
+            return@LaunchedEffect
+        }
+
+        routeDetailLoading = true
+        routeDetailError = null
+        runCatching {
+            WearDataRepository.fetchRouteDetail(context, route.routeId, route.provider)
+        }.onSuccess { detail ->
+            routeDetail = detail
+            routeDetailLoading = false
+        }.onFailure { error ->
+            routeDetail = null
+            routeDetailLoading = false
+            routeDetailError = error.message ?: "載入路線資料失敗"
+        }
+    }
+
     AppScaffold {
         val listState = rememberTransformingLazyColumnState()
         val transformationSpec = rememberTransformationSpec()
@@ -126,9 +160,12 @@ private fun WearApp(
                 EdgeButton(
                     onClick = {
                         when (screen) {
-                            WearScreen.Search, WearScreen.RouteDetail -> {
-                                screen = WearScreen.Favorites
+                            WearScreen.RouteDetail -> {
+                                screen = WearScreen.Search
                                 selectedRoute = null
+                            }
+                            WearScreen.Search -> {
+                                screen = WearScreen.Favorites
                             }
                             WearScreen.Favorites -> onRefresh()
                         }
@@ -209,9 +246,19 @@ private fun WearApp(
                     }
 
                     WearScreen.RouteDetail -> {
-                        selectedRoute?.let { route ->
-                            routeDetailContent(route = route)
-                        }
+                        routeDetailContent(
+                            detail = routeDetail,
+                            loading = routeDetailLoading,
+                            error = routeDetailError,
+                            activePathIndex = activePathIndex,
+                            onTogglePath = {
+                                val size = routeDetail?.paths?.size ?: 1
+                                activePathIndex = (activePathIndex + 1) % size
+                            },
+                            onRefreshDetail = {
+                                detailRefreshTrigger++
+                            }
+                        )
                     }
                 }
             }
@@ -392,19 +439,133 @@ private fun FavoriteArrivalCard(
 }
 
 private fun TransformingLazyColumnScope.routeDetailContent(
-    route: RouteSearchResult,
+    detail: WearRouteDetail?,
+    loading: Boolean,
+    error: String?,
+    activePathIndex: Int,
+    onTogglePath: () -> Unit,
+    onRefreshDetail: () -> Unit,
 ) {
-    item {
-        WearInfoCard(
-            title = "資料來源",
-            subtitle = route.provider,
-        )
+    if (loading) {
+        item {
+            WearInfoCard(
+                title = "載入中",
+                subtitle = "查詢即時路線資料...",
+            )
+        }
+        return
     }
+
+    if (error != null) {
+        item {
+            WearInfoCard(
+                title = "載入失敗",
+                subtitle = error,
+            )
+        }
+        item {
+            Button(
+                onClick = onRefreshDetail,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            ) {
+                Text("重試")
+            }
+        }
+        return
+    }
+
+    if (detail == null || detail.paths.isEmpty()) {
+        item {
+            WearInfoCard(
+                title = "無資料",
+                subtitle = "此路線暫無公車路徑資訊",
+            )
+        }
+        return
+    }
+
+    val path = detail.paths.getOrNull(activePathIndex) ?: detail.paths.first()
+
+    if (detail.paths.size > 1) {
+        item {
+            Button(
+                onClick = onTogglePath,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            ) {
+                Column {
+                    Text("切換方向")
+                    Text("目前: ${path.name}")
+                }
+            }
+        }
+    } else {
+        item {
+            WearInfoCard(
+                title = "方向",
+                subtitle = path.name,
+            )
+        }
+    }
+
     item {
-        WearInfoCard(
-            title = "路線 ID",
-            subtitle = route.routeId,
-        )
+        Button(
+            onClick = onRefreshDetail,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        ) {
+            Text("重新整理")
+        }
+    }
+
+    path.stops.forEach { stop ->
+        item {
+            RouteStopCard(stop = stop)
+        }
+    }
+}
+
+@Composable
+private fun RouteStopCard(stop: WearRouteStop) {
+    Button(
+        onClick = {},
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+    ) {
+        Column {
+            Text(
+                text = stop.name,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = stop.etaText,
+                color = when {
+                    stop.etaText == "即將到站" -> MaterialTheme.colorScheme.error
+                    stop.etaText.contains("分") -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                style = MaterialTheme.typography.bodyMedium
+            )
+            if (stop.statusText.isNotBlank()) {
+                Text(
+                    text = stop.statusText,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
     }
 }
 

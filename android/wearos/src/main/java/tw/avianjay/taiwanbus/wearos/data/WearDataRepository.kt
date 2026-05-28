@@ -209,6 +209,14 @@ object WearDataRepository {
         return BusApiService.searchRoutes(context, query)
     }
 
+    suspend fun fetchRouteDetail(
+        context: Context,
+        routeId: String,
+        provider: String,
+    ): WearRouteDetail {
+        return BusApiService.fetchRouteDetail(context, routeId, provider)
+    }
+
     private fun preferences(context: Context) =
         context.applicationContext.getSharedPreferences(
             preferencesName,

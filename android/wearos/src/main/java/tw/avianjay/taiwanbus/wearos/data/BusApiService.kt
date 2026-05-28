@@ -170,7 +170,7 @@ object BusApiService {
                 }
                 val statusText = when {
                     busCount > 0 -> {
-                        val label = if (busCount == 1) "1車" else "$busCount車"
+                        val label = if (busCount == 1) "1車" else "${busCount}車"
                         "$label | ${timeFormatter.format(Date(updatedAtMs))}"
                     }
                     updatedAtMs > 0L -> "更新於 ${timeFormatter.format(Date(updatedAtMs))}"

@@ -148,6 +148,15 @@ jobs:
         run: |
           sed -i "s/^version:.*/version: ${{ inputs.version }}+${{ github.run_number }}/" pubspec.yaml
           grep '^version:' pubspec.yaml
+      - name: Generate Gradle files
+        run: flutter build apk --config-only
+      - name: Create local.properties for Wear OS
+        shell: bash
+        run: |
+          FLUTTER_BIN=$(which flutter)
+          FLUTTER_SDK=$(dirname $(dirname "$FLUTTER_BIN"))
+          echo "flutter.sdk=$FLUTTER_SDK" > android/wearos/local.properties
+          cat android/wearos/local.properties
       - name: Build Wear OS APK
         env:
           APP_GIT_SHA: ${{ github.sha }}

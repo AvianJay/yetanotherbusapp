@@ -178,8 +178,10 @@ jobs:
         run: flutter build apk --config-only
 
       - name: Create local.properties for Wear OS
+        shell: bash
         run: |
-          FLUTTER_SDK=$(dirname $(dirname $(flutter sdk-path)))
+          FLUTTER_BIN=$(which flutter)
+          FLUTTER_SDK=$(dirname $(dirname "$FLUTTER_BIN"))
           echo "flutter.sdk=$FLUTTER_SDK" > android/wearos/local.properties
           cat android/wearos/local.properties
 

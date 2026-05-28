@@ -192,18 +192,11 @@ jobs:
           cd android
           ./gradlew :wearos:assembleRelease
 
-      - name: Find Wear OS APK
-        shell: bash
-        run: |
-          find android/wearos/build -name "*.apk" -type f
-          ls -la android/wearos/build/outputs/apk/release/ || echo "Release dir not found"
-          ls -la android/wearos/build/outputs/apk/ || echo "APK dir not found"
-
       - name: Upload Wear OS artifact
         uses: actions/upload-artifact@v6
         with:
           name: wearos-apk-release
-          path: android/wearos/build/outputs/apk/**/*.apk
+          path: build/wearos/outputs/apk/**/*.apk
 
   build-web:
     name: Build Web

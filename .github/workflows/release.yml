@@ -166,13 +166,13 @@ jobs:
       - name: Rename Wear OS APK
         shell: bash
         run: |
-          mv android/wearos/build/outputs/apk/release/wearos-release.apk \
-             android/wearos/build/outputs/apk/release/YABus-WearOS-${{ inputs.version }}.apk
+          mv build/wearos/outputs/apk/release/wearos-release.apk \
+             build/wearos/outputs/apk/release/YABus-WearOS-${{ inputs.version }}.apk
       - name: Upload Wear OS artifact
         uses: actions/upload-artifact@v6
         with:
           name: wearos-apk-release
-          path: android/wearos/build/outputs/apk/release/YABus-WearOS-${{ inputs.version }}.apk
+          path: build/wearos/outputs/apk/release/YABus-WearOS-${{ inputs.version }}.apk
 
   build-web:
     name: Build Web

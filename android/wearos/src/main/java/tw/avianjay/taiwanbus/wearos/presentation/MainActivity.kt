@@ -68,10 +68,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private sealed class WearRoute {
-    object Favorites : WearRoute()
-    object Search : WearRoute()
-    data class RouteDetail(val route: RouteSearchResult) : WearRoute()
+private enum class WearScreen {
+    Favorites,
+    Search,
+    RouteDetail,
 }
 
 @Composable
@@ -80,14 +80,15 @@ private fun WearApp(
     onRefresh: () -> Unit,
     onSearch: suspend (String) -> List<RouteSearchResult>,
 ) {
-    var screen by rememberSaveable { mutableStateOf<WearRoute>(WearRoute.Favorites) }
+    var screen by rememberSaveable { mutableStateOf(WearScreen.Favorites) }
+    var selectedRoute by rememberSaveable { mutableStateOf<RouteSearchResult?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<RouteSearchResult>>(emptyList()) }
     var searchLoading by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(screen, query) {
-        if (screen !is WearRoute.Search) {
+        if (screen != WearScreen.Search) {
             searchLoading = false
             return@LaunchedEffect
         }
@@ -125,8 +126,11 @@ private fun WearApp(
                 EdgeButton(
                     onClick = {
                         when (screen) {
-                            is WearRoute.Search, is WearRoute.RouteDetail -> screen = WearRoute.Favorites
-                            WearRoute.Favorites -> onRefresh()
+                            WearScreen.Search, WearScreen.RouteDetail -> {
+                                screen = WearScreen.Favorites
+                                selectedRoute = null
+                            }
+                            WearScreen.Favorites -> onRefresh()
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -136,8 +140,8 @@ private fun WearApp(
                 ) {
                     Text(
                         when (screen) {
-                            is WearRoute.Search, is WearRoute.RouteDetail -> "返回"
-                            WearRoute.Favorites -> "整理"
+                            WearScreen.Search, WearScreen.RouteDetail -> "返回"
+                            WearScreen.Favorites -> "整理"
                         }
                     )
                 }
@@ -153,27 +157,29 @@ private fun WearApp(
                         Column {
                             Text(
                                 when (screen) {
-                                    WearRoute.Favorites -> "我的最愛"
-                                    is WearRoute.Search -> "搜尋公車"
-                                    is WearRoute.RouteDetail -> (screen as WearRoute.RouteDetail).route.routeName
+                                    WearScreen.Favorites -> "我的最愛"
+                                    WearScreen.Search -> "搜尋公車"
+                                    WearScreen.RouteDetail -> selectedRoute?.routeName ?: "公車資料"
                                 },
                             )
                             Text(
-                                when {
-                                    screen is WearRoute.Search ->
+                                when (screen) {
+                                    WearScreen.Search ->
                                         "使用即時網路 API"
 
-                                    screen is WearRoute.RouteDetail ->
-                                        (screen as WearRoute.RouteDetail).route.description
+                                    WearScreen.RouteDetail ->
+                                        selectedRoute?.description ?: ""
 
-                                    state.settings.syncEnabled && state.hasSyncedFavorites ->
-                                        "已同步最愛，即時到站資料來自網路"
+                                    else -> when {
+                                        state.settings.syncEnabled && state.hasSyncedFavorites ->
+                                            "已同步最愛，即時到站資料來自網路"
 
-                                    state.settings.syncEnabled ->
-                                        "尚未同步最愛，搜尋功能仍可使用"
+                                        state.settings.syncEnabled ->
+                                            "尚未同步最愛，搜尋功能仍可使用"
 
-                                    else ->
-                                        "在手機應用中開啟 Wear OS 同步"
+                                        else ->
+                                            "在手機應用中開啟 Wear OS 同步"
+                                    }
                                 },
                             )
                         }
@@ -181,14 +187,14 @@ private fun WearApp(
                 }
 
                 when (screen) {
-                    WearRoute.Favorites -> {
+                    WearScreen.Favorites -> {
                         favoritesContent(
                             state = state,
-                            onOpenSearch = { screen = WearRoute.Search },
+                            onOpenSearch = { screen = WearScreen.Search },
                         )
                     }
 
-                    is WearRoute.Search -> {
+                    WearScreen.Search -> {
                         searchContent(
                             query = query,
                             results = searchResults,

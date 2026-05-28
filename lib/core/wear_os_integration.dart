@@ -40,9 +40,26 @@ class WearOsIntegration {
   static const _channel = MethodChannel(
     'tw.avianjay.taiwanbus.flutter/wear_os',
   );
+  static const _eventChannel = EventChannel(
+    'tw.avianjay.taiwanbus.flutter/wear_os_events',
+  );
 
   static bool get _supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  /// Stream of inbound messages from the paired Wear OS device. Returns a
+  /// stream that emits `{kind, payloadJson, receivedAtMs}` maps.
+  static Stream<Map<String, Object?>> get events {
+    if (!_supported) {
+      return const Stream<Map<String, Object?>>.empty();
+    }
+    return _eventChannel.receiveBroadcastStream().map((event) {
+      if (event is Map) {
+        return event.map((key, value) => MapEntry(key.toString(), value));
+      }
+      return const <String, Object?>{};
+    });
+  }
 
   static Future<WearOsSyncStatus> getStatus() async {
     if (!_supported) {
@@ -94,6 +111,49 @@ class WearOsIntegration {
     });
   }
 
+  static Future<void> syncSmartSuggestion(
+    Map<String, dynamic>? suggestion,
+  ) async {
+    if (!_supported) {
+      return;
+    }
+
+    if (suggestion == null) {
+      await _invokeVoid('clearWearSmartSuggestion');
+      return;
+    }
+
+    await _invokeVoid('syncWearSmartSuggestion', {
+      'payloadJson': jsonEncode({
+        ...suggestion,
+        'generatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        'source': 'phone',
+      }),
+    });
+  }
+
+  static Future<void> syncUsageProfiles(
+    List<Map<String, dynamic>> profiles,
+  ) async {
+    if (!_supported) {
+      return;
+    }
+
+    await _invokeVoid('syncWearUsageProfiles', {
+      'payloadJson': jsonEncode({
+        'profiles': profiles,
+        'lastUpdatedAtMs': DateTime.now().millisecondsSinceEpoch,
+      }),
+    });
+  }
+
+  static Future<void> cancelWearRefresh() async {
+    if (!_supported) {
+      return;
+    }
+    await _invokeVoid('cancelWearRefresh');
+  }
+
   static Future<void> requestRefresh() async {
     if (!_supported) {
       return;
@@ -106,6 +166,8 @@ class WearOsIntegration {
     required bool syncEnabled,
     required List<String> selectedFavoriteIds,
     required List<Map<String, dynamic>> favorites,
+    Map<String, dynamic>? smartSuggestion,
+    List<Map<String, dynamic>>? usageProfiles,
     bool requestRefresh = false,
   }) async {
     if (!_supported) {
@@ -117,6 +179,10 @@ class WearOsIntegration {
       selectedFavoriteIds: selectedFavoriteIds,
     );
     await syncFavorites(favorites);
+    if (usageProfiles != null) {
+      await syncUsageProfiles(usageProfiles);
+    }
+    await syncSmartSuggestion(smartSuggestion);
     if (requestRefresh) {
       await WearOsIntegration.requestRefresh();
     }

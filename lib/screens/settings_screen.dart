@@ -310,6 +310,18 @@ class SettingsScreen extends StatelessWidget {
                             value: controller.settings.wearSyncEnabled,
                             onChanged: controller.updateWearSyncEnabled,
                           ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('將智慧推薦推送到手錶'),
+                            subtitle: const Text(
+                              '把手機計算的下一班智慧推薦透過 Wear OS 推到 Tile 與錶面元件',
+                            ),
+                            value: controller
+                                .settings.wearSmartSuggestionsEnabled,
+                            onChanged: controller.settings.wearSyncEnabled
+                                ? controller.updateWearSmartSuggestionsEnabled
+                                : null,
+                          ),
                           if (wearFavoriteEntries.isEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 8),

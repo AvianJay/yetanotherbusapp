@@ -344,6 +344,7 @@ class AppSettings {
     required this.desktopDiscordShowRouteName,
     required this.wearSyncEnabled,
     required this.wearSelectedFavoriteIds,
+    required this.wearSmartSuggestionsEnabled,
   });
 
   factory AppSettings.defaults() {
@@ -387,6 +388,7 @@ class AppSettings {
       desktopDiscordShowRouteName: false,
       wearSyncEnabled: false,
       wearSelectedFavoriteIds: const [],
+      wearSmartSuggestionsEnabled: true,
     );
   }
 
@@ -506,6 +508,8 @@ class AppSettings {
               .toSet()
               .toList(growable: false) ??
           const <String>[],
+      wearSmartSuggestionsEnabled:
+          json['wearSmartSuggestionsEnabled'] as bool? ?? true,
     );
   }
 
@@ -541,6 +545,7 @@ class AppSettings {
   final bool desktopDiscordShowRouteName;
   final bool wearSyncEnabled;
   final List<String> wearSelectedFavoriteIds;
+  final bool wearSmartSuggestionsEnabled;
 
   AppSettings copyWith({
     BusProvider? provider,
@@ -576,6 +581,7 @@ class AppSettings {
     bool? desktopDiscordShowRouteName,
     bool? wearSyncEnabled,
     List<String>? wearSelectedFavoriteIds,
+    bool? wearSmartSuggestionsEnabled,
   }) {
     return AppSettings(
       provider: provider ?? this.provider,
@@ -629,6 +635,8 @@ class AppSettings {
       wearSyncEnabled: wearSyncEnabled ?? this.wearSyncEnabled,
       wearSelectedFavoriteIds:
           wearSelectedFavoriteIds ?? this.wearSelectedFavoriteIds,
+      wearSmartSuggestionsEnabled:
+          wearSmartSuggestionsEnabled ?? this.wearSmartSuggestionsEnabled,
     );
   }
 
@@ -669,6 +677,7 @@ class AppSettings {
       'desktopDiscordShowRouteName': desktopDiscordShowRouteName,
       'wearSyncEnabled': wearSyncEnabled,
       'wearSelectedFavoriteIds': wearSelectedFavoriteIds,
+      'wearSmartSuggestionsEnabled': wearSmartSuggestionsEnabled,
     };
   }
 }

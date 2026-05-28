@@ -25,14 +25,27 @@ class WearSyncListenerService : WearableListenerService() {
 
                 WearSyncPaths.pathFavorites ->
                     WearDataRepository.updateFavorites(this, payloadJson)
+
+                WearSyncPaths.pathSmartSuggestion ->
+                    WearDataRepository.updateSmartSuggestion(this, payloadJson)
+
+                WearSyncPaths.pathUsageProfiles ->
+                    WearDataRepository.updateUsageProfiles(this, payloadJson)
             }
         }
     }
 
     override fun onMessageReceived(messageEvent: MessageEvent) {
-        if (messageEvent.path == WearSyncPaths.pathRefresh) {
-            WearDataRepository.refresh(this)
-            return
+        when (messageEvent.path) {
+            WearSyncPaths.pathRefresh -> {
+                WearDataRepository.refresh(this)
+                return
+            }
+
+            WearSyncPaths.pathCancelRefresh -> {
+                WearRefreshScheduler.cancel(this)
+                return
+            }
         }
         super.onMessageReceived(messageEvent)
     }

@@ -1,8 +1,14 @@
 package tw.avianjay.taiwanbus.wearos.presentation
 
+import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,24 +47,37 @@ import androidx.wear.compose.material3.lazy.transformedHeight
 import kotlinx.coroutines.delay
 import tw.avianjay.taiwanbus.wearos.data.FavoriteStop
 import tw.avianjay.taiwanbus.wearos.data.RouteSearchResult
+import tw.avianjay.taiwanbus.wearos.data.WearAddFavoriteRequester
+import tw.avianjay.taiwanbus.wearos.data.WearComponentBinder
 import tw.avianjay.taiwanbus.wearos.data.WearDataRepository
 import tw.avianjay.taiwanbus.wearos.data.WearHomeState
+import tw.avianjay.taiwanbus.wearos.data.WearNearbyService
+import tw.avianjay.taiwanbus.wearos.data.WearNearbyStop
+import tw.avianjay.taiwanbus.wearos.data.WearRefreshScheduler
 import tw.avianjay.taiwanbus.wearos.data.WearRouteDetail
 import tw.avianjay.taiwanbus.wearos.data.WearRoutePath
 import tw.avianjay.taiwanbus.wearos.data.WearRouteStop
+import tw.avianjay.taiwanbus.wearos.data.WearSmartSuggestionPayload
 import tw.avianjay.taiwanbus.wearos.presentation.theme.AndroidTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    private val initialDeepLink = mutableStateOf<DeepLinkTarget?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WearDataRepository.ensureLoaded(applicationContext)
+        WearComponentBinder.attach(applicationContext)
+        WearRefreshScheduler.schedulePeriodic(applicationContext)
+        initialDeepLink.value = parseDeepLink(intent)
         setContent {
             AndroidTheme {
                 WearApp(
                     state = WearDataRepository.state,
+                    initialDeepLink = initialDeepLink.value,
+                    onConsumeDeepLink = { initialDeepLink.value = null },
                     onRefresh = {
                         WearDataRepository.refresh(applicationContext)
                     },
@@ -69,17 +88,57 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        parseDeepLink(intent)?.let { initialDeepLink.value = it }
+    }
+
+    private fun parseDeepLink(intent: Intent?): DeepLinkTarget? {
+        val data = intent?.data ?: run {
+            val extra = intent?.getStringExtra("deeplink") ?: return null
+            return DeepLinkTarget.fromUri(extra.toUri())
+        }
+        return DeepLinkTarget.fromUri(data)
+    }
 }
 
-private enum class WearScreen {
+internal enum class WearScreen {
     Favorites,
     Search,
     RouteDetail,
+    Nearby,
+}
+
+internal sealed class DeepLinkTarget {
+    data class Route(val routeId: String, val provider: String) : DeepLinkTarget()
+    object Search : DeepLinkTarget()
+    object Nearby : DeepLinkTarget()
+
+    companion object {
+        fun fromUri(uri: Uri): DeepLinkTarget? {
+            if (uri.scheme != "yabus-wear") return null
+            return when (uri.host) {
+                "route" -> {
+                    val routeId = uri.lastPathSegment.orEmpty()
+                    val provider = uri.getQueryParameter("provider").orEmpty()
+                    if (routeId.isEmpty()) null else Route(routeId, provider)
+                }
+
+                "search" -> Search
+                "nearby" -> Nearby
+                else -> null
+            }
+        }
+    }
 }
 
 @Composable
 private fun WearApp(
     state: WearHomeState,
+    initialDeepLink: DeepLinkTarget?,
+    onConsumeDeepLink: () -> Unit,
     onRefresh: () -> Unit,
     onSearch: suspend (String) -> List<RouteSearchResult>,
 ) {
@@ -95,7 +154,51 @@ private fun WearApp(
     var routeDetailLoading by remember { mutableStateOf(false) }
     var routeDetailError by remember { mutableStateOf<String?>(null) }
     var activePathIndex by remember { mutableStateOf(0) }
+
+    var nearbyStops by remember { mutableStateOf<List<WearNearbyStop>>(emptyList()) }
+    var nearbyLoading by remember { mutableStateOf(false) }
+    var nearbyError by remember { mutableStateOf<String?>(null) }
+    var nearbyRefreshTrigger by remember { mutableStateOf(0) }
+    var nearbyPermissionGranted by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    LaunchedEffect(Unit) {
+        nearbyPermissionGranted = WearNearbyService.hasLocationPermission(context)
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        nearbyPermissionGranted = grants.values.any { it }
+        if (nearbyPermissionGranted) {
+            nearbyRefreshTrigger++
+        }
+    }
+
+    // Honor deep links from Tile / Complication tap actions.
+    LaunchedEffect(initialDeepLink) {
+        val target = initialDeepLink ?: return@LaunchedEffect
+        when (target) {
+            is DeepLinkTarget.Search -> {
+                screen = WearScreen.Search
+            }
+
+            is DeepLinkTarget.Nearby -> {
+                screen = WearScreen.Nearby
+            }
+
+            is DeepLinkTarget.Route -> {
+                selectedRoute = RouteSearchResult(
+                    routeId = target.routeId,
+                    routeName = target.routeId,
+                    description = target.provider,
+                    provider = target.provider,
+                )
+                screen = WearScreen.RouteDetail
+            }
+        }
+        onConsumeDeepLink()
+    }
 
     LaunchedEffect(screen, query) {
         if (screen != WearScreen.Search) {
@@ -123,6 +226,28 @@ private fun WearApp(
             searchResults = emptyList()
             searchLoading = false
             searchError = error.message ?: "搜尋失敗"
+        }
+    }
+
+    LaunchedEffect(screen, nearbyRefreshTrigger, nearbyPermissionGranted) {
+        if (screen != WearScreen.Nearby) {
+            return@LaunchedEffect
+        }
+        if (!nearbyPermissionGranted) {
+            nearbyLoading = false
+            return@LaunchedEffect
+        }
+        nearbyLoading = true
+        nearbyError = null
+        runCatching {
+            WearNearbyService.fetchNearby(context)
+        }.onSuccess { result ->
+            nearbyStops = result
+            nearbyLoading = false
+        }.onFailure { error ->
+            nearbyStops = emptyList()
+            nearbyError = error.message ?: "載入附近站牌失敗"
+            nearbyLoading = false
         }
     }
 
@@ -167,6 +292,9 @@ private fun WearApp(
                             WearScreen.Search -> {
                                 screen = WearScreen.Favorites
                             }
+                            WearScreen.Nearby -> {
+                                screen = WearScreen.Favorites
+                            }
                             WearScreen.Favorites -> onRefresh()
                         }
                     },
@@ -177,7 +305,7 @@ private fun WearApp(
                 ) {
                     Text(
                         when (screen) {
-                            WearScreen.Search, WearScreen.RouteDetail -> "返回"
+                            WearScreen.Search, WearScreen.RouteDetail, WearScreen.Nearby -> "返回"
                             WearScreen.Favorites -> "整理"
                         }
                     )
@@ -196,6 +324,7 @@ private fun WearApp(
                                 when (screen) {
                                     WearScreen.Favorites -> "我的最愛"
                                     WearScreen.Search -> "搜尋公車"
+                                    WearScreen.Nearby -> "附近站牌"
                                     WearScreen.RouteDetail -> selectedRoute?.routeName ?: "公車資料"
                                 },
                             )
@@ -203,6 +332,9 @@ private fun WearApp(
                                 when (screen) {
                                     WearScreen.Search ->
                                         "使用即時網路 API"
+
+                                    WearScreen.Nearby ->
+                                        "即時定位附近的公車站"
 
                                     WearScreen.RouteDetail ->
                                         selectedRoute?.description ?: ""
@@ -228,6 +360,16 @@ private fun WearApp(
                         favoritesContent(
                             state = state,
                             onOpenSearch = { screen = WearScreen.Search },
+                            onOpenNearby = { screen = WearScreen.Nearby },
+                            onSelectSuggestion = { suggestion ->
+                                selectedRoute = RouteSearchResult(
+                                    routeId = suggestion.routeId,
+                                    routeName = suggestion.routeName,
+                                    description = suggestion.stopName.ifBlank { suggestion.reason },
+                                    provider = suggestion.provider,
+                                )
+                                screen = WearScreen.RouteDetail
+                            },
                         )
                     }
 
@@ -238,6 +380,28 @@ private fun WearApp(
                             loading = searchLoading,
                             error = searchError,
                             onQueryChange = { query = it },
+                            onSelectRoute = { route ->
+                                selectedRoute = route
+                                screen = WearScreen.RouteDetail
+                            },
+                        )
+                    }
+
+                    WearScreen.Nearby -> {
+                        nearbyContent(
+                            stops = nearbyStops,
+                            loading = nearbyLoading,
+                            error = nearbyError,
+                            permissionGranted = nearbyPermissionGranted,
+                            onRequestPermission = {
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                    ),
+                                )
+                            },
+                            onRefresh = { nearbyRefreshTrigger++ },
                             onSelectRoute = { route ->
                                 selectedRoute = route
                                 screen = WearScreen.RouteDetail
@@ -257,7 +421,21 @@ private fun WearApp(
                             },
                             onRefreshDetail = {
                                 detailRefreshTrigger++
-                            }
+                            },
+                            onAddFavorite = { stop ->
+                                val route = selectedRoute ?: return@routeDetailContent
+                                val path = routeDetail?.paths?.getOrNull(activePathIndex)
+                                WearAddFavoriteRequester.send(
+                                    context = context,
+                                    routeId = route.routeId,
+                                    routeName = route.routeName,
+                                    provider = route.provider,
+                                    pathId = path?.pathId ?: 0,
+                                    pathName = path?.name.orEmpty(),
+                                    stopId = stop.stopId,
+                                    stopName = stop.name,
+                                )
+                            },
                         )
                     }
                 }
@@ -269,7 +447,18 @@ private fun WearApp(
 private fun TransformingLazyColumnScope.favoritesContent(
     state: WearHomeState,
     onOpenSearch: () -> Unit,
+    onOpenNearby: () -> Unit,
+    onSelectSuggestion: (WearSmartSuggestionPayload) -> Unit,
 ) {
+    state.smartSuggestion?.let { suggestion ->
+        item {
+            SmartSuggestionCard(
+                suggestion = suggestion,
+                onClick = { onSelectSuggestion(suggestion) },
+            )
+        }
+    }
+
     item {
         Button(
             onClick = onOpenSearch,
@@ -278,6 +467,22 @@ private fun TransformingLazyColumnScope.favoritesContent(
             Column {
                 Text("搜尋公車")
                 Text("即時搜尋，無需手機連線")
+            }
+        }
+    }
+
+    item {
+        Button(
+            onClick = onOpenNearby,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            ),
+        ) {
+            Column {
+                Text("附近站牌")
+                Text("使用手錶定位")
             }
         }
     }
@@ -413,6 +618,131 @@ private fun TransformingLazyColumnScope.searchContent(
 }
 
 @Composable
+private fun SmartSuggestionCard(
+    suggestion: WearSmartSuggestionPayload,
+    onClick: () -> Unit,
+) {
+    val sourceLabel = if (suggestion.source == "local") "手錶習慣" else "手機推薦"
+    Button(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ),
+    ) {
+        Column {
+            Text("智慧推薦 · $sourceLabel")
+            Text(
+                text = suggestion.routeName.ifBlank { suggestion.routeId },
+                style = MaterialTheme.typography.titleMedium,
+            )
+            suggestion.etaText?.takeIf { it.isNotBlank() }?.let { Text(it) }
+            val subtitle = suggestion.stopName.takeIf { it.isNotBlank() }
+                ?: suggestion.reason
+            if (subtitle.isNotBlank()) {
+                Text(subtitle, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+private fun TransformingLazyColumnScope.nearbyContent(
+    stops: List<WearNearbyStop>,
+    loading: Boolean,
+    error: String?,
+    permissionGranted: Boolean,
+    onRequestPermission: () -> Unit,
+    onRefresh: () -> Unit,
+    onSelectRoute: (RouteSearchResult) -> Unit,
+) {
+    if (!permissionGranted) {
+        item {
+            WearInfoCard(
+                title = "需要位置權限",
+                subtitle = "允許定位後即可顯示最近站牌",
+            )
+        }
+        item {
+            Button(
+                onClick = onRequestPermission,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("授予權限")
+            }
+        }
+        return
+    }
+
+    item {
+        Button(
+            onClick = onRefresh,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ),
+        ) {
+            Text("重新定位")
+        }
+    }
+
+    if (loading) {
+        item { WearInfoCard(title = "定位中", subtitle = "取得最近站牌...") }
+        return
+    }
+
+    if (error != null) {
+        item { WearInfoCard(title = "載入失敗", subtitle = error) }
+        return
+    }
+
+    if (stops.isEmpty()) {
+        item { WearInfoCard(title = "無資料", subtitle = "附近沒有找到站牌") }
+        return
+    }
+
+    stops.forEach { stop ->
+        item {
+            WearInfoCard(
+                title = stop.stopName,
+                subtitle = "${stop.distanceMeters.toInt()} 公尺",
+            )
+        }
+        stop.routes.forEach { route ->
+            item {
+                Button(
+                    onClick = {
+                        onSelectRoute(
+                            RouteSearchResult(
+                                routeId = route.routeId,
+                                routeName = route.routeName,
+                                description = route.pathName,
+                                provider = stop.provider,
+                            ),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
+                ) {
+                    Column {
+                        Text(route.routeName, style = MaterialTheme.typography.titleSmall)
+                        Text(route.pathName, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            route.etaText,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun FavoriteArrivalCard(
     favorite: FavoriteStop,
     state: WearHomeState,
@@ -445,6 +775,7 @@ private fun TransformingLazyColumnScope.routeDetailContent(
     activePathIndex: Int,
     onTogglePath: () -> Unit,
     onRefreshDetail: () -> Unit,
+    onAddFavorite: (WearRouteStop) -> Unit,
 ) {
     if (loading) {
         item {
@@ -530,15 +861,15 @@ private fun TransformingLazyColumnScope.routeDetailContent(
 
     path.stops.forEach { stop ->
         item {
-            RouteStopCard(stop = stop)
+            RouteStopCard(stop = stop, onAddFavorite = { onAddFavorite(stop) })
         }
     }
 }
 
 @Composable
-private fun RouteStopCard(stop: WearRouteStop) {
+private fun RouteStopCard(stop: WearRouteStop, onAddFavorite: () -> Unit) {
     Button(
-        onClick = {},
+        onClick = onAddFavorite,
         modifier = Modifier.fillMaxWidth(),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -558,6 +889,11 @@ private fun RouteStopCard(stop: WearRouteStop) {
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
                 style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = "點擊加為最愛",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (stop.statusText.isNotBlank()) {
                 Text(

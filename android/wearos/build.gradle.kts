@@ -81,6 +81,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("com.google.android.gms:play-services-base:18.9.0")
     implementation("com.google.android.gms:play-services-wearable:20.0.1")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation(platform("androidx.compose:compose-bom:2025.12.00"))
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.ui:ui")
@@ -89,6 +90,20 @@ dependencies {
     implementation("androidx.core:core-splashscreen:1.2.0")
     implementation("androidx.wear.compose:compose-material3:1.5.6")
     implementation("androidx.wear.compose:compose-foundation:1.5.6")
+    // Wear Tiles + ProtoLayout (use stable 1.4.x as of 2025-Q1).
+    implementation("androidx.wear.tiles:tiles:1.4.1")
+    implementation("androidx.wear.tiles:tiles-material:1.4.1")
+    implementation("androidx.wear.protolayout:protolayout:1.2.1")
+    implementation("androidx.wear.protolayout:protolayout-material:1.2.1")
+    implementation("androidx.wear.protolayout:protolayout-expression:1.2.1")
+    // Watchface complications
+    implementation("androidx.wear.watchface:watchface-complications-data-source:1.2.1")
+    implementation("androidx.wear.watchface:watchface-complications-data-source-ktx:1.2.1")
+    // Background scheduling
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-service:2.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    implementation("com.google.guava:guava:33.3.1-android")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

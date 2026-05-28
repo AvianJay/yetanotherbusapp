@@ -36,6 +36,44 @@ class WearSyncBridge(
                 true
             }
 
+            "syncWearSmartSuggestion" -> {
+                syncPayload(
+                    path = PATH_SMART_SUGGESTION,
+                    payloadJson = call.argument<String>("payloadJson"),
+                    errorCode = "wear_smart_suggestion_sync_failed",
+                    result = result,
+                )
+                true
+            }
+
+            "clearWearSmartSuggestion" -> {
+                clearDataItem(
+                    path = PATH_SMART_SUGGESTION,
+                    errorCode = "wear_smart_suggestion_clear_failed",
+                    result = result,
+                )
+                true
+            }
+
+            "syncWearUsageProfiles" -> {
+                syncPayload(
+                    path = PATH_USAGE_PROFILES,
+                    payloadJson = call.argument<String>("payloadJson"),
+                    errorCode = "wear_usage_profiles_sync_failed",
+                    result = result,
+                )
+                true
+            }
+
+            "cancelWearRefresh" -> {
+                sendBroadcastMessage(
+                    path = PATH_CANCEL_REFRESH,
+                    errorCode = "wear_cancel_refresh_failed",
+                    result = result,
+                )
+                true
+            }
+
             "requestWearRefresh" -> {
                 requestRefresh(result)
                 true
@@ -142,11 +180,58 @@ class WearSyncBridge(
             }
     }
 
+    private fun clearDataItem(
+        path: String,
+        errorCode: String,
+        result: MethodChannel.Result,
+    ) {
+        Wearable.getDataClient(appContext)
+            .deleteDataItems(android.net.Uri.parse("wear:$path"))
+            .addOnSuccessListener { result.success(null) }
+            .addOnFailureListener { error ->
+                result.error(errorCode, error.message, null)
+            }
+    }
+
+    private fun sendBroadcastMessage(
+        path: String,
+        errorCode: String,
+        result: MethodChannel.Result,
+    ) {
+        Wearable.getNodeClient(appContext)
+            .connectedNodes
+            .addOnSuccessListener { nodes ->
+                if (nodes.isEmpty()) {
+                    result.success(null)
+                    return@addOnSuccessListener
+                }
+                val payload = System.currentTimeMillis()
+                    .toString()
+                    .toByteArray(StandardCharsets.UTF_8)
+                val tasks = nodes.map { node ->
+                    Wearable.getMessageClient(appContext)
+                        .sendMessage(node.id, path, payload)
+                }
+                completeAll(
+                    tasks = tasks,
+                    errorCode = errorCode,
+                    errorMessage = "Failed to broadcast message to Wear OS nodes.",
+                    result = result,
+                )
+            }
+            .addOnFailureListener { error ->
+                result.error(errorCode, error.message, null)
+            }
+    }
+
     companion object {
         private const val KEY_PAYLOAD_JSON = "payload_json"
         private const val KEY_UPDATED_AT_MS = "updated_at_ms"
         private const val PATH_SETTINGS = "/wear/settings"
         private const val PATH_FAVORITES = "/wear/favorites"
+        private const val PATH_SMART_SUGGESTION = "/wear/smart_suggestion"
+        private const val PATH_USAGE_PROFILES = "/wear/usage_profiles"
         private const val PATH_REFRESH = "/wear/refresh"
+        private const val PATH_CANCEL_REFRESH = "/wear/cancel_refresh"
     }
 }

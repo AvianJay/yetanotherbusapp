@@ -1,0 +1,30 @@
+<resources>
+    <string name="app_name">YABus</string>
+    <string name="tile_label">Next Bus</string>
+    <string name="tile_description">Swipe right on your watch face for smart recommendations and favorites ETAs.</string>
+    <string name="complication_label">Bus ETA</string>
+    <string name="complication_description">Latest ETA from your smart suggestion or top favorite stop.</string>
+
+    <string name="watch_section_smart">Smart pick</string>
+    <string name="watch_section_favorites">Favorites</string>
+    <string name="watch_section_nearby">Nearby stops</string>
+    <string name="watch_section_search">Search</string>
+    <string name="watch_action_open_phone">Open on phone</string>
+    <string name="watch_action_refresh">Refresh</string>
+    <string name="watch_action_add_favorite">Add to favorites</string>
+    <string name="watch_action_added">Sent to phone</string>
+    <string name="watch_state_loading">Loading…</string>
+    <string name="watch_state_offline">Offline</string>
+    <string name="watch_state_sync_disabled">Turn on Wear OS sync on your phone</string>
+    <string name="watch_state_no_data">No data yet</string>
+
+    <string name="watch_nearby_permission_required">Location required</string>
+    <string name="watch_nearby_permission_explain">Allow location to see nearby stops.</string>
+    <string name="watch_nearby_grant_permission">Grant permission</string>
+    <string name="watch_nearby_no_results">No nearby stops</string>
+    <string name="watch_nearby_locating">Locating…</string>
+
+    <string name="watch_smart_reason_default">Based on your habits</string>
+    <string name="watch_smart_source_phone">Phone pick</string>
+    <string name="watch_smart_source_local">Watch pick</string>
+</resources>

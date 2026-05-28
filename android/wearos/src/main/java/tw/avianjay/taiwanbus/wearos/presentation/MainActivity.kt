@@ -201,15 +201,17 @@ private fun WearApp(
                             loading = searchLoading,
                             error = searchError,
                             onQueryChange = { query = it },
-                            onSelectRoute = { route -> screen = WearRoute.RouteDetail(route) },
+                            onSelectRoute = { route ->
+                                selectedRoute = route
+                                screen = WearScreen.RouteDetail
+                            },
                         )
                     }
 
-                    is WearRoute.RouteDetail -> {
-                        val routeDetail = screen as WearRoute.RouteDetail
-                        routeDetailContent(
-                            route = routeDetail.route,
-                        )
+                    WearScreen.RouteDetail -> {
+                        selectedRoute?.let { route ->
+                            routeDetailContent(route = route)
+                        }
                     }
                 }
             }

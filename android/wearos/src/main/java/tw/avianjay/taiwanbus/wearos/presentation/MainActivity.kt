@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,12 +13,17 @@ import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,7 +31,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -279,6 +289,20 @@ private fun WearApp(
         val listState = rememberTransformingLazyColumnState()
         val transformationSpec = rememberTransformationSpec()
 
+        val keyboardController = LocalSoftwareKeyboardController.current
+        val focusManager = LocalFocusManager.current
+
+        // 返回鍵處理：搜尋畫面時先收起鍵盤再返回
+        if (screen == WearScreen.Search) {
+            BackHandler {
+                keyboardController?.hide()
+                focusManager.clearFocus()
+                screen = WearScreen.Favorites
+                query = ""
+                searchResults = emptyList()
+            }
+        }
+
         ScreenScaffold(
             scrollState = listState,
             edgeButton = {
@@ -290,9 +314,16 @@ private fun WearApp(
                                 selectedRoute = null
                             }
                             WearScreen.Search -> {
+                                // 移除焦點並關閉鍵盤後返回
+                                keyboardController?.hide()
+                                focusManager.clearFocus()
                                 screen = WearScreen.Favorites
+                                query = "" // 清空搜尋
+                                searchResults = emptyList()
                             }
                             WearScreen.Nearby -> {
+                                keyboardController?.hide()
+                                focusManager.clearFocus()
                                 screen = WearScreen.Favorites
                             }
                             WearScreen.Favorites -> onRefresh()
@@ -933,16 +964,33 @@ private fun SearchBox(
     val textStyle = TextStyle(
         color = MaterialTheme.colorScheme.onSurface,
     )
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester),
         singleLine = true,
         textStyle = textStyle,
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         keyboardOptions = KeyboardOptions(
             capitalization = KeyboardCapitalization.Characters,
             imeAction = ImeAction.Search,
+        ),
+        keyboardActions = KeyboardActions(
+            onSearch = {
+                // 搜尋時收起鍵盤並清除焦點
+                keyboardController?.hide()
+                focusManager.clearFocus()
+            },
+            onDone = {
+                keyboardController?.hide()
+                focusManager.clearFocus()
+            }
         ),
         decorationBox = { innerTextField ->
             Box(
@@ -954,10 +1002,30 @@ private fun SearchBox(
                     )
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
-                if (value.isEmpty()) {
-                    Text("輸入路線號碼...")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (value.isEmpty()) {
+                            Text("輸入路線號碼...")
+                        }
+                        innerTextField()
+                    }
+                    // 當有文字時顯示清除按鈕
+                    if (value.isNotEmpty()) {
+                        Button(
+                            onClick = { onValueChange("") },
+                            modifier = Modifier.size(24.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        ) {
+                            Text("✕")
+                        }
+                    }
                 }
-                innerTextField()
             }
         },
     )

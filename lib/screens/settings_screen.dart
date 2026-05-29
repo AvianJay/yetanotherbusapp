@@ -15,11 +15,24 @@ import 'database_settings_screen.dart';
 import 'personalization_screen.dart';
 import '../widgets/background_image_wrapper.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
   static const _favoriteWidgetRefreshOptions = <int>[0, 15, 30, 60, 120, 180];
   static final _discordCommunityUri = Uri.parse('https://dc.avianjay.sbs/');
+
+  late Future<WearOsSyncStatus> _wearSyncStatusFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _wearSyncStatusFuture = WearOsIntegration.getStatus();
+  }
 
   String _favoriteWidgetRefreshLabel(int minutes) {
     if (minutes <= 0) {
@@ -221,7 +234,7 @@ class SettingsScreen extends StatelessWidget {
                 if (isAndroid) ...[
                   const SizedBox(height: 12),
                   FutureBuilder<WearOsSyncStatus>(
-                    future: WearOsIntegration.getStatus(),
+                    future: _wearSyncStatusFuture,
                     builder: (context, snapshot) {
                       final status = snapshot.data;
                       if (snapshot.connectionState ==
@@ -232,8 +245,34 @@ class SettingsScreen extends StatelessWidget {
 
                       final groupNames = controller.favoriteGroupNames;
                       final hasFavorites = groupNames.isNotEmpty;
-                      final selectedGroupNames = controller
-                          .settings.wearSelectedFavoriteIds;
+                      final selectedIds = controller.settings.wearSelectedFavoriteIds.toSet();
+
+                      // Get all available favorite IDs across all groups
+                      final availableIds = <String>[];
+                      for (final favorites in controller.favoriteGroups.values) {
+                        for (final fav in favorites) {
+                          availableIds.add(fav.stableKey);
+                        }
+                      }
+                      final availableSet = availableIds.toSet();
+
+                      String? selectedValue;
+                      if (selectedIds.isEmpty) {
+                        selectedValue = null;
+                      } else if (setEquals(selectedIds, availableSet)) {
+                        selectedValue = '__all__';
+                      } else {
+                        // Check if it matches any specific group
+                        for (final groupName in groupNames) {
+                          final groupStableKeys = controller.favoriteGroups[groupName]
+                              ?.map((e) => e.stableKey)
+                              .toSet() ?? const <String>{};
+                          if (groupStableKeys.isNotEmpty && setEquals(selectedIds, groupStableKeys)) {
+                            selectedValue = groupName;
+                            break;
+                          }
+                        }
+                      }
 
                       return Card(
                         child: Padding(
@@ -275,30 +314,30 @@ class SettingsScreen extends StatelessWidget {
                                 else ...[
                                   const SizedBox(height: 8),
                                   DropdownButtonFormField<String>(
-                                    initialValue:
-                                        selectedGroupNames.isNotEmpty
-                                            ? selectedGroupNames.first
-                                            : null,
+                                    initialValue: selectedValue,
                                     decoration: const InputDecoration(
                                       labelText: '同步分類',
                                     ),
-                                    items:
-                                        groupNames
-                                            .map(
-                                              (
-                                                groupName,
-                                              ) => DropdownMenuItem(
-                                                value: groupName,
-                                                child: Text(groupName),
-                                              ),
-                                            )
-                                            .toList(),
+                                    items: [
+                                      const DropdownMenuItem(
+                                        value: '__all__',
+                                        child: Text('所有分類'),
+                                      ),
+                                      ...groupNames.map(
+                                        (groupName) => DropdownMenuItem(
+                                          value: groupName,
+                                          child: Text(groupName),
+                                        ),
+                                      ),
+                                    ],
                                     onChanged: (value) {
-                                      if (value != null) {
-                                        controller
-                                            .updateWearSelectedFavoriteIds(
-                                              [value],
-                                            );
+                                      if (value == '__all__') {
+                                        controller.updateWearSelectedFavoriteIds(availableIds);
+                                      } else if (value != null) {
+                                        final keys = controller.favoriteGroups[value]
+                                            ?.map((e) => e.stableKey)
+                                            .toList() ?? const <String>[];
+                                        controller.updateWearSelectedFavoriteIds(keys);
                                       }
                                     },
                                   ),

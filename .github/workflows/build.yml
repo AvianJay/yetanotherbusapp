@@ -196,7 +196,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: wearos-apk-release
-          path: build/wearos/outputs/apk/**/*.apk
+          path: build/wearos/outputs/apk/release/wearos-release.apk
 
   build-web:
     name: Build Web

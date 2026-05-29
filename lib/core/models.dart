@@ -342,6 +342,9 @@ class AppSettings {
     required this.desktopDiscordShowProvider,
     required this.desktopDiscordShowScreen,
     required this.desktopDiscordShowRouteName,
+    required this.wearSyncEnabled,
+    required this.wearSelectedFavoriteIds,
+    required this.wearSmartSuggestionsEnabled,
   });
 
   factory AppSettings.defaults() {
@@ -383,6 +386,9 @@ class AppSettings {
       desktopDiscordShowProvider: false,
       desktopDiscordShowScreen: true,
       desktopDiscordShowRouteName: false,
+      wearSyncEnabled: false,
+      wearSelectedFavoriteIds: const [],
+      wearSmartSuggestionsEnabled: true,
     );
   }
 
@@ -494,6 +500,16 @@ class AppSettings {
           json['desktopDiscordShowScreen'] as bool? ?? true,
       desktopDiscordShowRouteName:
           json['desktopDiscordShowRouteName'] as bool? ?? false,
+      wearSyncEnabled: json['wearSyncEnabled'] as bool? ?? false,
+      wearSelectedFavoriteIds:
+          (json['wearSelectedFavoriteIds'] as List?)
+              ?.map((item) => item.toString().trim())
+              .where((item) => item.isNotEmpty)
+              .toSet()
+              .toList(growable: false) ??
+          const <String>[],
+      wearSmartSuggestionsEnabled:
+          json['wearSmartSuggestionsEnabled'] as bool? ?? true,
     );
   }
 
@@ -527,6 +543,9 @@ class AppSettings {
   final bool desktopDiscordShowProvider;
   final bool desktopDiscordShowScreen;
   final bool desktopDiscordShowRouteName;
+  final bool wearSyncEnabled;
+  final List<String> wearSelectedFavoriteIds;
+  final bool wearSmartSuggestionsEnabled;
 
   AppSettings copyWith({
     BusProvider? provider,
@@ -560,6 +579,9 @@ class AppSettings {
     bool? desktopDiscordShowProvider,
     bool? desktopDiscordShowScreen,
     bool? desktopDiscordShowRouteName,
+    bool? wearSyncEnabled,
+    List<String>? wearSelectedFavoriteIds,
+    bool? wearSmartSuggestionsEnabled,
   }) {
     return AppSettings(
       provider: provider ?? this.provider,
@@ -610,6 +632,11 @@ class AppSettings {
           desktopDiscordShowScreen ?? this.desktopDiscordShowScreen,
       desktopDiscordShowRouteName:
           desktopDiscordShowRouteName ?? this.desktopDiscordShowRouteName,
+      wearSyncEnabled: wearSyncEnabled ?? this.wearSyncEnabled,
+      wearSelectedFavoriteIds:
+          wearSelectedFavoriteIds ?? this.wearSelectedFavoriteIds,
+      wearSmartSuggestionsEnabled:
+          wearSmartSuggestionsEnabled ?? this.wearSmartSuggestionsEnabled,
     );
   }
 
@@ -648,6 +675,9 @@ class AppSettings {
       'desktopDiscordShowProvider': desktopDiscordShowProvider,
       'desktopDiscordShowScreen': desktopDiscordShowScreen,
       'desktopDiscordShowRouteName': desktopDiscordShowRouteName,
+      'wearSyncEnabled': wearSyncEnabled,
+      'wearSelectedFavoriteIds': wearSelectedFavoriteIds,
+      'wearSmartSuggestionsEnabled': wearSmartSuggestionsEnabled,
     };
   }
 }
@@ -740,6 +770,8 @@ class FavoriteStop {
   final int? destinationPathId;
   final int? destinationStopId;
   final String? destinationStopName;
+
+  String get stableKey => '${provider.name}:$routeKey:$pathId:$stopId';
 
   Map<String, dynamic> toJson() {
     return {

@@ -1,0 +1,33 @@
+<resources>
+    <string name="app_name">YABus</string>
+    <string name="tile_label">下一班公車</string>
+    <string name="tile_description">在錶面右滑即可看見智慧推薦與最愛路線的即時到站時間</string>
+    <string name="complication_label">公車 ETA</string>
+    <string name="complication_description">最近一筆智慧推薦或最愛站牌的到站時間</string>
+
+    <!-- Home / shared -->
+    <string name="watch_section_smart">智慧推薦</string>
+    <string name="watch_section_favorites">我的最愛</string>
+    <string name="watch_section_nearby">附近站牌</string>
+    <string name="watch_section_search">搜尋公車</string>
+    <string name="watch_action_open_phone">在手機開啟</string>
+    <string name="watch_action_refresh">重新整理</string>
+    <string name="watch_action_add_favorite">加為最愛</string>
+    <string name="watch_action_added">已通知手機加入最愛</string>
+    <string name="watch_state_loading">載入中…</string>
+    <string name="watch_state_offline">無網路連線</string>
+    <string name="watch_state_sync_disabled">在手機開啟 Wear OS 同步</string>
+    <string name="watch_state_no_data">尚無資料</string>
+
+    <!-- Nearby -->
+    <string name="watch_nearby_permission_required">需要位置權限</string>
+    <string name="watch_nearby_permission_explain">允許定位後即可顯示最近站牌</string>
+    <string name="watch_nearby_grant_permission">授予權限</string>
+    <string name="watch_nearby_no_results">附近沒有找到站牌</string>
+    <string name="watch_nearby_locating">取得位置中…</string>
+
+    <!-- Smart suggestion -->
+    <string name="watch_smart_reason_default">根據你的使用習慣</string>
+    <string name="watch_smart_source_phone">手機推薦</string>
+    <string name="watch_smart_source_local">手錶習慣</string>
+</resources>

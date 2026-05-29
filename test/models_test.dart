@@ -35,6 +35,21 @@ void main() {
     expect(restored.mobileMapProvider, MobileMapProvider.osm);
   });
 
+  test('app settings persist wear os sync preferences', () {
+    final settings = AppSettings.defaults().copyWith(
+      wearSyncEnabled: true,
+      wearSelectedFavoriteIds: const ['tpe:307:0:1001', 'nwt:920:1:2202'],
+    );
+
+    final restored = AppSettings.fromJson(settings.toJson());
+
+    expect(restored.wearSyncEnabled, isTrue);
+    expect(restored.wearSelectedFavoriteIds, const [
+      'tpe:307:0:1001',
+      'nwt:920:1:2202',
+    ]);
+  });
+
   test('app settings persist read route alerts', () {
     final settings = AppSettings.defaults().copyWith(
       readRouteAlerts: const [

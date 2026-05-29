@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +27,7 @@ import 'live_activity_service.dart';
 import 'models.dart';
 import 'smart_route_service.dart';
 import 'storage_service.dart';
+import 'wear_os_integration.dart';
 
 /// Thrown when the total number of favorite stops across all groups
 /// has reached the maximum allowed limit.
@@ -100,6 +102,9 @@ class AppController extends ChangeNotifier {
   String? _accountSyncError;
   Timer? _scheduledAccountSyncTimer;
   int? _lastForegroundAccountSyncAtMs;
+  String? _lastWearSmartSignature;
+  int _lastWearSmartPushAtMs = 0;
+  StreamSubscription<Map<String, Object?>>? _wearEventSubscription;
 
   AppSettings get settings => _settings;
   AuthSession? get authSession => _authSession;
@@ -280,6 +285,9 @@ class AppController extends ChangeNotifier {
       _favoriteGroups,
       waitForBridge: true,
     );
+    await _normalizeWearSelectedFavoriteIds(scheduleSync: false);
+    await _syncWearOsSnapshot(requestRefresh: false);
+    _attachWearOsEventStream();
     await AndroidHomeIntegration.syncSmartRouteNotifications(
       _settings.enableSmartRouteNotifications,
     );
@@ -750,6 +758,7 @@ class AppController extends ChangeNotifier {
         );
         await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
         await AndroidHomeIntegration.refreshFavoriteWidgets();
+        await _syncWearOsSnapshot(requestRefresh: false);
       case AccountSyncNamespace.preferences:
         _settings = _settingsFromSyncPayload(document.payload);
         await _persistSettings(modifiedAtMs: updatedAtMs, scheduleSync: false);
@@ -791,6 +800,285 @@ class AppController extends ChangeNotifier {
       _settings.enableSmartRouteNotifications,
     );
     await desktopDiscordPresenceService.refresh(settings: _settings);
+    await _syncWearOsSnapshot(requestRefresh: false);
+  }
+
+  List<String> _availableWearFavoriteIds() {
+    final seen = <String>{};
+    final ids = <String>[];
+    for (final favorites in _favoriteGroups.values) {
+      for (final favorite in favorites) {
+        if (seen.add(favorite.stableKey)) {
+          ids.add(favorite.stableKey);
+        }
+      }
+    }
+    return ids;
+  }
+
+  Future<void> _normalizeWearSelectedFavoriteIds({
+    bool selectAllIfEmpty = false,
+    bool scheduleSync = true,
+  }) async {
+    final availableIds = _availableWearFavoriteIds();
+    final availableSet = availableIds.toSet();
+    var nextIds = _settings.wearSelectedFavoriteIds
+        .where(availableSet.contains)
+        .toSet()
+        .toList(growable: false);
+    if (selectAllIfEmpty && nextIds.isEmpty && availableIds.isNotEmpty) {
+      nextIds = availableIds;
+    }
+    if (listEquals(nextIds, _settings.wearSelectedFavoriteIds)) {
+      return;
+    }
+
+    _settings = _settings.copyWith(wearSelectedFavoriteIds: nextIds);
+    await _persistSettings(scheduleSync: scheduleSync);
+  }
+
+  List<_WearFavoriteSelection> _selectedWearFavorites() {
+    if (!_settings.wearSyncEnabled) {
+      return const <_WearFavoriteSelection>[];
+    }
+
+    final selectedIds = _settings.wearSelectedFavoriteIds.toSet();
+    if (selectedIds.isEmpty) {
+      return const <_WearFavoriteSelection>[];
+    }
+
+    final result = <_WearFavoriteSelection>[];
+    for (final entry in _favoriteGroups.entries) {
+      for (final favorite in entry.value) {
+        if (!selectedIds.contains(favorite.stableKey)) {
+          continue;
+        }
+        result.add(
+          _WearFavoriteSelection(groupName: entry.key, favorite: favorite),
+        );
+      }
+    }
+    return result;
+  }
+
+  Future<List<Map<String, dynamic>>> _buildWearFavoritePayload() async {
+    final selectedFavorites = _selectedWearFavorites();
+    if (selectedFavorites.isEmpty) {
+      return const <Map<String, dynamic>>[];
+    }
+
+    final needsMetadata = selectedFavorites
+        .map((entry) => entry.favorite)
+        .where(
+          (favorite) =>
+              favorite.routeId?.trim().isNotEmpty != true ||
+              favorite.routeName?.trim().isNotEmpty != true ||
+              favorite.stopName?.trim().isNotEmpty != true,
+        )
+        .toList(growable: false);
+
+    final resolvedByKey = <String, FavoriteResolvedItem>{};
+    if (needsMetadata.isNotEmpty) {
+      try {
+        final resolvedItems = await repository.resolveFavoriteGroup(
+          needsMetadata,
+        );
+        for (final item in resolvedItems) {
+          resolvedByKey[item.reference.stableKey] = item;
+        }
+      } catch (_) {
+        // Keep syncing any favorites that already have enough metadata.
+      }
+    }
+
+    final payload = <Map<String, dynamic>>[];
+    for (final selection in selectedFavorites) {
+      final favorite = selection.favorite;
+      final resolved = resolvedByKey[favorite.stableKey];
+      final routeId = favorite.routeId?.trim().isNotEmpty == true
+          ? favorite.routeId!.trim()
+          : (resolved?.route.routeId.trim() ?? '');
+      if (routeId.isEmpty) {
+        continue;
+      }
+
+      final routeName = favorite.routeName?.trim().isNotEmpty == true
+          ? favorite.routeName!.trim()
+          : resolved?.route.routeName;
+      final stopName = favorite.stopName?.trim().isNotEmpty == true
+          ? favorite.stopName!.trim()
+          : resolved?.stop.stopName;
+
+      payload.add({
+        'id': favorite.stableKey,
+        'groupName': selection.groupName,
+        ...favorite.toJson(),
+        'routeId': routeId,
+        if (routeName != null && routeName.isNotEmpty) 'routeName': routeName,
+        if (stopName != null && stopName.isNotEmpty) 'stopName': stopName,
+      });
+    }
+
+    return payload;
+  }
+
+  Future<WearOsSyncStatus> syncWearOsNow({bool requestRefresh = true}) async {
+    await _syncWearOsSnapshot(requestRefresh: requestRefresh);
+    return WearOsIntegration.getStatus();
+  }
+
+  void _attachWearOsEventStream() {
+    _wearEventSubscription?.cancel();
+    _wearEventSubscription = WearOsIntegration.events.listen(
+      _handleWearOsEvent,
+      onError: (_) {},
+    );
+  }
+
+  Future<void> _handleWearOsEvent(Map<String, Object?> event) async {
+    final kind = event['kind']?.toString();
+    final payloadJson = event['payloadJson']?.toString();
+    if (kind == null || payloadJson == null || payloadJson.isEmpty) {
+      return;
+    }
+    switch (kind) {
+      case 'add_favorite':
+        try {
+          final decoded = jsonDecode(payloadJson) as Map<String, dynamic>;
+          await _handleWearAddFavoriteRequest(decoded);
+        } catch (_) {
+          // Ignore malformed payloads.
+        }
+        return;
+    }
+  }
+
+  Future<void> _handleWearAddFavoriteRequest(
+    Map<String, dynamic> payload,
+  ) async {
+    final provider = busProviderFromString(
+      payload['provider']?.toString() ?? _settings.provider.name,
+    );
+    final pathId = (payload['pathId'] as num?)?.toInt() ?? 0;
+    final stopId = (payload['stopId'] as num?)?.toInt() ?? 0;
+    final routeIdRaw = payload['routeId']?.toString().trim() ?? '';
+    final routeName = payload['routeName']?.toString();
+    final stopName = payload['stopName']?.toString();
+    if (routeIdRaw.isEmpty || stopId == 0) {
+      return;
+    }
+
+    // Derive routeKey from numeric portion of routeId; if absent, the Wear OS
+    // bridge already hashed the string above. `addFavoriteStop` ->
+    // `resolveFavoriteGroup` will backfill any missing route metadata.
+    final providedKey = (payload['routeKey'] as num?)?.toInt() ?? 0;
+    var routeKey = providedKey;
+    if (routeKey == 0) {
+      final digits = RegExp(r'\d+').firstMatch(routeIdRaw)?.group(0);
+      routeKey = int.tryParse(digits ?? '') ?? routeIdRaw.hashCode;
+    }
+
+    final favorite = FavoriteStop(
+      provider: provider,
+      routeKey: routeKey,
+      pathId: pathId,
+      stopId: stopId,
+      routeId: routeIdRaw,
+      routeName: routeName,
+      stopName: stopName,
+    );
+    await addFavoriteStop(favorite);
+  }
+
+  Future<void> _syncWearOsSnapshot({bool requestRefresh = false}) async {
+    await _normalizeWearSelectedFavoriteIds();
+    final favorites = await _buildWearFavoritePayload();
+
+    Map<String, dynamic>? smartSuggestionPayload;
+    List<Map<String, dynamic>>? usageProfilesPayload;
+    if (_settings.wearSyncEnabled && _settings.wearSmartSuggestionsEnabled) {
+      usageProfilesPayload = _buildWearUsageProfilesPayload();
+      smartSuggestionPayload = await _buildWearSmartSuggestionPayload();
+    } else if (!_settings.wearSyncEnabled) {
+      // When sync is disabled, also clear any leftover suggestion / profiles
+      // by sending empty payloads via syncAll.
+      usageProfilesPayload = const <Map<String, dynamic>>[];
+      smartSuggestionPayload = null;
+    }
+
+    await WearOsIntegration.syncAll(
+      syncEnabled: _settings.wearSyncEnabled,
+      selectedFavoriteIds: _settings.wearSelectedFavoriteIds,
+      favorites: favorites,
+      smartSuggestion: smartSuggestionPayload,
+      usageProfiles: usageProfilesPayload,
+      requestRefresh: requestRefresh,
+    );
+  }
+
+  List<Map<String, dynamic>> _buildWearUsageProfilesPayload() {
+    final providerProfiles = _routeUsageProfiles
+        .where((entry) => entry.provider == _settings.provider)
+        .toList()
+      ..sort((a, b) => b.totalOpens.compareTo(a.totalOpens));
+    final limited = providerProfiles.take(40);
+    return limited
+        .map((profile) => {
+              'provider': profile.provider.name,
+              'routeKey': profile.routeKey,
+              'routeName': profile.routeName,
+              'totalOpens': profile.totalOpens,
+              'lastOpenedAtMs': profile.lastOpenedAtMs,
+              'hourlyOpens': profile.hourlyOpens.map(
+                (key, value) => MapEntry(key.toString(), value),
+              ),
+              'recentSelectionMs': profile.selectionTimestampsWithin(),
+            })
+        .toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>?> _buildWearSmartSuggestionPayload() async {
+    if (!_settings.enableSmartRecommendations) {
+      return null;
+    }
+    SmartRouteSuggestion? suggestion;
+    try {
+      suggestion = await getSmartRouteSuggestion();
+    } catch (_) {
+      suggestion = null;
+    }
+    if (suggestion == null) {
+      return null;
+    }
+
+    final detail = suggestion.detail;
+    final routeId = detail?.route.routeId.trim().isNotEmpty == true
+        ? detail!.route.routeId.trim()
+        : '';
+    if (routeId.isEmpty) {
+      return null;
+    }
+
+    final stop = suggestion.recommendedStop;
+    final path = suggestion.recommendedPath;
+    return <String, dynamic>{
+      'routeId': routeId,
+      'routeName': suggestion.profile.routeName.isNotEmpty
+          ? suggestion.profile.routeName
+          : (detail?.route.routeName ?? routeId),
+      'provider': suggestion.profile.provider.name,
+      if (path != null) ...{
+        'pathId': path.pathId,
+        'pathName': path.name,
+      },
+      if (stop != null) ...{
+        'stopId': stop.stopId,
+        'stopName': stop.stopName,
+      },
+      'reason': suggestion.reason,
+      if (suggestion.distanceMeters != null)
+        'distanceMeters': suggestion.distanceMeters,
+    };
   }
 
   Future<void> _runAccountSyncOperation(Future<void> Function() action) async {
@@ -1015,6 +1303,42 @@ class AppController extends ChangeNotifier {
   Future<void> updateMobileMapProvider(MobileMapProvider provider) async {
     _settings = _settings.copyWith(mobileMapProvider: provider);
     await _persistSettings();
+    notifyListeners();
+  }
+
+  Future<void> updateWearSyncEnabled(bool value) async {
+    final selectedIds = value && _settings.wearSelectedFavoriteIds.isEmpty
+        ? _availableWearFavoriteIds()
+        : _settings.wearSelectedFavoriteIds;
+    _settings = _settings.copyWith(
+      wearSyncEnabled: value,
+      wearSelectedFavoriteIds: selectedIds,
+    );
+    await _persistSettings();
+    await _syncWearOsSnapshot(requestRefresh: false);
+    notifyListeners();
+  }
+
+  Future<void> updateWearSelectedFavoriteIds(List<String> ids) async {
+    final availableSet = _availableWearFavoriteIds().toSet();
+    final normalized = ids
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty && availableSet.contains(item))
+        .toSet()
+        .toList(growable: false);
+    _settings = _settings.copyWith(wearSelectedFavoriteIds: normalized);
+    await _persistSettings();
+    await _syncWearOsSnapshot(requestRefresh: false);
+    notifyListeners();
+  }
+
+  Future<void> updateWearSmartSuggestionsEnabled(bool value) async {
+    if (_settings.wearSmartSuggestionsEnabled == value) {
+      return;
+    }
+    _settings = _settings.copyWith(wearSmartSuggestionsEnabled: value);
+    await _persistSettings();
+    await _syncWearOsSnapshot(requestRefresh: false);
     notifyListeners();
   }
 
@@ -1870,7 +2194,36 @@ class AppController extends ChangeNotifier {
     await AndroidHomeIntegration.syncSmartRouteNotifications(
       _settings.enableSmartRouteNotifications,
     );
+    unawaited(_pushSmartSuggestionToWearOsIfNeeded());
     notifyListeners();
+  }
+
+  /// Pushes the latest smart suggestion + usage profiles to the watch.
+  /// Debounces to once every 5 minutes when the smart-route signature hasn't
+  /// changed, so we don't burn battery on identical payloads.
+  Future<void> _pushSmartSuggestionToWearOsIfNeeded() async {
+    if (!_settings.wearSyncEnabled || !_settings.wearSmartSuggestionsEnabled) {
+      return;
+    }
+    final signature = smartRouteSignature;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final signatureUnchanged = _lastWearSmartSignature == signature;
+    final tooSoon = nowMs - _lastWearSmartPushAtMs <
+        const Duration(minutes: 5).inMilliseconds;
+    if (signatureUnchanged && tooSoon) {
+      return;
+    }
+    _lastWearSmartSignature = signature;
+    _lastWearSmartPushAtMs = nowMs;
+    try {
+      final usage = _buildWearUsageProfilesPayload();
+      final suggestion = await _buildWearSmartSuggestionPayload();
+      await WearOsIntegration.syncUsageProfiles(usage);
+      await WearOsIntegration.syncSmartSuggestion(suggestion);
+    } catch (_) {
+      // Reset signature so we retry next time something changes.
+      _lastWearSmartSignature = null;
+    }
   }
 
   Future<SmartRouteSuggestion?> getSmartRouteSuggestion({
@@ -1909,6 +2262,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
     await analytics.logFavoriteGroupCreated(groupCount: _favoriteGroups.length);
     notifyListeners();
   }
@@ -1920,6 +2274,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
     await analytics.logFavoriteGroupDeleted(groupCount: _favoriteGroups.length);
     notifyListeners();
   }
@@ -2000,6 +2355,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
     final savedFavorite = next[targetGroup]!.firstWhere(
       (item) => item.sameAs(favorite),
       orElse: () => favorite,
@@ -2076,6 +2432,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
     notifyListeners();
     return true;
   }
@@ -2093,6 +2450,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
     await analytics.logFavoriteStopRemoved(
       provider: favorite.provider,
       routeKey: favorite.routeKey,
@@ -2185,6 +2543,7 @@ class AppController extends ChangeNotifier {
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
   }
 
   int? _localModifiedAtMsForNamespace(AccountSyncNamespace namespace) {
@@ -2247,6 +2606,9 @@ class AppController extends ChangeNotifier {
     final mobile = _stringMap(platform?['mobile']);
     if (mobile != null) {
       _copyKnownKey(mobile, merged, 'mobileMapProvider');
+      _copyKnownKey(mobile, merged, 'wearSyncEnabled');
+      _copyKnownKey(mobile, merged, 'wearSelectedFavoriteIds');
+      _copyKnownKey(mobile, merged, 'wearSmartSuggestionsEnabled');
     }
     final desktop = _stringMap(platform?['desktop']);
     if (desktop != null) {
@@ -2314,8 +2676,19 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _cancelScheduledAccountSync();
+    _wearEventSubscription?.cancel();
     super.dispose();
   }
+}
+
+class _WearFavoriteSelection {
+  const _WearFavoriteSelection({
+    required this.groupName,
+    required this.favorite,
+  });
+
+  final String groupName;
+  final FavoriteStop favorite;
 }
 
 Map<String, dynamic> _preferencesSyncPayloadFromSettings(AppSettings settings) {
@@ -2346,7 +2719,12 @@ Map<String, dynamic> _preferencesSyncPayloadFromSettings(AppSettings settings) {
       'databaseAutoUpdateMode': json['databaseAutoUpdateMode'],
     },
     'platform': {
-      'mobile': {'mobileMapProvider': json['mobileMapProvider']},
+      'mobile': {
+        'mobileMapProvider': json['mobileMapProvider'],
+        'wearSyncEnabled': json['wearSyncEnabled'],
+        'wearSelectedFavoriteIds': json['wearSelectedFavoriteIds'],
+        'wearSmartSuggestionsEnabled': json['wearSmartSuggestionsEnabled'],
+      },
       'desktop': {
         'desktopDiscordPresenceEnabled': json['desktopDiscordPresenceEnabled'],
         'desktopDiscordShowProvider': json['desktopDiscordShowProvider'],

@@ -8,17 +8,31 @@ import '../core/android_trip_monitor.dart';
 import '../core/app_routes.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
+import '../core/wear_os_integration.dart';
 import '../widgets/app_update_dialog.dart';
 import 'account_screen.dart';
 import 'database_settings_screen.dart';
 import 'personalization_screen.dart';
 import '../widgets/background_image_wrapper.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
   static const _favoriteWidgetRefreshOptions = <int>[0, 15, 30, 60, 120, 180];
   static final _discordCommunityUri = Uri.parse('https://dc.avianjay.sbs/');
+
+  late Future<WearOsSyncStatus> _wearSyncStatusFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _wearSyncStatusFuture = WearOsIntegration.getStatus();
+  }
 
   String _favoriteWidgetRefreshLabel(int minutes) {
     if (minutes <= 0) {
@@ -217,6 +231,125 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (isAndroid) ...[
+                  const SizedBox(height: 12),
+                  FutureBuilder<WearOsSyncStatus>(
+                    future: _wearSyncStatusFuture,
+                    builder: (context, snapshot) {
+                      final status = snapshot.data;
+                      if (snapshot.connectionState ==
+                              ConnectionState.waiting ||
+                          (status == null || !status.hasConnectedNodes)) {
+                        return const SizedBox.shrink();
+                      }
+
+                      final groupNames = controller.favoriteGroupNames;
+                      final hasFavorites = groupNames.isNotEmpty;
+                      final selectedIds = controller.settings.wearSelectedFavoriteIds.toSet();
+
+                      // Get all available favorite IDs across all groups
+                      final availableIds = <String>[];
+                      for (final favorites in controller.favoriteGroups.values) {
+                        for (final fav in favorites) {
+                          availableIds.add(fav.stableKey);
+                        }
+                      }
+                      final availableSet = availableIds.toSet();
+
+                      String? selectedValue;
+                      if (selectedIds.isEmpty) {
+                        selectedValue = null;
+                      } else if (setEquals(selectedIds, availableSet)) {
+                        selectedValue = '__all__';
+                      } else {
+                        // Check if it matches any specific group
+                        for (final groupName in groupNames) {
+                          final groupStableKeys = controller.favoriteGroups[groupName]
+                              ?.map((e) => e.stableKey)
+                              .toSet() ?? const <String>{};
+                          if (groupStableKeys.isNotEmpty && setEquals(selectedIds, groupStableKeys)) {
+                            selectedValue = groupName;
+                            break;
+                          }
+                        }
+                      }
+
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Wear OS',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '已連接的手錶：${status.connectedNodeNames.join('、')}'
+                                '${status.connectedNodeCount > 1 ? ' 等 ${status.connectedNodeCount} 台' : ''}',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 12),
+                              SwitchListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('啟用 Wear OS 同步'),
+                                subtitle: const Text(
+                                  '將最愛站牌同步到手錶',
+                                ),
+                                value: controller.settings.wearSyncEnabled,
+                                onChanged: controller.updateWearSyncEnabled,
+                              ),
+                              if (controller.settings.wearSyncEnabled) ...[
+                                if (!hasFavorites)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Text(
+                                      '尚無最愛站牌。請先新增最愛，再進行同步。',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodyMedium,
+                                    ),
+                                  )
+                                else ...[
+                                  const SizedBox(height: 8),
+                                  DropdownButtonFormField<String>(
+                                    initialValue: selectedValue,
+                                    decoration: const InputDecoration(
+                                      labelText: '同步分類',
+                                    ),
+                                    items: [
+                                      const DropdownMenuItem(
+                                        value: '__all__',
+                                        child: Text('所有分類'),
+                                      ),
+                                      ...groupNames.map(
+                                        (groupName) => DropdownMenuItem(
+                                          value: groupName,
+                                          child: Text(groupName),
+                                        ),
+                                      ),
+                                    ],
+                                    onChanged: (value) {
+                                      if (value == '__all__') {
+                                        controller.updateWearSelectedFavoriteIds(availableIds);
+                                      } else if (value != null) {
+                                        final keys = controller.favoriteGroups[value]
+                                            ?.map((e) => e.stableKey)
+                                            .toList() ?? const <String>[];
+                                        controller.updateWearSelectedFavoriteIds(keys);
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
                 if (!kIsWeb) ...[
                   const SizedBox(height: 12),
                   Card(
@@ -660,3 +793,5 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 }
+
+ // SettingsScreen

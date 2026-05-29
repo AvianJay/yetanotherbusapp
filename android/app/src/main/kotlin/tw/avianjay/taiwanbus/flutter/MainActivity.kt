@@ -14,6 +14,7 @@ import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
@@ -27,6 +28,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         pendingLaunchPayload = AppLaunchConstants.extractLaunchPayload(intent)
+        val wearSyncBridge = WearSyncBridge(this)
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -101,6 +103,28 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            WEAR_OS_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            if (!wearSyncBridge.handle(call, result)) {
+                result.notImplemented()
+            }
+        }
+
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            WEAR_OS_EVENTS_CHANNEL,
+        ).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                WearEventBridge.attach(events)
+            }
+
+            override fun onCancel(arguments: Any?) {
+                WearEventBridge.detach()
+            }
+        })
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -360,6 +384,10 @@ class MainActivity : FlutterActivity() {
             "tw.avianjay.taiwanbus.flutter/app_launch"
         private const val HOME_INTEGRATION_CHANNEL =
             "tw.avianjay.taiwanbus.flutter/home_integration"
+        private const val WEAR_OS_CHANNEL =
+            "tw.avianjay.taiwanbus.flutter/wear_os"
+        private const val WEAR_OS_EVENTS_CHANNEL =
+            "tw.avianjay.taiwanbus.flutter/wear_os_events"
         private const val TRIP_MONITOR_CHANNEL =
             "tw.avianjay.taiwanbus.flutter/trip_monitor"
         private const val REQUEST_CODE_BACKGROUND_LOCATION = 900

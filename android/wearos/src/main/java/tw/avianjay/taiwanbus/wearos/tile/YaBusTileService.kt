@@ -1,6 +1,7 @@
 package tw.avianjay.taiwanbus.wearos.tile
 
 import android.content.Context
+import android.net.Uri
 import androidx.wear.protolayout.ActionBuilders
 import androidx.wear.protolayout.ColorBuilders.argb
 import androidx.wear.protolayout.DimensionBuilders.dp
@@ -160,7 +161,13 @@ class YaBusTileService : TileService() {
             context = context,
             background = COLOR_PRIMARY,
             content = column.build(),
-            clickable = openRouteAction(context, suggestion.routeId, suggestion.provider),
+            clickable = openRouteAction(
+                context,
+                routeId = suggestion.routeId,
+                routeName = suggestion.routeName.ifBlank { suggestion.routeId },
+                description = suggestion.stopName.ifBlank { suggestion.pathName },
+                provider = suggestion.provider,
+            ),
         )
     }
 
@@ -176,7 +183,13 @@ class YaBusTileService : TileService() {
             .addContent(text(favorite.etaText, 13, color = COLOR_ACCENT, weight = FONT_WEIGHT_BOLD))
 
         val clickable = if (favorite.routeId.isNotBlank()) {
-            openRouteAction(context, favorite.routeId, favorite.provider)
+            openRouteAction(
+                context,
+                routeId = favorite.routeId,
+                routeName = favorite.routeName.ifBlank { favorite.routeId },
+                description = favorite.stopName,
+                provider = favorite.provider,
+            )
         } else {
             launchAppAction(context)
         }
@@ -300,14 +313,20 @@ class YaBusTileService : TileService() {
     private fun openRouteAction(
         context: Context,
         routeId: String,
+        routeName: String,
+        description: String,
         provider: String,
     ): ModifiersBuilders.Clickable {
+        val encodedName = Uri.encode(routeName.ifBlank { routeId })
+        val encodedDesc = Uri.encode(description)
+        val deeplinkUri =
+            "yabus-wear://route/$routeId?routeName=$encodedName&description=$encodedDesc&provider=$provider"
         val androidActivity = ActionBuilders.AndroidActivity.Builder()
             .setPackageName(context.packageName)
             .setClassName(MainActivity::class.java.name)
             .addKeyToExtraMapping(
                 "deeplink",
-                ActionBuilders.stringExtra("yabus-wear://route/$routeId?provider=$provider"),
+                ActionBuilders.stringExtra(deeplinkUri),
             )
             .build()
         val launchAction = ActionBuilders.LaunchAction.Builder()

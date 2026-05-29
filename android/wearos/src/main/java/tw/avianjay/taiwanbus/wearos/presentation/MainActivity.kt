@@ -122,7 +122,12 @@ internal enum class WearScreen {
 }
 
 internal sealed class DeepLinkTarget {
-    data class Route(val routeId: String, val provider: String) : DeepLinkTarget()
+    data class Route(
+        val routeId: String,
+        val routeName: String,
+        val description: String,
+        val provider: String,
+    ) : DeepLinkTarget()
     object Search : DeepLinkTarget()
     object Nearby : DeepLinkTarget()
 
@@ -132,8 +137,11 @@ internal sealed class DeepLinkTarget {
             return when (uri.host) {
                 "route" -> {
                     val routeId = uri.lastPathSegment.orEmpty()
+                    val routeName = uri.getQueryParameter("routeName").orEmpty()
+                        .ifBlank { routeId }
+                    val description = uri.getQueryParameter("description").orEmpty()
                     val provider = uri.getQueryParameter("provider").orEmpty()
-                    if (routeId.isEmpty()) null else Route(routeId, provider)
+                    if (routeId.isEmpty()) null else Route(routeId, routeName, description, provider)
                 }
 
                 "search" -> Search
@@ -200,8 +208,8 @@ private fun WearApp(
             is DeepLinkTarget.Route -> {
                 selectedRoute = RouteSearchResult(
                     routeId = target.routeId,
-                    routeName = target.routeId,
-                    description = target.provider,
+                    routeName = target.routeName,
+                    description = target.description,
                     provider = target.provider,
                 )
                 screen = WearScreen.RouteDetail
@@ -352,10 +360,16 @@ private fun WearApp(
                             Modifier.fillMaxWidth().transformedHeight(this, transformationSpec),
                         transformation = SurfaceTransformation(transformationSpec),
                     ) {
-                        Column {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
                             Text(
                                 when (screen) {
-                                    WearScreen.Favorites -> "我的最愛"
+                                    WearScreen.Favorites -> {
+                                        val groupName = state.favorites.firstOrNull()?.groupName
+                                        if (!groupName.isNullOrBlank()) groupName else "我的最愛"
+                                    }
                                     WearScreen.Search -> "搜尋公車"
                                     WearScreen.Nearby -> "附近站牌"
                                     WearScreen.RouteDetail -> selectedRoute?.routeName ?: "公車資料"

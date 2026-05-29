@@ -124,6 +124,7 @@ jobs:
       - name: Build AAB
         env:
           APP_GIT_SHA: ${{ github.sha }}
+          APP_BUILD_AAB: "true"
         run: >
           flutter build appbundle --release
           --dart-define=APP_GIT_SHA=${{ github.sha }}

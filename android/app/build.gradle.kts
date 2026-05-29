@@ -54,6 +54,13 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         buildConfigField("String", "GIT_SHA", "\"${escapeBuildConfigString(appGitSha)}\"")
+
+        val isAabBuild = System.getenv("APP_BUILD_AAB") == "true" || project.hasProperty("APP_BUILD_AAB")
+        manifestPlaceholders["installPackagesPermission"] = if (isAabBuild) {
+            "android.permission.INTERNET"
+        } else {
+            "android.permission.REQUEST_INSTALL_PACKAGES"
+        }
     }
 
     signingConfigs {

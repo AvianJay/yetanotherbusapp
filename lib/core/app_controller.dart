@@ -1675,6 +1675,12 @@ class AppController extends ChangeNotifier {
   Future<AppUpdateCheckResult> checkForAppUpdate({
     AppUpdateChannel? channel,
   }) async {
+    if (AppBuildInfo.isAabBuild) {
+      return const AppUpdateCheckResult(
+        status: AppUpdateStatus.unavailable,
+        message: 'Google Play 版本由商店自動更新。',
+      );
+    }
     if (_checkingAppUpdate) {
       return _lastAppUpdateResult ??
           const AppUpdateCheckResult(
@@ -1702,6 +1708,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<AppUpdateCheckResult?> maybeCheckForAppUpdateOnLaunch() async {
+    if (AppBuildInfo.isAabBuild) {
+      return null;
+    }
     if (_startupAppUpdateChecked ||
         _settings.appUpdateCheckMode == AppUpdateCheckMode.off) {
       return null;

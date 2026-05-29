@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../app/bus_app.dart';
 import '../core/android_trip_monitor.dart';
+import '../core/app_build_info.dart';
 import '../core/app_routes.dart';
 import '../core/app_controller.dart';
 import '../core/models.dart';
@@ -535,7 +536,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ),
-                if (!kIsWeb) ...[
+                if (!kIsWeb && !AppBuildInfo.isAabBuild) ...[
                   const SizedBox(height: 12),
                   Card(
                     child: Padding(

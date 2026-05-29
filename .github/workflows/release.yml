@@ -106,6 +106,30 @@ jobs:
           name: android-apk-release
           path: build/app/outputs/flutter-apk/YABus-${{ inputs.version }}.apk
 
+      - name: Build AppBundle
+        run: >
+          flutter build appbundle --release
+          --dart-define=APP_GIT_SHA=${{ github.sha }}
+          --dart-define=APP_UPDATE_CHANNEL=${{ env.APP_UPDATE_CHANNEL }}
+          --dart-define=APP_REPO_OWNER=${{ env.APP_REPO_OWNER }}
+          --dart-define=APP_REPO_NAME=${{ env.APP_REPO_NAME }}
+          --dart-define=APP_WORKFLOW_API_ID=${{ env.APP_WORKFLOW_API_ID }}
+          --dart-define=APP_WORKFLOW_NIGHTLY_ID=${{ env.APP_WORKFLOW_NIGHTLY_ID }}
+          --dart-define=YABUS_GOOGLE_WEB_CLIENT_ID=${{ env.YABUS_GOOGLE_WEB_CLIENT_ID }}
+          --dart-define=YABUS_GOOGLE_IOS_CLIENT_ID=${{ env.YABUS_GOOGLE_IOS_CLIENT_ID }}
+          --dart-define=APP_NIGHTLY_ARTIFACT=android-aab-release
+          --dart-define=APP_BUILD_AAB=true
+      - name: Rename AppBundle
+        shell: bash
+        run: |
+          mv build/app/outputs/bundle/release/app-release.aab \
+             build/app/outputs/bundle/release/YABus-${{ inputs.version }}.aab
+      - name: Upload Android AppBundle artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-aab-release
+          path: build/app/outputs/bundle/release/YABus-${{ inputs.version }}.aab
+
   build-wearos:
     name: Build Wear OS APK
     runs-on: ubuntu-latest
@@ -496,6 +520,11 @@ jobs:
         with:
           name: android-apk-release
           path: release-assets
+      - name: Download Android AppBundle
+        uses: actions/download-artifact@v5
+        with:
+          name: android-aab-release
+          path: release-assets
       - name: Download Wear OS APK
         uses: actions/download-artifact@v5
         with:
@@ -551,6 +580,7 @@ jobs:
           | 平台 | 包裝 | 下載 |
           | --- | --- | --- |
           | Android | APK | [YABus-${{ inputs.version }}.apk]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}.apk) |
+          | Android | AAB | [YABus-${{ inputs.version }}.aab]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}.aab) |
           | Wear OS | APK | [YABus-WearOS-${{ inputs.version }}.apk]($RELEASE_DOWNLOAD_BASE/YABus-WearOS-${{ inputs.version }}.apk) |
           | iOS | Unsigned IPA | [YABus-${{ inputs.version }}.ipa]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}.ipa) |
           | Windows | Installer | [YABus-${{ inputs.version }}-windows-x64-setup.exe]($RELEASE_DOWNLOAD_BASE/YABus-${{ inputs.version }}-windows-x64-setup.exe) |
@@ -586,6 +616,7 @@ jobs:
           prerelease: ${{ inputs.prerelease }}
           files: |
             release-assets/YABus-${{ inputs.version }}.apk
+            release-assets/YABus-${{ inputs.version }}.aab
             release-assets/YABus-${{ inputs.version }}.ipa
             release-assets/YABus-${{ inputs.version }}-windows-x64-setup.exe
             release-assets/YABus-${{ inputs.version }}-linux-amd64.deb

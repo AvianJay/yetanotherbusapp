@@ -31,6 +31,11 @@ class AppBuildInfo {
     defaultValue: 'android-apk-release',
   );
 
+  static const isAabBuild = bool.fromEnvironment(
+    'APP_BUILD_AAB',
+    defaultValue: false,
+  );
+
   static const _fallbackVersion = 'unknown';
   static const _fallbackBuildNumber = '0';
   static const _gitSha = String.fromEnvironment(

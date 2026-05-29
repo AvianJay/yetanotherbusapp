@@ -375,13 +375,15 @@ class AppSettings {
       databaseAutoUpdateMode: DatabaseAutoUpdateMode.checkPopup,
       appUpdateChannel: _defaultAppUpdateChannel(),
       appUpdateCheckMode:
-          const String.fromEnvironment(
-                'APP_UPDATE_CHANNEL',
-                defaultValue: 'nightly',
-              ) ==
-              'developer'
-          ? AppUpdateCheckMode.off
-          : AppUpdateCheckMode.popup,
+          const bool.fromEnvironment('APP_BUILD_AAB', defaultValue: false)
+              ? AppUpdateCheckMode.off
+              : (const String.fromEnvironment(
+                    'APP_UPDATE_CHANNEL',
+                    defaultValue: 'nightly',
+                  ) ==
+                  'developer'
+              ? AppUpdateCheckMode.off
+              : AppUpdateCheckMode.popup),
       desktopDiscordPresenceEnabled: true,
       desktopDiscordShowProvider: false,
       desktopDiscordShowScreen: true,
@@ -484,13 +486,15 @@ class AppSettings {
       ),
       appUpdateCheckMode: appUpdateCheckModeFromString(
         json['appUpdateCheckMode'] as String? ??
-            (const String.fromEnvironment(
-                      'APP_UPDATE_CHANNEL',
-                      defaultValue: 'nightly',
-                    ) ==
-                    'developer'
+            (const bool.fromEnvironment('APP_BUILD_AAB', defaultValue: false)
                 ? 'off'
-                : 'popup'),
+                : (const String.fromEnvironment(
+                          'APP_UPDATE_CHANNEL',
+                          defaultValue: 'nightly',
+                        ) ==
+                        'developer'
+                    ? 'off'
+                    : 'popup')),
       ),
       desktopDiscordPresenceEnabled:
           json['desktopDiscordPresenceEnabled'] as bool? ?? true,

@@ -57,6 +57,8 @@ import androidx.wear.compose.material3.Text
 import androidx.wear.compose.material3.lazy.rememberTransformationSpec
 import androidx.wear.compose.material3.lazy.transformedHeight
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import tw.avianjay.taiwanbus.wearos.tile.YaBusTileService
 import tw.avianjay.taiwanbus.wearos.data.FavoriteStop
 import tw.avianjay.taiwanbus.wearos.data.RouteSearchResult
 import tw.avianjay.taiwanbus.wearos.data.WearAddFavoriteRequester
@@ -184,6 +186,22 @@ private fun WearApp(
 
     LaunchedEffect(Unit) {
         nearbyPermissionGranted = WearNearbyService.hasLocationPermission(context)
+    }
+
+    // 在最愛頁面自動每 30 秒刷新一次到站資料
+    LaunchedEffect(screen) {
+        if (screen != WearScreen.Favorites) return@LaunchedEffect
+        while (isActive) {
+            delay(30_000L)
+            // 直接讀取最新 state，避免使用過期的快照參數
+            val current = WearDataRepository.state
+            if (current.settings.syncEnabled &&
+                current.favorites.isNotEmpty() &&
+                !current.isRefreshing
+            ) {
+                onRefresh()
+            }
+        }
     }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(

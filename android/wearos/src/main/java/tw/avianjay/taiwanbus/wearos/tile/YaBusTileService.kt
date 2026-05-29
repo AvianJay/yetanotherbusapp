@@ -27,6 +27,9 @@ import tw.avianjay.taiwanbus.wearos.data.WearDataRepository
 import tw.avianjay.taiwanbus.wearos.data.WearSmartSuggestionPayload
 import tw.avianjay.taiwanbus.wearos.data.WearTileSnapshot
 import tw.avianjay.taiwanbus.wearos.presentation.MainActivity
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Tile entry point. The layout shows (in order):
@@ -107,6 +110,19 @@ class YaBusTileService : TileService() {
             favorites.forEach { favorite ->
                 column.addContent(favoriteRow(context, favorite))
                 column.addContent(spacer(4))
+            }
+            // 最後更新時間
+            val updatedMs = snapshot.lastUpdatedAtMs
+            if (updatedMs > 0L) {
+                val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(updatedMs))
+                column.addContent(spacer(2))
+                column.addContent(
+                    text(
+                        "更新 $timeStr",
+                        sizeSp = 10,
+                        color = COLOR_ON_SURFACE_DIM,
+                    ),
+                )
             }
         }
 

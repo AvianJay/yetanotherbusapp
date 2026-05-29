@@ -1,5 +1,7 @@
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../core/ad_service.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -28,11 +30,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static final _discordCommunityUri = Uri.parse('https://dc.avianjay.sbs/');
 
   late Future<WearOsSyncStatus> _wearSyncStatusFuture;
+  int _adToggleCount = 0;
+  bool _adToggleLocked = false;
+  bool _adToggleConfirmed = false;
 
   @override
   void initState() {
     super.initState();
     _wearSyncStatusFuture = WearOsIntegration.getStatus();
+    _loadAdToggleLockState();
+  }
+
+  Future<void> _loadAdToggleLockState() async {
+    final locked = await AdService.instance.isAdToggleLocked();
+    if (mounted) {
+      setState(() => _adToggleLocked = locked);
+    }
   }
 
   String _favoriteWidgetRefreshLabel(int minutes) {
@@ -85,6 +98,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
     await controller.updateEnableSmartRouteNotifications(true);
+  }
+
+  Future<void> _handleAdToggle(
+    BuildContext context,
+    AppController controller,
+    bool value,
+  ) async {
+    _adToggleCount++;
+
+    // Lock after 5 toggles.
+    if (_adToggleCount > 5) {
+      await AdService.instance.lockAdToggle();
+      await controller.updateEnableAds(true);
+      if (!context.mounted) return;
+      setState(() => _adToggleLocked = true);
+      // await showDialog<void>(
+      //   context: context,
+      //   barrierDismissible: false,
+      //   builder: (dialogContext) => AlertDialog(
+      //     title: const Text('再玩啊哈哈'),
+      //     content: const Text('開關已經被鎖起來了，只能重裝 app 才能解除鎖定 🥺'),
+      //     actions: [
+      //       FilledButton(
+      //         onPressed: () => Navigator.of(dialogContext).pop(),
+      //         child: const Text('好啦 🥺'),
+      //       ),
+      //     ],
+      //   ),
+      // );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('再玩啊哈哈')));
+      return;
+    }
+
+    // Turning ads on → no confirmation needed.
+    if (value) {
+      await controller.updateEnableAds(true);
+      return;
+    }
+
+    // Turning ads off → ask for confirmation.
+    final confirmed = _adToggleConfirmed
+        ? true
+        : await showDialog<bool>(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: const Text('你確定嗎'),
+                  content: const Text('我沒有摳摳 :('),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(false),
+                      child: const Text('算了不關'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(true),
+                      child: const Text('確定關閉'),
+                    ),
+                  ],
+                ),
+              ) ??
+              false;
+    if (confirmed == true) {
+      _adToggleConfirmed = true;
+      await controller.updateEnableAds(false);
+    }
   }
 
   Future<void> _openDiscordCommunity(BuildContext context) async {
@@ -238,19 +317,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     future: _wearSyncStatusFuture,
                     builder: (context, snapshot) {
                       final status = snapshot.data;
-                      if (snapshot.connectionState ==
-                              ConnectionState.waiting ||
+                      if (snapshot.connectionState == ConnectionState.waiting ||
                           (status == null || !status.hasConnectedNodes)) {
                         return const SizedBox.shrink();
                       }
 
                       final groupNames = controller.favoriteGroupNames;
                       final hasFavorites = groupNames.isNotEmpty;
-                      final selectedIds = controller.settings.wearSelectedFavoriteIds.toSet();
+                      final selectedIds = controller
+                          .settings
+                          .wearSelectedFavoriteIds
+                          .toSet();
 
                       // Get all available favorite IDs across all groups
                       final availableIds = <String>[];
-                      for (final favorites in controller.favoriteGroups.values) {
+                      for (final favorites
+                          in controller.favoriteGroups.values) {
                         for (final fav in favorites) {
                           availableIds.add(fav.stableKey);
                         }
@@ -265,10 +347,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       } else {
                         // Check if it matches any specific group
                         for (final groupName in groupNames) {
-                          final groupStableKeys = controller.favoriteGroups[groupName]
-                              ?.map((e) => e.stableKey)
-                              .toSet() ?? const <String>{};
-                          if (groupStableKeys.isNotEmpty && setEquals(selectedIds, groupStableKeys)) {
+                          final groupStableKeys =
+                              controller.favoriteGroups[groupName]
+                                  ?.map((e) => e.stableKey)
+                                  .toSet() ??
+                              const <String>{};
+                          if (groupStableKeys.isNotEmpty &&
+                              setEquals(selectedIds, groupStableKeys)) {
                             selectedValue = groupName;
                             break;
                           }
@@ -295,9 +380,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               SwitchListTile(
                                 contentPadding: EdgeInsets.zero,
                                 title: const Text('啟用 Wear OS 同步'),
-                                subtitle: const Text(
-                                  '將最愛站牌同步到手錶',
-                                ),
+                                subtitle: const Text('將最愛站牌同步到手錶'),
                                 value: controller.settings.wearSyncEnabled,
                                 onChanged: controller.updateWearSyncEnabled,
                               ),
@@ -333,12 +416,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ],
                                     onChanged: (value) {
                                       if (value == '__all__') {
-                                        controller.updateWearSelectedFavoriteIds(availableIds);
+                                        controller
+                                            .updateWearSelectedFavoriteIds(
+                                              availableIds,
+                                            );
                                       } else if (value != null) {
-                                        final keys = controller.favoriteGroups[value]
-                                            ?.map((e) => e.stableKey)
-                                            .toList() ?? const <String>[];
-                                        controller.updateWearSelectedFavoriteIds(keys);
+                                        final keys =
+                                            controller.favoriteGroups[value]
+                                                ?.map((e) => e.stableKey)
+                                                .toList() ??
+                                            const <String>[];
+                                        controller
+                                            .updateWearSelectedFavoriteIds(
+                                              keys,
+                                            );
                                       }
                                     },
                                   ),
@@ -425,6 +516,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           value: controller.settings.alwaysShowSeconds,
                           onChanged: controller.updateAlwaysShowSeconds,
                         ),
+                        if (!kIsWeb &&
+                            defaultTargetPlatform == TargetPlatform.android)
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('顯示廣告'),
+                            subtitle: _adToggleLocked
+                                ? Text.rich(
+                                    TextSpan(
+                                      children: [
+                                        WidgetSpan(
+                                          alignment:
+                                              PlaceholderAlignment.middle,
+                                          child: Image.asset(
+                                            "assets/cat_laugh.png",
+                                            width: 20,
+                                            height: 20,
+                                          ),
+                                        ),
+                                        const TextSpan(text: ' 再玩啊哈哈'),
+                                      ],
+                                    ),
+                                  )
+                                : controller.settings.enableAds
+                                ? const Text('把開發者的飯碗搶走。')
+                                : Text.rich(
+                                    TextSpan(
+                                      children: [
+                                        WidgetSpan(
+                                          alignment:
+                                              PlaceholderAlignment.middle,
+                                          child: Image.asset(
+                                            [
+                                              "assets/cat_cry.png",
+                                              "assets/cat_sad.png",
+                                            ][Random().nextInt(2)],
+                                            width: 20,
+                                            height: 20,
+                                          ),
+                                        ),
+                                        TextSpan(
+                                          text:
+                                              ' ${["我求你了", "我跪著有用嗎", "你不能這樣對我", "QAQ"][Random().nextInt(4)]}',
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                            value: _adToggleLocked
+                                ? true
+                                : controller.settings.enableAds,
+                            onChanged: _adToggleLocked
+                                ? null
+                                : (value) => _handleAdToggle(
+                                    context,
+                                    controller,
+                                    value,
+                                  ),
+                          ),
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('智慧推薦'),
@@ -795,4 +943,4 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
- // SettingsScreen
+// SettingsScreen

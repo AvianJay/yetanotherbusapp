@@ -18,6 +18,7 @@ import 'favorites_screen.dart';
 import 'nearby_screen.dart';
 import 'route_detail_navigation.dart';
 import 'search_screen.dart';
+import '../widgets/ad_banner_widget.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({required this.onModeChanged, super.key});
@@ -92,6 +93,8 @@ class HomeScreen extends StatelessWidget {
             );
           },
         ),
+        const SizedBox(height: 16),
+        const AdBannerWidget(),
       ],
     );
   }

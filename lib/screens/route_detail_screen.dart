@@ -23,6 +23,7 @@ import '../core/twbusforum.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/route_bus_map_sheet.dart';
+import '../widgets/ad_banner_widget.dart';
 
 class RouteDetailScreen extends StatefulWidget {
   const RouteDetailScreen({
@@ -4077,10 +4078,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     return ListView.separated(
                       controller: _scrollControllerForPath(path.pathId),
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-                      itemCount: pathStops.length,
+                      itemCount: pathStops.length + 2,
                       separatorBuilder: (_, _) => const SizedBox(height: 18),
                       itemBuilder: (context, index) {
-                        final stop = pathStops[index];
+                        if (index == 0 || index == pathStops.length + 1) {
+                          return const AdBannerWidget();
+                        }
+                        final stop = pathStops[index - 1];
                         final key = _stopKeys.putIfAbsent(
                           _keyForStop(path.pathId, stop.stopId),
                           GlobalKey.new,

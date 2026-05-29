@@ -12,6 +12,7 @@ import '../app/bus_app.dart';
 import '../core/transit_repository.dart';
 import '../widgets/transit_drawer.dart';
 import '../widgets/platform_map_provider.dart';
+import '../widgets/ad_banner_widget.dart';
 
 class YouBikeScreen extends StatefulWidget {
   const YouBikeScreen({required this.onModeChanged, super.key});
@@ -1117,28 +1118,35 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
         currentMode: TransitMode.youbike,
         onModeChanged: widget.onModeChanged,
       ),
-      body: _locating
-          ? const Center(child: CircularProgressIndicator())
-          : useSplitLayout
-          ? Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(width: 380, child: _buildSplitStationSidebar(theme)),
-                VerticalDivider(
-                  width: 1,
-                  thickness: 1,
-                  color: theme.colorScheme.outlineVariant,
-                ),
-                Expanded(
-                  child: _buildMapContent(
+      body: Column(
+        children: [
+          Expanded(
+            child: _locating
+                ? const Center(child: CircularProgressIndicator())
+                : useSplitLayout
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(width: 380, child: _buildSplitStationSidebar(theme)),
+                      VerticalDivider(
+                        width: 1,
+                        thickness: 1,
+                        color: theme.colorScheme.outlineVariant,
+                      ),
+                      Expanded(
+                        child: _buildMapContent(
+                          useGoogleMapsPointProvider: useGoogleMapsPointProvider,
+                        ),
+                      ),
+                    ],
+                  )
+                : _buildMapContent(
                     useGoogleMapsPointProvider: useGoogleMapsPointProvider,
                   ),
-                ),
-              ],
-            )
-          : _buildMapContent(
-              useGoogleMapsPointProvider: useGoogleMapsPointProvider,
-            ),
+          ),
+          const AdBannerWidget(),
+        ],
+      ),
     );
   }
 

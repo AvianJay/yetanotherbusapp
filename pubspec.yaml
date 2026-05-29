@@ -63,6 +63,7 @@ dependencies:
   flutter_markdown: ^0.7.7+1
   google_maps_flutter: ^2.17.0
   google_sign_in: ^7.2.0
+  google_mobile_ads: ^5.3.0
 
 dev_dependencies:
   flutter_test:
@@ -90,6 +91,9 @@ flutter:
   assets:
     - assets/branding/splash_android.png
     - assets/branding/icon_transparent.png
+    - assets/cat_cry.png
+    - assets/cat_laugh.png
+    - assets/cat_sad.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

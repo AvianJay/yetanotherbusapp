@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/transit_repository.dart';
 import '../widgets/transit_drawer.dart';
 import '../widgets/transit_station_map.dart';
+import '../widgets/ad_banner_widget.dart';
 
 enum _TraPanel { query, map }
 
@@ -235,36 +236,43 @@ class _TraScreenState extends State<TraScreen> {
         currentMode: TransitMode.tra,
         onModeChanged: widget.onModeChanged,
       ),
-      body: _loadingStations
-          ? const Center(child: CircularProgressIndicator())
-          : _pageError != null && _stations.isEmpty
-          ? _ErrorState(message: _pageError!, onRetry: _loadInitialData)
-          : RefreshIndicator(
-              onRefresh: _loadInitialData,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                children: [
-                  if (_alerts.isNotEmpty) ...[
-                    _RailAlertCard(alerts: _alerts),
-                    const SizedBox(height: 16),
-                  ],
-                  _buildLiveOverview(theme),
-                  const SizedBox(height: 16),
-                  _TraPanelButtons(
-                    current: _panel,
-                    onChanged: (panel) => setState(() => _panel = panel),
+      body: Column(
+        children: [
+          Expanded(
+            child: _loadingStations
+                ? const Center(child: CircularProgressIndicator())
+                : _pageError != null && _stations.isEmpty
+                ? _ErrorState(message: _pageError!, onRetry: _loadInitialData)
+                : RefreshIndicator(
+                    onRefresh: _loadInitialData,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        if (_alerts.isNotEmpty) ...[
+                          _RailAlertCard(alerts: _alerts),
+                          const SizedBox(height: 16),
+                        ],
+                        _buildLiveOverview(theme),
+                        const SizedBox(height: 16),
+                        _TraPanelButtons(
+                          current: _panel,
+                          onChanged: (panel) => setState(() => _panel = panel),
+                        ),
+                        const SizedBox(height: 16),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 220),
+                          child: _panel == _TraPanel.query
+                              ? _buildQueryPanel(theme)
+                              : _buildMapPanel(theme),
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 16),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    child: _panel == _TraPanel.query
-                        ? _buildQueryPanel(theme)
-                        : _buildMapPanel(theme),
-                  ),
-                ],
-              ),
-            ),
+          ),
+          const AdBannerWidget(),
+        ],
+      ),
       );
   }
 

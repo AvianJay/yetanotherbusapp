@@ -345,6 +345,7 @@ class AppSettings {
     required this.wearSyncEnabled,
     required this.wearSelectedFavoriteIds,
     required this.wearSmartSuggestionsEnabled,
+    required this.enableAds,
   });
 
   factory AppSettings.defaults() {
@@ -391,6 +392,7 @@ class AppSettings {
       wearSyncEnabled: false,
       wearSelectedFavoriteIds: const [],
       wearSmartSuggestionsEnabled: true,
+      enableAds: true,
     );
   }
 
@@ -514,6 +516,7 @@ class AppSettings {
           const <String>[],
       wearSmartSuggestionsEnabled:
           json['wearSmartSuggestionsEnabled'] as bool? ?? true,
+      enableAds: json['enableAds'] as bool? ?? true,
     );
   }
 
@@ -550,6 +553,7 @@ class AppSettings {
   final bool wearSyncEnabled;
   final List<String> wearSelectedFavoriteIds;
   final bool wearSmartSuggestionsEnabled;
+  final bool enableAds;
 
   AppSettings copyWith({
     BusProvider? provider,
@@ -586,6 +590,7 @@ class AppSettings {
     bool? wearSyncEnabled,
     List<String>? wearSelectedFavoriteIds,
     bool? wearSmartSuggestionsEnabled,
+    bool? enableAds,
   }) {
     return AppSettings(
       provider: provider ?? this.provider,
@@ -641,6 +646,7 @@ class AppSettings {
           wearSelectedFavoriteIds ?? this.wearSelectedFavoriteIds,
       wearSmartSuggestionsEnabled:
           wearSmartSuggestionsEnabled ?? this.wearSmartSuggestionsEnabled,
+      enableAds: enableAds ?? this.enableAds,
     );
   }
 
@@ -682,6 +688,7 @@ class AppSettings {
       'wearSyncEnabled': wearSyncEnabled,
       'wearSelectedFavoriteIds': wearSelectedFavoriteIds,
       'wearSmartSuggestionsEnabled': wearSmartSuggestionsEnabled,
+      'enableAds': enableAds,
     };
   }
 }

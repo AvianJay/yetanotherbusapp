@@ -1612,6 +1612,12 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateEnableAds(bool value) async {
+    _settings = _settings.copyWith(enableAds: value);
+    await _persistSettings();
+    notifyListeners();
+  }
+
   Future<void> downloadCurrentProviderDatabase() async {
     return downloadProviderDatabase(_settings.provider);
   }

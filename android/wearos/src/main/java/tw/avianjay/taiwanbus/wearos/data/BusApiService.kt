@@ -34,7 +34,7 @@ object BusApiService {
     private var securityProviderPrepared = false
 
     suspend fun fetchArrivals(
-        context: Context,
+        context: Context?,
         favorites: List<FavoriteStop>,
     ): List<BusArrival> =
         withContext(Dispatchers.IO) {
@@ -88,7 +88,7 @@ object BusApiService {
         }
 
     suspend fun searchRoutes(
-        context: Context,
+        context: Context?,
         query: String,
         limit: Int = 20,
     ): List<RouteSearchResult> = withContext(Dispatchers.IO) {
@@ -137,19 +137,43 @@ object BusApiService {
     }
 
     suspend fun fetchRouteDetail(
-        context: Context,
+        context: Context?,
         routeId: String,
         provider: String,
     ): WearRouteDetail = withContext(Dispatchers.IO) {
         ensureSecurityProvider(context)
-        val payload = requestJson(
-            "${BuildConfig.WEAR_API_BASE_URL}/api/v1/routes/${encodePathSegment(routeId)}/realtime",
-        ).jsonObject
+        
+        // 1. Fetch static stops metadata
+        val stopsPayload = runCatching {
+            requestJson(
+                "${BuildConfig.WEAR_API_BASE_URL}/api/v1/routes/${encodePathSegment(routeId)}/stops",
+            ).jsonObject
+        }.getOrNull() ?: throw IllegalStateException("無法取得路線站牌資訊")
 
-        val routeName = payload.string("name").ifBlank { routeId }
+        // 2. Fetch real-time eta data (defensively fallback if fails)
+        val realtimePayload = runCatching {
+            requestJson(
+                "${BuildConfig.WEAR_API_BASE_URL}/api/v1/routes/${encodePathSegment(routeId)}/realtime",
+            ).jsonObject
+        }.getOrNull()
+
+        val routeName = stopsPayload.string("name").ifBlank { routeId }
         val requestedAtMs = System.currentTimeMillis()
 
-        val paths = payload.paths().map { pathObj ->
+        // 3. Map real-time stops by composite key for easy merging
+        val realtimeStopsMap = mutableMapOf<String, JsonObject>()
+        if (realtimePayload != null) {
+            for (pathObj in realtimePayload.paths()) {
+                val pathId = pathObj.int("pathid") ?: 0
+                for (stopObj in pathObj.stops()) {
+                    val stopId = parseStopId(stopObj["stopid"])
+                    realtimeStopsMap["$pathId:$stopId"] = stopObj
+                }
+            }
+        }
+
+        // 4. Build paths and stops from the static stops metadata and merge real-time info
+        val paths = stopsPayload.paths().map { pathObj ->
             val pathId = pathObj.int("pathid") ?: 0
             val pathName = pathObj.string("name").ifBlank {
                 val dest = pathObj.string("destination")
@@ -157,10 +181,16 @@ object BusApiService {
             }
             
             val stops = pathObj.stops().map { stopObj ->
-                val etaSeconds = stopObj.int("eta")
-                val message = stopObj.string("message")
-                val updatedAtMs = parseUpdatedAt(stopObj.string("updated_at")) ?: requestedAtMs
-                val busCount = (stopObj["buses"] as? JsonArray)?.size ?: 0
+                val stopId = parseStopId(stopObj["stopid"])
+                val stopName = stopObj.string("name")
+                val seq = stopObj.int("seq") ?: 0
+
+                val rtStop = realtimeStopsMap["$pathId:$stopId"]
+                val etaSeconds = rtStop?.int("eta")
+                val message = rtStop?.string("message").orEmpty()
+                val updatedAtMs = rtStop?.let { parseUpdatedAt(it.string("updated_at")) } ?: requestedAtMs
+                val busCount = (rtStop?.get("buses") as? JsonArray)?.size ?: 0
+
                 val etaText = when {
                     message.isNotBlank() -> message
                     etaSeconds == null -> "--"
@@ -168,18 +198,20 @@ object BusApiService {
                     etaSeconds < 60 -> "${etaSeconds}秒"
                     else -> "${etaSeconds / 60}分"
                 }
+
                 val statusText = when {
                     busCount > 0 -> {
                         val label = if (busCount == 1) "1車" else "${busCount}車"
                         "$label | ${timeFormatter.format(Date(updatedAtMs))}"
                     }
-                    updatedAtMs > 0L -> "更新於 ${timeFormatter.format(Date(updatedAtMs))}"
+                    rtStop != null && updatedAtMs > 0L -> "更新於 ${timeFormatter.format(Date(updatedAtMs))}"
                     else -> ""
                 }
+
                 WearRouteStop(
-                    stopId = parseStopId(stopObj["stopid"]),
-                    name = stopObj.string("name"),
-                    sequence = stopObj.int("seq") ?: 0,
+                    stopId = stopId,
+                    name = stopName,
+                    sequence = seq,
                     etaText = etaText,
                     statusText = statusText,
                 )
@@ -228,7 +260,10 @@ object BusApiService {
         }
     }
 
-    private fun ensureSecurityProvider(context: Context) {
+    private fun ensureSecurityProvider(context: Context?) {
+        if (context == null) {
+            return
+        }
         if (securityProviderPrepared) {
             return
         }
@@ -240,10 +275,8 @@ object BusApiService {
 
             try {
                 ProviderInstaller.installIfNeeded(context.applicationContext)
-            } catch (_: GooglePlayServicesRepairableException) {
-                return
-            } catch (_: GooglePlayServicesNotAvailableException) {
-                return
+            } catch (_: Throwable) {
+                // Ignored
             }
 
             securityProviderPrepared = true

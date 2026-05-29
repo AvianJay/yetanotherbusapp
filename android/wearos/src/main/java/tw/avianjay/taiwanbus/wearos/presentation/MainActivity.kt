@@ -46,6 +46,8 @@ import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
+import androidx.wear.compose.material3.Card
+import androidx.wear.compose.material3.CardDefaults
 import androidx.wear.compose.material3.EdgeButton
 import androidx.wear.compose.material3.ListHeader
 import androidx.wear.compose.material3.MaterialTheme
@@ -552,30 +554,26 @@ private fun TransformingLazyColumnScope.favoritesContent(
     }
 
     item {
-        Button(
+        Card(
             onClick = onOpenSearch,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Column {
-                Text("搜尋公車")
-                Text("要去搭哪一台公車？")
-            }
+            Text("搜尋公車")
+            Text("要去搭哪一台公車？")
         }
     }
 
     item {
-        Button(
+        Card(
             onClick = onOpenNearby,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(
+            colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                 contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
             ),
         ) {
-            Column {
-                Text("附近站牌")
-                Text("使用手錶定位")
-            }
+            Text("附近站牌")
+            Text("使用手錶定位")
         }
     }
 
@@ -646,19 +644,17 @@ private fun TransformingLazyColumnScope.searchContent(
 
     results.forEach { route ->
         item {
-            Button(
+            Card(
                 onClick = { onSelectRoute(route) },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
+                colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 ),
             ) {
-                Column {
-                    Text(route.routeName)
-                    Text(route.description)
-                    Text(route.provider)
-                }
+                Text(route.routeName)
+                Text(route.description)
+                Text(route.provider)
             }
         }
     }
@@ -670,26 +666,24 @@ private fun SmartSuggestionCard(
     onClick: () -> Unit,
 ) {
     val sourceLabel = if (suggestion.source == "local") "手錶習慣" else "手機推薦"
-    Button(
+    Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         ),
     ) {
-        Column {
-            Text("智慧推薦 · $sourceLabel")
-            Text(
-                text = suggestion.routeName.ifBlank { suggestion.routeId },
-                style = MaterialTheme.typography.titleMedium,
-            )
-            suggestion.etaText?.takeIf { it.isNotBlank() }?.let { Text(it) }
-            val subtitle = suggestion.stopName.takeIf { it.isNotBlank() }
-                ?: suggestion.reason
-            if (subtitle.isNotBlank()) {
-                Text(subtitle, style = MaterialTheme.typography.bodySmall)
-            }
+        Text("智慧推薦 · $sourceLabel")
+        Text(
+            text = suggestion.routeName.ifBlank { suggestion.routeId },
+            style = MaterialTheme.typography.titleMedium,
+        )
+        suggestion.etaText?.takeIf { it.isNotBlank() }?.let { Text(it) }
+        val subtitle = suggestion.stopName.takeIf { it.isNotBlank() }
+            ?: suggestion.reason
+        if (subtitle.isNotBlank()) {
+            Text(subtitle, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -795,23 +789,21 @@ private fun FavoriteArrivalCard(
     state: WearHomeState,
 ) {
     val arrival = state.arrivalFor(favorite.id)
-    Button(
+    Card(
         onClick = {},
         modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
         ),
     ) {
-        Column {
-            Text(favorite.displayRouteName)
-            Text(favorite.displayStopName)
-            Text(arrival?.etaText ?: "--")
-            arrival?.arrivalEpochMs?.let { arrivalAtMs ->
-                Text(formatClockTime(arrivalAtMs))
-            }
-            Text(arrival?.statusText ?: favorite.groupName.ifBlank { favorite.provider })
+        Text(favorite.displayRouteName)
+        Text(favorite.displayStopName)
+        Text(arrival?.etaText ?: "--")
+        arrival?.arrivalEpochMs?.let { arrivalAtMs ->
+            Text(formatClockTime(arrivalAtMs))
         }
+        Text(arrival?.statusText ?: favorite.groupName.ifBlank { favorite.provider })
     }
 }
 
@@ -870,18 +862,16 @@ private fun TransformingLazyColumnScope.routeDetailContent(
 
     if (detail.paths.size > 1) {
         item {
-            Button(
+            Card(
                 onClick = onTogglePath,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
+                colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
             ) {
-                Column {
-                    Text("切換方向")
-                    Text("目前: ${path.name}")
-                }
+                Text("切換方向")
+                Text("目前: ${path.name}")
             }
         }
     } else {
@@ -915,39 +905,37 @@ private fun TransformingLazyColumnScope.routeDetailContent(
 
 @Composable
 private fun RouteStopCard(stop: WearRouteStop, onAddFavorite: () -> Unit) {
-    Button(
+    Card(
         onClick = onAddFavorite,
         modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ),
     ) {
-        Column {
+        Text(
+            text = stop.name,
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
+            text = stop.etaText,
+            color = when {
+                stop.etaText == "即將到站" -> MaterialTheme.colorScheme.error
+                stop.etaText.contains("分") -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            text = "點擊加為最愛",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (stop.statusText.isNotBlank()) {
             Text(
-                text = stop.name,
-                style = MaterialTheme.typography.titleMedium
+                text = stop.statusText,
+                style = MaterialTheme.typography.bodySmall
             )
-            Text(
-                text = stop.etaText,
-                color = when {
-                    stop.etaText == "即將到站" -> MaterialTheme.colorScheme.error
-                    stop.etaText.contains("分") -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                text = "點擊加為最愛",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (stop.statusText.isNotBlank()) {
-                Text(
-                    text = stop.statusText,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
         }
     }
 }
@@ -957,18 +945,16 @@ private fun WearInfoCard(
     title: String,
     subtitle: String,
 ) {
-    Button(
+    Card(
         onClick = {},
         modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         ),
     ) {
-        Column {
-            Text(title)
-            Text(subtitle)
-        }
+        Text(title)
+        Text(subtitle)
     }
 }
 

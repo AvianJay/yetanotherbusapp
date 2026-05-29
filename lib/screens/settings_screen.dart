@@ -107,20 +107,6 @@ class SettingsScreen extends StatelessWidget {
     messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _toggleWearFavoriteSelection(
-    AppController controller,
-    FavoriteStop favorite,
-    bool selected,
-  ) {
-    final next = controller.settings.wearSelectedFavoriteIds.toSet();
-    if (selected) {
-      next.add(favorite.stableKey);
-    } else {
-      next.remove(favorite.stableKey);
-    }
-    return controller.updateWearSelectedFavoriteIds(next.toList());
-  }
-
   @override
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
@@ -134,13 +120,6 @@ class SettingsScreen extends StatelessWidget {
     final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     final supportsRouteBackgroundMonitor = isAndroid || isIOS;
     final authSession = controller.authSession;
-    final wearFavoriteEntries = [
-      for (final entry in controller.favoriteGroups.entries)
-        for (final favorite in entry.value)
-          _WearFavoriteEntry(groupName: entry.key, favorite: favorite),
-    ];
-    final wearSelectedFavoriteIds = controller.settings.wearSelectedFavoriteIds
-        .toSet();
     // final databaseProviders = controller.selectedProviders
     //     .map((provider) => provider.label)
     //     .join('、');
@@ -262,152 +241,95 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 if (isAndroid) ...[
                   const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Wear OS',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          FutureBuilder<WearOsSyncStatus>(
-                            future: WearOsIntegration.getStatus(),
-                            builder: (context, snapshot) {
-                              if (snapshot.connectionState ==
-                                  ConnectionState.waiting) {
-                                return Text(
-                                  '檢查手錶連線中...',
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                );
-                              }
+                  FutureBuilder<WearOsSyncStatus>(
+                    future: WearOsIntegration.getStatus(),
+                    builder: (context, snapshot) {
+                      final status = snapshot.data;
+                      if (snapshot.connectionState ==
+                              ConnectionState.waiting ||
+                          (status == null || !status.hasConnectedNodes)) {
+                        return const SizedBox.shrink();
+                      }
 
-                              final status =
-                                  snapshot.data ?? WearOsSyncStatus.empty;
-                              if (status.hasConnectedNodes) {
-                                return Text(
-                                  '已連接的手錶：${status.connectedNodeNames.join('、')}'
-                                  '${status.connectedNodeCount > 1 ? ' 等 ${status.connectedNodeCount} 台' : ''}',
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                );
-                              }
+                      final groupNames = controller.favoriteGroupNames;
+                      final hasFavorites = groupNames.isNotEmpty;
+                      final selectedGroupNames = controller
+                          .settings.wearSelectedFavoriteIds;
 
-                              return Text(
-                                '未偵測到已連接的 Wear OS 手錶',
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('同步我的最愛到手錶'),
-                            subtitle: const Text(
-                              '手錶會同步已選擇的最愛站牌，並從網路載入即時到站資料',
-                            ),
-                            value: controller.settings.wearSyncEnabled,
-                            onChanged: controller.updateWearSyncEnabled,
-                          ),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('將智慧推薦推送到手錶'),
-                            subtitle: const Text(
-                              '把手機計算的下一班智慧推薦透過 Wear OS 推到 Tile 與錶面元件',
-                            ),
-                            value: controller
-                                .settings.wearSmartSuggestionsEnabled,
-                            onChanged: controller.settings.wearSyncEnabled
-                                ? controller.updateWearSmartSuggestionsEnabled
-                                : null,
-                          ),
-                          if (wearFavoriteEntries.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(
-                                '尚無最愛站牌。請先新增最愛，再進行同步。',
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            )
-                          else ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              '選擇要同步到手錶的最愛',
-                              style: Theme.of(context).textTheme.titleSmall,
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                ActionChip(
-                                  label: const Text('全選'),
-                                  onPressed: () {
-                                    controller.updateWearSelectedFavoriteIds(
-                                      wearFavoriteEntries
-                                          .map(
-                                            (entry) => entry.favorite.stableKey,
-                                          )
-                                          .toList(growable: false),
-                                    );
-                                  },
-                                ),
-                                ActionChip(
-                                  label: const Text('清除'),
-                                  onPressed: () {
-                                    controller.updateWearSelectedFavoriteIds(
-                                      const [],
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            for (final entry in wearFavoriteEntries)
-                              CheckboxListTile(
-                                contentPadding: EdgeInsets.zero,
-                                value: wearSelectedFavoriteIds.contains(
-                                  entry.favorite.stableKey,
-                                ),
-                                onChanged: (value) {
-                                  _toggleWearFavoriteSelection(
-                                    controller,
-                                    entry.favorite,
-                                    value ?? false,
-                                  );
-                                },
-                                title: Text(
-                                  '${entry.favorite.routeName ?? entry.favorite.routeKey} - ${entry.favorite.stopName ?? 'Stop ${entry.favorite.stopId}'}',
-                                ),
-                                subtitle: Text(entry.groupName),
-                              ),
-                          ],
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              FilledButton.tonalIcon(
-                                onPressed: () =>
-                                    _syncWearOs(context, controller),
-                                icon: const Icon(Icons.watch_outlined),
-                                label: const Text('立即同步'),
+                              Text(
+                                'Wear OS',
+                                style: Theme.of(context).textTheme.titleMedium,
                               ),
-                              OutlinedButton.icon(
-                                onPressed: () => _syncWearOs(
-                                  context,
-                                  controller,
-                                  requestRefresh: true,
+                              const SizedBox(height: 8),
+                              Text(
+                                '已連接的手錶：${status.connectedNodeNames.join('、')}'
+                                '${status.connectedNodeCount > 1 ? ' 等 ${status.connectedNodeCount} 台' : ''}',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 12),
+                              SwitchListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('啟用 Wear OS 同步'),
+                                subtitle: const Text(
+                                  '將最愛站牌同步到手錶',
                                 ),
-                                icon: const Icon(Icons.refresh_rounded),
-                                label: const Text('同步並重新整理'),
+                                value: controller.settings.wearSyncEnabled,
+                                onChanged: controller.updateWearSyncEnabled,
                               ),
+                              if (controller.settings.wearSyncEnabled) ...[
+                                if (!hasFavorites)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Text(
+                                      '尚無最愛站牌。請先新增最愛，再進行同步。',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodyMedium,
+                                    ),
+                                  )
+                                else ...[
+                                  const SizedBox(height: 8),
+                                  DropdownButtonFormField<String>(
+                                    value:
+                                        selectedGroupNames.isNotEmpty
+                                            ? selectedGroupNames.first
+                                            : null,
+                                    decoration: const InputDecoration(
+                                      labelText: '同步分類',
+                                    ),
+                                    items:
+                                        groupNames
+                                            .map(
+                                              (
+                                                groupName,
+                                              ) => DropdownMenuItem(
+                                                value: groupName,
+                                                child: Text(groupName),
+                                              ),
+                                            )
+                                            .toList(),
+                                    onChanged: (value) {
+                                      if (value != null) {
+                                        controller
+                                            .updateWearSelectedFavoriteIds(
+                                              [value],
+                                            );
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ],
                             ],
                           ),
-                        ],
-                      ),
-                    ),
+                        ),
+                      );
+                    },
                   ),
                 ],
                 if (!kIsWeb) ...[
@@ -854,9 +776,4 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
-class _WearFavoriteEntry {
-  const _WearFavoriteEntry({required this.groupName, required this.favorite});
-
-  final String groupName;
-  final FavoriteStop favorite;
-}
+ // SettingsScreen

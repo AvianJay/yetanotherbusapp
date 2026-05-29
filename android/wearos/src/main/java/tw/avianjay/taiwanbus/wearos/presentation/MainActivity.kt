@@ -294,8 +294,8 @@ private fun WearApp(
         val keyboardController = LocalSoftwareKeyboardController.current
         val focusManager = LocalFocusManager.current
 
-        // 返回鍵處理：搜尋畫面時先收起鍵盤再返回
-        if (screen == WearScreen.Search) {
+        // 返回鍵處理：搜尋/附近畫面時返回我的最愛
+        if (screen == WearScreen.Search || screen == WearScreen.Nearby) {
             BackHandler {
                 keyboardController?.hide()
                 focusManager.clearFocus()

@@ -227,15 +227,17 @@ private fun WearApp(
         delay(250)
         searchLoading = true
         searchError = null
-        runCatching {
-            onSearch(normalized)
-        }.onSuccess { results ->
+        try {
+            val results = onSearch(normalized)
             searchResults = results
             searchLoading = false
-        }.onFailure { error ->
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // 協程取消時不顯示錯誤（用戶切換畫面或更改查詢）
+            searchLoading = false
+        } catch (e: Exception) {
             searchResults = emptyList()
             searchLoading = false
-            searchError = error.message ?: "搜尋失敗"
+            searchError = e.message ?: "搜尋失敗"
         }
     }
 

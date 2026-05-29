@@ -362,7 +362,7 @@ private fun WearApp(
                             Text(
                                 when (screen) {
                                     WearScreen.Search ->
-                                        "使用即時網路 API"
+                                        "想要去哪？"
 
                                     WearScreen.Nearby ->
                                         "即時定位附近的公車站"
@@ -372,13 +372,13 @@ private fun WearApp(
 
                                     else -> when {
                                         state.settings.syncEnabled && state.hasSyncedFavorites ->
-                                            "已同步最愛，即時到站資料來自網路"
+                                            ""
 
                                         state.settings.syncEnabled ->
-                                            "尚未同步最愛，搜尋功能仍可使用"
+                                            ""
 
                                         else ->
-                                            "在手機應用中開啟 Wear OS 同步"
+                                            "未啟用同步。"
                                     }
                                 },
                             )
@@ -490,34 +490,6 @@ private fun TransformingLazyColumnScope.favoritesContent(
         }
     }
 
-    item {
-        Button(
-            onClick = onOpenSearch,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column {
-                Text("搜尋公車")
-                Text("即時搜尋，無需手機連線")
-            }
-        }
-    }
-
-    item {
-        Button(
-            onClick = onOpenNearby,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            ),
-        ) {
-            Column {
-                Text("附近站牌")
-                Text("使用手錶定位")
-            }
-        }
-    }
-
     if (!state.settings.syncEnabled || state.favorites.isEmpty()) {
         item {
             WearInfoCard(
@@ -560,6 +532,34 @@ private fun TransformingLazyColumnScope.favoritesContent(
                 favorite = favorite,
                 state = state,
             )
+        }
+    }
+
+    item {
+        Button(
+            onClick = onOpenSearch,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column {
+                Text("搜尋公車")
+                Text("要去搭哪一台公車？")
+            }
+        }
+    }
+
+    item {
+        Button(
+            onClick = onOpenNearby,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            ),
+        ) {
+            Column {
+                Text("附近站牌")
+                Text("使用手錶定位")
+            }
         }
     }
 

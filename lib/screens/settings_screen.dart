@@ -86,27 +86,6 @@ class SettingsScreen extends StatelessWidget {
     messenger.showSnackBar(const SnackBar(content: Text('無法開啟 Discord 社群連結。')));
   }
 
-  Future<void> _syncWearOs(
-    BuildContext context,
-    AppController controller, {
-    bool requestRefresh = false,
-  }) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final status = await controller.syncWearOsNow(
-      requestRefresh: requestRefresh,
-    );
-    if (!context.mounted) {
-      return;
-    }
-
-    final message = status.hasConnectedNodes
-        ? requestRefresh
-              ? '已傳送重新整理請求到手錶'
-              : '已同步資料到已連接的手錶'
-        : '同步設定已儲存，手錶連線後將自動接收';
-    messenger.showSnackBar(SnackBar(content: Text(message)));
-  }
-
   @override
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
@@ -296,7 +275,7 @@ class SettingsScreen extends StatelessWidget {
                                 else ...[
                                   const SizedBox(height: 8),
                                   DropdownButtonFormField<String>(
-                                    value:
+                                    initialValue:
                                         selectedGroupNames.isNotEmpty
                                             ? selectedGroupNames.first
                                             : null,

@@ -1018,8 +1018,8 @@ private fun SearchBox(
                             onClick = { onValueChange("") },
                             modifier = Modifier.size(24.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                contentColor = MaterialTheme.colorScheme.onSurface,
                             ),
                         ) {
                             Text("✕")

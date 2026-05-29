@@ -15,6 +15,7 @@ import androidx.wear.protolayout.LayoutElementBuilders.HORIZONTAL_ALIGN_START
 import androidx.wear.protolayout.ModifiersBuilders
 import androidx.wear.protolayout.ResourceBuilders
 import androidx.wear.protolayout.TimelineBuilders
+import androidx.wear.protolayout.material.layouts.PrimaryLayout
 import androidx.wear.tiles.RequestBuilders
 import androidx.wear.tiles.TileBuilders
 import androidx.wear.tiles.TileService
@@ -43,7 +44,8 @@ class YaBusTileService : TileService() {
         requestParams: RequestBuilders.TileRequest,
     ): ListenableFuture<TileBuilders.Tile> {
         val snapshot = TileSnapshotBuilder.read(this)
-        val layout = buildLayout(this, snapshot)
+        val protoParams = getProtoDeviceParams(requestParams.deviceParameters)
+        val layout = buildLayout(this, snapshot, protoParams)
         val tile = TileBuilders.Tile.Builder()
             .setResourcesVersion(RESOURCES_VERSION)
             .setFreshnessIntervalMillis(FRESHNESS_INTERVAL_MS)
@@ -86,10 +88,11 @@ class YaBusTileService : TileService() {
     private fun buildLayout(
         context: Context,
         snapshot: WearTileSnapshot,
+        deviceParams: androidx.wear.protolayout.DeviceParametersBuilders.DeviceParameters,
     ): LayoutElementBuilders.LayoutElement {
         val column = LayoutElementBuilders.Column.Builder()
             .setWidth(expand())
-            .setHorizontalAlignment(HORIZONTAL_ALIGN_START)
+            .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
 
         val suggestion = snapshot.suggestion
         if (suggestion != null) {
@@ -107,25 +110,28 @@ class YaBusTileService : TileService() {
             }
         }
 
-        column.addContent(footerButton(context))
-
-        return LayoutElementBuilders.Box.Builder()
-            .setWidth(expand())
-            .setHeight(expand())
-            .setModifiers(
-                ModifiersBuilders.Modifiers.Builder()
-                    .setPadding(
-                        ModifiersBuilders.Padding.Builder()
-                            .setStart(dp(10f))
-                            .setEnd(dp(10f))
-                            .setTop(dp(10f))
-                            .setBottom(dp(10f))
-                            .build(),
-                    )
-                    .build(),
-            )
-            .addContent(column.build())
+        return PrimaryLayout.Builder(deviceParams)
+            .setContent(column.build())
+            .setPrimaryChipContent(footerButton(context))
             .build()
+    }
+
+    private fun getProtoDeviceParams(
+        tilesParams: androidx.wear.tiles.DeviceParametersBuilders.DeviceParameters?,
+    ): androidx.wear.protolayout.DeviceParametersBuilders.DeviceParameters {
+        val builder = androidx.wear.protolayout.DeviceParametersBuilders.DeviceParameters.Builder()
+        if (tilesParams != null) {
+            builder.setScreenShape(tilesParams.screenShape)
+                .setScreenWidthDp(tilesParams.screenWidthDp)
+                .setScreenHeightDp(tilesParams.screenHeightDp)
+                .setScreenDensity(tilesParams.screenDensity)
+        } else {
+            builder.setScreenShape(androidx.wear.protolayout.DeviceParametersBuilders.SCREEN_SHAPE_ROUND)
+                .setScreenWidthDp(192)
+                .setScreenHeightDp(192)
+                .setScreenDensity(1.0f)
+        }
+        return builder.build()
     }
 
     private fun suggestionCard(

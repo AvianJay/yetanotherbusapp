@@ -617,6 +617,7 @@ jobs:
           files: |
             release-assets/YABus-${{ inputs.version }}.apk
             release-assets/YABus-${{ inputs.version }}.aab
+            release-assets/YABus-WearOS-${{ inputs.version }}.apk
             release-assets/YABus-${{ inputs.version }}.ipa
             release-assets/YABus-${{ inputs.version }}-windows-x64-setup.exe
             release-assets/YABus-${{ inputs.version }}-linux-amd64.deb

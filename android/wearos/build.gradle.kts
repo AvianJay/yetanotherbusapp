@@ -37,12 +37,20 @@ android {
     namespace = "tw.avianjay.taiwanbus.wearos"
     compileSdk = 36
 
+    val localProperties = Properties()
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { localProperties.load(it) }
+    }
+    val wearVersionCode = localProperties.getProperty("flutter.versionCode")?.toIntOrNull() ?: 1
+    val wearVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
+
     defaultConfig {
         applicationId = "tw.avianjay.taiwanbus.flutter"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = wearVersionCode
+        versionName = wearVersionName
         buildConfigField(
             "String",
             "WEAR_API_BASE_URL",

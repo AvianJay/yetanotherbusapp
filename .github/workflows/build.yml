@@ -208,18 +208,24 @@ jobs:
           echo "flutter.sdk=$FLUTTER_SDK" > android/wearos/local.properties
           cat android/wearos/local.properties
 
-      - name: Build Wear OS APK
+      - name: Build Wear OS APK and AAB
         env:
           APP_GIT_SHA: ${{ github.sha }}
         run: |
           cd android
-          ./gradlew :wearos:assembleRelease
+          ./gradlew :wearos:assembleRelease :wearos:bundleRelease
 
-      - name: Upload Wear OS artifact
+      - name: Upload Wear OS APK artifact
         uses: actions/upload-artifact@v6
         with:
           name: wearos-apk-release
           path: build/wearos/outputs/apk/release/wearos-release.apk
+
+      - name: Upload Wear OS AppBundle artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: wearos-aab-release
+          path: build/wearos/outputs/bundle/release/wearos-release.aab
 
   build-web:
     name: Build Web

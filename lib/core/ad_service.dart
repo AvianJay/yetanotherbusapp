@@ -13,6 +13,7 @@ class AdService {
   static const String _adToggleLockedKey = 'ad_toggle_locked';
 
   bool _initialized = false;
+  Future<void>? _initFuture;
 
   /// Whether the ad SDK is initialized and the platform supports ads.
   bool get isAvailable =>
@@ -20,7 +21,12 @@ class AdService {
       !kIsWeb &&
       defaultTargetPlatform == TargetPlatform.android;
 
-  Future<void> initialize() async {
+  Future<void> initialize() {
+    _initFuture ??= _initializeInternal();
+    return _initFuture!;
+  }
+
+  Future<void> _initializeInternal() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
       return;
     }

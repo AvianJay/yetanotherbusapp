@@ -26,6 +26,7 @@ class _AdBannerWidgetState extends State<AdBannerWidget> {
   }
 
   Future<void> _loadAd() async {
+    await AdService.instance.initialize();
     if (!AdService.instance.isAvailable) {
       return;
     }

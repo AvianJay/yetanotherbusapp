@@ -40,7 +40,7 @@ Future<void> main(List<String> args) async {
       accountSyncService: AccountSyncService(),
     );
     await controller.initialize();
-    await AdService.instance.initialize();
+    unawaited(AdService.instance.initialize());
     runApp(BusApp(controller: controller, analytics: analytics));
     unawaited(AnnouncementPushService.instance.initialize());
   } catch (error) {

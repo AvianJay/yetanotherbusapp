@@ -42,7 +42,8 @@ android {
     if (localPropertiesFile.exists()) {
         localPropertiesFile.inputStream().use { localProperties.load(it) }
     }
-    val wearVersionCode = localProperties.getProperty("flutter.versionCode")?.toIntOrNull() ?: 1
+    val baseVersionCode = localProperties.getProperty("flutter.versionCode")?.toIntOrNull() ?: 1
+    val wearVersionCode = baseVersionCode + 10000
     val wearVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
 
     defaultConfig {

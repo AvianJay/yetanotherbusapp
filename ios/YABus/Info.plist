@@ -38,6 +38,8 @@
 		<string>????</string>
 		<key>CFBundleVersion</key>
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
+		<key>GADApplicationIdentifier</key>
+		<string>ca-app-pub-4517104314307871~6988661316</string>
 		<key>GMSApiKey</key>
 		<string>AIzaSyBYliaV-a04zp5u7rhLr9UVaa0wDbfjwf8</string>
 		<key>io.flutter.embedded_views_preview</key>

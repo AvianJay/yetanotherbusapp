@@ -185,6 +185,15 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                "getAndroidDeviceInfo" -> {
+                    result.success(getAndroidDeviceInfo())
+                }
+
+                "openNotificationChannelSettings" -> {
+                    openNotificationChannelSettings()
+                    result.success(null)
+                }
+
                 else -> result.notImplemented()
             }
         }
@@ -375,6 +384,23 @@ class MainActivity : FlutterActivity() {
             arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
             REQUEST_CODE_BACKGROUND_LOCATION,
         )
+    }
+
+    private fun getAndroidDeviceInfo(): Map<String, Any?> {
+        return mapOf(
+            "manufacturer" to Build.MANUFACTURER,
+            "brand" to Build.BRAND,
+            "sdkVersion" to Build.VERSION.SDK_INT,
+        )
+    }
+
+    private fun openNotificationChannelSettings() {
+        val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            putExtra(Settings.EXTRA_CHANNEL_ID, "trip_monitor")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
     }
 
     companion object {

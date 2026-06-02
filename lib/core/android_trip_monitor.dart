@@ -8,6 +8,18 @@ enum AndroidBackgroundLocationPermissionRequestStatus {
   unavailable,
 }
 
+class AndroidDeviceInfo {
+  const AndroidDeviceInfo({
+    required this.manufacturer,
+    required this.brand,
+    required this.sdkVersion,
+  });
+
+  final String manufacturer;
+  final String brand;
+  final int sdkVersion;
+}
+
 class TripMonitorStop {
   const TripMonitorStop({
     required this.stopId,
@@ -178,5 +190,27 @@ class AndroidTripMonitor {
       return;
     }
     await _channel.invokeMethod<void>('stopTripMonitor');
+  }
+
+  static Future<AndroidDeviceInfo?> getAndroidDeviceInfo() async {
+    if (!_isAndroid) {
+      return null;
+    }
+    final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'getAndroidDeviceInfo',
+    );
+    if (result == null) return null;
+    return AndroidDeviceInfo(
+      manufacturer: result['manufacturer'] as String? ?? '',
+      brand: result['brand'] as String? ?? '',
+      sdkVersion: result['sdkVersion'] as int? ?? 0,
+    );
+  }
+
+  static Future<void> openNotificationChannelSettings() async {
+    if (!_isAndroid) {
+      return;
+    }
+    await _channel.invokeMethod<void>('openNotificationChannelSettings');
   }
 }

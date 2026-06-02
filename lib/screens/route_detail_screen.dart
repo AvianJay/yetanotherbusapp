@@ -1272,6 +1272,34 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return color;
   }
 
+  static Future<bool> isOppoOrRealmeAndAndroid16Plus() async {
+    if (!_isAndroidPlatform) return false;
+
+    try {
+      final androidInfo = await AndroidTripMonitor.getAndroidDeviceInfo();
+      if (androidInfo == null) return false;
+
+      final manufacturer = androidInfo.manufacturer.toLowerCase();
+      final brand = androidInfo.brand.toLowerCase();
+
+      final isTargetBrand = manufacturer.contains('oppo') ||
+          brand.contains('oppo') ||
+          manufacturer.contains('realme') ||
+          brand.contains('realme') ||
+          manufacturer.contains('oneplus') ||
+          brand.contains('oneplus');
+
+      final isAndroid16Plus = androidInfo.sdkVersion >= 36;
+
+      return isTargetBrand && isAndroid16Plus;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static bool get _isAndroidPlatform =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
   Future<void> _maybePromptForBackgroundTripMonitor() async {
     if (_detail == null || _backgroundTripMonitorPromptInProgress) {
       return;
@@ -1321,6 +1349,41 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         await _configureBackgroundTripMonitorIfNeeded(
           forcePermissionCheck: true,
         );
+        final isOppoOrRealme = await isOppoOrRealmeAndAndroid16Plus();
+        if (isOppoOrRealme && mounted) {
+          // show note blahblah
+          await showDialog<void>(
+            context: context,
+            builder: (context) {
+              return AlertDialog(
+                title: const Text('注意'),
+                content: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('你的系統支援流體雲功能，但你需要在 YABus 的通知設定裡啟用他。'),
+                    SizedBox(height: 8),
+                    Image(
+                      image: AssetImage('assets/oppo_enable_live_alert.jpg'),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      AndroidTripMonitor.openNotificationChannelSettings();
+                    },
+                    child: const Text('前往設定'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('好的'),
+                  ),
+                ],
+              );
+            },
+          );
+        }
         await _maybePromptForDestinationSelection();
       }
     } finally {

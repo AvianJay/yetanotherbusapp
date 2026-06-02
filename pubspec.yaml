@@ -94,6 +94,7 @@ flutter:
     - assets/cat_cry.png
     - assets/cat_laugh.png
     - assets/cat_sad.png
+    - assets/oppo_enable_live_alert.jpg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -1356,11 +1356,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             context: context,
             builder: (context) {
               return AlertDialog(
-                title: const Text('注意'),
+                title: const Text('提示'),
                 content: const Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('你的系統支援流體雲功能，但你需要在 YABus 的通知設定裡啟用他。'),
+                    Text('你的系統可能支援流體雲功能，但你需要在 YABus 的通知設定裡啟用他。'),
                     SizedBox(height: 8),
                     Image(
                       image: AssetImage('assets/oppo_enable_live_alert.jpg'),

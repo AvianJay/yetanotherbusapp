@@ -108,7 +108,12 @@ class RouteTripMonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        if (intent == null || intent.action == null) {
+            startFallbackForegroundAndStop()
+            return START_NOT_STICKY
+        }
+
+        when (intent.action) {
             ACTION_STOP -> {
                 AppRuntimeStateStore.clearPausedTripMonitor(this)
                 stopTracking()
@@ -134,6 +139,7 @@ class RouteTripMonitorService : Service() {
                 }
                 AppRuntimeStateStore.setAppInForeground(this, appInForeground)
                 if (session == null) {
+                    startFallbackForegroundAndStop()
                     return START_NOT_STICKY
                 }
                 refreshNotification(force = true)
@@ -151,6 +157,10 @@ class RouteTripMonitorService : Service() {
             }
 
             ACTION_MARK_BOARDED -> {
+                if (session == null) {
+                    startFallbackForegroundAndStop()
+                    return START_NOT_STICKY
+                }
                 rideConfirmed = true
                 rideConfirmationSamples = REQUIRED_RIDE_CONFIRMATION_SAMPLES
                 boardingWindowOpen = true
@@ -163,6 +173,10 @@ class RouteTripMonitorService : Service() {
             }
 
             ACTION_NOT_BOARDED -> {
+                if (session == null) {
+                    startFallbackForegroundAndStop()
+                    return START_NOT_STICKY
+                }
                 boardingAlertSent = false
                 rideConfirmed = false
                 rideConfirmationSamples = 0
@@ -188,7 +202,7 @@ class RouteTripMonitorService : Service() {
                 val sessionJson = intent.getStringExtra(EXTRA_SESSION_JSON)
                 val parsedSession = sessionJson?.let(::parseSessionJson)
                 if (parsedSession == null) {
-                    stopTracking()
+                    startFallbackForegroundAndStop()
                     return START_NOT_STICKY
                 }
 
@@ -198,7 +212,7 @@ class RouteTripMonitorService : Service() {
                 if (AppRuntimeStateStore.isTripMonitorPausedFor(this, parsedSession)) {
                     session = parsedSession
                     appInForeground = parsedSession.appInForeground
-                    stopTracking()
+                    startFallbackForegroundAndStop()
                     return START_NOT_STICKY
                 }
                 session = parsedSession
@@ -247,6 +261,12 @@ class RouteTripMonitorService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    private fun startFallbackForegroundAndStop() {
+        val notification = buildStoppedNotification()
+        startForegroundInternal(notification)
+        stopTracking()
     }
 
     override fun onDestroy() {

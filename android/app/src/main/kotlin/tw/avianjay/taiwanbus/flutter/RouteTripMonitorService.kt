@@ -52,6 +52,7 @@ class RouteTripMonitorService : Service() {
     private var lastMovementRecordedAtMs = 0L
     private var boardingAlertSent = false
     private var boardingCheckPromptSent = false
+    private var boardingCheckPromptSentAtMs = 0L
     private var boardingWindowOpen = false
     private var boardingWindowOpenedAtMs = 0L
     private var boardingCheckSnoozeUntilMs = 0L
@@ -165,6 +166,7 @@ class RouteTripMonitorService : Service() {
                 rideConfirmationSamples = REQUIRED_RIDE_CONFIRMATION_SAMPLES
                 boardingWindowOpen = true
                 boardingCheckPromptSent = true
+                boardingCheckPromptSentAtMs = System.currentTimeMillis()
                 trackedBusId = normalizeVehicleId(activeBoardingVehicleId) ?: trackedBusId
                 activeBoardingVehiclePassedAtMs = 0L
                 notificationManager.cancel(ALERT_NOTIFICATION_ID)
@@ -181,6 +183,7 @@ class RouteTripMonitorService : Service() {
                 rideConfirmed = false
                 rideConfirmationSamples = 0
                 boardingCheckPromptSent = false
+                boardingCheckPromptSentAtMs = 0L
                 boardingWindowOpen = false
                 boardingWindowOpenedAtMs = 0L
                 trackedBusId = null
@@ -228,6 +231,7 @@ class RouteTripMonitorService : Service() {
                 ) {
                     boardingAlertSent = false
                     boardingCheckPromptSent = false
+                    boardingCheckPromptSentAtMs = 0L
                     boardingWindowOpen = false
                     boardingWindowOpenedAtMs = 0L
                     boardingCheckSnoozeUntilMs = 0L
@@ -950,10 +954,11 @@ class RouteTripMonitorService : Service() {
         if (currentVehicleId != null && currentVehicleId != nextVehicleId && !rideConfirmed) {
             boardingAlertSent = false
             boardingCheckPromptSent = false
+            boardingCheckPromptSentAtMs = 0L
             boardingWindowOpen = false
-            boardingWindowOpenedAtMs = 0L
             activeBoardingVehiclePassedAtMs = 0L
             rideConfirmationSamples = 0
+            notificationManager.cancel(ALERT_NOTIFICATION_ID)
         }
         activeBoardingVehicleId = nextVehicleId
         activeBoardingVehicleStopIndex = selectedCandidate.stopIndex
@@ -1027,6 +1032,12 @@ class RouteTripMonitorService : Service() {
                 boardingWindowOpenedAtMs = System.currentTimeMillis()
             }
             boardingWindowOpen = true
+        } else if (boardingWindowOpen && boardingWindowOpenedAtMs != 0L) {
+            val windowAge = System.currentTimeMillis() - boardingWindowOpenedAtMs
+            if (windowAge >= BOARDING_WINDOW_MAX_DURATION_MS) {
+                boardingWindowOpen = false
+                boardingWindowOpenedAtMs = 0L
+            }
         }
 
         val movement = updateUserMovement(location, nearestIndex)
@@ -1079,7 +1090,9 @@ class RouteTripMonitorService : Service() {
             if (rideConfirmationSamples >= REQUIRED_RIDE_CONFIRMATION_SAMPLES) {
                 rideConfirmed = true
                 boardingCheckPromptSent = true
+                boardingCheckPromptSentAtMs = System.currentTimeMillis()
                 trackedBusId = normalizeVehicleId(boardingVehicleId) ?: trackedBusId
+                notificationManager.cancel(ALERT_NOTIFICATION_ID)
             }
         }
 
@@ -1729,6 +1742,7 @@ class RouteTripMonitorService : Service() {
             return
         }
         if (!snapshot.hasBoarded) {
+            maybeExpireBoardingCheckPrompt()
             maybeSendBoardingAlert(session, snapshot)
             maybeSendBoardingCheckPrompt(session, snapshot)
             return
@@ -1783,6 +1797,22 @@ class RouteTripMonitorService : Service() {
         )
     }
 
+    private fun maybeExpireBoardingCheckPrompt() {
+        if (!boardingCheckPromptSent || boardingCheckPromptSentAtMs == 0L) {
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (now - boardingCheckPromptSentAtMs < BOARDING_CHECK_PROMPT_MAX_AGE_MS) {
+            return
+        }
+        if (!boardingWindowOpen) {
+            boardingCheckPromptSent = false
+            boardingCheckPromptSentAtMs = 0L
+            boardingAlertSent = false
+            notificationManager.cancel(ALERT_NOTIFICATION_ID)
+        }
+    }
+
     private fun maybeSendBoardingCheckPrompt(
         session: TrackingSession,
         snapshot: TrackingSnapshot,
@@ -1790,7 +1820,10 @@ class RouteTripMonitorService : Service() {
         if (!session.backgroundLocationAlwaysGranted || snapshot.hasBoarded) {
             return
         }
-        if (boardingCheckPromptSent || !snapshot.boardingPromptEligible) {
+        if (boardingCheckPromptSent) {
+            return
+        }
+        if (!snapshot.boardingPromptEligible) {
             return
         }
         val now = System.currentTimeMillis()
@@ -1800,6 +1833,7 @@ class RouteTripMonitorService : Service() {
         val boardingName = snapshot.boardingName ?: return
 
         boardingCheckPromptSent = true
+        boardingCheckPromptSentAtMs = System.currentTimeMillis()
         notificationManager.notify(
             ALERT_NOTIFICATION_ID,
             NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
@@ -2110,6 +2144,7 @@ class RouteTripMonitorService : Service() {
         lastMovementRecordedAtMs = 0L
         boardingAlertSent = false
         boardingCheckPromptSent = false
+        boardingCheckPromptSentAtMs = 0L
         boardingWindowOpen = false
         boardingWindowOpenedAtMs = 0L
         boardingCheckSnoozeUntilMs = 0L
@@ -2608,6 +2643,8 @@ class RouteTripMonitorService : Service() {
         private const val BOARDING_CHECK_SNOOZE_MS = 180_000L
         private const val BOARDING_CHECK_AFTER_PASS_DELAY_MS = 20_000L
         private const val ACTIVE_BOARDING_VEHICLE_STALE_MS = 90_000L
+        private const val BOARDING_WINDOW_MAX_DURATION_MS = 300_000L
+        private const val BOARDING_CHECK_PROMPT_MAX_AGE_MS = 300_000L
         private const val USER_NEARBY_STOP_COUNT = 2
         private const val USER_MOVEMENT_MIN_DISTANCE_METERS = 35.0
         private const val USER_ROUTE_PROGRESS_MIN_DISTANCE_METERS = 45.0

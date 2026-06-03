@@ -3,7 +3,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -13,6 +15,7 @@ import '../core/android_trip_monitor.dart';
 import '../core/app_controller.dart';
 import '../core/app_launch_service.dart';
 import '../core/app_route_observer.dart';
+import '../core/app_routes.dart';
 import '../core/bus_repository.dart';
 import '../core/desktop_discord_presence_service.dart';
 import '../core/live_activity_service.dart';
@@ -391,6 +394,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           detail: detail,
           alerts: _alerts,
           repository: AppControllerScope.read(context).repository,
+          provider: widget.provider,
+          routeKey: widget.routeKey,
         );
       },
     );
@@ -4489,11 +4494,15 @@ class _RouteInfoDialog extends StatefulWidget {
     required this.detail,
     required this.alerts,
     required this.repository,
+    required this.provider,
+    required this.routeKey,
   });
 
   final RouteDetailData detail;
   final List<RouteAlert> alerts;
   final BusRepository repository;
+  final BusProvider provider;
+  final int routeKey;
 
   @override
   State<_RouteInfoDialog> createState() => _RouteInfoDialogState();
@@ -4605,12 +4614,58 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
         ),
       ),
       actions: [
+        TextButton.icon(
+          onPressed: _shareRouteLink,
+          icon: const Icon(Icons.share, size: 18),
+          label: const Text('分享連結'),
+        ),
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('關閉'),
         ),
       ],
     );
+  }
+
+  static const String _appBaseUrl = 'https://busapp.avianjay.sbs';
+
+  String _buildShareUrl() {
+    final route = widget.detail.route;
+    final path = AppRoutes.routeDetailPath(
+      provider: widget.provider,
+      routeKey: widget.routeKey,
+      routeId: route.routeId,
+    );
+    final base = _appBaseUrl.endsWith('/')
+        ? _appBaseUrl.substring(0, _appBaseUrl.length - 1)
+        : _appBaseUrl;
+    final suffix = path.startsWith('/') ? path : '/$path';
+    return '$base$suffix';
+  }
+
+  Future<void> _shareRouteLink() async {
+    final route = widget.detail.route;
+    final url = _buildShareUrl();
+    final shareText = '${route.routeName}\n$url';
+
+    var shared = false;
+    try {
+      final result = await SharePlus.instance.share(
+        ShareParams(text: shareText, subject: route.routeName),
+      );
+      shared = result.status != ShareResultStatus.unavailable;
+    } catch (e) {
+      debugPrint('Share route link failed, falling back to clipboard: $e');
+      shared = false;
+    }
+
+    if (!shared) {
+      await Clipboard.setData(ClipboardData(text: url));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已複製連結')),
+      );
+    }
   }
 
   Widget _buildExpandableAlertItem(RouteAlert alert, ThemeData theme) {

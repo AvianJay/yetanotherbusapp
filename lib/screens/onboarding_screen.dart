@@ -591,14 +591,17 @@ class _OnboardingStepLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
     return LayoutBuilder(
       builder: (context, constraints) {
+        final scrollBottomPadding = bottomInset + 20.0;
         return SingleChildScrollView(
           physics: const ClampingScrollPhysics(),
-          padding: EdgeInsets.only(bottom: bottomInset + 20),
+          padding: EdgeInsets.only(bottom: scrollBottomPadding),
           child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            constraints: BoxConstraints(
+              minHeight: constraints.maxHeight - scrollBottomPadding,
+            ),
             child: IntrinsicHeight(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

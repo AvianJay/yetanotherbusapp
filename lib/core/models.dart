@@ -1529,6 +1529,10 @@ String formatEtaBadgeText(String text) {
     return trimmed;
   }
 
+  if (trimmed.length == 4) {
+    return '${trimmed.substring(0, 2)}\n${trimmed.substring(2)}';
+  }
+
   if (trimmed.length == 5) {
     return '${trimmed.substring(0, 2)}\n${trimmed.substring(2)}';
   }

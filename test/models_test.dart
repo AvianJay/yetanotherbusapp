@@ -20,6 +20,14 @@ void main() {
     expect(eta.text, '2分\n5秒');
   });
 
+  test('formatEtaBadgeText wraps text by length', () {
+    expect(formatEtaBadgeText(''), '');
+    expect(formatEtaBadgeText('12:34'), '12:34');
+    expect(formatEtaBadgeText('今日停駛'), '今日\n停駛');
+    expect(formatEtaBadgeText('末班車已過'), '末班\n車已過');
+    expect(formatEtaBadgeText('今日班次已過'), '今日班\n次已過');
+  });
+
   test('distance formatter switches to km over one kilometer', () {
     expect(formatDistance(320), '320m');
     expect(formatDistance(1530), '1.5km');

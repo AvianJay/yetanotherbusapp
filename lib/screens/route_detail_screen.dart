@@ -3489,6 +3489,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     Navigator.of(context).pop(_StopAction.destination),
                 child: Text(_isDestinationStop(stop) ? '清除下車提醒' : '設為下車提醒'),
               ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(_StopAction.schedule),
+              child: const Text('本站發車/到站時刻'),
+            ),
             if (showRelatedRoutesAction)
               SimpleDialogOption(
                 onPressed: () =>
@@ -3523,6 +3527,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       await _handleFavorite(stop);
     } else if (action == _StopAction.destination) {
       await _handleDestinationAction(stop);
+    } else if (action == _StopAction.schedule) {
+      await _openStopScheduleDrawer(stop);
     } else if (action == _StopAction.relatedRoutes) {
       await _openRelatedStopRoutes(stop);
     } else if (action == _StopAction.googleMaps) {
@@ -3530,6 +3536,24 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     } else if (action == _StopAction.shortcut) {
       await _handlePinnedShortcut(stop);
     }
+  }
+
+  Future<void> _openStopScheduleDrawer(StopInfo stop) async {
+    final detail = _detail;
+    if (detail == null || !mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return _StopScheduleSheet(
+          routeId: detail.route.routeId,
+          routeName: detail.route.routeName,
+          stop: stop,
+          repository: AppControllerScope.read(context).repository,
+        );
+      },
+    );
   }
 
   Widget _buildBackgroundTripMonitorDrawer(BuildContext context) {
@@ -5020,6 +5044,362 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
   }
 }
 
-enum _StopAction { favorite, destination, relatedRoutes, googleMaps, shortcut }
+/// Bottom sheet showing the timetabled arrival/departure times at a single
+/// stop, grouped by direction and filtered by a selectable date.
+class _StopScheduleSheet extends StatefulWidget {
+  const _StopScheduleSheet({
+    required this.routeId,
+    required this.routeName,
+    required this.stop,
+    required this.repository,
+  });
+
+  final String routeId;
+  final String routeName;
+  final StopInfo stop;
+  final BusRepository repository;
+
+  @override
+  State<_StopScheduleSheet> createState() => _StopScheduleSheetState();
+}
+
+class _StopScheduleSheetState extends State<_StopScheduleSheet> {
+  List<RouteScheduleEntry>? _schedule;
+  bool _loading = true;
+  String? _error;
+  DateTime _selectedDate = DateTime.now();
+
+  final Map<String, bool> _holidayMap = <String, bool>{};
+  final Set<int> _loadedHolidayYears = <int>{};
+
+  static const List<String> _weekdayLabels = <String>[
+    '一',
+    '二',
+    '三',
+    '四',
+    '五',
+    '六',
+    '日',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _ensureHolidaysLoaded(_selectedDate.year);
+  }
+
+  Future<void> _load() async {
+    try {
+      final schedule = await widget.repository.fetchRouteSchedule(
+        widget.routeId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _schedule = schedule;
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint('StopScheduleSheet load error: $e');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  Future<void> _ensureHolidaysLoaded(int year) async {
+    if (_loadedHolidayYears.contains(year)) return;
+    _loadedHolidayYears.add(year);
+    try {
+      final map = await widget.repository.fetchHolidaysForYear(year);
+      if (!mounted || map.isEmpty) return;
+      setState(() => _holidayMap.addAll(map));
+    } catch (_) {
+      // Falls back to the weekend rule.
+    }
+  }
+
+  bool _isHoliday(DateTime date) {
+    final key = _dateKey(date);
+    final explicit = _holidayMap[key];
+    if (explicit != null) return explicit;
+    return date.weekday == DateTime.saturday ||
+        date.weekday == DateTime.sunday;
+  }
+
+  String _dateKey(DateTime date) {
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$m-$d';
+  }
+
+  String _formatSelectedDateLabel() {
+    final d = _selectedDate;
+    final weekday = _weekdayLabels[d.weekday - 1];
+    final holidaySuffix = _isHoliday(d) ? '・假日' : '';
+    return '${d.month}/${d.day}（${weekday}$holidaySuffix）';
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 1, 12, 31),
+      helpText: '選擇日期',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _selectedDate = picked);
+    unawaited(_ensureHolidaysLoaded(picked.year));
+  }
+
+  bool _isEntryActiveOnSelectedDate(RouteScheduleEntry entry) {
+    final days = entry.serviceDays;
+    final date = _selectedDate;
+    if (_isHoliday(date) && days['holiday'] == 1) return true;
+    const weekdayKeys = <String>[
+      'mon',
+      'tue',
+      'wed',
+      'thu',
+      'fri',
+      'sat',
+      'sun',
+    ];
+    return days[weekdayKeys[date.weekday - 1]] == 1;
+  }
+
+  /// Extracts the stop time (arrival, fallback departure) for [widget.stop]
+  /// from a timetable entry. Matches by stop id first, then stop sequence.
+  String? _stopTimeForEntry(RouteScheduleEntry entry) {
+    final stops = entry.payload['stop_times'] as List<dynamic>? ?? const [];
+    final targetId = widget.stop.stopId.toString();
+    final targetSeq = widget.stop.sequence;
+    Map<String, dynamic>? matched;
+    for (final raw in stops) {
+      if (raw is! Map<String, dynamic>) continue;
+      final sid = (raw['stopid'] ?? '').toString();
+      if (sid.isNotEmpty && sid == targetId) {
+        matched = raw;
+        break;
+      }
+    }
+    matched ??= () {
+      for (final raw in stops) {
+        if (raw is Map<String, dynamic> && raw['seq'] == targetSeq) {
+          return raw;
+        }
+      }
+      return null;
+    }();
+    if (matched == null) return null;
+    final arrival = (matched['arrival'] as String? ?? '').trim();
+    final departure = (matched['departure'] as String? ?? '').trim();
+    final time = arrival.isNotEmpty ? arrival : departure;
+    return time.isEmpty ? null : _normalizeTime(time);
+  }
+
+  String _normalizeTime(String raw) {
+    final parts = raw.split(':');
+    if (parts.length >= 2) {
+      return '${parts[0].padLeft(2, '0')}:${parts[1].padLeft(2, '0')}';
+    }
+    return raw;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      minChildSize: 0.35,
+      maxChildSize: 0.92,
+      builder: (context, scrollController) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.stop.stopName,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                '${widget.routeName}・預計時刻',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '依時刻表推算，實際以現場為準',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _pickDate,
+                    icon: const Icon(Icons.calendar_today, size: 16),
+                    label: Text(_formatSelectedDateLabel()),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 16),
+              Expanded(
+                child: _buildBody(theme, scrollController),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBody(ThemeData theme, ScrollController scrollController) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator.adaptive());
+    }
+    if (_error != null) {
+      return Center(
+        child: Text(
+          '載入失敗：$_error',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.error,
+          ),
+        ),
+      );
+    }
+    final schedule = _schedule ?? const [];
+    final timetableEntries = schedule
+        .where((e) => !e.isFrequency)
+        .where(_isEntryActiveOnSelectedDate)
+        .toList();
+    final frequencyEntries = schedule
+        .where((e) => e.isFrequency)
+        .where(_isEntryActiveOnSelectedDate)
+        .toList();
+
+    if (timetableEntries.isEmpty && frequencyEntries.isEmpty) {
+      return Center(
+        child: Text(
+          schedule.isEmpty ? '這條路線沒有時刻表資料' : '這天沒有發車資訊',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      );
+    }
+
+    // The stop was opened from a specific path/direction, so we only show the
+    // times for the direction(s) this stop actually belongs to. A timetable
+    // entry is relevant only if THIS stop appears in its stop_times — entries
+    // for the opposite direction (where this stop doesn't exist) are skipped.
+    final stopTimes = <String>{};
+    final relevantDirections = <int>{};
+    for (final entry in timetableEntries) {
+      final time = _stopTimeForEntry(entry);
+      if (time != null) {
+        stopTimes.add(time);
+        relevantDirections.add(entry.direction);
+      }
+    }
+
+    // Frequency entries have no per-stop times, so we cannot confirm a stop
+    // directly. Only keep frequency entries whose direction matches one that
+    // this stop is known (from timetables) to belong to. If there are no
+    // timetables at all, fall back to all active frequency entries.
+    final relevantFrequencies = <RouteScheduleEntry>[];
+    for (final entry in frequencyEntries) {
+      if (relevantDirections.isEmpty ||
+          relevantDirections.contains(entry.direction)) {
+        relevantFrequencies.add(entry);
+      }
+    }
+
+    if (stopTimes.isEmpty && relevantFrequencies.isEmpty) {
+      return Center(
+        child: Text(
+          '這個站點在當天沒有對應的發車時刻',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      );
+    }
+
+    final sortedTimes = stopTimes.toList()..sort();
+
+    return ListView(
+      controller: scrollController,
+      children: [
+        if (relevantFrequencies.isNotEmpty) ...[
+          Text(
+            '行駛班距',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          for (final entry in relevantFrequencies)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Text(entry.displayText, style: theme.textTheme.bodyMedium),
+            ),
+          if (sortedTimes.isNotEmpty) const SizedBox(height: 12),
+        ],
+        if (sortedTimes.isNotEmpty) ...[
+          Text(
+            '預計到站時間',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final time in sortedTimes)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(time, style: theme.textTheme.bodyMedium),
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+enum _StopAction {
+  favorite,
+  destination,
+  schedule,
+  relatedRoutes,
+  googleMaps,
+  shortcut,
+}
 
 enum _VehicleAction { twBusForum }

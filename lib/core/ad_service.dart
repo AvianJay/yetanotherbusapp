@@ -8,7 +8,7 @@ class AdService {
   static final AdService instance = AdService._();
 
   static const String bannerAdUnitId =
-      'ca-app-pub-4517104314307871/8300540302';
+      'ca-app-pub-4517104314307871/7453350731';
 
   static const String _adToggleLockedKey = 'ad_toggle_locked';
 

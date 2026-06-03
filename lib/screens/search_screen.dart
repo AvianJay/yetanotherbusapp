@@ -1072,12 +1072,21 @@ class _SearchScreenState extends State<SearchScreen> {
                   child: Card(
                     child: ListTile(
                       leading: CircleAvatar(
-                        child: Text(
-                          item.route.routeName.trim().isEmpty
-                              ? '?'
-                              : item.route.routeName.characters
-                                    .take(3)
-                                    .toString(),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              item.route.routeName.trim().isEmpty
+                                  ? '?'
+                                  : item.route.routeName.characters
+                                        .take(4)
+                                        .toString(),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                       title: item.stopSearch?.matchedStop.stopName != null

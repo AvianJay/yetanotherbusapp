@@ -3394,12 +3394,21 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         ];
                         return ListTile(
                           leading: CircleAvatar(
-                            child: Text(
-                              route.routeName.trim().isEmpty
-                                  ? '?'
-                                  : route.routeName.characters
-                                        .take(3)
-                                        .toString(),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  route.routeName.trim().isEmpty
+                                      ? '?'
+                                      : route.routeName.characters
+                                            .take(4)
+                                            .toString(),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                           title: Text(route.routeName),

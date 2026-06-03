@@ -4514,6 +4514,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
   bool _loading = true;
   String? _error;
   final Set<String> _expandedAlertIds = <String>{};
+  DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
@@ -4605,7 +4606,21 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
                 const Divider(height: 20),
               ],
               if (_schedule != null && _schedule!.isNotEmpty) ...[
-                Text('發車時間', style: theme.textTheme.titleSmall),
+                Row(
+                  children: [
+                    Text('發車時間', style: theme.textTheme.titleSmall),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: _pickScheduleDate,
+                      icon: const Icon(Icons.calendar_today, size: 16),
+                      label: Text(_formatSelectedDateLabel()),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 4),
                 ..._buildScheduleSection(),
               ],
@@ -4771,61 +4786,203 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     );
   }
 
-  List<Widget> _buildScheduleSection() {
-    final grouped = <String, List<RouteScheduleEntry>>{};
-    for (final entry in _schedule!) {
-      final key = entry.serviceDaysSummary;
-      (grouped[key] ??= []).add(entry);
+  static const List<String> _weekdayLabels = <String>[
+    '一',
+    '二',
+    '三',
+    '四',
+    '五',
+    '六',
+    '日',
+  ];
+
+  String _formatSelectedDateLabel() {
+    final d = _selectedDate;
+    final weekday = _weekdayLabels[d.weekday - 1];
+    final holidaySuffix = _isHoliday(d) ? '・假日' : '';
+    return '${d.month}/${d.day}（${weekday}$holidaySuffix）';
+  }
+
+  /// Treats weekends (Saturday/Sunday) as holidays. There is no national
+  /// holiday calendar available, so this is a best-effort approximation.
+  bool _isHoliday(DateTime date) {
+    return date.weekday == DateTime.saturday ||
+        date.weekday == DateTime.sunday;
+  }
+
+  Future<void> _pickScheduleDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 1, 12, 31),
+      helpText: '選擇日期',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _selectedDate = picked);
+  }
+
+  /// Determines whether a schedule entry is active on the selected date,
+  /// based on its service-day flags (and holiday handling).
+  bool _isEntryActiveOnSelectedDate(RouteScheduleEntry entry) {
+    final days = entry.serviceDays;
+    final date = _selectedDate;
+
+    if (_isHoliday(date) && days['holiday'] == 1) {
+      return true;
     }
 
-    final widgets = <Widget>[];
-    for (final entry in grouped.entries) {
-      // Sort entries within each service-day group by departure time.
-      final items = List<RouteScheduleEntry>.of(entry.value)
-        ..sort((a, b) {
-          final aTime = _scheduleEntryStartTime(a);
-          final bTime = _scheduleEntryStartTime(b);
-          return aTime.compareTo(bTime);
-        });
+    const weekdayKeys = <String>[
+      'mon',
+      'tue',
+      'wed',
+      'thu',
+      'fri',
+      'sat',
+      'sun',
+    ];
+    final key = weekdayKeys[date.weekday - 1];
+    return days[key] == 1;
+  }
 
-      widgets.add(
+  List<Widget> _buildScheduleSection() {
+    final theme = Theme.of(context);
+
+    // Filter entries that run on the selected date, then group by direction.
+    final activeEntries =
+        _schedule!.where(_isEntryActiveOnSelectedDate).toList();
+
+    if (activeEntries.isEmpty) {
+      return [
         Padding(
-          padding: const EdgeInsets.only(top: 4, bottom: 2),
+          padding: const EdgeInsets.symmetric(vertical: 8),
           child: Text(
-            '星期${entry.key}',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-        ),
-      );
-      for (final item in items) {
-        widgets.add(
-          Padding(
-            padding: const EdgeInsets.only(left: 8, bottom: 2),
-            child: Text(
-              item.displayText,
-              style: Theme.of(context).textTheme.bodySmall,
+            '這天沒有發車資訊',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-        );
-      }
+        ),
+      ];
+    }
+
+    final byDirection = <int, List<RouteScheduleEntry>>{};
+    for (final entry in activeEntries) {
+      (byDirection[entry.direction] ??= []).add(entry);
+    }
+
+    final directions = byDirection.keys.toList()..sort();
+    final widgets = <Widget>[];
+    for (final direction in directions) {
+      final entries = byDirection[direction]!;
+      widgets.add(_buildDirectionRow(direction, entries, theme));
     }
     return widgets;
   }
 
-  /// Returns a comparable time string (HH:MM) for a schedule entry,
-  /// used to sort within a service-day group.
-  String _scheduleEntryStartTime(RouteScheduleEntry entry) {
-    if (entry.isFrequency) {
-      return (entry.payload['start'] as String? ?? '');
+  Widget _buildDirectionRow(
+    int direction,
+    List<RouteScheduleEntry> entries,
+    ThemeData theme,
+  ) {
+    final frequencyEntries = entries.where((e) => e.isFrequency).toList();
+    final departureTimes = <String>{};
+    for (final entry in entries) {
+      if (entry.isFrequency) continue;
+      final stops = entry.payload['stop_times'] as List<dynamic>? ?? [];
+      if (stops.isNotEmpty) {
+        final first = stops.first as Map<String, dynamic>;
+        final departure = (first['departure'] as String? ?? '').trim();
+        if (departure.isNotEmpty) {
+          departureTimes.add(_normalizeTime(departure));
+        }
+      }
     }
-    final stops = entry.payload['stop_times'] as List<dynamic>? ?? [];
-    if (stops.isNotEmpty) {
-      final first = stops.first as Map<String, dynamic>;
-      return (first['departure'] as String? ?? '');
+
+    final sortedTimes = departureTimes.toList()..sort();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _directionLabel(direction),
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (frequencyEntries.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final entry in frequencyEntries)
+                    Text(
+                      entry.displayText,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                ],
+              ),
+            ),
+          if (sortedTimes.isNotEmpty)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final time in sortedTimes)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      time,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+              ],
+            )
+          else if (frequencyEntries.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                '無發車時間資料',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _directionLabel(int direction) {
+    switch (direction) {
+      case 0:
+        return '去程';
+      case 1:
+        return '返程';
+      default:
+        return '方向 $direction';
     }
-    return '';
+  }
+
+  /// Normalizes a departure time string to HH:MM (drops seconds if present).
+  String _normalizeTime(String raw) {
+    final parts = raw.split(':');
+    if (parts.length >= 2) {
+      return '${parts[0].padLeft(2, '0')}:${parts[1].padLeft(2, '0')}';
+    }
+    return raw;
   }
 }
 

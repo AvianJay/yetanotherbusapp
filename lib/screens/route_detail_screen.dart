@@ -4516,10 +4516,28 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
   final Set<String> _expandedAlertIds = <String>{};
   DateTime _selectedDate = DateTime.now();
 
+  /// Cache of `yyyy-MM-dd` -> isHoliday, populated from the API per year.
+  /// Empty for a date means: no explicit entry, fall back to the weekend rule.
+  final Map<String, bool> _holidayMap = <String, bool>{};
+  final Set<int> _loadedHolidayYears = <int>{};
+
   @override
   void initState() {
     super.initState();
     _loadData();
+    _ensureHolidaysLoaded(_selectedDate.year);
+  }
+
+  Future<void> _ensureHolidaysLoaded(int year) async {
+    if (_loadedHolidayYears.contains(year)) return;
+    _loadedHolidayYears.add(year);
+    try {
+      final map = await widget.repository.fetchHolidaysForYear(year);
+      if (!mounted || map.isEmpty) return;
+      setState(() => _holidayMap.addAll(map));
+    } catch (_) {
+      // Ignore: detection falls back to the weekend rule.
+    }
   }
 
   Future<void> _loadData() async {
@@ -4803,11 +4821,26 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     return '${d.month}/${d.day}（${weekday}$holidaySuffix）';
   }
 
-  /// Treats weekends (Saturday/Sunday) as holidays. There is no national
-  /// holiday calendar available, so this is a best-effort approximation.
+  /// Determines whether [date] is a holiday (non-working day).
+  ///
+  /// Prefers the Taiwan holiday calendar fetched from the API (which handles
+  /// national holidays and make-up working days). Falls back to the weekend
+  /// rule (Sat/Sun = holiday) when there is no explicit entry — this keeps the
+  /// behaviour compatible when the API is unavailable.
   bool _isHoliday(DateTime date) {
+    final key = _dateKey(date);
+    final explicit = _holidayMap[key];
+    if (explicit != null) {
+      return explicit;
+    }
     return date.weekday == DateTime.saturday ||
         date.weekday == DateTime.sunday;
+  }
+
+  String _dateKey(DateTime date) {
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$m-$d';
   }
 
   Future<void> _pickScheduleDate() async {
@@ -4821,6 +4854,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     );
     if (picked == null || !mounted) return;
     setState(() => _selectedDate = picked);
+    unawaited(_ensureHolidaysLoaded(picked.year));
   }
 
   /// Determines whether a schedule entry is active on the selected date,

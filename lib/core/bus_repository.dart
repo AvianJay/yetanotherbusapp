@@ -3338,6 +3338,49 @@ class BusRepository {
     _scheduleCache[routeId] = _TimedValue(entries);
     return entries;
   }
+
+  // ---- Holidays (per-year cache) ----
+  final Map<int, _TimedValue<Map<String, bool>>> _holidayCache =
+      <int, _TimedValue<Map<String, bool>>>{};
+  static const _holidayCacheTtl = Duration(hours: 24);
+
+  /// Fetches the Taiwan holiday calendar for [year] and returns a map of
+  /// `yyyy-MM-dd` -> isHoliday. Dates not present in the map have no explicit
+  /// entry and should fall back to the weekend rule on the caller side.
+  ///
+  /// Returns an empty map if the API is unavailable so callers can gracefully
+  /// fall back to weekend-based detection (compatible with older behaviour).
+  Future<Map<String, bool>> fetchHolidaysForYear(int year) async {
+    final cached = _holidayCache[year];
+    if (cached != null &&
+        DateTime.now().difference(cached.createdAt) < _holidayCacheTtl) {
+      return cached.value;
+    }
+    try {
+      final uri = Uri.parse('$_apiBaseUrl/api/v1/holidays?year=$year');
+      final response = await _client.get(uri, headers: _apiJsonHeaders);
+      if (response.statusCode != 200) {
+        return const <String, bool>{};
+      }
+      final decoded =
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final list = decoded['holidays'] as List<dynamic>? ?? const [];
+      final result = <String, bool>{};
+      for (final item in list) {
+        if (item is Map<String, dynamic>) {
+          final date = item['date'] as String?;
+          if (date != null && date.isNotEmpty) {
+            result[date] = item['isHoliday'] as bool? ?? true;
+          }
+        }
+      }
+      _holidayCache[year] = _TimedValue(result);
+      return result;
+    } catch (e) {
+      // Network/parse failure: return empty so caller falls back to weekends.
+      return const <String, bool>{};
+    }
+  }
 }
 
 class LiveStopPayload {

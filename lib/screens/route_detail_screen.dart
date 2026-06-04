@@ -5091,7 +5091,7 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
 
   Future<void> _load() async {
     try {
-      final schedule = await widget.repository.fetchRouteSchedule(
+      final schedule = await widget.repository.fetchStopEstimatedTimes(
         widget.routeId,
       );
       if (!mounted) return;
@@ -5202,6 +5202,13 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
     return time.isEmpty ? null : _normalizeTime(time);
   }
 
+  /// Whether [entry] has estimated (extrapolated) stop times rather than
+  /// authoritative timetable data.
+  bool _isEntryEstimated(RouteScheduleEntry entry) {
+    return entry.isFrequency &&
+        (entry.payload['has_estimated_stops'] as bool? ?? false);
+  }
+
   String _normalizeTime(String raw) {
     final parts = raw.split(':');
     if (parts.length >= 2) {
@@ -5308,29 +5315,43 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
     // times for the direction(s) this stop actually belongs to. A timetable
     // entry is relevant only if THIS stop appears in its stop_times — entries
     // for the opposite direction (where this stop doesn't exist) are skipped.
-    final stopTimes = <String>{};
+    final stopTimes = <String, bool>{}; // time -> isEstimated
     final relevantDirections = <int>{};
     for (final entry in timetableEntries) {
       final time = _stopTimeForEntry(entry);
       if (time != null) {
-        stopTimes.add(time);
+        stopTimes[time] = false;
         relevantDirections.add(entry.direction);
       }
     }
 
-    // Frequency entries have no per-stop times, so we cannot confirm a stop
-    // directly. Only keep frequency entries whose direction matches one that
-    // this stop is known (from timetables) to belong to. If there are no
-    // timetables at all, fall back to all active frequency entries.
-    final relevantFrequencies = <RouteScheduleEntry>[];
+    // Frequency entries may now carry estimated per-stop times (from the
+    // stop-estimated-times API endpoint).  Extract stop times from those
+    // that have them.
+    final estimatedFrequencyEntries = <RouteScheduleEntry>[];
+    final plainFrequencyEntries = <RouteScheduleEntry>[];
     for (final entry in frequencyEntries) {
-      if (relevantDirections.isEmpty ||
-          relevantDirections.contains(entry.direction)) {
-        relevantFrequencies.add(entry);
+      if (relevantDirections.isNotEmpty &&
+          !relevantDirections.contains(entry.direction)) {
+        continue;
+      }
+      if (_isEntryEstimated(entry)) {
+        estimatedFrequencyEntries.add(entry);
+      } else {
+        plainFrequencyEntries.add(entry);
       }
     }
 
-    if (stopTimes.isEmpty && relevantFrequencies.isEmpty) {
+    // Collect estimated times from frequency entries with extrapolated stops.
+    for (final entry in estimatedFrequencyEntries) {
+      final time = _stopTimeForEntry(entry);
+      if (time != null) {
+        stopTimes[time] = true;
+        relevantDirections.add(entry.direction);
+      }
+    }
+
+    if (stopTimes.isEmpty && plainFrequencyEntries.isEmpty) {
       return Center(
         child: Text(
           '這個站點在當天沒有對應的發車時刻',
@@ -5341,12 +5362,12 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
       );
     }
 
-    final sortedTimes = stopTimes.toList()..sort();
+    final sortedTimes = stopTimes.keys.toList()..sort();
 
     return ListView(
       controller: scrollController,
       children: [
-        if (relevantFrequencies.isNotEmpty) ...[
+        if (plainFrequencyEntries.isNotEmpty) ...[
           Text(
             '行駛班距',
             style: theme.textTheme.titleSmall?.copyWith(
@@ -5354,7 +5375,7 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
             ),
           ),
           const SizedBox(height: 4),
-          for (final entry in relevantFrequencies)
+          for (final entry in plainFrequencyEntries)
             Padding(
               padding: const EdgeInsets.only(bottom: 2),
               child: Text(entry.displayText, style: theme.textTheme.bodyMedium),
@@ -5362,11 +5383,31 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
           if (sortedTimes.isNotEmpty) const SizedBox(height: 12),
         ],
         if (sortedTimes.isNotEmpty) ...[
-          Text(
-            '預計到站時間',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            children: [
+              Text(
+                '預計到站時間',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (stopTimes.values.any((e) => e)) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.tertiaryContainer,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '含推算',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onTertiaryContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: 6),
           Wrap(
@@ -5380,13 +5421,25 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
                     vertical: 5,
                   ),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest,
+                    color: stopTimes[time] == true
+                        ? theme.colorScheme.tertiaryContainer
+                        : theme.colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(time, style: theme.textTheme.bodyMedium),
                 ),
             ],
           ),
+          if (stopTimes.values.any((e) => e)) ...[
+            const SizedBox(height: 8),
+            Text(
+              '※ 標示「含推算」的時間由班距與行駛時間推算，僅供參考',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
         ],
       ],
     );

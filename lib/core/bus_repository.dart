@@ -3339,6 +3339,53 @@ class BusRepository {
     return entries;
   }
 
+  // ---- Stop estimated times (daily cache) ----
+  final Map<String, _TimedValue<List<RouteScheduleEntry>>>
+      _stopEstimatedCache =
+      <String, _TimedValue<List<RouteScheduleEntry>>>{};
+  static const _stopEstimatedCacheTtl = Duration(hours: 24);
+
+  /// Fetches per-stop estimated times for a route, including frequency
+  /// entries with extrapolated stop times derived from travel-time data.
+  ///
+  /// Falls back to the basic schedule endpoint if the estimated-times
+  /// endpoint is unavailable (e.g. older server version).
+  Future<List<RouteScheduleEntry>> fetchStopEstimatedTimes(
+    String routeId,
+  ) async {
+    final cached = _stopEstimatedCache[routeId];
+    if (cached != null &&
+        DateTime.now().difference(cached.createdAt) < _stopEstimatedCacheTtl) {
+      return cached.value;
+    }
+    try {
+      final uri = Uri.parse(
+        '$_apiBaseUrl/api/v1/routes/$routeId/stop-estimated-times',
+      );
+      final response = await _client.get(uri, headers: _apiJsonHeaders);
+      if (response.statusCode == 429) {
+        throw Exception(rateLimitedErrorMessage);
+      }
+      if (response.statusCode != 200) {
+        // Fall back to the basic schedule endpoint.
+        return fetchRouteSchedule(routeId);
+      }
+      final decoded =
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final List<dynamic> jsonList =
+          decoded['entries'] as List<dynamic>? ?? const [];
+      final entries = jsonList
+          .map((e) => RouteScheduleEntry.fromJson(e as Map<String, dynamic>))
+          .toList();
+      _stopEstimatedCache[routeId] = _TimedValue(entries);
+      return entries;
+    } catch (e) {
+      // Any parse/network failure: fall back gracefully.
+      debugPrint('fetchStopEstimatedTimes fallback: $e');
+      return fetchRouteSchedule(routeId);
+    }
+  }
+
   // ---- Holidays (per-year cache) ----
   final Map<int, _TimedValue<Map<String, bool>>> _holidayCache =
       <int, _TimedValue<Map<String, bool>>>{};

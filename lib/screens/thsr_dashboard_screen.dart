@@ -295,13 +295,13 @@ class _ThsrScreenState extends State<ThsrScreen> {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '先看站點座位餘量，再決定要不要切到時刻表查下一班。',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
+                      // const SizedBox(height: 4),
+                      // Text(
+                      //   '先看站點座位餘量，再決定要不要切到時刻表查下一班。',
+                      //   style: theme.textTheme.bodySmall?.copyWith(
+                      //     color: theme.colorScheme.onSurfaceVariant,
+                      //   ),
+                      // ),
                     ],
                   ),
                 ),

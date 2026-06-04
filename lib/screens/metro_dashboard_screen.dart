@@ -477,13 +477,13 @@ class _MetroScreenState extends State<MetroScreen> {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              '先切城市，再切路線；同一頁就能看即時到站與站點地圖。',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
+            // const SizedBox(height: 6),
+            // Text(
+            //   '先切城市，再切路線；同一頁就能看即時到站與站點地圖。',
+            //   style: theme.textTheme.bodySmall?.copyWith(
+            //     color: theme.colorScheme.onSurfaceVariant,
+            //   ),
+            // ),
             const SizedBox(height: 14),
             Wrap(
               spacing: 10,

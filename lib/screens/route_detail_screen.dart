@@ -4842,7 +4842,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     final d = _selectedDate;
     final weekday = _weekdayLabels[d.weekday - 1];
     final holidaySuffix = _isHoliday(d) ? '・假日' : '';
-    return '${d.month}/${d.day}（${weekday}$holidaySuffix）';
+    return '${d.month}/${d.day}（$weekday$holidaySuffix）';
   }
 
   /// Determines whether [date] is a holiday (non-working day).
@@ -5139,7 +5139,7 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
     final d = _selectedDate;
     final weekday = _weekdayLabels[d.weekday - 1];
     final holidaySuffix = _isHoliday(d) ? '・假日' : '';
-    return '${d.month}/${d.day}（${weekday}$holidaySuffix）';
+    return '${d.month}/${d.day}（$weekday$holidaySuffix）';
   }
 
   Future<void> _pickDate() async {

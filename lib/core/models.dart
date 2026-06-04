@@ -264,7 +264,7 @@ enum DatabaseAutoUpdateMode {
 DatabaseAutoUpdateMode databaseAutoUpdateModeFromString(String value) {
   return DatabaseAutoUpdateMode.values.firstWhere(
     (mode) => mode.name == value,
-    orElse: () => DatabaseAutoUpdateMode.checkPopup,
+    orElse: () => DatabaseAutoUpdateMode.wifiOnly,
   );
 }
 
@@ -373,7 +373,7 @@ class AppSettings {
       busErrorUpdateTime: 3,
       maxHistory: 10,
       hasCompletedOnboarding: false,
-      databaseAutoUpdateMode: DatabaseAutoUpdateMode.checkPopup,
+      databaseAutoUpdateMode: DatabaseAutoUpdateMode.wifiOnly,
       appUpdateChannel: _defaultAppUpdateChannel(),
       appUpdateCheckMode:
           const bool.fromEnvironment('APP_BUILD_AAB', defaultValue: false)
@@ -477,7 +477,7 @@ class AppSettings {
       maxHistory: json['maxHistory'] as int? ?? 10,
       hasCompletedOnboarding: json['hasCompletedOnboarding'] as bool? ?? false,
       databaseAutoUpdateMode: databaseAutoUpdateModeFromString(
-        json['databaseAutoUpdateMode'] as String? ?? 'checkPopup',
+        json['databaseAutoUpdateMode'] as String? ?? 'wifiOnly',
       ),
       appUpdateChannel: appUpdateChannelFromString(
         json['appUpdateChannel'] as String? ??

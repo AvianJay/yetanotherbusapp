@@ -1742,8 +1742,17 @@ class AppController extends ChangeNotifier {
     }
 
     final connectionKind = await _resolveDatabaseConnectionKind();
+    // Desktop platforms always auto-download database updates regardless of
+    // the saved mode, since they typically have stable Wi-Fi/Ethernet and
+    // Connectivity detection may not work reliably on desktop.
+    final isDesktop = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.macOS);
     return DatabaseStartupCheckResult(
-      mode: _settings.databaseAutoUpdateMode,
+      mode: isDesktop
+          ? DatabaseAutoUpdateMode.always
+          : _settings.databaseAutoUpdateMode,
       updates: availableUpdates,
       connectionKind: connectionKind,
     );

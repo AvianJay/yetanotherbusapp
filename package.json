@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve:web": "node scripts/yabus-web-server.mjs"
+  }
+}

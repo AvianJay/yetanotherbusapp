@@ -4177,8 +4177,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         icon: vehicleStatusStyle!.icon,
                         label: useCompactVehicleStatus
                             ? null
-                            : vehicleStatusStyle!.label,
-                        showStackedBuses: vehicleStatusStyle!.showStackedBuses,
+                            : vehicleStatusStyle.label,
+                        showStackedBuses: vehicleStatusStyle.showStackedBuses,
                       ),
                       (false, false, true) => _estimateRouteStatusPillWidth(
                         context,

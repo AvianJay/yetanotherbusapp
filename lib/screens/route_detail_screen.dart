@@ -1003,7 +1003,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   Future<bool> _scrollToStop(
     int pathId,
     int stopId, {
-    double alignment = 0.28,
+    double alignment = 0.5,
     Duration duration = const Duration(milliseconds: 360),
   }) async {
     var hasPrimedLazyList = false;

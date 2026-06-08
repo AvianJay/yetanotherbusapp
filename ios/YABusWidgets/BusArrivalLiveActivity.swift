@@ -63,10 +63,9 @@ struct BusArrivalLiveActivity: Widget {
     )
     .foregroundStyle(etaColor(context.state))
     .lineLimit(1)
-    .minimumScaleFactor(0.55)
+    .minimumScaleFactor(0.45)
     .monospacedDigit()
-    .frame(width: 46, alignment: .trailing)
-    .clipped()
+    .frame(width: 58, alignment: .trailing)
   }
 
   @ViewBuilder
@@ -157,10 +156,13 @@ struct BusArrivalLiveActivity: Widget {
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
-        Spacer()
+        Spacer(minLength: 6)
         Text(context.state.updatedAt, style: .time)
           .font(.system(size: 11, weight: .medium, design: .monospaced))
           .foregroundStyle(Color(white: 0.5))
+          .lineLimit(1)
+          .fixedSize(horizontal: true, vertical: false)
+          .layoutPriority(1)
       }
       .padding(.horizontal, 2)
     }

@@ -14,6 +14,7 @@ import '../core/android_home_integration.dart';
 import '../core/android_trip_monitor.dart';
 import '../core/app_controller.dart';
 import '../core/app_launch_service.dart';
+import '../core/app_motion.dart';
 import '../core/app_route_observer.dart';
 import '../core/app_routes.dart';
 import '../core/bus_repository.dart';
@@ -85,6 +86,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _backgroundTripMonitorReady = false;
   bool _backgroundTripMonitorPromptInProgress = false;
   bool _backgroundTripMonitorPaused = false;
+  bool _tripModeStartInProgress = false;
   bool _backgroundDataRefreshInFlight = false;
   bool _awaitingBackgroundLocationPermission = false;
   bool _destinationPromptShown = false;
@@ -729,8 +731,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (targetIndex != -1 && _tabController!.index != targetIndex) {
         _tabController!.animateTo(
           targetIndex,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
+          duration: AppMotion.standard,
+          curve: AppMotion.enter,
         );
         for (var attempt = 0; attempt < 12; attempt++) {
           await WidgetsBinding.instance.endOfFrame;
@@ -804,8 +806,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (targetIndex != -1 && _tabController!.index != targetIndex) {
         _tabController!.animateTo(
           targetIndex,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
+          duration: AppMotion.standard,
+          curve: AppMotion.enter,
         );
         for (var attempt = 0; attempt < 12; attempt++) {
           await WidgetsBinding.instance.endOfFrame;
@@ -939,9 +941,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   Widget _buildBottomProgressIndicator() {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
+      duration: AppMotion.progress,
+      switchInCurve: AppMotion.enter,
+      switchOutCurve: AppMotion.exit,
       transitionBuilder: (child, animation) {
         return SizeTransition(
           sizeFactor: animation,
@@ -1004,7 +1006,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     int pathId,
     int stopId, {
     double alignment = 0.5,
-    Duration duration = const Duration(milliseconds: 360),
+    Duration duration = AppMotion.scroll,
   }) async {
     var hasPrimedLazyList = false;
     for (var attempt = 0; attempt < 12; attempt++) {
@@ -1032,7 +1034,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       await Scrollable.ensureVisible(
         targetContext,
         duration: duration,
-        curve: Curves.easeOutCubic,
+        curve: AppMotion.enter,
         alignment: alignment,
       );
       return true;
@@ -1168,8 +1170,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     tabController.animateTo(
       targetIndex,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
+      duration: AppMotion.standard,
+      curve: AppMotion.enter,
     );
   }
 
@@ -1951,7 +1953,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     ).showSnackBar(SnackBar(content: Text('已將 ${stop.stopName} 設為上車站。')));
   }
 
-  Future<void> _setDestinationStop(StopInfo stop) async {
+  Future<void> _setDestinationStop(
+    StopInfo stop, {
+    bool showFeedback = true,
+  }) async {
     final boardingStop = _resolvedBoardingStop();
     setState(() {
       _pendingAutoDestinationSelection = false;
@@ -1968,9 +1973,86 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('已將 ${stop.stopName} 設為下車提醒。')));
+    if (showFeedback) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已將 ${stop.stopName} 設為下車提醒。')));
+    }
+  }
+
+  Future<void> _startTripMode() async {
+    if (_tripModeStartInProgress || _currentPathStops.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _tripModeStartInProgress = true;
+    });
+    try {
+      final controller = AppControllerScope.read(context);
+      final boardingStop = _resolvedBoardingStop();
+
+      if (_destinationStopId == null) {
+        final destinationStop = await _pickTripMonitorStop(
+          title: '選擇下車站',
+          selectedStopId: _destinationStopId,
+          selectedIcon: Icons.flag_rounded,
+          blockedStopId: boardingStop?.stopId,
+          blockedReason: '這個站已設為上車站',
+        );
+        if (!mounted || destinationStop == null) {
+          return;
+        }
+        await _setDestinationStop(destinationStop, showFeedback: false);
+      } else if (_boardingStopId == null && boardingStop != null) {
+        setState(() {
+          _boardingStopId = boardingStop.stopId;
+          _boardingStopName = boardingStop.stopName;
+        });
+      }
+
+      if (!controller.settings.enableRouteBackgroundMonitor) {
+        await controller.updateEnableRouteBackgroundMonitor(
+          true,
+          markPromptSeen: true,
+        );
+      }
+      if (!mounted) {
+        return;
+      }
+
+      if (_backgroundTripMonitorPaused) {
+        await _setBackgroundTripMonitorPaused(
+          false,
+          reason: 'trip_mode',
+          showFeedback: false,
+        );
+      } else {
+        await _configureBackgroundTripMonitorIfNeeded(
+          forcePermissionCheck: true,
+        );
+      }
+
+      if (!mounted) {
+        return;
+      }
+      final destinationName = _destinationStopName?.trim();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            destinationName == null || destinationName.isEmpty
+                ? '乘車模式已啟動。'
+                : '乘車模式已啟動，下車提醒：$destinationName。',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _tripModeStartInProgress = false;
+        });
+      }
+    }
   }
 
   Future<void> _clearBoardingStop() async {
@@ -3578,7 +3660,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 children: [
                   Expanded(
                     child: Text(
-                      '背景乘車提醒',
+                      '乘車模式',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -3595,7 +3677,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: Text(
-                '把背景追蹤與下車提醒控制集中在這裡。',
+                '乘車模式會持續追蹤這趟車，並在接近下車站時提醒你。',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -3609,7 +3691,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     : Icons.pause_circle_outline_rounded,
               ),
               title: Text(
-                _backgroundTripMonitorPaused ? '恢復背景乘車提醒' : '暫時停止背景乘車提醒',
+                _backgroundTripMonitorPaused ? '恢復乘車模式' : '暫停乘車模式',
               ),
               subtitle: Text(
                 _backgroundTripMonitorPaused
@@ -4239,6 +4321,37 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     );
   }
 
+  Widget _buildTripModeButton({
+    required bool active,
+    required bool paused,
+    required bool canOpenSettings,
+  }) {
+    final label = active
+        ? '乘車中'
+        : paused
+        ? '恢復乘車'
+        : '我正在搭車';
+    final icon = active
+        ? Icons.near_me_rounded
+        : paused
+        ? Icons.play_arrow_rounded
+        : Icons.directions_bus_filled_rounded;
+    return FilledButton.icon(
+      onPressed: _tripModeStartInProgress
+          ? null
+          : active && canOpenSettings
+          ? () => _scaffoldKey.currentState?.openEndDrawer()
+          : () => unawaited(_startTripMode()),
+      icon: _tripModeStartInProgress
+          ? const SizedBox.square(
+              dimension: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(icon),
+      label: Text(label),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
@@ -4257,6 +4370,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         : _nearestStopByPath[currentPathId];
     final canOpenBackgroundTripMonitorDrawer =
         settings.enableRouteBackgroundMonitor && _currentPathStops.isNotEmpty;
+    final tripModeAvailable = (_isAndroid || _isIOS) &&
+        detail != null &&
+        _currentPathStops.isNotEmpty;
+    final tripModeConfigured =
+        settings.enableRouteBackgroundMonitor && _destinationStopId != null;
+    final tripModeActive = tripModeConfigured && !_backgroundTripMonitorPaused;
+    final tripModePaused = tripModeConfigured && _backgroundTripMonitorPaused;
     final isWideLayout =
         MediaQuery.sizeOf(context).width >= _wideLayoutBreakpoint;
     final canShowInlineMap =
@@ -4325,7 +4445,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             if (canOpenBackgroundTripMonitorDrawer)
               IconButton(
                 onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-                tooltip: '背景乘車提醒',
+                tooltip: '乘車模式',
                 icon: Icon(
                   _backgroundTripMonitorPaused
                       ? Icons.notifications_paused_outlined
@@ -4381,18 +4501,50 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               _buildBottomProgressIndicator(),
               Padding(
                 padding: EdgeInsets.fromLTRB(16, 8, 16, bottomInset + 10),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    _statusMessage ??
-                        (_remainingSeconds > 0
-                            ? '$_remainingSeconds 秒後更新'
-                            : '正在更新'),
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: theme.colorScheme.onSurface,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final statusLabel = Text(
+                      _statusMessage ??
+                          (_remainingSeconds > 0
+                              ? '$_remainingSeconds 秒後更新'
+                              : '正在更新'),
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.onSurface,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    );
+                    if (!tripModeAvailable) {
+                      return Align(
+                        alignment: Alignment.centerLeft,
+                        child: statusLabel,
+                      );
+                    }
+
+                    final tripModeButton = _buildTripModeButton(
+                      active: tripModeActive,
+                      paused: tripModePaused,
+                      canOpenSettings: canOpenBackgroundTripMonitorDrawer,
+                    );
+                    if (constraints.maxWidth < 430) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          statusLabel,
+                          const SizedBox(height: 8),
+                          tripModeButton,
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      children: [
+                        Expanded(child: statusLabel),
+                        const SizedBox(width: 12),
+                        tripModeButton,
+                      ],
+                    );
+                  },
                 ),
               ),
             ],

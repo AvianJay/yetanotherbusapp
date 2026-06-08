@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
+import '../core/app_motion.dart';
 import '../core/desktop_discord_presence_service.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
@@ -33,7 +34,6 @@ class _MainTransitShellState extends State<MainTransitShell> {
     TransitMode.tra,
     TransitMode.youbike,
   ];
-  static const _switchDuration = Duration(milliseconds: 220);
   static const _hiddenOffset = Offset(0.035, 0);
 
   @override
@@ -130,12 +130,12 @@ class _MainTransitShellState extends State<MainTransitShell> {
         child: TickerMode(
           enabled: isActive,
           child: AnimatedSlide(
-            duration: _switchDuration,
-            curve: Curves.easeOutCubic,
+            duration: AppMotion.standard,
+            curve: AppMotion.enter,
             offset: isActive ? Offset.zero : _hiddenOffset,
             child: AnimatedOpacity(
-              duration: _switchDuration,
-              curve: Curves.easeOutCubic,
+              duration: AppMotion.standard,
+              curve: AppMotion.enter,
               opacity: isActive ? 1 : 0,
               child: BackgroundImageWrapper(pageKey: pageKey, child: child),
             ),

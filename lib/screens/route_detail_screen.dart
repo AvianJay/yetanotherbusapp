@@ -14,6 +14,7 @@ import '../core/android_home_integration.dart';
 import '../core/android_trip_monitor.dart';
 import '../core/app_controller.dart';
 import '../core/app_launch_service.dart';
+import '../core/app_motion.dart';
 import '../core/app_route_observer.dart';
 import '../core/app_routes.dart';
 import '../core/bus_repository.dart';
@@ -729,8 +730,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (targetIndex != -1 && _tabController!.index != targetIndex) {
         _tabController!.animateTo(
           targetIndex,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
+          duration: AppMotion.standard,
+          curve: AppMotion.enter,
         );
         for (var attempt = 0; attempt < 12; attempt++) {
           await WidgetsBinding.instance.endOfFrame;
@@ -804,8 +805,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (targetIndex != -1 && _tabController!.index != targetIndex) {
         _tabController!.animateTo(
           targetIndex,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
+          duration: AppMotion.standard,
+          curve: AppMotion.enter,
         );
         for (var attempt = 0; attempt < 12; attempt++) {
           await WidgetsBinding.instance.endOfFrame;
@@ -939,9 +940,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   Widget _buildBottomProgressIndicator() {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
+      duration: AppMotion.progress,
+      switchInCurve: AppMotion.enter,
+      switchOutCurve: AppMotion.exit,
       transitionBuilder: (child, animation) {
         return SizeTransition(
           sizeFactor: animation,
@@ -1004,7 +1005,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     int pathId,
     int stopId, {
     double alignment = 0.5,
-    Duration duration = const Duration(milliseconds: 360),
+    Duration duration = AppMotion.scroll,
   }) async {
     var hasPrimedLazyList = false;
     for (var attempt = 0; attempt < 12; attempt++) {
@@ -1032,7 +1033,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       await Scrollable.ensureVisible(
         targetContext,
         duration: duration,
-        curve: Curves.easeOutCubic,
+        curve: AppMotion.enter,
         alignment: alignment,
       );
       return true;
@@ -1168,8 +1169,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     tabController.animateTo(
       targetIndex,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
+      duration: AppMotion.standard,
+      curve: AppMotion.enter,
     );
   }
 

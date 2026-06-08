@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/app_motion.dart';
 import '../core/transit_repository.dart';
 import '../widgets/transit_drawer.dart';
 import '../widgets/transit_station_map.dart';
@@ -261,7 +262,9 @@ class _TraScreenState extends State<TraScreen> {
                         ),
                         const SizedBox(height: 16),
                         AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
+                          duration: AppMotion.standard,
+                          switchInCurve: AppMotion.enter,
+                          switchOutCurve: AppMotion.exit,
                           child: _panel == _TraPanel.query
                               ? _buildQueryPanel(theme)
                               : _buildMapPanel(theme),

@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 
 import '../app/bus_app.dart';
+import '../core/app_motion.dart';
 import 'platform_map_provider.dart';
 
 class TransitMapPoint {
@@ -332,7 +333,8 @@ class _TransitPointMarker extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+          duration: AppMotion.microInteraction,
+          curve: AppMotion.enter,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: theme.colorScheme.surface.withValues(

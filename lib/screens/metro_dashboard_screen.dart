@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/app_motion.dart';
 import '../core/transit_repository.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/transit_drawer.dart';
@@ -448,7 +449,9 @@ class _MetroScreenState extends State<MetroScreen> {
                         ),
                         const SizedBox(height: 16),
                         AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
+                          duration: AppMotion.standard,
+                          switchInCurve: AppMotion.enter,
+                          switchOutCurve: AppMotion.exit,
                           child: switch (_panel) {
                             _MetroPanel.live => _buildLivePanel(theme),
                             _MetroPanel.map => _buildMapPanel(theme),

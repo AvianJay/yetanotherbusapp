@@ -1024,7 +1024,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             pathId,
             stopId,
             alignment: alignment,
-            duration: duration,
           );
         }
         continue;
@@ -1046,7 +1045,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     int pathId,
     int stopId, {
     required double alignment,
-    required Duration duration,
   }) async {
     final detail = _detail;
     final scrollController = _scrollControllers[pathId];
@@ -1072,10 +1070,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         : targetIndex / (pathStops.length - 1);
     final viewport = scrollController.position.viewportDimension;
     final targetOffset = (maxScrollExtent * stopRatio) - (viewport * alignment);
-    await scrollController.animateTo(
-      targetOffset.clamp(0.0, maxScrollExtent),
-      duration: duration,
-      curve: Curves.easeOutCubic,
+    scrollController.jumpTo(
+      targetOffset.clamp(0.0, maxScrollExtent).toDouble(),
     );
     return true;
   }

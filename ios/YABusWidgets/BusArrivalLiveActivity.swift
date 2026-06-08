@@ -11,18 +11,16 @@ struct BusArrivalLiveActivity: Widget {
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           expandedLeading(context: context)
-            .padding(.leading, 12)
-            .padding(.top, 8)
+            .padding(.leading, 10)
         }
         DynamicIslandExpandedRegion(.trailing) {
           expandedTrailing(context: context)
-            .padding(.trailing, 12)
-            .padding(.top, 8)
+            .padding(.trailing, 10)
         }
         DynamicIslandExpandedRegion(.bottom) {
           expandedBottom(context: context)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 6)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 4)
         }
       } compactLeading: {
         compactLeadingView(context: context)
@@ -40,16 +38,18 @@ struct BusArrivalLiveActivity: Widget {
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
     Text(compactRouteName(context.attributes.routeName))
-      .font(.system(size: 13, weight: .heavy, design: .rounded))
+      .font(.system(size: 12, weight: .heavy, design: .rounded))
       .foregroundStyle(.white)
       .lineLimit(1)
-      .minimumScaleFactor(0.7)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 3)
+      .minimumScaleFactor(0.55)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 2)
       .background(
         Capsule(style: .continuous)
           .fill(etaColor(context.state).opacity(0.9))
       )
+      .frame(width: 42, alignment: .leading)
+      .clipped()
   }
 
   @ViewBuilder
@@ -59,12 +59,14 @@ struct BusArrivalLiveActivity: Widget {
     countdownText(
       context.state,
       style: .compact,
-      font: .system(size: 15, weight: .bold, design: .rounded)
+      font: .system(size: 13, weight: .bold, design: .rounded)
     )
     .foregroundStyle(etaColor(context.state))
     .lineLimit(1)
-    .minimumScaleFactor(0.7)
+    .minimumScaleFactor(0.55)
     .monospacedDigit()
+    .frame(width: 46, alignment: .trailing)
+    .clipped()
   }
 
   @ViewBuilder
@@ -89,11 +91,11 @@ struct BusArrivalLiveActivity: Widget {
   private func expandedLeading(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: 4) {
       HStack(spacing: 6) {
         routeBadge(context.attributes.routeName, surface: .dynamicIsland)
         Text(context.attributes.pathName)
-          .font(.system(size: 13, weight: .medium))
+          .font(.system(size: 12, weight: .medium))
           .foregroundStyle(.secondary)
           .lineLimit(1)
       }
@@ -104,18 +106,11 @@ struct BusArrivalLiveActivity: Widget {
 
       HStack(spacing: 5) {
         Image(systemName: "mappin.circle.fill")
-          .font(.system(size: 14))
+          .font(.system(size: 13))
           .foregroundStyle(.cyan)
         Text(displayStopName(context.state))
-          .font(.system(size: 15, weight: .semibold))
+          .font(.system(size: 14, weight: .semibold))
           .lineLimit(1)
-      }
-
-      if let statusText = trimmedText(context.state.statusText) {
-        Text(statusText)
-          .font(.system(size: 12, weight: .medium))
-          .foregroundStyle(.secondary)
-          .lineLimit(2)
       }
     }
   }
@@ -128,7 +123,7 @@ struct BusArrivalLiveActivity: Widget {
       countdownText(
         context.state,
         style: .expanded,
-        font: .system(size: 28, weight: .bold, design: .rounded)
+        font: .system(size: 24, weight: .bold, design: .rounded)
       )
       .foregroundStyle(etaColor(context.state))
       .lineLimit(1)
@@ -141,6 +136,7 @@ struct BusArrivalLiveActivity: Widget {
             .font(.system(size: 10))
           Text(vehicleId)
             .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .lineLimit(1)
         }
         .foregroundStyle(.secondary)
       }
@@ -151,7 +147,7 @@ struct BusArrivalLiveActivity: Widget {
   private func expandedBottom(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(spacing: 8) {
+    VStack(spacing: 5) {
       stopLineView(context.state, surface: .dynamicIsland)
 
       HStack {
@@ -159,7 +155,7 @@ struct BusArrivalLiveActivity: Widget {
           Text(statusText)
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.secondary)
-            .lineLimit(2)
+            .lineLimit(1)
         }
         Spacer()
         Text(context.state.updatedAt, style: .time)

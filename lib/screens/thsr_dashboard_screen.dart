@@ -486,13 +486,13 @@ class _ThsrScreenState extends State<ThsrScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  '這裡直接看站點即時座位資訊；想換站時，地圖面板會比較直覺。',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
+                // const SizedBox(height: 8),
+                // Text(
+                //   '這裡直接看站點即時座位資訊；想換站時，地圖面板會比較直覺。',
+                //   style: theme.textTheme.bodySmall?.copyWith(
+                //     color: theme.colorScheme.onSurfaceVariant,
+                //   ),
+                // ),
                 const SizedBox(height: 16),
                 _RailStationAutocomplete(
                   label: '查詢站點',
@@ -579,13 +579,13 @@ class _ThsrScreenState extends State<ThsrScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  '點一下站點就能把下面的座位資訊切過去，動線比先選列表再回上一頁快。',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
+                // const SizedBox(height: 8),
+                // Text(
+                //   '點一下站點就能把下面的座位資訊切過去，動線比先選列表再回上一頁快。',
+                //   style: theme.textTheme.bodySmall?.copyWith(
+                //     color: theme.colorScheme.onSurfaceVariant,
+                //   ),
+                // ),
                 const SizedBox(height: 16),
                 TransitStationMap(
                   points: mapPoints,

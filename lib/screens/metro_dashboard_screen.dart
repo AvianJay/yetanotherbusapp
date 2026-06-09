@@ -717,13 +717,13 @@ class _MetroScreenState extends State<MetroScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  '點站點會把下方切到該站最近列車；不需要再進第二層畫面。',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
+                // const SizedBox(height: 8),
+                // Text(
+                //   '點站點會把下方切到該站最近列車；不需要再進第二層畫面。',
+                //   style: theme.textTheme.bodySmall?.copyWith(
+                //     color: theme.colorScheme.onSurfaceVariant,
+                //   ),
+                // ),
                 const SizedBox(height: 16),
                 TransitStationMap(
                   points: points,

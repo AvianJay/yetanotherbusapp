@@ -5,6 +5,7 @@ class LiveActivityDisplayState {
   const LiveActivityDisplayState({
     required this.stopId,
     required this.stopName,
+    this.alertStopName,
     this.previousStopName,
     this.nextStopName,
     this.lineStopNames,
@@ -22,6 +23,7 @@ class LiveActivityDisplayState {
 
   final int stopId;
   final String stopName;
+  final String? alertStopName;
   final String? previousStopName;
   final String? nextStopName;
   final List<String>? lineStopNames;
@@ -40,6 +42,7 @@ class LiveActivityDisplayState {
     return <String, Object?>{
       'displayStopId': stopId,
       'displayStopName': stopName,
+      'alertStopName': alertStopName,
       'previousStopName': previousStopName,
       'nextStopName': nextStopName,
       'lineStopNames': lineStopNames,

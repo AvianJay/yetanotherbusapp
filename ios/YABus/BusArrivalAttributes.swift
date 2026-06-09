@@ -11,6 +11,7 @@ struct BusArrivalAttributes: ActivityAttributes {
   struct ContentState: Codable, Hashable {
     let displayStopId: Int
     let displayStopName: String
+    let alertStopName: String?
     let previousStopName: String?
     let nextStopName: String?
     let lineStopNames: [String]

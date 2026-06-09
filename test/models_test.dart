@@ -20,6 +20,57 @@ void main() {
     expect(eta.text, '2分\n5秒');
   });
 
+  test('eta presentation keeps floor minutes when seconds are hidden', () {
+    final stop = StopInfo(
+      routeKey: 1,
+      pathId: 0,
+      stopId: 10,
+      stopName: 'Main Station',
+      sequence: 1,
+      lon: 121.5,
+      lat: 25.0,
+      sec: 61,
+    );
+
+    final eta = buildEtaPresentation(stop, alwaysShowSeconds: false);
+
+    expect(eta.text, '1分');
+  });
+
+  test('effective stop eta subtracts elapsed time from realtime timestamp', () {
+    final now = DateTime(2026, 6, 9, 8, 0);
+    final stop = StopInfo(
+      routeKey: 1,
+      pathId: 0,
+      stopId: 10,
+      stopName: 'Main Station',
+      sequence: 1,
+      lon: 121.5,
+      lat: 25.0,
+      sec: 90,
+      t: now.subtract(const Duration(seconds: 35)).toIso8601String(),
+    );
+
+    expect(effectiveStopEtaSeconds(stop, now: now), 55);
+  });
+
+  test('effective stop eta ignores stale timestamps', () {
+    final now = DateTime(2026, 6, 9, 8, 0);
+    final stop = StopInfo(
+      routeKey: 1,
+      pathId: 0,
+      stopId: 10,
+      stopName: 'Main Station',
+      sequence: 1,
+      lon: 121.5,
+      lat: 25.0,
+      sec: 90,
+      t: now.subtract(const Duration(minutes: 20)).toIso8601String(),
+    );
+
+    expect(effectiveStopEtaSeconds(stop, now: now), 90);
+  });
+
   test('formatEtaBadgeText wraps text by length', () {
     expect(formatEtaBadgeText(''), '');
     expect(formatEtaBadgeText('12:34'), '12:34');

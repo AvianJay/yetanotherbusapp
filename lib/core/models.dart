@@ -1367,6 +1367,7 @@ class BusVehicle {
     required this.note,
     required this.full,
     required this.carOnStop,
+    this.electric = false,
   });
 
   final String id;
@@ -1374,6 +1375,7 @@ class BusVehicle {
   final String note;
   final bool full;
   final bool carOnStop;
+  final bool electric;
 }
 
 class StopInfo {
@@ -1544,6 +1546,60 @@ String formatEtaBadgeText(String text) {
   return trimmed;
 }
 
+DateTime? _parseStopRealtimeUpdatedAt(String? value, DateTime now) {
+  final text = value?.trim();
+  if (text == null || text.isEmpty) {
+    return null;
+  }
+
+  final numericValue = int.tryParse(text);
+  if (numericValue != null) {
+    if (numericValue > 1000000000000) {
+      return DateTime.fromMillisecondsSinceEpoch(
+        numericValue,
+        isUtc: true,
+      ).toLocal();
+    }
+    if (numericValue > 1000000000) {
+      return DateTime.fromMillisecondsSinceEpoch(
+        numericValue * 1000,
+        isUtc: true,
+      ).toLocal();
+    }
+  }
+
+  final parsed = DateTime.tryParse(text)?.toLocal();
+  if (parsed == null || parsed.isAfter(now.add(const Duration(seconds: 15)))) {
+    return null;
+  }
+  return parsed;
+}
+
+int? effectiveStopEtaSeconds(StopInfo stop, {DateTime? now}) {
+  final seconds = stop.sec;
+  if (seconds == null || seconds <= 0) {
+    return seconds;
+  }
+
+  final currentTime = now ?? DateTime.now();
+  final updatedAt = _parseStopRealtimeUpdatedAt(stop.t, currentTime);
+  if (updatedAt == null) {
+    return seconds;
+  }
+
+  final elapsedSeconds = currentTime.difference(updatedAt).inSeconds;
+  if (elapsedSeconds <= 0) {
+    return seconds;
+  }
+
+  // Avoid turning very stale fallback data into fake arrivals.
+  if (elapsedSeconds > math.max(seconds + 120, 600)) {
+    return seconds;
+  }
+
+  return math.max(0, seconds - elapsedSeconds);
+}
+
 EtaPresentation buildEtaPresentation(
   StopInfo stop, {
   required bool alwaysShowSeconds,
@@ -1565,7 +1621,7 @@ EtaPresentation buildEtaPresentation(
     );
   }
 
-  final seconds = stop.sec;
+  final seconds = effectiveStopEtaSeconds(stop);
   if (seconds == null) {
     return EtaPresentation(
       text: '--',

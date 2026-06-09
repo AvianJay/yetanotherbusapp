@@ -2240,7 +2240,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       };
     }
 
-    final seconds = stop.sec;
+    final seconds = effectiveStopEtaSeconds(stop);
     if (seconds == null) {
       return null;
     }
@@ -2401,7 +2401,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return message;
     }
 
-    final seconds = stop.sec;
+    final seconds = effectiveStopEtaSeconds(stop);
     if (seconds == null) {
       return '--';
     }
@@ -2421,8 +2421,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   bool _isBusApproachingStop(StopInfo stop) {
     final message = stop.msg?.trim() ?? '';
+    final seconds = effectiveStopEtaSeconds(stop);
     return stop.buses.isNotEmpty ||
-        (stop.sec != null && stop.sec! <= 0) ||
+        (seconds != null && seconds <= 0) ||
         message.contains('進站') ||
         message.contains('到站');
   }
@@ -3774,9 +3775,20 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   bool _isElectricVehicle(BusVehicle vehicle) {
     final vehicleId = vehicle.id.trim().toUpperCase();
-    return vehicleId.startsWith('E') ||
+    final note = vehicle.note.toLowerCase();
+    final type = vehicle.type.toLowerCase();
+    return vehicle.electric ||
+        vehicleId.startsWith('E') ||
         vehicleId.endsWith('FV') ||
-        vehicle.note.contains('電');
+        vehicle.note.contains('電動') ||
+        vehicle.note.contains('純電') ||
+        vehicle.note.contains('電巴') ||
+        note.contains('electric') ||
+        note.contains('e-bus') ||
+        note.contains('e_bus') ||
+        type.contains('electric') ||
+        type.contains('e-bus') ||
+        type.contains('e_bus');
   }
 
   String _vehicleStatusLabel(StopInfo stop) {
@@ -3784,6 +3796,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return '${stop.buses.length} 輛靠近';
     }
     return stop.buses.first.id;
+  }
+
+  String _formatEffectiveEtaStatusLabel(int seconds) {
+    if (seconds < 60) {
+      return '$seconds秒';
+    }
+    final minutes = seconds ~/ 60;
+    final leftoverSeconds = seconds % 60;
+    if (leftoverSeconds == 0) {
+      return '$minutes分';
+    }
+    return '$minutes分$leftoverSeconds秒';
   }
 
   String _vehicleStatusTooltip(StopInfo stop) {
@@ -3805,50 +3829,84 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     StopInfo stop, {
     required bool isNearest,
   }) {
-    final seconds = stop.sec;
+    final seconds = effectiveStopEtaSeconds(stop);
     final hasMultipleBuses = stop.buses.length > 1;
     final hasArrivingBus =
         stop.buses.any((vehicle) => vehicle.carOnStop) ||
         (seconds != null && seconds <= 0);
     final isLessThanOneMinute =
         seconds != null && seconds > 0 && seconds < 60;
+    final isUrgentEta = seconds != null && seconds >= 60 && seconds < 180;
     final hasFullBus = stop.buses.any((vehicle) => vehicle.full);
     final hasElectricBus = stop.buses.any(_isElectricVehicle);
     final hasAccessibleBus = stop.buses.any((vehicle) => vehicle.type == '1');
-    final vehicle = stop.buses.first;
+    final vehicle = stop.buses.firstWhere(
+      _isElectricVehicle,
+      orElse: () => stop.buses.first,
+    );
+    final vehicleIcon = hasElectricBus
+        ? Icons.electric_bolt_rounded
+        : Icons.directions_bus_filled_rounded;
 
     if (hasArrivingBus) {
       return _VehicleStatusStyle(
-        icon: Icons.directions_bus_filled_rounded,
+        icon: vehicleIcon,
         label: hasMultipleBuses ? '${stop.buses.length} 輛進站' : '進站中',
         backgroundColor: Colors.red.shade700,
         foregroundColor: Colors.white,
         borderColor: Colors.red.shade200.withValues(alpha: 0.85),
         glowColor: Colors.red.shade500.withValues(alpha: 0.38),
         showStackedBuses: hasMultipleBuses,
+        keepLabelWhenCompact: true,
       );
     }
 
     if (isLessThanOneMinute) {
       return _VehicleStatusStyle(
-        icon: Icons.timer_rounded,
-        label: '<1 分',
+        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.timer_rounded,
+        label: _formatEffectiveEtaStatusLabel(seconds),
         backgroundColor: Colors.deepOrange.shade600,
         foregroundColor: Colors.white,
         borderColor: Colors.orange.shade200.withValues(alpha: 0.8),
         glowColor: Colors.deepOrange.shade400.withValues(alpha: 0.32),
         showStackedBuses: hasMultipleBuses,
+        keepLabelWhenCompact: true,
+      );
+    }
+
+    if (isUrgentEta) {
+      return _VehicleStatusStyle(
+        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.timer_rounded,
+        label: _formatEffectiveEtaStatusLabel(seconds),
+        backgroundColor: Colors.orange.shade700,
+        foregroundColor: Colors.white,
+        borderColor: Colors.orange.shade200.withValues(alpha: 0.78),
+        glowColor: Colors.orange.shade400.withValues(alpha: 0.28),
+        showStackedBuses: hasMultipleBuses,
+        keepLabelWhenCompact: true,
       );
     }
 
     if (hasFullBus) {
       return _VehicleStatusStyle(
-        icon: Icons.groups_rounded,
+        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.groups_rounded,
         label: hasMultipleBuses ? '${stop.buses.length} 輛 · 客滿' : '客滿',
         backgroundColor: Colors.brown.shade600,
         foregroundColor: Colors.white,
         borderColor: Colors.orange.shade200.withValues(alpha: 0.75),
         glowColor: Colors.brown.shade400.withValues(alpha: 0.28),
+        showStackedBuses: hasMultipleBuses,
+      );
+    }
+
+    if (hasElectricBus) {
+      return _VehicleStatusStyle(
+        icon: Icons.electric_bolt_rounded,
+        label: hasMultipleBuses ? '${stop.buses.length} 輛靠近' : vehicle.id,
+        backgroundColor: Colors.amber.shade500,
+        foregroundColor: Colors.black87,
+        borderColor: Colors.amber.shade100.withValues(alpha: 0.9),
+        glowColor: Colors.amber.shade400.withValues(alpha: 0.3),
         showStackedBuses: hasMultipleBuses,
       );
     }
@@ -3877,17 +3935,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       );
     }
 
-    if (hasElectricBus) {
-      return _VehicleStatusStyle(
-        icon: Icons.electric_bolt_rounded,
-        label: vehicle.id,
-        backgroundColor: Colors.amber.shade500,
-        foregroundColor: Colors.black87,
-        borderColor: Colors.amber.shade100.withValues(alpha: 0.9),
-        glowColor: Colors.amber.shade400.withValues(alpha: 0.3),
-      );
-    }
-
     if (hasAccessibleBus) {
       return _VehicleStatusStyle(
         icon: Icons.accessible_rounded,
@@ -3907,6 +3954,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       borderColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
       glowColor: theme.colorScheme.primary.withValues(alpha: 0.16),
     );
+  }
+
+  String? _vehicleStatusPillLabel(
+    _VehicleStatusStyle statusStyle, {
+    required bool compact,
+  }) {
+    if (compact && !statusStyle.keepLabelWhenCompact) {
+      return null;
+    }
+    return statusStyle.label;
   }
 
   double _measureMaxLineWidth(
@@ -4071,7 +4128,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         },
         child: _RouteStatusPill(
           icon: statusStyle.icon,
-          label: compact ? null : statusStyle.label,
+          label: _vehicleStatusPillLabel(statusStyle, compact: compact),
           backgroundColor: statusStyle.backgroundColor,
           foregroundColor: statusStyle.foregroundColor,
           borderColor: statusStyle.borderColor,
@@ -4175,9 +4232,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       (false, true, _) => _estimateRouteStatusPillWidth(
                         context,
                         icon: vehicleStatusStyle!.icon,
-                        label: useCompactVehicleStatus
-                            ? null
-                            : vehicleStatusStyle.label,
+                        label: _vehicleStatusPillLabel(
+                          vehicleStatusStyle,
+                          compact: useCompactVehicleStatus,
+                        ),
                         showStackedBuses: vehicleStatusStyle.showStackedBuses,
                       ),
                       (false, false, true) => _estimateRouteStatusPillWidth(
@@ -4629,6 +4687,7 @@ class _VehicleStatusStyle {
     required this.borderColor,
     required this.glowColor,
     this.showStackedBuses = false,
+    this.keepLabelWhenCompact = false,
   });
 
   final IconData icon;
@@ -4638,6 +4697,7 @@ class _VehicleStatusStyle {
   final Color borderColor;
   final Color glowColor;
   final bool showStackedBuses;
+  final bool keepLabelWhenCompact;
 }
 
 class _RouteStatusPill extends StatelessWidget {

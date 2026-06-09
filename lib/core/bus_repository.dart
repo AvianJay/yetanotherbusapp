@@ -2255,9 +2255,77 @@ class BusRepository {
       id: id,
       type: payload['type']?.toString() ?? '',
       note: note,
-      full: fullValue == true || fullValue?.toString() == '1',
-      carOnStop: carOnStopValue == true || carOnStopValue?.toString() == '1',
+      full: _truthyPayloadValue(fullValue),
+      carOnStop: _truthyPayloadValue(carOnStopValue),
+      electric: _payloadIndicatesElectric(payload),
     );
+  }
+
+  bool _truthyPayloadValue(Object? value) {
+    if (value == true) {
+      return true;
+    }
+    final normalized = value?.toString().trim().toLowerCase();
+    return normalized == '1' ||
+        normalized == 'true' ||
+        normalized == 'yes' ||
+        normalized == 'y';
+  }
+
+  bool _payloadIndicatesElectric(Map<dynamic, dynamic> payload) {
+    const explicitKeys = [
+      'electric',
+      'isElectric',
+      'is_electric',
+      'ev',
+      'isEv',
+      'is_ev',
+    ];
+    for (final key in explicitKeys) {
+      if (_truthyPayloadValue(payload[key])) {
+        return true;
+      }
+    }
+
+    const textKeys = [
+      'note',
+      'message',
+      'vehicle_type',
+      'vehicleType',
+      'bus_type',
+      'busType',
+      'car_type',
+      'carType',
+      'energy',
+      'fuel',
+      'fuel_type',
+      'power_type',
+      'powerType',
+      'type_name',
+      'vehicle_kind',
+      'kind',
+      'category',
+      'tags',
+    ];
+    for (final key in textKeys) {
+      final value = payload[key]?.toString().trim();
+      if (value != null && _textIndicatesElectric(value)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _textIndicatesElectric(String value) {
+    final lower = value.toLowerCase();
+    return value.contains('電動') ||
+        value.contains('純電') ||
+        value.contains('電巴') ||
+        lower.contains('electric') ||
+        lower.contains('e-bus') ||
+        lower.contains('e_bus') ||
+        RegExp(r'(^|[^a-z])ev([^a-z]|$)').hasMatch(lower);
   }
 
   RoutePathPoint? _parseRoutePathPoint(Map<dynamic, dynamic> payload) {

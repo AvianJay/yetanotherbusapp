@@ -46,14 +46,18 @@
 		<true/>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>NSCameraUsageDescription</key>
+		<string>YABus can use the camera when you choose to take a new background photo.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
-		<string>沒有相簿存取權限要怎麼選擇背景圖片呢 o(*￣▽￣*)ブ</string>
+		<string>YABus lets you choose a photo from your library for custom backgrounds.</string>
+		<key>NSUserNotificationsUsageDescription</key>
+		<string>YABus sends bus arrival and trip monitoring alerts when you enable them.</string>
 		<key>NSLocationWhenInUseUsageDescription</key>
-		<string>我需要定位權限才可以找附近站牌。</string>
+		<string>YABus uses your location to find nearby stops and suggest local transit data.</string>
 		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-		<string>我需要持續取得定位，才能在背景更新乘車提醒與靈動島。</string>
+		<string>YABus uses background location to keep trip monitoring alerts accurate after you leave the app.</string>
 		<key>NSLocationAlwaysUsageDescription</key>
-		<string>我需要持續取得定位，才能在背景更新乘車提醒與靈動島。</string>
+		<string>YABus uses background location to keep trip monitoring alerts accurate after you leave the app.</string>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

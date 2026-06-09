@@ -910,25 +910,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             style: theme.textTheme.bodyMedium,
                             children: [
                               const TextSpan(text: '貢獻者清單：\nAvianJay\n'),
-                              TextSpan(
-                                text: 'Axoled',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.primary,
-                                  fontWeight: FontWeight.w700,
-                                  shadows: [
-                                    Shadow(
-                                      color: theme.colorScheme.primary
-                                          .withValues(alpha: 0.85),
-                                      blurRadius: 12,
-                                    ),
-                                    Shadow(
-                                      color: theme.colorScheme.tertiary
-                                          .withValues(alpha: 0.65),
-                                      blurRadius: 24,
-                                    ),
-                                  ],
-                                ),
-                              ),
+                              const TextSpan(text: 'Axoled'),
                             ],
                           ),
                         ),

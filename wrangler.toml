@@ -1,0 +1,19 @@
+name = "yabus-web"
+main = "workers/web/index.mjs"
+compatibility_date = "2026-06-10"
+
+[assets]
+directory = "./build/web"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[vars]
+YABUS_UPSTREAM_API = "https://bus.avianjay.sbs"
+PUBLIC_BASE_URL = "https://busapp.avianjay.sbs"
+APPLE_TEAM_ID = "2V25DVST23"
+IOS_APP_BUNDLE_ID = "tw.avianjay.taiwanbus.flutter"
+APP_CLIP_BUNDLE_ID = "tw.avianjay.taiwanbus.flutter.Clip"
+
+[[routes]]
+pattern = "busapp.avianjay.sbs"
+custom_domain = true

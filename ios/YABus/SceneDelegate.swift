@@ -10,6 +10,9 @@ class SceneDelegate: FlutterSceneDelegate {
     if let url = connectionOptions.urlContexts.first?.url {
       _ = AppLaunchBridge.shared.handle(url: url)
     }
+    if let userActivity = connectionOptions.userActivities.first {
+      _ = AppLaunchBridge.shared.handle(userActivity: userActivity)
+    }
     super.scene(scene, willConnectTo: session, options: connectionOptions)
     DispatchQueue.main.async { [weak self] in
       self?.configureBridgesIfNeeded()
@@ -23,6 +26,13 @@ class SceneDelegate: FlutterSceneDelegate {
       }
     }
     super.scene(scene, openURLContexts: urlContexts)
+  }
+
+  override func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+    if AppLaunchBridge.shared.handle(userActivity: userActivity) {
+      return
+    }
+    super.scene(scene, continue: userActivity)
   }
 
   override func sceneDidBecomeActive(_ scene: UIScene) {

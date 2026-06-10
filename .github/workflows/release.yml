@@ -12,8 +12,8 @@ on:
         required: false
         type: boolean
         default: false
-      deploy_pages:
-        description: 'Deploy Web to GitHub Pages'
+      deploy_cloudflare:
+        description: 'Deploy Web to Cloudflare Workers'
         required: false
         type: boolean
         default: true
@@ -36,8 +36,6 @@ env:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   # ── Verify & build ──────────────────────────────────────────────
@@ -483,31 +481,28 @@ jobs:
           path: build/ipa/YABus-${{ inputs.version }}.ipa
 
   # ── GitHub Pages ────────────────────────────────────────────────
-  deploy-pages:
-    name: Deploy to GitHub Pages
+  deploy-cloudflare:
+    name: Deploy to Cloudflare Workers
     needs: build-web
-    if: inputs.deploy_pages == true
+    if: inputs.deploy_cloudflare == true
     runs-on: ubuntu-latest
     environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      name: cloudflare-production
+      url: https://busapp.avianjay.sbs
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
       - name: Download Web artifact
         uses: actions/download-artifact@v5
         with:
           name: web-release
-          path: web-dist
-      - name: Add .nojekyll
-        run: touch web-dist/.nojekyll
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+          path: build/web
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
         with:
-          path: web-dist
-      - name: Deploy Pages
-        id: deploy
-        uses: actions/deploy-pages@v4
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
 
   # ── Create GitHub Release ──────────────────────────────────────
   create-release:

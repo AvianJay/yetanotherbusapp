@@ -7,18 +7,25 @@ import 'web_auth_callback_stub.dart'
     if (dart.library.html) 'web_auth_callback_web.dart'
     as web_auth;
 
-enum AppLaunchTarget { routeDetail, favoritesGroup, authCallback }
+enum AppLaunchTarget {
+  routeDetail,
+  favoritesGroup,
+  internalLocation,
+  authCallback,
+}
 
 class AppLaunchAction {
   const AppLaunchAction({
     required this.target,
     this.provider,
     this.routeKey,
+    this.routeId,
     this.pathId,
     this.stopId,
     this.destinationPathId,
     this.destinationStopId,
     this.groupName,
+    this.location,
     this.authToken,
     this.authAccountId,
     this.authDeviceId,
@@ -43,6 +50,13 @@ class AppLaunchAction {
       );
     }
 
+    if (targetName == 'internal_location') {
+      return AppLaunchAction(
+        target: AppLaunchTarget.internalLocation,
+        location: map['location']?.toString(),
+      );
+    }
+
     return AppLaunchAction(
       target: targetName == 'favorites_group'
           ? AppLaunchTarget.favoritesGroup
@@ -51,6 +65,7 @@ class AppLaunchAction {
           ? null
           : busProviderFromString(map['provider'] as String),
       routeKey: (map['routeKey'] as num?)?.toInt(),
+      routeId: map['routeId']?.toString(),
       pathId: (map['pathId'] as num?)?.toInt(),
       stopId: (map['stopId'] as num?)?.toInt(),
       destinationPathId: (map['destinationPathId'] as num?)?.toInt(),
@@ -62,11 +77,13 @@ class AppLaunchAction {
   final AppLaunchTarget target;
   final BusProvider? provider;
   final int? routeKey;
+  final String? routeId;
   final int? pathId;
   final int? stopId;
   final int? destinationPathId;
   final int? destinationStopId;
   final String? groupName;
+  final String? location;
   final String? authToken;
   final String? authAccountId;
   final String? authDeviceId;

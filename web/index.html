@@ -104,6 +104,24 @@
   </script>
   <script>
     (function () {
+      const legacyHash = window.location.hash || '';
+      if (!legacyHash.startsWith('#/')) {
+        return;
+      }
+
+      const target = legacyHash.substring(1);
+      if (!target.startsWith('/')) {
+        return;
+      }
+
+      const current = `${window.location.pathname}${window.location.search}`;
+      if (current !== target) {
+        window.history.replaceState(null, 'YABus', target);
+      }
+    })();
+  </script>
+  <script>
+    (function () {
       const installState = {
         deferredPrompt: null,
         installed:

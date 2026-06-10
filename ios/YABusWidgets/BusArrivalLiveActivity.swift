@@ -37,18 +37,36 @@ struct BusArrivalLiveActivity: Widget {
   private func compactLeadingView(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    Text(compactRouteName(context.attributes.routeName))
-      .font(.system(size: 12, weight: .heavy, design: .rounded))
-      .foregroundStyle(.white)
-      .lineLimit(1)
-      .minimumScaleFactor(0.55)
-      .padding(.horizontal, 7)
-      .padding(.vertical, 2)
-      .background(
-        Capsule(style: .continuous)
-          .fill(etaColor(context.state).opacity(0.9))
-      )
-      .frame(maxWidth: 56, alignment: .leading)
+    HStack(spacing: 4) {
+      Circle()
+        .fill(Color.white.opacity(0.92))
+        .frame(width: 4.5, height: 4.5)
+      Text(compactRouteName(context.attributes.routeName))
+        .font(.system(size: 12, weight: .heavy, design: .rounded))
+        .foregroundStyle(.white)
+        .lineLimit(1)
+        .minimumScaleFactor(0.55)
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 3)
+    .background(
+      Capsule(style: .continuous)
+        .fill(
+          LinearGradient(
+            colors: [
+              etaColor(context.state),
+              etaColor(context.state).opacity(0.78),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+          )
+        )
+    )
+    .overlay(
+      Capsule(style: .continuous)
+        .stroke(Color.white.opacity(0.16), lineWidth: 0.6)
+    )
+    .frame(maxWidth: 58, alignment: .leading)
   }
 
   @ViewBuilder
@@ -64,7 +82,17 @@ struct BusArrivalLiveActivity: Widget {
     .lineLimit(1)
     .minimumScaleFactor(0.45)
     .monospacedDigit()
-    .frame(width: 58, alignment: .trailing)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 3)
+    .background(
+      Capsule(style: .continuous)
+        .fill(etaColor(context.state).opacity(0.14))
+    )
+    .overlay(
+      Capsule(style: .continuous)
+        .stroke(etaColor(context.state).opacity(0.28), lineWidth: 0.6)
+    )
+    .frame(minWidth: 58, alignment: .trailing)
   }
 
   @ViewBuilder
@@ -73,7 +101,9 @@ struct BusArrivalLiveActivity: Widget {
   ) -> some View {
     ZStack {
       Circle()
-        .fill(etaColor(context.state).opacity(0.25))
+        .fill(etaColor(context.state).opacity(0.18))
+      Circle()
+        .stroke(etaColor(context.state).opacity(0.4), lineWidth: 1.2)
       countdownText(
         context.state,
         style: .minimal,
@@ -89,19 +119,21 @@ struct BusArrivalLiveActivity: Widget {
   private func expandedLeading(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
-      HStack(spacing: 6) {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .top, spacing: 8) {
         routeBadge(context.attributes.routeName, surface: .dynamicIsland)
-        Text(context.attributes.pathName)
-          .font(.system(size: 12, weight: .medium))
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-          .minimumScaleFactor(0.8)
-          .truncationMode(.tail)
-      }
+        VStack(alignment: .leading, spacing: 4) {
+          Text(context.attributes.pathName)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .truncationMode(.tail)
 
-      if let modeLabel = trimmedText(context.state.modeLabel) {
-        modePill(modeLabel, surface: .dynamicIsland)
+          if let modeLabel = trimmedText(context.state.modeLabel) {
+            modePill(modeLabel, surface: .dynamicIsland)
+          }
+        }
       }
 
       HStack(spacing: 5) {
@@ -112,6 +144,12 @@ struct BusArrivalLiveActivity: Widget {
           .font(.system(size: 14, weight: .semibold))
           .lineLimit(1)
       }
+      .padding(.horizontal, 8)
+      .padding(.vertical, 7)
+      .background(
+        RoundedRectangle(cornerRadius: 11, style: .continuous)
+          .fill(Color.white.opacity(0.08))
+      )
     }
   }
 
@@ -119,16 +157,32 @@ struct BusArrivalLiveActivity: Widget {
   private func expandedTrailing(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(alignment: .trailing, spacing: 2) {
-      countdownText(
-        context.state,
-        style: .expanded,
-        font: .system(size: 24, weight: .bold, design: .rounded)
+    VStack(alignment: .trailing, spacing: 6) {
+      VStack(alignment: .trailing, spacing: 2) {
+        Text("到站")
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(etaColor(context.state).opacity(0.9))
+
+        countdownText(
+          context.state,
+          style: .expanded,
+          font: .system(size: 24, weight: .bold, design: .rounded)
+        )
+        .foregroundStyle(etaColor(context.state))
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        .monospacedDigit()
+      }
+      .padding(.horizontal, 10)
+      .padding(.vertical, 8)
+      .background(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .fill(etaColor(context.state).opacity(0.14))
       )
-      .foregroundStyle(etaColor(context.state))
-      .lineLimit(1)
-      .minimumScaleFactor(0.6)
-      .monospacedDigit()
+      .overlay(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(etaColor(context.state).opacity(0.28), lineWidth: 0.7)
+      )
 
       if let vehicleId = trimmedText(context.state.vehicleId) {
         HStack(spacing: 3) {
@@ -139,6 +193,12 @@ struct BusArrivalLiveActivity: Widget {
             .lineLimit(1)
         }
         .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+          Capsule(style: .continuous)
+            .fill(Color.white.opacity(0.08))
+        )
       }
     }
   }
@@ -147,8 +207,14 @@ struct BusArrivalLiveActivity: Widget {
   private func expandedBottom(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(spacing: 5) {
+    VStack(spacing: 8) {
       stopLineView(context.state, surface: .dynamicIsland)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .background(
+          RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(Color.white.opacity(0.08))
+        )
 
       HStack {
         if let statusText = trimmedText(context.state.statusText) {
@@ -160,12 +226,22 @@ struct BusArrivalLiveActivity: Widget {
             .truncationMode(.tail)
         }
         Spacer(minLength: 6)
-        Text(context.state.updatedAt, style: .time)
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color(white: 0.5))
-          .lineLimit(1)
-          .fixedSize(horizontal: true, vertical: false)
-          .layoutPriority(1)
+        HStack(spacing: 4) {
+          Image(systemName: "clock")
+            .font(.system(size: 9, weight: .semibold))
+          Text(context.state.updatedAt, style: .time)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .foregroundStyle(Color(white: 0.5))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+          Capsule(style: .continuous)
+            .fill(Color.white.opacity(0.06))
+        )
+        .layoutPriority(1)
       }
       .padding(.horizontal, 2)
     }
@@ -183,10 +259,10 @@ struct BusArrivalLiveActivity: Widget {
       .foregroundStyle(routeBadgeTextColor(surface: surface))
       .lineLimit(1)
       .minimumScaleFactor(0.7)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 3)
+      .padding(.horizontal, 9)
+      .padding(.vertical, 4)
       .background(
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
           .fill(
             LinearGradient(
               colors: [Color(red: 0.0, green: 0.7, blue: 0.8), Color(red: 0.0, green: 0.55, blue: 0.75)],
@@ -194,6 +270,10 @@ struct BusArrivalLiveActivity: Widget {
               endPoint: .bottomTrailing
             )
           )
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .stroke(Color.white.opacity(0.16), lineWidth: 0.7)
       )
   }
 
@@ -207,6 +287,10 @@ struct BusArrivalLiveActivity: Widget {
       .background(
         Capsule(style: .continuous)
           .fill(modePillBackgroundColor(surface: surface, colorScheme: colorScheme))
+      )
+      .overlay(
+        Capsule(style: .continuous)
+          .stroke((surface == .dynamicIsland ? Color.white : lockScreenPrimaryTextColor(colorScheme: colorScheme)).opacity(0.1), lineWidth: 0.6)
       )
   }
 
@@ -701,72 +785,134 @@ private struct LockScreenActivityView: View {
   @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
-    HStack(spacing: 16) {
-      VStack(alignment: .leading, spacing: 6) {
-        HStack(spacing: 8) {
-          lsRouteBadge(context.attributes.routeName)
-          Text(context.attributes.pathName)
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(lsSecondaryTextColor)
+    ZStack {
+      RoundedRectangle(cornerRadius: 24, style: .continuous)
+        .fill(lsCardFillColor)
+      RoundedRectangle(cornerRadius: 24, style: .continuous)
+        .stroke(lsCardStrokeColor, lineWidth: 1)
+
+      HStack(spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
+          HStack(alignment: .top, spacing: 10) {
+            lsRouteBadge(context.attributes.routeName)
+
+            VStack(alignment: .leading, spacing: 6) {
+              Text(context.attributes.pathName)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(lsSecondaryTextColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .truncationMode(.tail)
+
+              if let modeLabel = lsTrimmed(context.state.modeLabel) {
+                lsModePill(modeLabel)
+              }
+            }
+          }
+
+          HStack(spacing: 6) {
+            Image(systemName: "mappin.circle.fill")
+              .font(.system(size: 14))
+              .foregroundStyle(lsHighlightTextColor)
+            Text(lsDisplayStopName(context.state))
+              .font(.system(size: 16, weight: .semibold))
+              .foregroundStyle(lsPrimaryTextColor)
+              .lineLimit(1)
+          }
+          .padding(.horizontal, 10)
+          .padding(.vertical, 8)
+          .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+              .fill(lsSectionFillColor)
+          )
+
+          if let statusText = lsTrimmed(context.state.statusText) {
+            Text(statusText)
+              .font(.system(size: 12, weight: .medium))
+              .foregroundStyle(lsSecondaryTextColor)
+              .lineLimit(2)
+              .minimumScaleFactor(0.9)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 8)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                  .fill(lsSectionFillColor)
+              )
+          }
+
+          lsStopLineView(context.state)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            .background(
+              RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(lsSectionFillColor)
+            )
+        }
+
+        VStack(alignment: .trailing, spacing: 8) {
+          VStack(alignment: .trailing, spacing: 4) {
+            Text("到站")
+              .font(.system(size: 11, weight: .semibold))
+              .foregroundStyle(lsEtaColor(context.state).opacity(0.9))
+
+            lsCountdownText(
+              context.state,
+              font: .system(size: 32, weight: .bold, design: .rounded)
+            )
+            .foregroundStyle(lsEtaColor(context.state))
             .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .truncationMode(.tail)
-        }
+            .minimumScaleFactor(0.5)
+            .monospacedDigit()
+          }
+          .padding(.horizontal, 12)
+          .padding(.vertical, 10)
+          .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+              .fill(lsEtaPanelFillColor)
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+              .stroke(lsEtaPanelStrokeColor, lineWidth: 1)
+          )
 
-        if let modeLabel = lsTrimmed(context.state.modeLabel) {
-          lsModePill(modeLabel)
-        }
-
-        HStack(spacing: 5) {
-          Image(systemName: "mappin.circle.fill")
-            .font(.system(size: 14))
-            .foregroundStyle(lsHighlightTextColor)
-          Text(lsDisplayStopName(context.state))
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(lsPrimaryTextColor)
-            .lineLimit(1)
-        }
-
-        if let statusText = lsTrimmed(context.state.statusText) {
-          Text(statusText)
-            .font(.system(size: 12, weight: .medium))
+          if let vehicleId = lsTrimmed(context.state.vehicleId) {
+            HStack(spacing: 4) {
+              Image(systemName: "bus.fill")
+                .font(.system(size: 10))
+              Text(vehicleId)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+            }
             .foregroundStyle(lsSecondaryTextColor)
-            .lineLimit(2)
-        }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+              Capsule(style: .continuous)
+                .fill(lsSectionFillColor)
+            )
+          }
 
-        lsStopLineView(context.state)
-          .padding(.top, 4)
-      }
-
-      Spacer(minLength: 8)
-
-      VStack(alignment: .trailing, spacing: 4) {
-        lsCountdownText(
-          context.state,
-          font: .system(size: 32, weight: .bold, design: .rounded)
-        )
-        .foregroundStyle(lsEtaColor(context.state))
-        .lineLimit(1)
-        .minimumScaleFactor(0.5)
-        .monospacedDigit()
-
-        if let vehicleId = lsTrimmed(context.state.vehicleId) {
-          HStack(spacing: 3) {
-            Image(systemName: "bus")
-              .font(.system(size: 10))
-            Text(vehicleId)
+          HStack(spacing: 4) {
+            Image(systemName: "clock")
+              .font(.system(size: 9, weight: .semibold))
+            Text(context.state.updatedAt, style: .time)
               .font(.system(size: 11, weight: .medium, design: .monospaced))
           }
-          .foregroundStyle(lsSecondaryTextColor)
-        }
-
-        Text(context.state.updatedAt, style: .time)
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
           .foregroundStyle(lsTimestampTextColor)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 5)
+          .background(
+            Capsule(style: .continuous)
+              .fill(lsSectionFillColor)
+          )
+        }
       }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 16)
     }
-    .padding(.horizontal, 20)
-    .padding(.vertical, 14)
+    .padding(.horizontal, 6)
+    .padding(.vertical, 4)
     .widgetURL(
       BusArrivalDeepLink.route(
         provider: context.attributes.provider,
@@ -823,6 +969,32 @@ private struct LockScreenActivityView: View {
       : Color(red: 0.16, green: 0.22, blue: 0.31).opacity(0.1)
   }
 
+  private var lsCardFillColor: Color {
+    colorScheme == .dark
+      ? Color(red: 0.12, green: 0.16, blue: 0.24).opacity(0.96)
+      : Color.white.opacity(0.94)
+  }
+
+  private var lsCardStrokeColor: Color {
+    colorScheme == .dark
+      ? Color.white.opacity(0.08)
+      : Color(red: 0.16, green: 0.22, blue: 0.31).opacity(0.08)
+  }
+
+  private var lsSectionFillColor: Color {
+    colorScheme == .dark
+      ? Color.white.opacity(0.08)
+      : Color(red: 0.16, green: 0.22, blue: 0.31).opacity(0.06)
+  }
+
+  private var lsEtaPanelFillColor: Color {
+    lsEtaColor(context.state).opacity(colorScheme == .dark ? 0.16 : 0.12)
+  }
+
+  private var lsEtaPanelStrokeColor: Color {
+    lsEtaColor(context.state).opacity(colorScheme == .dark ? 0.34 : 0.22)
+  }
+
   // MARK: Helpers
 
   private func lsTrimmed(_ value: String?) -> String? {
@@ -853,10 +1025,10 @@ private struct LockScreenActivityView: View {
       .foregroundStyle(Color.white)
       .lineLimit(1)
       .minimumScaleFactor(0.7)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 3)
+      .padding(.horizontal, 9)
+      .padding(.vertical, 4)
       .background(
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
           .fill(
             LinearGradient(
               colors: [Color(red: 0.0, green: 0.7, blue: 0.8), Color(red: 0.0, green: 0.55, blue: 0.75)],
@@ -864,6 +1036,10 @@ private struct LockScreenActivityView: View {
               endPoint: .bottomTrailing
             )
           )
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .stroke(Color.white.opacity(0.16), lineWidth: 0.7)
       )
   }
 
@@ -877,6 +1053,10 @@ private struct LockScreenActivityView: View {
       .background(
         Capsule(style: .continuous)
           .fill(lsModePillBackgroundColor)
+      )
+      .overlay(
+        Capsule(style: .continuous)
+          .stroke(lsPrimaryTextColor.opacity(0.08), lineWidth: 0.6)
       )
   }
 

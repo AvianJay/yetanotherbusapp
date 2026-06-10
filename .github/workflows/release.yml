@@ -486,9 +486,6 @@ jobs:
     needs: build-web
     if: inputs.deploy_cloudflare == true
     runs-on: ubuntu-latest
-    environment:
-      name: cloudflare-production
-      url: https://busapp.avianjay.sbs
     steps:
       - name: Checkout
         uses: actions/checkout@v5

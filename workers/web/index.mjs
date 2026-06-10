@@ -1,4 +1,3 @@
-const DEFAULT_UPSTREAM_API = 'https://bus.avianjay.sbs';
 const DEFAULT_PUBLIC_BASE_URL = 'https://busapp.avianjay.sbs';
 const DEFAULT_APPLE_TEAM_ID = '2V25DVST23';
 const DEFAULT_IOS_BUNDLE_ID = 'tw.avianjay.taiwanbus.flutter';
@@ -70,50 +69,6 @@ function buildAppleAssociation(env) {
   };
 }
 
-async function proxyApi(request, env) {
-  const requestUrl = new URL(request.url);
-  const upstreamApi = trimTrailingSlash(
-    env.YABUS_UPSTREAM_API,
-    DEFAULT_UPSTREAM_API,
-  );
-  const targetUrl = new URL(
-    `${requestUrl.pathname}${requestUrl.search}`,
-    upstreamApi,
-  );
-  const headers = new Headers(request.headers);
-  headers.set('host', targetUrl.host);
-  headers.delete('connection');
-  headers.delete('content-length');
-  headers.delete('accept-encoding');
-
-  const upstreamResponse = await fetch(targetUrl, {
-    method: request.method,
-    headers,
-    body:
-      request.method === 'GET' || request.method === 'HEAD'
-        ? undefined
-        : request.body,
-    redirect: 'manual',
-  });
-
-  const responseHeaders = new Headers(upstreamResponse.headers);
-  responseHeaders.set('access-control-allow-origin', '*');
-  if (!responseHeaders.has('cache-control')) {
-    responseHeaders.set('cache-control', 'no-store');
-  }
-  responseHeaders.delete('content-encoding');
-  responseHeaders.delete('content-length');
-
-  return new Response(
-    request.method === 'HEAD' ? null : upstreamResponse.body,
-    {
-      status: upstreamResponse.status,
-      statusText: upstreamResponse.statusText,
-      headers: responseHeaders,
-    },
-  );
-}
-
 async function serveStatic(request, env) {
   return env.ASSETS.fetch(request);
 }
@@ -150,10 +105,6 @@ export default {
         appClipBundleId: appleAssociation.appClipBundleId,
         appID: appleAssociation.clipId,
       });
-    }
-
-    if (url.pathname.startsWith('/api/')) {
-      return proxyApi(request, env);
     }
 
     return serveStatic(request, env);

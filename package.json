@@ -3,7 +3,6 @@
   "type": "module",
   "scripts": {
     "serve:web": "wrangler dev",
-    "serve:web:legacy": "node scripts/yabus-web-server.mjs",
     "deploy:web": "wrangler deploy"
   },
   "devDependencies": {

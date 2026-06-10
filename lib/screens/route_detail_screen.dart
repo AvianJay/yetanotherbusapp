@@ -98,6 +98,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int? _liveActivityPathId;
   int? _liveActivityRouteKey;
   String? _liveActivityProviderName;
+  String? _liveActivityId;
   String? _liveActivityRidingVehicleId;
   bool _liveActivityBoardingWindowOpen = false;
   bool _liveActivityRideConfirmed = false;
@@ -196,7 +197,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     unawaited(TripMonitorNotifications.cancelBoardingCheckPrompt());
     unawaited(AndroidTripMonitor.stop());
-    unawaited(LiveActivityService.endLiveActivity());
+    if (_liveActivityId != null) {
+      unawaited(
+        LiveActivityService.endLiveActivity(ownerActivityId: _liveActivityId),
+      );
+    }
     super.dispose();
   }
 
@@ -564,9 +569,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     final initialIndex = _resolveInitialPathIndex(detail.paths);
     _targetInitialPathId = detail.paths[initialIndex].pathId;
+    // Preserve the selection by pathId rather than raw tab index, so a
+    // refresh that reorders (or adds/removes) paths cannot silently switch
+    // the screen, and the Live Activity, to a different direction.
+    final previousSelectedPathId = _currentPathId;
+    final preservedIndex = previousSelectedPathId == null
+        ? -1
+        : pathIds.indexOf(previousSelectedPathId);
     final selectedIndex = _tabController == null
         ? initialIndex
-        : _tabController!.index.clamp(0, pathIds.length - 1);
+        : (preservedIndex != -1
+              ? preservedIndex
+              : _tabController!.index.clamp(0, pathIds.length - 1));
 
     if (_tabController?.length == pathIds.length) {
       _tabController!.index = selectedIndex;
@@ -2318,6 +2332,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (didStart) {
       setState(() {
         _liveActivityActive = true;
+        _liveActivityId = LiveActivityService.activeActivityId;
         _liveActivityStopId = displayState.stopId;
         _liveActivityPathId = pathInfo.pathId;
         _liveActivityRouteKey = widget.routeKey;
@@ -2326,6 +2341,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     } else {
       setState(() {
         _liveActivityActive = false;
+        _liveActivityId = null;
         _liveActivityStopId = null;
         _liveActivityPathId = null;
         _liveActivityRouteKey = null;
@@ -2336,13 +2352,20 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   Future<void> _stopLiveActivity() async {
     await TripMonitorNotifications.cancelBoardingCheckPrompt();
-    await LiveActivityService.endLiveActivity();
+    // Only end the activity this screen started; another route screen may
+    // own the currently visible Live Activity.
+    if (_liveActivityId != null) {
+      await LiveActivityService.endLiveActivity(
+        ownerActivityId: _liveActivityId,
+      );
+    }
     if (!mounted) {
       return;
     }
     setState(() {
       _resetLiveActivityRideState();
       _liveActivityActive = false;
+      _liveActivityId = null;
       _liveActivityStopId = null;
       _liveActivityPathId = null;
       _liveActivityRouteKey = null;
@@ -2563,15 +2586,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   String _buildWaitingBoardingText({
     required String pathName,
     required StopInfo boardingStop,
-    required StopInfo destinationStop,
+    StopInfo? destinationStop,
     required int? busStopsUntilBoarding,
   }) {
     final parts = <String>[
       _pathStatusPrefix(pathName),
       '尚未上車',
       '上車站 ${boardingStop.stopName}',
-      '目的地 ${destinationStop.stopName}',
     ];
+    if (destinationStop != null &&
+        destinationStop.stopId != boardingStop.stopId) {
+      parts.add('目的地 ${destinationStop.stopName}');
+    }
     final busDistanceSummary = _buildBusDistanceSummary(busStopsUntilBoarding);
     if (busDistanceSummary != null) {
       parts.add(busDistanceSummary);
@@ -2790,10 +2816,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           statusText: _buildWaitingBoardingText(
             pathName: pathInfo.name,
             boardingStop: boardingStop,
-            destinationStop: boardingStop,
             busStopsUntilBoarding: busStopsUntilBoarding,
           ),
-          etaSeconds: boardingStop.sec,
+          etaSeconds: effectiveStopEtaSeconds(boardingStop),
           etaMessage: boardingStop.msg,
           vehicleId: _vehicleIdForStop(boardingStop),
           progressValue: boardingProgressValue,
@@ -2825,7 +2850,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         lineHighlightedStopIndex: stopLine.highlightedStopIndex,
         modeLabel: '最近站牌',
         statusText: '尚未設定下車站',
-        etaSeconds: nearestStop.sec,
+        etaSeconds: effectiveStopEtaSeconds(nearestStop),
         etaMessage: nearestStop.msg,
         vehicleId: _vehicleIdForStop(nearestStop),
         progressValue: currentProgress,
@@ -2882,7 +2907,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           destinationStop: destinationStop,
           busStopsUntilBoarding: busStopsUntilBoarding,
         ),
-        etaSeconds: boardingStop.sec,
+        etaSeconds: effectiveStopEtaSeconds(boardingStop),
         etaMessage: boardingStop.msg,
         vehicleId: _vehicleIdForStop(boardingStop),
         progressValue: boardingProgressValue,
@@ -2930,7 +2955,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       lineHighlightedStopIndex: stopLine.highlightedStopIndex,
       modeLabel: '已上車',
       statusText: onboardStatusParts.join(' · '),
-      etaSeconds: displayStop.sec,
+      etaSeconds: effectiveStopEtaSeconds(displayStop),
       etaMessage: displayStop.msg,
       vehicleId: displayVehicleId,
       progressValue: currentProgress,
@@ -2946,6 +2971,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     RouteDetailData detail,
     PathInfo pathInfo,
   ) async {
+    // Only the route screen the user is actually looking at (top of the
+    // navigation stack) may drive the Live Activity. Without this guard a
+    // screen lower in the stack could keep pushing its own route data into
+    // an activity started by another screen, making the Dynamic Island show
+    // the wrong bus/route.
+    if (!_isRouteVisible) {
+      return;
+    }
+
     final displayState = _buildLiveActivityDisplayState(detail, pathInfo);
     if (displayState == null) {
       await _stopLiveActivity();
@@ -2954,6 +2988,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     final needsRestart =
         !_liveActivityActive ||
+        !LiveActivityService.ownsActivity(_liveActivityId) ||
         _liveActivityPathId != pathInfo.pathId ||
         _liveActivityRouteKey != widget.routeKey ||
         _liveActivityProviderName != widget.provider.name;
@@ -2962,8 +2997,17 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
 
-    await LiveActivityService.updateLiveActivity(displayState);
+    final updated = await LiveActivityService.updateLiveActivity(
+      displayState,
+      ownerActivityId: _liveActivityId,
+    );
     if (!mounted) {
+      return;
+    }
+    if (!updated) {
+      // The activity was dismissed or replaced natively; restart it so the
+      // user keeps getting updates for the bus they are riding.
+      await _startLiveActivity(pathInfo, displayState);
       return;
     }
     if (_liveActivityStopId != displayState.stopId) {
@@ -3029,7 +3073,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   Future<void> _maybeRefreshBackgroundTripMonitor() async {
-    if (!_isIOS || _appIsForeground || _backgroundDataRefreshInFlight) {
+    if (!_isIOS ||
+        !_isRouteVisible ||
+        _appIsForeground ||
+        _backgroundDataRefreshInFlight) {
       return;
     }
 

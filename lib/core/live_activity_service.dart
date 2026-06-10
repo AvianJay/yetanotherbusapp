@@ -74,6 +74,19 @@ class LiveActivityService {
 
   static bool get isActive => _activeActivityId != null;
 
+  /// The identifier of the most recently started Live Activity, if any.
+  ///
+  /// Callers that start an activity should hold on to this value and pass it
+  /// back as `ownerActivityId` when updating or ending, so that a screen
+  /// whose activity has been replaced (e.g. by another route screen) cannot
+  /// overwrite the new activity with stale data for the wrong bus/route.
+  static String? get activeActivityId => _activeActivityId;
+
+  /// Whether [activityId] still identifies the currently active activity.
+  static bool ownsActivity(String? activityId) {
+    return activityId != null && activityId == _activeActivityId;
+  }
+
   static Future<bool> startLiveActivity({
     required String routeName,
     required String pathName,
@@ -110,25 +123,54 @@ class LiveActivityService {
     }
   }
 
-  static Future<void> updateLiveActivity(LiveActivityDisplayState state) async {
+  /// Updates the active Live Activity.
+  ///
+  /// When [ownerActivityId] is provided, the update is skipped unless it
+  /// matches the currently active activity. Returns `true` when the native
+  /// side reports the activity is still alive and was updated.
+  static Future<bool> updateLiveActivity(
+    LiveActivityDisplayState state, {
+    String? ownerActivityId,
+  }) async {
     if (!_isIOS || _activeActivityId == null) {
-      return;
+      return false;
+    }
+    if (ownerActivityId != null && ownerActivityId != _activeActivityId) {
+      // Another caller owns the current activity; do not overwrite it with
+      // data belonging to a different route/bus.
+      return false;
     }
 
     try {
-      await _channel.invokeMethod<void>(
+      final updated = await _channel.invokeMethod<bool>(
         'updateLiveActivity',
         state.toArguments(),
       );
+      if (updated == false) {
+        // The native side no longer has this activity (dismissed/ended).
+        _activeActivityId = null;
+        return false;
+      }
+      return true;
     } on PlatformException {
       // Ignore; activity may have been dismissed by the user.
+      return false;
     } on MissingPluginException {
       // Ignore; plugin not registered yet.
+      return false;
     }
   }
 
-  static Future<void> endLiveActivity() async {
+  /// Ends the active Live Activity.
+  ///
+  /// When [ownerActivityId] is provided, the activity is only ended if it
+  /// matches the currently active one, so a disposed screen cannot tear down
+  /// an activity started later by another screen.
+  static Future<void> endLiveActivity({String? ownerActivityId}) async {
     if (!_isIOS) {
+      return;
+    }
+    if (ownerActivityId != null && ownerActivityId != _activeActivityId) {
       return;
     }
 

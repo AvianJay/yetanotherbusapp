@@ -42,14 +42,13 @@ struct BusArrivalLiveActivity: Widget {
       .foregroundStyle(.white)
       .lineLimit(1)
       .minimumScaleFactor(0.55)
-      .padding(.horizontal, 6)
+      .padding(.horizontal, 7)
       .padding(.vertical, 2)
       .background(
         Capsule(style: .continuous)
           .fill(etaColor(context.state).opacity(0.9))
       )
-      .frame(width: 42, alignment: .leading)
-      .clipped()
+      .frame(maxWidth: 56, alignment: .leading)
   }
 
   @ViewBuilder
@@ -97,6 +96,8 @@ struct BusArrivalLiveActivity: Widget {
           .font(.system(size: 12, weight: .medium))
           .foregroundStyle(.secondary)
           .lineLimit(1)
+          .minimumScaleFactor(0.8)
+          .truncationMode(.tail)
       }
 
       if let modeLabel = trimmedText(context.state.modeLabel) {
@@ -155,6 +156,8 @@ struct BusArrivalLiveActivity: Widget {
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .truncationMode(.tail)
         }
         Spacer(minLength: 6)
         Text(context.state.updatedAt, style: .time)
@@ -178,6 +181,8 @@ struct BusArrivalLiveActivity: Widget {
     Text(name)
       .font(.system(size: 14, weight: .heavy, design: .rounded))
       .foregroundStyle(routeBadgeTextColor(surface: surface))
+      .lineLimit(1)
+      .minimumScaleFactor(0.7)
       .padding(.horizontal, 8)
       .padding(.vertical, 3)
       .background(
@@ -212,31 +217,45 @@ struct BusArrivalLiveActivity: Widget {
     colorScheme: ColorScheme = .dark
   ) -> some View {
     if let stopLine = stopLineData(state) {
-      VStack(spacing: 6) {
+      // Markers and labels share the same equal-width columns so each dot
+      // lines up exactly above its stop name.
+      VStack(spacing: 5) {
         HStack(spacing: 0) {
           ForEach(stopLine.stopNames.indices, id: \.self) { index in
-            stopMarker(
-              isCurrent: index == stopLine.currentStopIndex,
-              isHighlighted: index == stopLine.highlightedStopIndex,
-              surface: surface,
-              colorScheme: colorScheme
-            )
-            .frame(width: 18)
-
-            if index < stopLine.stopNames.count - 1 {
-              stopConnector(
-                intensity: stopConnectorOpacity(
-                  currentStopIndex: stopLine.currentStopIndex,
-                  connectorIndex: index
-                ),
+            ZStack {
+              HStack(spacing: 0) {
+                stopConnectorSegment(
+                  visible: index > 0,
+                  intensity: stopConnectorOpacity(
+                    currentStopIndex: stopLine.currentStopIndex,
+                    connectorIndex: index - 1
+                  ),
+                  surface: surface,
+                  colorScheme: colorScheme
+                )
+                stopConnectorSegment(
+                  visible: index < stopLine.stopNames.count - 1,
+                  intensity: stopConnectorOpacity(
+                    currentStopIndex: stopLine.currentStopIndex,
+                    connectorIndex: index
+                  ),
+                  surface: surface,
+                  colorScheme: colorScheme
+                )
+              }
+              stopMarker(
+                isCurrent: index == stopLine.currentStopIndex,
+                isHighlighted: index == stopLine.highlightedStopIndex,
                 surface: surface,
                 colorScheme: colorScheme
               )
             }
+            .frame(maxWidth: .infinity)
           }
         }
+        .frame(height: 20)
 
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: 0) {
           ForEach(stopLine.stopNames.indices, id: \.self) { index in
             stopLineLabel(
               stopLine.stopNames[index],
@@ -266,19 +285,37 @@ struct BusArrivalLiveActivity: Widget {
           Spacer(minLength: 0)
         }
       } else {
-        VStack(spacing: 6) {
+        VStack(spacing: 5) {
           HStack(spacing: 0) {
-            stopMarker(isCurrent: false, isHighlighted: false, surface: surface, colorScheme: colorScheme)
-              .frame(width: 18)
-            stopConnector(intensity: 0.4, surface: surface, colorScheme: colorScheme)
-            stopMarker(isCurrent: true, isHighlighted: true, surface: surface, colorScheme: colorScheme)
-              .frame(width: 18)
-            stopConnector(intensity: 0.22, surface: surface, colorScheme: colorScheme)
-            stopMarker(isCurrent: false, isHighlighted: false, surface: surface, colorScheme: colorScheme)
-              .frame(width: 18)
+            ForEach(0..<3, id: \.self) { index in
+              ZStack {
+                HStack(spacing: 0) {
+                  stopConnectorSegment(
+                    visible: index > 0,
+                    intensity: index == 1 ? 0.4 : 0.22,
+                    surface: surface,
+                    colorScheme: colorScheme
+                  )
+                  stopConnectorSegment(
+                    visible: index < 2,
+                    intensity: index == 0 ? 0.4 : 0.22,
+                    surface: surface,
+                    colorScheme: colorScheme
+                  )
+                }
+                stopMarker(
+                  isCurrent: index == 1,
+                  isHighlighted: index == 1,
+                  surface: surface,
+                  colorScheme: colorScheme
+                )
+              }
+              .frame(maxWidth: .infinity)
+            }
           }
+          .frame(height: 20)
 
-          HStack(alignment: .center, spacing: 8) {
+          HStack(alignment: .top, spacing: 0) {
             stopLineLabel(
               previousStopName ?? "起點",
               isCurrent: false,
@@ -343,12 +380,20 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   @ViewBuilder
-  private func stopConnector(intensity: Double, surface: ActivitySurface, colorScheme: ColorScheme = .dark) -> some View {
-    Capsule(style: .continuous)
-      .fill(stopConnectorColor(surface: surface, intensity: intensity, colorScheme: colorScheme))
+  private func stopConnectorSegment(
+    visible: Bool,
+    intensity: Double,
+    surface: ActivitySurface,
+    colorScheme: ColorScheme = .dark
+  ) -> some View {
+    Rectangle()
+      .fill(
+        visible
+          ? stopConnectorColor(surface: surface, intensity: intensity, colorScheme: colorScheme)
+          : Color.clear
+      )
       .frame(maxWidth: .infinity)
       .frame(height: 2)
-      .padding(.horizontal, 4)
   }
 
   @ViewBuilder
@@ -362,7 +407,7 @@ struct BusArrivalLiveActivity: Widget {
     Text(compactStopLineLabel(text))
       .font(
         .system(
-          size: isCurrent ? 10.5 : 9.5,
+          size: isCurrent ? 11 : 10,
           weight: isCurrent || isHighlighted ? .semibold : .medium
         )
       )
@@ -374,11 +419,10 @@ struct BusArrivalLiveActivity: Widget {
           colorScheme: colorScheme
         )
       )
-      .lineLimit(2)
-      .minimumScaleFactor(0.7)
-      .lineSpacing(-1)
+      .lineLimit(1)
+      .minimumScaleFactor(0.6)
       .multilineTextAlignment(.center)
-      .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
+      .frame(maxWidth: .infinity, alignment: .center)
   }
 
   private func stopLineData(
@@ -485,10 +529,9 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   private func routeBadgeTextColor(surface: ActivitySurface) -> Color {
-    if surface == .dynamicIsland {
-      return .primary
-    }
-    return .white
+    // The badge always sits on the cyan gradient, so white keeps proper
+    // contrast on every surface (`.primary` could resolve to near-black).
+    .white
   }
 
   private func modePillTextColor(surface: ActivitySurface, colorScheme: ColorScheme) -> Color {
@@ -666,6 +709,8 @@ private struct LockScreenActivityView: View {
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(lsSecondaryTextColor)
             .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .truncationMode(.tail)
         }
 
         if let modeLabel = lsTrimmed(context.state.modeLabel) {
@@ -806,6 +851,8 @@ private struct LockScreenActivityView: View {
     Text(name)
       .font(.system(size: 14, weight: .heavy, design: .rounded))
       .foregroundStyle(Color.white)
+      .lineLimit(1)
+      .minimumScaleFactor(0.7)
       .padding(.horizontal, 8)
       .padding(.vertical, 3)
       .background(
@@ -865,17 +912,30 @@ private struct LockScreenActivityView: View {
       let currentIdx = (state.lineCurrentStopIndex.map { $0 >= 0 && $0 < count ? $0 : 0 }) ?? 0
       let highlightIdx = state.lineHighlightedStopIndex.flatMap { $0 >= 0 && $0 < count ? $0 : nil }
 
-      VStack(spacing: 6) {
+      // Markers and labels share the same equal-width columns so each dot
+      // lines up exactly above its stop name.
+      VStack(spacing: 5) {
         HStack(spacing: 0) {
           ForEach(state.lineStopNames.indices, id: \.self) { index in
-            lsStopMarker(isCurrent: index == currentIdx, isHighlighted: index == highlightIdx)
-              .frame(width: 18)
-            if index < count - 1 {
-              lsStopConnector(intensity: index < currentIdx ? 0.46 : 0.18)
+            ZStack {
+              HStack(spacing: 0) {
+                lsStopConnectorSegment(
+                  visible: index > 0,
+                  intensity: index - 1 < currentIdx ? 0.46 : 0.18
+                )
+                lsStopConnectorSegment(
+                  visible: index < count - 1,
+                  intensity: index < currentIdx ? 0.46 : 0.18
+                )
+              }
+              lsStopMarker(isCurrent: index == currentIdx, isHighlighted: index == highlightIdx)
             }
+            .frame(maxWidth: .infinity)
           }
         }
-        HStack(alignment: .top, spacing: 6) {
+        .frame(height: 20)
+
+        HStack(alignment: .top, spacing: 0) {
           ForEach(state.lineStopNames.indices, id: \.self) { index in
             lsStopLabel(
               state.lineStopNames[index],
@@ -897,15 +957,28 @@ private struct LockScreenActivityView: View {
           Spacer(minLength: 0)
         }
       } else {
-        VStack(spacing: 6) {
+        VStack(spacing: 5) {
           HStack(spacing: 0) {
-            lsStopMarker(isCurrent: false, isHighlighted: false).frame(width: 18)
-            lsStopConnector(intensity: 0.4)
-            lsStopMarker(isCurrent: true, isHighlighted: true).frame(width: 18)
-            lsStopConnector(intensity: 0.22)
-            lsStopMarker(isCurrent: false, isHighlighted: false).frame(width: 18)
+            ForEach(0..<3, id: \.self) { index in
+              ZStack {
+                HStack(spacing: 0) {
+                  lsStopConnectorSegment(
+                    visible: index > 0,
+                    intensity: index == 1 ? 0.4 : 0.22
+                  )
+                  lsStopConnectorSegment(
+                    visible: index < 2,
+                    intensity: index == 0 ? 0.4 : 0.22
+                  )
+                }
+                lsStopMarker(isCurrent: index == 1, isHighlighted: index == 1)
+              }
+              .frame(maxWidth: .infinity)
+            }
           }
-          HStack(alignment: .center, spacing: 8) {
+          .frame(height: 20)
+
+          HStack(alignment: .top, spacing: 0) {
             lsStopLabel(prev ?? "起點", isCurrent: false, isHighlighted: false)
             lsStopLabel(current, isCurrent: true, isHighlighted: true)
             lsStopLabel(next ?? "終點", isCurrent: false, isHighlighted: false)
@@ -944,12 +1017,11 @@ private struct LockScreenActivityView: View {
   }
 
   @ViewBuilder
-  private func lsStopConnector(intensity: Double) -> some View {
-    Capsule(style: .continuous)
-      .fill(lsSecondaryTextColor.opacity(max(intensity, 0.12)))
+  private func lsStopConnectorSegment(visible: Bool, intensity: Double) -> some View {
+    Rectangle()
+      .fill(visible ? lsSecondaryTextColor.opacity(max(intensity, 0.12)) : Color.clear)
       .frame(maxWidth: .infinity)
       .frame(height: 2)
-      .padding(.horizontal, 4)
   }
 
   @ViewBuilder
@@ -958,15 +1030,14 @@ private struct LockScreenActivityView: View {
     let color: Color = isCurrent ? lsPrimaryTextColor : (isHighlighted ? lsHighlightTextColor : lsSecondaryTextColor)
     Text(label)
       .font(.system(
-        size: isCurrent ? 10.5 : 9.5,
+        size: isCurrent ? 11 : 10,
         weight: isCurrent || isHighlighted ? .semibold : .medium
       ))
       .foregroundStyle(color)
-      .lineLimit(2)
-      .minimumScaleFactor(0.7)
-      .lineSpacing(-1)
+      .lineLimit(1)
+      .minimumScaleFactor(0.6)
       .multilineTextAlignment(.center)
-      .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
+      .frame(maxWidth: .infinity, alignment: .center)
   }
 
   private func lsCompactStopLabel(_ text: String) -> String {

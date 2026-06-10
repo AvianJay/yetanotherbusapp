@@ -86,7 +86,6 @@ final class LiveActivityBridge {
     let lineHighlightedStopIndex = args["lineHighlightedStopIndex"] as? Int
     let modeLabel = args["modeLabel"] as? String
     let statusText = args["statusText"] as? String
-    let alertKind = args["alertKind"] as? String
 
     let etaSeconds = args["etaSeconds"] as? Int
     let etaMessage = args["etaMessage"] as? String
@@ -144,7 +143,7 @@ final class LiveActivityBridge {
 
   private func handleUpdate(call: FlutterMethodCall, result: @escaping FlutterResult) {
     guard #available(iOS 16.2, *) else {
-      result(nil)
+      result(false)
       return
     }
 
@@ -191,13 +190,16 @@ final class LiveActivityBridge {
 
     Task {
       guard let activityId = currentActivityId else {
-        await MainActor.run { result(nil) }
+        await MainActor.run { result(false) }
         return
       }
 
       let activities = Activity<BusArrivalAttributes>.activities
       guard let activity = activities.first(where: { $0.id == activityId }) else {
-        await MainActor.run { result(nil) }
+        // The activity was dismissed or replaced; let Dart know so it can
+        // restart instead of assuming the update succeeded.
+        currentActivityId = nil
+        await MainActor.run { result(false) }
         return
       }
 
@@ -213,7 +215,7 @@ final class LiveActivityBridge {
       } else {
         await activity.update(content)
       }
-      await MainActor.run { result(nil) }
+      await MainActor.run { result(true) }
     }
   }
 

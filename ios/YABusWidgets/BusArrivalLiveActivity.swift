@@ -109,37 +109,23 @@ struct BusArrivalLiveActivity: Widget {
   private func expandedLeading(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(alignment: .top, spacing: 8) {
-        routeBadge(context.attributes.routeName, surface: .dynamicIsland)
-        VStack(alignment: .leading, spacing: 4) {
-          Text(context.attributes.pathName)
-            .font(.system(size: 12, weight: .semibold))
+    HStack(alignment: .center, spacing: 8) {
+      routeBadge(context.attributes.routeName, surface: .dynamicIsland)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(context.attributes.pathName)
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+          .minimumScaleFactor(0.8)
+          .truncationMode(.tail)
+
+        if let modeLabel = trimmedText(context.state.modeLabel) {
+          Text(modeLabel)
+            .font(.system(size: 10, weight: .medium))
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .truncationMode(.tail)
-
-          if let modeLabel = trimmedText(context.state.modeLabel) {
-            modePill(modeLabel, surface: .dynamicIsland)
-          }
         }
       }
-
-      HStack(spacing: 5) {
-        Image(systemName: "mappin.circle.fill")
-          .font(.system(size: 13))
-          .foregroundStyle(.cyan)
-        Text(displayStopName(context.state))
-          .font(.system(size: 14, weight: .semibold))
-          .lineLimit(1)
-      }
-      .padding(.horizontal, 8)
-      .padding(.vertical, 7)
-      .background(
-        RoundedRectangle(cornerRadius: 11, style: .continuous)
-          .fill(Color.white.opacity(0.08))
-      )
     }
   }
 
@@ -147,94 +133,232 @@ struct BusArrivalLiveActivity: Widget {
   private func expandedTrailing(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(alignment: .trailing, spacing: 6) {
-      VStack(alignment: .trailing, spacing: 2) {
-        Text("到站")
-          .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(etaColor(context.state).opacity(0.9))
+    VStack(alignment: .trailing, spacing: 1) {
+      Text("到站")
+        .font(.system(size: 9, weight: .semibold))
+        .foregroundStyle(etaColor(context.state).opacity(0.9))
 
-        countdownText(
-          context.state,
-          style: .expanded,
-          font: .system(size: 24, weight: .bold, design: .rounded)
-        )
-        .foregroundStyle(etaColor(context.state))
-        .lineLimit(1)
-        .minimumScaleFactor(0.6)
-        .monospacedDigit()
-      }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 8)
-      .background(
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .fill(etaColor(context.state).opacity(0.14))
+      countdownText(
+        context.state,
+        style: .expanded,
+        font: .system(size: 22, weight: .bold, design: .rounded)
       )
-      .overlay(
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .stroke(etaColor(context.state).opacity(0.28), lineWidth: 0.7)
-      )
+      .foregroundStyle(etaColor(context.state))
+      .lineLimit(1)
+      .minimumScaleFactor(0.6)
+      .monospacedDigit()
 
       if let vehicleId = trimmedText(context.state.vehicleId) {
         HStack(spacing: 3) {
           Image(systemName: "bus")
-            .font(.system(size: 10))
+            .font(.system(size: 9))
           Text(vehicleId)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
             .lineLimit(1)
         }
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-          Capsule(style: .continuous)
-            .fill(Color.white.opacity(0.08))
-        )
       }
     }
+    .fixedSize(horizontal: true, vertical: false)
   }
 
   @ViewBuilder
   private func expandedBottom(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(spacing: 8) {
-      stopLineView(context.state, surface: .dynamicIsland)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
-        .background(
-          RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(Color.white.opacity(0.08))
-        )
+    VStack(spacing: 6) {
+      busRouteBar(context.state, surface: .dynamicIsland)
 
-      HStack {
-        if let statusText = trimmedText(context.state.statusText) {
+      if let statusText = trimmedText(context.state.statusText) {
+        HStack(spacing: 6) {
           Text(statusText)
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .minimumScaleFactor(0.85)
             .truncationMode(.tail)
+          Spacer(minLength: 6)
+          HStack(spacing: 3) {
+            Image(systemName: "arrow.clockwise")
+              .font(.system(size: 8, weight: .semibold))
+            Text(context.state.updatedAt, style: .relative)
+              .font(.system(size: 10, weight: .medium, design: .monospaced))
+              .lineLimit(1)
+              .fixedSize(horizontal: true, vertical: false)
+          }
+          .foregroundStyle(Color(white: 0.5))
+          .layoutPriority(1)
         }
-        Spacer(minLength: 6)
-        HStack(spacing: 3) {
-          Image(systemName: "arrow.clockwise")
-            .font(.system(size: 9, weight: .semibold))
-          Text(context.state.updatedAt, style: .relative)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-        }
-        .foregroundStyle(Color(white: 0.5))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-          Capsule(style: .continuous)
-            .fill(Color.white.opacity(0.06))
-        )
-        .layoutPriority(1)
+        .padding(.horizontal, 2)
       }
-      .padding(.horizontal, 2)
     }
+  }
+
+  // MARK: - Route bar (colored dots + time)
+
+  /// A compact horizontal route strip: colored dots connected by lines, with
+  /// the stop name under each dot and the ETA shown under the highlighted /
+  /// current dot. Used in the expanded Dynamic Island bottom region.
+  @ViewBuilder
+  private func busRouteBar(
+    _ state: BusArrivalAttributes.ContentState,
+    surface: ActivitySurface,
+    colorScheme: ColorScheme = .dark
+  ) -> some View {
+    let line = busRouteBarData(state)
+    let etaLabel = routeBarEtaLabel(state)
+
+    HStack(alignment: .top, spacing: 0) {
+      ForEach(line.indices, id: \.self) { index in
+        VStack(spacing: 3) {
+          ZStack {
+            HStack(spacing: 0) {
+              routeBarConnector(
+                visible: index > 0,
+                active: index <= line.currentIndex,
+                surface: surface,
+                colorScheme: colorScheme
+              )
+              routeBarConnector(
+                visible: index < line.stops.count - 1,
+                active: index < line.currentIndex,
+                surface: surface,
+                colorScheme: colorScheme
+              )
+            }
+            routeBarDot(
+              isCurrent: index == line.currentIndex,
+              isHighlighted: index == line.highlightedIndex,
+              state: state
+            )
+          }
+          .frame(height: 18)
+
+          Text(compactStopLineLabel(line.stops[index]))
+            .font(.system(size: 9.5, weight: index == line.currentIndex ? .semibold : .medium))
+            .foregroundStyle(
+              stopLineLabelColor(
+                isCurrent: index == line.currentIndex,
+                isHighlighted: index == line.highlightedIndex,
+                surface: surface,
+                colorScheme: colorScheme
+              )
+            )
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+
+          if index == line.currentIndex, let etaLabel {
+            Text(etaLabel)
+              .font(.system(size: 10, weight: .bold, design: .rounded))
+              .foregroundStyle(etaColor(state))
+              .lineLimit(1)
+              .minimumScaleFactor(0.6)
+              .monospacedDigit()
+          }
+        }
+        .frame(maxWidth: .infinity)
+      }
+    }
+  }
+
+  private struct RouteBarLine {
+    let stops: [String]
+    let currentIndex: Int
+    let highlightedIndex: Int?
+    var indices: Range<Int> { stops.indices }
+  }
+
+  private func busRouteBarData(
+    _ state: BusArrivalAttributes.ContentState
+  ) -> RouteBarLine {
+    if let data = stopLineData(state) {
+      return RouteBarLine(
+        stops: data.stopNames,
+        currentIndex: data.currentStopIndex,
+        highlightedIndex: data.highlightedStopIndex
+      )
+    }
+
+    let previous = trimmedText(state.previousStopName)
+    let next = trimmedText(state.nextStopName)
+    let current = displayStopName(state)
+
+    if previous == nil && next == nil {
+      return RouteBarLine(stops: [current], currentIndex: 0, highlightedIndex: 0)
+    }
+
+    return RouteBarLine(
+      stops: [previous ?? "起點", current, next ?? "終點"],
+      currentIndex: 1,
+      highlightedIndex: 1
+    )
+  }
+
+  private func routeBarEtaLabel(
+    _ state: BusArrivalAttributes.ContentState
+  ) -> String? {
+    if let msg = trimmedText(state.etaMessage) {
+      return msg.count > 4 ? String(msg.prefix(4)) : msg
+    }
+    guard let sec = state.etaSeconds else {
+      return nil
+    }
+    if sec <= 0 {
+      return "進站"
+    }
+    if sec < 60 {
+      return "\(sec)秒"
+    }
+    return "\(sec / 60)分"
+  }
+
+  @ViewBuilder
+  private func routeBarDot(
+    isCurrent: Bool,
+    isHighlighted: Bool,
+    state: BusArrivalAttributes.ContentState
+  ) -> some View {
+    if isCurrent {
+      ZStack {
+        Circle()
+          .fill(etaColor(state).opacity(0.28))
+          .frame(width: 20, height: 20)
+        Circle()
+          .fill(etaColor(state))
+          .frame(width: 15, height: 15)
+        Image(systemName: "bus.fill")
+          .font(.system(size: 8, weight: .bold))
+          .foregroundStyle(.white)
+      }
+    } else if isHighlighted {
+      Circle()
+        .strokeBorder(Color(red: 0.0, green: 0.74, blue: 0.83), lineWidth: 2)
+        .background(Circle().fill(Color(red: 0.0, green: 0.74, blue: 0.83).opacity(0.18)))
+        .frame(width: 12, height: 12)
+    } else {
+      Circle()
+        .fill(Color.secondary.opacity(0.5))
+        .frame(width: 8, height: 8)
+    }
+  }
+
+  @ViewBuilder
+  private func routeBarConnector(
+    visible: Bool,
+    active: Bool,
+    surface: ActivitySurface,
+    colorScheme: ColorScheme = .dark
+  ) -> some View {
+    Rectangle()
+      .fill(
+        !visible
+          ? Color.clear
+          : (active
+            ? Color(red: 0.0, green: 0.74, blue: 0.83).opacity(0.8)
+            : Color.secondary.opacity(0.3))
+      )
+      .frame(maxWidth: .infinity)
+      .frame(height: 2.5)
   }
 
   // lockScreenView 已移至 LockScreenActivityView struct（見下方）

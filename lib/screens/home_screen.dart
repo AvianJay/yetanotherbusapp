@@ -537,13 +537,14 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       context,
       routeKey: suggestion.profile.routeKey,
       provider: suggestion.profile.provider,
-      routeIdHint: suggestion.detail?.route.routeId ?? suggestion.favorite?.routeId,
+      routeIdHint:
+          suggestion.detail?.route.routeId ?? suggestion.favorite?.routeId,
       routeNameHint:
           suggestion.detail?.route.routeName ?? suggestion.profile.routeName,
       initialPathId: pathId,
       initialStopId: stopId,
-      initialDestinationPathId: favorite?.destinationPathId,
-      initialDestinationStopId: favorite?.destinationStopId,
+      initialDestinationPathId: favorite?.effectiveDestinationPathId,
+      initialDestinationStopId: favorite?.effectiveDestinationStopId,
     );
   }
 
@@ -700,11 +701,10 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     final recommendedStop = suggestion.recommendedStop;
     final favorite = suggestion.favorite;
     final destinationLabel =
-        favorite?.destinationStopName?.trim().isNotEmpty == true
-        ? favorite!.destinationStopName!.trim()
-        : favorite?.destinationStopId == null
-        ? null
-        : '目的地站牌 ${favorite!.destinationStopId}';
+        favorite?.effectiveDestinationStopName ??
+        (favorite?.effectiveDestinationStopId == null
+            ? null
+            : '目的地站牌 ${favorite!.effectiveDestinationStopId}');
     final showDistance =
         suggestion.favoriteStop == null && suggestion.distanceMeters != null;
     // ignore: unused_local_variable

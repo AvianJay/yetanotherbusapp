@@ -148,8 +148,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
               '${favorite.routeKey}:'
               '${favorite.pathId}:'
               '${favorite.stopId}:'
-              '${favorite.destinationPathId ?? 0}:'
-              '${favorite.destinationStopId ?? 0}',
+              '${favorite.effectiveDestinationPathId ?? 0}:'
+              '${favorite.effectiveDestinationStopId ?? 0}',
         )
         .join('|');
   }
@@ -563,7 +563,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   return ListTile(
                     title: Text(stop.stopName),
                     subtitle: Text('第 ${index + 1} 站'),
-                    trailing: stop.stopId == item.reference.destinationStopId
+                    trailing:
+                        stop.stopId == item.reference.effectiveDestinationStopId
                         ? const Icon(Icons.flag_rounded)
                         : null,
                     onTap: () => Navigator.of(context).pop(stop),
@@ -741,11 +742,10 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       itemBuilder: (context, index) {
         final item = items[index];
         final destinationSummary =
-            item.reference.destinationStopName?.trim().isNotEmpty == true
-            ? item.reference.destinationStopName!.trim()
-            : (item.reference.destinationStopId == null
-                  ? null
-                  : '站牌 ${item.reference.destinationStopId}');
+            item.reference.effectiveDestinationStopName ??
+            (item.reference.effectiveDestinationStopId == null
+                ? null
+                : '站牌 ${item.reference.effectiveDestinationStopId}');
         return Dismissible(
           key: ValueKey(_favoriteItemKey(item.reference)),
           direction: DismissDirection.endToStart,
@@ -798,9 +798,9 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   ? PopupMenuButton<_FavoriteDestinationAction>(
                       tooltip: '目的地設定',
                       icon: Icon(
-                        item.reference.destinationStopId == null
-                            ? Icons.flag_outlined
-                            : Icons.flag_rounded,
+                        item.reference.hasDestination
+                            ? Icons.flag_rounded
+                            : Icons.flag_outlined,
                       ),
                       onSelected: (action) {
                         unawaited(
@@ -818,7 +818,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                             value: _FavoriteDestinationAction.setDestination,
                             child: Text('設定目的地'),
                           ),
-                          if (item.reference.destinationStopId != null)
+                          if (item.reference.hasDestination)
                             const PopupMenuItem(
                               value:
                                   _FavoriteDestinationAction.clearDestination,
@@ -848,8 +848,10 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   routeNameHint: item.route.routeName,
                   initialPathId: item.reference.pathId,
                   initialStopId: item.reference.stopId,
-                  initialDestinationPathId: item.reference.destinationPathId,
-                  initialDestinationStopId: item.reference.destinationStopId,
+                  initialDestinationPathId:
+                      item.reference.effectiveDestinationPathId,
+                  initialDestinationStopId:
+                      item.reference.effectiveDestinationStopId,
                 );
               },
             ),

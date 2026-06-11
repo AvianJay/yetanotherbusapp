@@ -38,36 +38,29 @@ struct BusArrivalLiveActivity: Widget {
   private func compactLeadingView(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    HStack(spacing: 4) {
-      Circle()
-        .fill(Color.white.opacity(0.92))
-        .frame(width: 4.5, height: 4.5)
-      Text(compactRouteName(context.attributes.routeName))
-        .font(.system(size: 12, weight: .heavy, design: .rounded))
-        .foregroundStyle(.white)
-        .lineLimit(1)
-        .minimumScaleFactor(0.55)
-    }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 3)
-    .background(
-      Capsule(style: .continuous)
-        .fill(
-          LinearGradient(
-            colors: [
-              etaColor(context.state),
-              etaColor(context.state).opacity(0.78),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+    // Keep this as narrow as possible: the compact leading sits right next to
+    // the status-bar clock, so any extra width visually crowds the time.
+    Text(compactRouteName(context.attributes.routeName))
+      .font(.system(size: 12, weight: .heavy, design: .rounded))
+      .foregroundStyle(.white)
+      .lineLimit(1)
+      .minimumScaleFactor(0.6)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 2)
+      .background(
+        Capsule(style: .continuous)
+          .fill(
+            LinearGradient(
+              colors: [
+                etaColor(context.state),
+                etaColor(context.state).opacity(0.78),
+              ],
+              startPoint: .topLeading,
+              endPoint: .bottomTrailing
+            )
           )
-        )
-    )
-    .overlay(
-      Capsule(style: .continuous)
-        .stroke(Color.white.opacity(0.16), lineWidth: 0.6)
-    )
-    .frame(maxWidth: 58, alignment: .leading)
+      )
+      .frame(maxWidth: 40, alignment: .center)
   }
 
   @ViewBuilder
@@ -83,17 +76,13 @@ struct BusArrivalLiveActivity: Widget {
     .lineLimit(1)
     .minimumScaleFactor(0.45)
     .monospacedDigit()
-    .padding(.horizontal, 8)
-    .padding(.vertical, 3)
+    .padding(.horizontal, 6)
+    .padding(.vertical, 2)
     .background(
       Capsule(style: .continuous)
         .fill(etaColor(context.state).opacity(0.14))
     )
-    .overlay(
-      Capsule(style: .continuous)
-        .stroke(etaColor(context.state).opacity(0.28), lineWidth: 0.6)
-    )
-    .frame(minWidth: 58, alignment: .trailing)
+    .frame(maxWidth: 52, alignment: .trailing)
   }
 
   @ViewBuilder
@@ -606,11 +595,13 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   private func compactRouteName(_ text: String) -> String {
+    // Keep the compact-leading label short so the Dynamic Island stays narrow
+    // and does not visually crowd the status-bar clock.
     let trimmed = trimmedText(text) ?? text
-    if trimmed.count <= 4 {
+    if trimmed.count <= 3 {
       return trimmed
     }
-    return String(trimmed.prefix(4))
+    return String(trimmed.prefix(3))
   }
 
   private func routeBadgeTextColor(surface: ActivitySurface) -> Color {

@@ -215,27 +215,24 @@ struct BusArrivalLiveActivity: Widget {
       VStack(spacing: 6) {
         HStack(spacing: 0) {
           ForEach(stopLine.stopNames.indices, id: \.self) { index in
-            routeStopColumnMarker(
+            stopMarker(
               isCurrent: index == stopLine.currentStopIndex,
               isHighlighted: index == stopLine.highlightedStopIndex,
-              previousConnectorVisible: index > 0,
-              nextConnectorVisible: index < stopLine.stopNames.count - 1,
-              previousConnectorIntensity: stopConnectorOpacity(
-                currentStopIndex: stopLine.currentStopIndex,
-                connectorIndex: index - 1
-              ),
-              nextConnectorIntensity: stopConnectorOpacity(
-                currentStopIndex: stopLine.currentStopIndex,
-                connectorIndex: index
-              ),
-              etaLabel: index == stopLine.currentStopIndex
-                ? routeBarEtaLabel(state)
-                : nil,
-              state: state,
               surface: surface,
               colorScheme: colorScheme
             )
-            .frame(maxWidth: .infinity)
+            .frame(width: 18)
+
+            if index < stopLine.stopNames.count - 1 {
+              stopConnector(
+                intensity: stopConnectorOpacity(
+                  currentStopIndex: stopLine.currentStopIndex,
+                  connectorIndex: index
+                ),
+                surface: surface,
+                colorScheme: colorScheme
+              )
+            }
           }
         }
 
@@ -257,24 +254,8 @@ struct BusArrivalLiveActivity: Widget {
       let currentStopName = displayStopName(state)
 
       if previousStopName == nil && nextStopName == nil {
-        VStack(spacing: 6) {
-          HStack(spacing: 0) {
-            Spacer(minLength: 0)
-            routeStopColumnMarker(
-              isCurrent: true,
-              isHighlighted: true,
-              previousConnectorVisible: false,
-              nextConnectorVisible: false,
-              previousConnectorIntensity: 0,
-              nextConnectorIntensity: 0,
-              etaLabel: routeBarEtaLabel(state),
-              state: state,
-              surface: surface,
-              colorScheme: colorScheme
-            )
-            .frame(maxWidth: .infinity)
-            Spacer(minLength: 0)
-          }
+        HStack {
+          Spacer(minLength: 0)
           stopLineLabel(
             currentStopName,
             isCurrent: true,
@@ -282,52 +263,22 @@ struct BusArrivalLiveActivity: Widget {
             surface: surface,
             colorScheme: colorScheme
           )
+          Spacer(minLength: 0)
         }
       } else {
         VStack(spacing: 6) {
           HStack(spacing: 0) {
-            routeStopColumnMarker(
-              isCurrent: false,
-              isHighlighted: false,
-              previousConnectorVisible: false,
-              nextConnectorVisible: true,
-              previousConnectorIntensity: 0,
-              nextConnectorIntensity: 0.4,
-              etaLabel: nil,
-              state: state,
-              surface: surface,
-              colorScheme: colorScheme
-            )
-            .frame(maxWidth: .infinity)
-            routeStopColumnMarker(
-              isCurrent: true,
-              isHighlighted: true,
-              previousConnectorVisible: true,
-              nextConnectorVisible: true,
-              previousConnectorIntensity: 0.4,
-              nextConnectorIntensity: 0.22,
-              etaLabel: routeBarEtaLabel(state),
-              state: state,
-              surface: surface,
-              colorScheme: colorScheme
-            )
-            .frame(maxWidth: .infinity)
-            routeStopColumnMarker(
-              isCurrent: false,
-              isHighlighted: false,
-              previousConnectorVisible: true,
-              nextConnectorVisible: false,
-              previousConnectorIntensity: 0.22,
-              nextConnectorIntensity: 0,
-              etaLabel: nil,
-              state: state,
-              surface: surface,
-              colorScheme: colorScheme
-            )
-            .frame(maxWidth: .infinity)
+            stopMarker(isCurrent: false, isHighlighted: false, surface: surface, colorScheme: colorScheme)
+              .frame(width: 18)
+            stopConnector(intensity: 0.4, surface: surface, colorScheme: colorScheme)
+            stopMarker(isCurrent: true, isHighlighted: true, surface: surface, colorScheme: colorScheme)
+              .frame(width: 18)
+            stopConnector(intensity: 0.22, surface: surface, colorScheme: colorScheme)
+            stopMarker(isCurrent: false, isHighlighted: false, surface: surface, colorScheme: colorScheme)
+              .frame(width: 18)
           }
 
-          HStack(alignment: .top, spacing: 8) {
+          HStack(alignment: .center, spacing: 8) {
             stopLineLabel(
               previousStopName ?? "起點",
               isCurrent: false,
@@ -398,73 +349,6 @@ struct BusArrivalLiveActivity: Widget {
       .frame(maxWidth: .infinity)
       .frame(height: 2)
       .padding(.horizontal, 4)
-  }
-
-  @ViewBuilder
-  private func routeStopColumnMarker(
-    isCurrent: Bool,
-    isHighlighted: Bool,
-    previousConnectorVisible: Bool,
-    nextConnectorVisible: Bool,
-    previousConnectorIntensity: Double,
-    nextConnectorIntensity: Double,
-    etaLabel: String?,
-    state: BusArrivalAttributes.ContentState,
-    surface: ActivitySurface,
-    colorScheme: ColorScheme = .dark
-  ) -> some View {
-    VStack(spacing: 1) {
-      ZStack {
-        HStack(spacing: 0) {
-          stopHalfConnector(
-            visible: previousConnectorVisible,
-            intensity: previousConnectorIntensity,
-            surface: surface,
-            colorScheme: colorScheme
-          )
-          stopHalfConnector(
-            visible: nextConnectorVisible,
-            intensity: nextConnectorIntensity,
-            surface: surface,
-            colorScheme: colorScheme
-          )
-        }
-
-        stopMarker(
-          isCurrent: isCurrent,
-          isHighlighted: isHighlighted,
-          surface: surface,
-          colorScheme: colorScheme
-        )
-      }
-      .frame(height: 20)
-
-      if let etaLabel {
-        Text(etaLabel)
-          .font(.system(size: 10, weight: .bold, design: .rounded))
-          .foregroundStyle(etaColor(state))
-          .lineLimit(1)
-          .minimumScaleFactor(0.6)
-          .monospacedDigit()
-      }
-    }
-  }
-
-  @ViewBuilder
-  private func stopHalfConnector(
-    visible: Bool,
-    intensity: Double,
-    surface: ActivitySurface,
-    colorScheme: ColorScheme = .dark
-  ) -> some View {
-    Rectangle()
-      .fill(
-        visible
-          ? stopConnectorColor(surface: surface, intensity: intensity, colorScheme: colorScheme)
-          : Color.clear
-      )
-      .frame(maxWidth: .infinity)
-      .frame(height: 2)
   }
 
   @ViewBuilder
@@ -743,25 +627,6 @@ struct BusArrivalLiveActivity: Widget {
     }
 
     return nil
-  }
-
-  /// Short ETA text shown under the current stop dot in the route bar.
-  private func routeBarEtaLabel(
-    _ state: BusArrivalAttributes.ContentState
-  ) -> String? {
-    if let msg = trimmedText(state.etaMessage) {
-      return msg.count > 4 ? String(msg.prefix(4)) : msg
-    }
-    guard let sec = state.etaSeconds else {
-      return nil
-    }
-    if sec <= 0 {
-      return "進站"
-    }
-    if sec < 60 {
-      return "\(sec)秒"
-    }
-    return "\(sec / 60)分"
   }
 
   private func etaColor(_ state: BusArrivalAttributes.ContentState) -> Color {

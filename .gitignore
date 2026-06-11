@@ -30,6 +30,8 @@ migrate_working_dir/
 .dart-tool/
 .codex_tmp/
 .flutter-plugins-dependencies
+.npm/
+node_modules/
 .pub-cache/
 .pub/
 /build/

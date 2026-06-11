@@ -31,6 +31,21 @@ import UIKit
     return super.application(app, open: url, options: options)
   }
 
+  override func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    if AppLaunchBridge.shared.handle(userActivity: userActivity) {
+      return true
+    }
+    return super.application(
+      application,
+      continue: userActivity,
+      restorationHandler: restorationHandler
+    )
+  }
+
   override func applicationWillTerminate(_ application: UIApplication) {
     LiveActivityBridge.shared.endAllActivitiesFromHost()
     super.applicationWillTerminate(application)

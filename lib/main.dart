@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import 'app/bus_app.dart';
@@ -21,6 +22,7 @@ import 'core/ad_service.dart';
 
 Future<void> main(List<String> args) async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  usePathUrlStrategy();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
   await configureDatabaseFactory();
   try {

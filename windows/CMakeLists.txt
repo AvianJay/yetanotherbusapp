@@ -57,6 +57,16 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# `flutter_local_notifications_windows` still pulls in deprecated coroutine
+# headers on newer MSVC toolchains. Silence the deprecation gate until the
+# upstream plugin switches fully to the newer coroutine headers.
+if(TARGET flutter_local_notifications_windows)
+  target_compile_definitions(
+    flutter_local_notifications_windows
+    PRIVATE _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+  )
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

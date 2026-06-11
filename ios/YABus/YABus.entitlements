@@ -6,5 +6,11 @@
 	<array>
 		<string>group.tw.avianjay.taiwanbus.flutter</string>
 	</array>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:busapp.avianjay.sbs</string>
+		<string>appclips:busapp.avianjay.sbs</string>
+		<string>webcredentials:busapp.avianjay.sbs</string>
+	</array>
 </dict>
 </plist>

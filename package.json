@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve:web": "wrangler dev",
+    "deploy:web": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.21.0"
+  }
+}

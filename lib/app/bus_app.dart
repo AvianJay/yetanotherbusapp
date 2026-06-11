@@ -710,18 +710,37 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
           buildRouteDetailRoute(
             routeKey: routeKey,
             provider: provider,
+            routeIdHint: action.routeId,
             initialPathId: action.pathId,
             initialStopId: action.stopId,
             initialDestinationPathId: action.destinationPathId,
             initialDestinationStopId: action.destinationStopId,
           ),
         );
+        return;
       case AppLaunchTarget.favoritesGroup:
         await navigator.push(
           MaterialPageRoute<void>(
             builder: (_) => FavoritesScreen(initialGroupName: action.groupName),
           ),
         );
+        return;
+      case AppLaunchTarget.internalLocation:
+        final location = action.location;
+        if (location == null || location.isEmpty) {
+          return;
+        }
+        final intent = parseAppRoute(location);
+        if (intent.kind == AppRouteKind.unknown ||
+            intent.kind == AppRouteKind.stopDetail) {
+          return;
+        }
+        if (intent.kind == AppRouteKind.home) {
+          navigator.popUntil((route) => route.isFirst);
+          return;
+        }
+        await navigator.pushNamed(intent.location);
+        return;
       case AppLaunchTarget.authCallback:
         return;
     }

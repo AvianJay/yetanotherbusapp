@@ -3,6 +3,20 @@ import Foundation
 
 final class AppLaunchBridge {
   static let shared = AppLaunchBridge()
+  private let supportedInternalHosts: Set<String> = ["busapp.avianjay.sbs"]
+  private let supportedInternalPaths: Set<String> = [
+    "/",
+    "/search",
+    "/favorites",
+    "/nearby",
+    "/settings",
+    "/account",
+    "/feedback",
+    "/database-settings",
+    "/terms-of-service",
+    "/privacy-policy",
+    "/announcement",
+  ]
 
   private let channelName = "tw.avianjay.taiwanbus.flutter/app_launch"
   private var channel: FlutterMethodChannel?
@@ -54,7 +68,33 @@ final class AppLaunchBridge {
     return true
   }
 
+  @discardableResult
+  func handle(userActivity: NSUserActivity) -> Bool {
+    guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+      let url = userActivity.webpageURL
+    else {
+      return false
+    }
+    return handle(url: url)
+  }
+
   private func payload(for url: URL) -> [String: Any]? {
+    guard let scheme = url.scheme?.lowercased() else {
+      return nil
+    }
+
+    if scheme == "yabus" {
+      return customSchemePayload(for: url)
+    }
+
+    if (scheme == "http" || scheme == "https") && isSupportedInternalHost(url.host) {
+      return universalLinkPayload(for: url)
+    }
+
+    return nil
+  }
+
+  private func customSchemePayload(for url: URL) -> [String: Any]? {
     guard let scheme = url.scheme?.lowercased(), scheme == "yabus" else {
       return nil
     }
@@ -85,6 +125,41 @@ final class AppLaunchBridge {
     return nil
   }
 
+  private func universalLinkPayload(for url: URL) -> [String: Any]? {
+    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    let pathSegments = url.pathComponents.filter { $0 != "/" }
+    let normalizedPath = normalizedLocationPath(for: url)
+
+    if pathSegments.count >= 3 && pathSegments.first == "route" {
+      return routePayload(
+        provider: pathSegments[1],
+        routeKey: Int(pathSegments[2]),
+        routeId: queryValue("routeId", from: components),
+        pathId: queryInt("pathId", from: components) ?? intValue(at: 3, in: pathSegments),
+        stopId: queryInt("stopId", from: components) ?? intValue(at: 4, in: pathSegments),
+        destinationPathId: queryInt("destinationPathId", from: components),
+        destinationStopId: queryInt("destinationStopId", from: components)
+      )
+    }
+
+    if pathSegments.count >= 2 && pathSegments.first == "announcement" {
+      return internalLocationPayload(from: components, path: normalizedPath)
+    }
+
+    if supportedInternalPaths.contains(normalizedPath) {
+      return internalLocationPayload(from: components, path: normalizedPath)
+    }
+
+    return nil
+  }
+
+  private func isSupportedInternalHost(_ rawHost: String?) -> Bool {
+    guard let rawHost else {
+      return false
+    }
+    return supportedInternalHosts.contains(rawHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+  }
+
   private func authPayload(from components: URLComponents?) -> [String: Any]? {
     var payload: [String: Any] = [
       "target": "auth_callback"
@@ -107,13 +182,26 @@ final class AppLaunchBridge {
     from components: URLComponents?,
     pathSegments: [String]
   ) -> [String: Any]? {
-    let provider = queryValue("provider", from: components) ?? pathSegments.first
-    let routeKey = queryInt("routeKey", from: components) ?? intValue(at: 1, in: pathSegments)
-    let pathId = queryInt("pathId", from: components) ?? intValue(at: 2, in: pathSegments)
-    let stopId = queryInt("stopId", from: components) ?? intValue(at: 3, in: pathSegments)
-    let destinationPathId = queryInt("destinationPathId", from: components)
-    let destinationStopId = queryInt("destinationStopId", from: components)
+    return routePayload(
+      provider: queryValue("provider", from: components) ?? pathSegments.first,
+      routeKey: queryInt("routeKey", from: components) ?? intValue(at: 1, in: pathSegments),
+      routeId: queryValue("routeId", from: components),
+      pathId: queryInt("pathId", from: components) ?? intValue(at: 2, in: pathSegments),
+      stopId: queryInt("stopId", from: components) ?? intValue(at: 3, in: pathSegments),
+      destinationPathId: queryInt("destinationPathId", from: components),
+      destinationStopId: queryInt("destinationStopId", from: components)
+    )
+  }
 
+  private func routePayload(
+    provider: String?,
+    routeKey: Int?,
+    routeId: String?,
+    pathId: Int?,
+    stopId: Int?,
+    destinationPathId: Int?,
+    destinationStopId: Int?
+  ) -> [String: Any]? {
     guard let provider, !provider.isEmpty, let routeKey else {
       return nil
     }
@@ -123,6 +211,9 @@ final class AppLaunchBridge {
       "provider": provider,
       "routeKey": routeKey,
     ]
+    if let routeId, !routeId.isEmpty {
+      payload["routeId"] = routeId
+    }
     if let pathId {
       payload["pathId"] = pathId
     }
@@ -136,6 +227,35 @@ final class AppLaunchBridge {
       payload["destinationStopId"] = destinationStopId
     }
     return payload
+  }
+
+  private func internalLocationPayload(
+    from components: URLComponents?,
+    path: String
+  ) -> [String: Any]? {
+    guard !path.isEmpty else {
+      return nil
+    }
+
+    var location = path
+    if let query = components?.percentEncodedQuery, !query.isEmpty {
+      location += "?\(query)"
+    }
+    if let fragment = components?.percentEncodedFragment, !fragment.isEmpty {
+      location += "#\(fragment)"
+    }
+    return [
+      "target": "internal_location",
+      "location": location,
+    ]
+  }
+
+  private func normalizedLocationPath(for url: URL) -> String {
+    let path = url.path.trimmingCharacters(in: .whitespacesAndNewlines)
+    if path.isEmpty || path == "/" {
+      return "/"
+    }
+    return path.hasPrefix("/") ? path : "/\(path)"
   }
 
   private func queryValue(_ name: String, from components: URLComponents?) -> String? {

@@ -1,13 +1,13 @@
 {
     "name": "YetAnotherBusApp",
     "short_name": "YABus",
-    "start_url": ".",
+    "start_url": "/",
     "display": "standalone",
     "background_color": "#ff6f1f",
     "theme_color": "#ff6f1f",
     "description": "Yet Another Bus App – 台灣公車即時動態查詢",
     "orientation": "any",
-    "scope": ".",
+    "scope": "/",
     "prefer_related_applications": false,
     "categories": [
         "navigation",

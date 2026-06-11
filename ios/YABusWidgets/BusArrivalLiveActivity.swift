@@ -11,16 +11,15 @@ struct BusArrivalLiveActivity: Widget {
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           expandedLeading(context: context)
-            .dynamicIsland(verticalPlacement: .belowIfTooWide)
-            .padding(.leading, 8)
+            .padding(.leading, 10)
         }
         DynamicIslandExpandedRegion(.trailing) {
           expandedTrailing(context: context)
-            .padding(.trailing, 8)
+            .padding(.trailing, 10)
         }
         DynamicIslandExpandedRegion(.bottom) {
           expandedBottom(context: context)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 10)
             .padding(.bottom, 4)
         }
       } compactLeading: {
@@ -38,29 +37,19 @@ struct BusArrivalLiveActivity: Widget {
   private func compactLeadingView(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    // Keep this as narrow as possible: the compact leading sits right next to
-    // the status-bar clock, so any extra width visually crowds the time.
     Text(compactRouteName(context.attributes.routeName))
       .font(.system(size: 12, weight: .heavy, design: .rounded))
       .foregroundStyle(.white)
       .lineLimit(1)
-      .minimumScaleFactor(0.6)
+      .minimumScaleFactor(0.55)
       .padding(.horizontal, 6)
       .padding(.vertical, 2)
       .background(
         Capsule(style: .continuous)
-          .fill(
-            LinearGradient(
-              colors: [
-                etaColor(context.state),
-                etaColor(context.state).opacity(0.78),
-              ],
-              startPoint: .topLeading,
-              endPoint: .bottomTrailing
-            )
-          )
+          .fill(etaColor(context.state).opacity(0.9))
       )
-      .frame(maxWidth: 40, alignment: .center)
+      .frame(width: 42, alignment: .leading)
+      .clipped()
   }
 
   @ViewBuilder
@@ -76,13 +65,7 @@ struct BusArrivalLiveActivity: Widget {
     .lineLimit(1)
     .minimumScaleFactor(0.45)
     .monospacedDigit()
-    .padding(.horizontal, 6)
-    .padding(.vertical, 2)
-    .background(
-      Capsule(style: .continuous)
-        .fill(etaColor(context.state).opacity(0.14))
-    )
-    .frame(maxWidth: 52, alignment: .trailing)
+    .frame(width: 58, alignment: .trailing)
   }
 
   @ViewBuilder
@@ -91,9 +74,7 @@ struct BusArrivalLiveActivity: Widget {
   ) -> some View {
     ZStack {
       Circle()
-        .fill(etaColor(context.state).opacity(0.18))
-      Circle()
-        .stroke(etaColor(context.state).opacity(0.4), lineWidth: 1.2)
+        .fill(etaColor(context.state).opacity(0.25))
       countdownText(
         context.state,
         style: .minimal,
@@ -109,22 +90,26 @@ struct BusArrivalLiveActivity: Widget {
   private func expandedLeading(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    HStack(alignment: .center, spacing: 8) {
-      routeBadge(context.attributes.routeName, surface: .dynamicIsland)
-      VStack(alignment: .leading, spacing: 2) {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 6) {
+        routeBadge(context.attributes.routeName, surface: .dynamicIsland)
         Text(context.attributes.pathName)
-          .font(.system(size: 12, weight: .semibold))
+          .font(.system(size: 12, weight: .medium))
           .foregroundStyle(.secondary)
           .lineLimit(1)
-          .minimumScaleFactor(0.8)
-          .truncationMode(.tail)
+      }
 
-        if let modeLabel = trimmedText(context.state.modeLabel) {
-          Text(modeLabel)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
+      if let modeLabel = trimmedText(context.state.modeLabel) {
+        modePill(modeLabel, surface: .dynamicIsland)
+      }
+
+      HStack(spacing: 5) {
+        Image(systemName: "mappin.circle.fill")
+          .font(.system(size: 13))
+          .foregroundStyle(.cyan)
+        Text(displayStopName(context.state))
+          .font(.system(size: 14, weight: .semibold))
+          .lineLimit(1)
       }
     }
   }
@@ -133,15 +118,11 @@ struct BusArrivalLiveActivity: Widget {
   private func expandedTrailing(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(alignment: .trailing, spacing: 1) {
-      Text("到站")
-        .font(.system(size: 9, weight: .semibold))
-        .foregroundStyle(etaColor(context.state).opacity(0.9))
-
+    VStack(alignment: .trailing, spacing: 2) {
       countdownText(
         context.state,
         style: .expanded,
-        font: .system(size: 22, weight: .bold, design: .rounded)
+        font: .system(size: 24, weight: .bold, design: .rounded)
       )
       .foregroundStyle(etaColor(context.state))
       .lineLimit(1)
@@ -151,214 +132,40 @@ struct BusArrivalLiveActivity: Widget {
       if let vehicleId = trimmedText(context.state.vehicleId) {
         HStack(spacing: 3) {
           Image(systemName: "bus")
-            .font(.system(size: 9))
+            .font(.system(size: 10))
           Text(vehicleId)
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
             .lineLimit(1)
         }
         .foregroundStyle(.secondary)
       }
     }
-    .fixedSize(horizontal: true, vertical: false)
   }
 
   @ViewBuilder
   private func expandedBottom(
     context: ActivityViewContext<BusArrivalAttributes>
   ) -> some View {
-    VStack(spacing: 6) {
-      busRouteBar(context.state, surface: .dynamicIsland)
+    VStack(spacing: 5) {
+      stopLineView(context.state, surface: .dynamicIsland)
 
-      if let statusText = trimmedText(context.state.statusText) {
-        HStack(spacing: 6) {
+      HStack {
+        if let statusText = trimmedText(context.state.statusText) {
           Text(statusText)
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .minimumScaleFactor(0.85)
-            .truncationMode(.tail)
-          Spacer(minLength: 6)
-          HStack(spacing: 3) {
-            Image(systemName: "arrow.clockwise")
-              .font(.system(size: 8, weight: .semibold))
-            Text(context.state.updatedAt, style: .relative)
-              .font(.system(size: 10, weight: .medium, design: .monospaced))
-              .lineLimit(1)
-              .fixedSize(horizontal: true, vertical: false)
-          }
+        }
+        Spacer(minLength: 6)
+        Text(context.state.updatedAt, style: .time)
+          .font(.system(size: 11, weight: .medium, design: .monospaced))
           .foregroundStyle(Color(white: 0.5))
+          .lineLimit(1)
+          .fixedSize(horizontal: true, vertical: false)
           .layoutPriority(1)
-        }
-        .padding(.horizontal, 2)
       }
+      .padding(.horizontal, 2)
     }
-  }
-
-  // MARK: - Route bar (colored dots + time)
-
-  /// A compact horizontal route strip: colored dots connected by lines, with
-  /// the stop name under each dot and the ETA shown under the highlighted /
-  /// current dot. Used in the expanded Dynamic Island bottom region.
-  @ViewBuilder
-  private func busRouteBar(
-    _ state: BusArrivalAttributes.ContentState,
-    surface: ActivitySurface,
-    colorScheme: ColorScheme = .dark
-  ) -> some View {
-    let line = busRouteBarData(state)
-    let etaLabel = routeBarEtaLabel(state)
-
-    HStack(alignment: .top, spacing: 0) {
-      ForEach(line.indices, id: \.self) { index in
-        VStack(spacing: 3) {
-          ZStack {
-            HStack(spacing: 0) {
-              routeBarConnector(
-                visible: index > 0,
-                active: index <= line.currentIndex,
-                surface: surface,
-                colorScheme: colorScheme
-              )
-              routeBarConnector(
-                visible: index < line.stops.count - 1,
-                active: index < line.currentIndex,
-                surface: surface,
-                colorScheme: colorScheme
-              )
-            }
-            routeBarDot(
-              isCurrent: index == line.currentIndex,
-              isHighlighted: index == line.highlightedIndex,
-              state: state
-            )
-          }
-          .frame(height: 18)
-
-          Text(compactStopLineLabel(line.stops[index]))
-            .font(.system(size: 9.5, weight: index == line.currentIndex ? .semibold : .medium))
-            .foregroundStyle(
-              stopLineLabelColor(
-                isCurrent: index == line.currentIndex,
-                isHighlighted: index == line.highlightedIndex,
-                surface: surface,
-                colorScheme: colorScheme
-              )
-            )
-            .lineLimit(1)
-            .minimumScaleFactor(0.6)
-
-          if index == line.currentIndex, let etaLabel {
-            Text(etaLabel)
-              .font(.system(size: 10, weight: .bold, design: .rounded))
-              .foregroundStyle(etaColor(state))
-              .lineLimit(1)
-              .minimumScaleFactor(0.6)
-              .monospacedDigit()
-          }
-        }
-        .frame(maxWidth: .infinity)
-      }
-    }
-  }
-
-  private struct RouteBarLine {
-    let stops: [String]
-    let currentIndex: Int
-    let highlightedIndex: Int?
-    var indices: Range<Int> { stops.indices }
-  }
-
-  private func busRouteBarData(
-    _ state: BusArrivalAttributes.ContentState
-  ) -> RouteBarLine {
-    if let data = stopLineData(state) {
-      return RouteBarLine(
-        stops: data.stopNames,
-        currentIndex: data.currentStopIndex,
-        highlightedIndex: data.highlightedStopIndex
-      )
-    }
-
-    let previous = trimmedText(state.previousStopName)
-    let next = trimmedText(state.nextStopName)
-    let current = displayStopName(state)
-
-    if previous == nil && next == nil {
-      return RouteBarLine(stops: [current], currentIndex: 0, highlightedIndex: 0)
-    }
-
-    return RouteBarLine(
-      stops: [previous ?? "起點", current, next ?? "終點"],
-      currentIndex: 1,
-      highlightedIndex: 1
-    )
-  }
-
-  private func routeBarEtaLabel(
-    _ state: BusArrivalAttributes.ContentState
-  ) -> String? {
-    if let msg = trimmedText(state.etaMessage) {
-      return msg.count > 4 ? String(msg.prefix(4)) : msg
-    }
-    guard let sec = state.etaSeconds else {
-      return nil
-    }
-    if sec <= 0 {
-      return "進站"
-    }
-    if sec < 60 {
-      return "\(sec)秒"
-    }
-    return "\(sec / 60)分"
-  }
-
-  @ViewBuilder
-  private func routeBarDot(
-    isCurrent: Bool,
-    isHighlighted: Bool,
-    state: BusArrivalAttributes.ContentState
-  ) -> some View {
-    if isCurrent {
-      ZStack {
-        Circle()
-          .fill(etaColor(state).opacity(0.28))
-          .frame(width: 20, height: 20)
-        Circle()
-          .fill(etaColor(state))
-          .frame(width: 15, height: 15)
-        Image(systemName: "bus.fill")
-          .font(.system(size: 8, weight: .bold))
-          .foregroundStyle(.white)
-      }
-    } else if isHighlighted {
-      Circle()
-        .strokeBorder(Color(red: 0.0, green: 0.74, blue: 0.83), lineWidth: 2)
-        .background(Circle().fill(Color(red: 0.0, green: 0.74, blue: 0.83).opacity(0.18)))
-        .frame(width: 12, height: 12)
-    } else {
-      Circle()
-        .fill(Color.secondary.opacity(0.5))
-        .frame(width: 8, height: 8)
-    }
-  }
-
-  @ViewBuilder
-  private func routeBarConnector(
-    visible: Bool,
-    active: Bool,
-    surface: ActivitySurface,
-    colorScheme: ColorScheme = .dark
-  ) -> some View {
-    Rectangle()
-      .fill(
-        !visible
-          ? Color.clear
-          : (active
-            ? Color(red: 0.0, green: 0.74, blue: 0.83).opacity(0.8)
-            : Color.secondary.opacity(0.3))
-      )
-      .frame(maxWidth: .infinity)
-      .frame(height: 2.5)
   }
 
   // lockScreenView 已移至 LockScreenActivityView struct（見下方）
@@ -371,12 +178,10 @@ struct BusArrivalLiveActivity: Widget {
     Text(name)
       .font(.system(size: 14, weight: .heavy, design: .rounded))
       .foregroundStyle(routeBadgeTextColor(surface: surface))
-      .lineLimit(1)
-      .minimumScaleFactor(0.7)
-      .padding(.horizontal, 9)
-      .padding(.vertical, 4)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
       .background(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
           .fill(
             LinearGradient(
               colors: [Color(red: 0.0, green: 0.7, blue: 0.8), Color(red: 0.0, green: 0.55, blue: 0.75)],
@@ -384,10 +189,6 @@ struct BusArrivalLiveActivity: Widget {
               endPoint: .bottomTrailing
             )
           )
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .stroke(Color.white.opacity(0.16), lineWidth: 0.7)
       )
   }
 
@@ -402,10 +203,6 @@ struct BusArrivalLiveActivity: Widget {
         Capsule(style: .continuous)
           .fill(modePillBackgroundColor(surface: surface, colorScheme: colorScheme))
       )
-      .overlay(
-        Capsule(style: .continuous)
-          .stroke((surface == .dynamicIsland ? Color.white : lockScreenPrimaryTextColor(colorScheme: colorScheme)).opacity(0.1), lineWidth: 0.6)
-      )
   }
 
   @ViewBuilder
@@ -415,53 +212,52 @@ struct BusArrivalLiveActivity: Widget {
     colorScheme: ColorScheme = .dark
   ) -> some View {
     if let stopLine = stopLineData(state) {
-      // Markers and labels share the same equal-width columns so each dot
-      // lines up exactly above its stop name.
-      VStack(spacing: 5) {
+      VStack(spacing: 6) {
         HStack(spacing: 0) {
           ForEach(stopLine.stopNames.indices, id: \.self) { index in
-            ZStack {
-              HStack(spacing: 0) {
-                stopConnectorSegment(
-                  visible: index > 0,
-                  intensity: stopConnectorOpacity(
-                    currentStopIndex: stopLine.currentStopIndex,
-                    connectorIndex: index - 1
-                  ),
-                  surface: surface,
-                  colorScheme: colorScheme
-                )
-                stopConnectorSegment(
-                  visible: index < stopLine.stopNames.count - 1,
-                  intensity: stopConnectorOpacity(
-                    currentStopIndex: stopLine.currentStopIndex,
-                    connectorIndex: index
-                  ),
-                  surface: surface,
-                  colorScheme: colorScheme
-                )
-              }
-              stopMarker(
-                isCurrent: index == stopLine.currentStopIndex,
-                isHighlighted: index == stopLine.highlightedStopIndex,
-                surface: surface,
-                colorScheme: colorScheme
-              )
-            }
-            .frame(maxWidth: .infinity)
-          }
-        }
-        .frame(height: 20)
-
-        HStack(alignment: .top, spacing: 0) {
-          ForEach(stopLine.stopNames.indices, id: \.self) { index in
-            stopLineLabel(
-              stopLine.stopNames[index],
+            stopMarker(
               isCurrent: index == stopLine.currentStopIndex,
               isHighlighted: index == stopLine.highlightedStopIndex,
               surface: surface,
               colorScheme: colorScheme
             )
+            .frame(width: 18)
+
+            if index < stopLine.stopNames.count - 1 {
+              stopConnector(
+                intensity: stopConnectorOpacity(
+                  currentStopIndex: stopLine.currentStopIndex,
+                  connectorIndex: index
+                ),
+                surface: surface,
+                colorScheme: colorScheme
+              )
+            }
+          }
+        }
+
+        HStack(alignment: .top, spacing: 6) {
+          ForEach(stopLine.stopNames.indices, id: \.self) { index in
+            VStack(spacing: 1) {
+              stopLineLabel(
+                stopLine.stopNames[index],
+                isCurrent: index == stopLine.currentStopIndex,
+                isHighlighted: index == stopLine.highlightedStopIndex,
+                surface: surface,
+                colorScheme: colorScheme
+              )
+
+              if index == stopLine.currentStopIndex,
+                let etaLabel = routeBarEtaLabel(state) {
+                Text(etaLabel)
+                  .font(.system(size: 10, weight: .bold, design: .rounded))
+                  .foregroundStyle(etaColor(state))
+                  .lineLimit(1)
+                  .minimumScaleFactor(0.6)
+                  .monospacedDigit()
+              }
+            }
+            .frame(maxWidth: .infinity, alignment: .top)
           }
         }
       }
@@ -483,37 +279,19 @@ struct BusArrivalLiveActivity: Widget {
           Spacer(minLength: 0)
         }
       } else {
-        VStack(spacing: 5) {
+        VStack(spacing: 6) {
           HStack(spacing: 0) {
-            ForEach(0..<3, id: \.self) { index in
-              ZStack {
-                HStack(spacing: 0) {
-                  stopConnectorSegment(
-                    visible: index > 0,
-                    intensity: index == 1 ? 0.4 : 0.22,
-                    surface: surface,
-                    colorScheme: colorScheme
-                  )
-                  stopConnectorSegment(
-                    visible: index < 2,
-                    intensity: index == 0 ? 0.4 : 0.22,
-                    surface: surface,
-                    colorScheme: colorScheme
-                  )
-                }
-                stopMarker(
-                  isCurrent: index == 1,
-                  isHighlighted: index == 1,
-                  surface: surface,
-                  colorScheme: colorScheme
-                )
-              }
-              .frame(maxWidth: .infinity)
-            }
+            stopMarker(isCurrent: false, isHighlighted: false, surface: surface, colorScheme: colorScheme)
+              .frame(width: 18)
+            stopConnector(intensity: 0.4, surface: surface, colorScheme: colorScheme)
+            stopMarker(isCurrent: true, isHighlighted: true, surface: surface, colorScheme: colorScheme)
+              .frame(width: 18)
+            stopConnector(intensity: 0.22, surface: surface, colorScheme: colorScheme)
+            stopMarker(isCurrent: false, isHighlighted: false, surface: surface, colorScheme: colorScheme)
+              .frame(width: 18)
           }
-          .frame(height: 20)
 
-          HStack(alignment: .top, spacing: 0) {
+          HStack(alignment: .top, spacing: 8) {
             stopLineLabel(
               previousStopName ?? "起點",
               isCurrent: false,
@@ -521,13 +299,24 @@ struct BusArrivalLiveActivity: Widget {
               surface: surface,
               colorScheme: colorScheme
             )
-            stopLineLabel(
-              currentStopName,
-              isCurrent: true,
-              isHighlighted: true,
-              surface: surface,
-              colorScheme: colorScheme
-            )
+            VStack(spacing: 1) {
+              stopLineLabel(
+                currentStopName,
+                isCurrent: true,
+                isHighlighted: true,
+                surface: surface,
+                colorScheme: colorScheme
+              )
+              if let etaLabel = routeBarEtaLabel(state) {
+                Text(etaLabel)
+                  .font(.system(size: 10, weight: .bold, design: .rounded))
+                  .foregroundStyle(etaColor(state))
+                  .lineLimit(1)
+                  .minimumScaleFactor(0.6)
+                  .monospacedDigit()
+              }
+            }
+            .frame(maxWidth: .infinity, alignment: .top)
             stopLineLabel(
               nextStopName ?? "終點",
               isCurrent: false,
@@ -578,20 +367,12 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   @ViewBuilder
-  private func stopConnectorSegment(
-    visible: Bool,
-    intensity: Double,
-    surface: ActivitySurface,
-    colorScheme: ColorScheme = .dark
-  ) -> some View {
-    Rectangle()
-      .fill(
-        visible
-          ? stopConnectorColor(surface: surface, intensity: intensity, colorScheme: colorScheme)
-          : Color.clear
-      )
+  private func stopConnector(intensity: Double, surface: ActivitySurface, colorScheme: ColorScheme = .dark) -> some View {
+    Capsule(style: .continuous)
+      .fill(stopConnectorColor(surface: surface, intensity: intensity, colorScheme: colorScheme))
       .frame(maxWidth: .infinity)
       .frame(height: 2)
+      .padding(.horizontal, 4)
   }
 
   @ViewBuilder
@@ -605,7 +386,7 @@ struct BusArrivalLiveActivity: Widget {
     Text(compactStopLineLabel(text))
       .font(
         .system(
-          size: isCurrent ? 11 : 10,
+          size: isCurrent ? 10.5 : 9.5,
           weight: isCurrent || isHighlighted ? .semibold : .medium
         )
       )
@@ -617,10 +398,11 @@ struct BusArrivalLiveActivity: Widget {
           colorScheme: colorScheme
         )
       )
-      .lineLimit(1)
-      .minimumScaleFactor(0.6)
+      .lineLimit(2)
+      .minimumScaleFactor(0.7)
+      .lineSpacing(-1)
       .multilineTextAlignment(.center)
-      .frame(maxWidth: .infinity, alignment: .center)
+      .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
   }
 
   private func stopLineData(
@@ -719,19 +501,18 @@ struct BusArrivalLiveActivity: Widget {
   }
 
   private func compactRouteName(_ text: String) -> String {
-    // Keep the compact-leading label short so the Dynamic Island stays narrow
-    // and does not visually crowd the status-bar clock.
     let trimmed = trimmedText(text) ?? text
-    if trimmed.count <= 3 {
+    if trimmed.count <= 4 {
       return trimmed
     }
-    return String(trimmed.prefix(3))
+    return String(trimmed.prefix(4))
   }
 
   private func routeBadgeTextColor(surface: ActivitySurface) -> Color {
-    // The badge always sits on the cyan gradient, so white keeps proper
-    // contrast on every surface (`.primary` could resolve to near-black).
-    .white
+    if surface == .dynamicIsland {
+      return .primary
+    }
+    return .white
   }
 
   private func modePillTextColor(surface: ActivitySurface, colorScheme: ColorScheme) -> Color {
@@ -872,6 +653,25 @@ struct BusArrivalLiveActivity: Widget {
     return nil
   }
 
+  /// Short ETA text shown under the current stop dot in the route bar.
+  private func routeBarEtaLabel(
+    _ state: BusArrivalAttributes.ContentState
+  ) -> String? {
+    if let msg = trimmedText(state.etaMessage) {
+      return msg.count > 4 ? String(msg.prefix(4)) : msg
+    }
+    guard let sec = state.etaSeconds else {
+      return nil
+    }
+    if sec <= 0 {
+      return "進站"
+    }
+    if sec < 60 {
+      return "\(sec)秒"
+    }
+    return "\(sec / 60)分"
+  }
+
   private func etaColor(_ state: BusArrivalAttributes.ContentState) -> Color {
     if trimmedText(state.etaMessage) != nil {
       return Color(red: 0.0, green: 0.7, blue: 0.65)
@@ -901,12 +701,6 @@ private struct LockScreenActivityView: View {
   @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
-    // Keep this layout simple and content-sized. Do NOT add a custom card
-    // background (ZStack shape or a full-size `.background`) here: the system
-    // manages the Live Activity container and applies `.activityBackgroundTint`.
-    // Drawing our own full-bleed card fought the system sizing and made the
-    // view balloon into a blank rectangle on unlock and during the
-    // lock-screen → Dynamic Island hand-off.
     HStack(spacing: 16) {
       VStack(alignment: .leading, spacing: 6) {
         HStack(spacing: 8) {
@@ -915,8 +709,6 @@ private struct LockScreenActivityView: View {
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(lsSecondaryTextColor)
             .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .truncationMode(.tail)
         }
 
         if let modeLabel = lsTrimmed(context.state.modeLabel) {
@@ -947,10 +739,6 @@ private struct LockScreenActivityView: View {
       Spacer(minLength: 8)
 
       VStack(alignment: .trailing, spacing: 4) {
-        Text("到站")
-          .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(lsEtaColor(context.state).opacity(0.9))
-
         lsCountdownText(
           context.state,
           font: .system(size: 32, weight: .bold, design: .rounded)
@@ -970,14 +758,9 @@ private struct LockScreenActivityView: View {
           .foregroundStyle(lsSecondaryTextColor)
         }
 
-        HStack(spacing: 3) {
-          Image(systemName: "arrow.clockwise")
-            .font(.system(size: 8, weight: .semibold))
-          Text(context.state.updatedAt, style: .relative)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .lineLimit(1)
-        }
-        .foregroundStyle(lsTimestampTextColor)
+        Text(context.state.updatedAt, style: .time)
+          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .foregroundStyle(lsTimestampTextColor)
       }
     }
     .padding(.horizontal, 20)
@@ -1038,32 +821,6 @@ private struct LockScreenActivityView: View {
       : Color(red: 0.16, green: 0.22, blue: 0.31).opacity(0.1)
   }
 
-  private var lsCardFillColor: Color {
-    colorScheme == .dark
-      ? Color(red: 0.12, green: 0.16, blue: 0.24).opacity(0.96)
-      : Color.white.opacity(0.94)
-  }
-
-  private var lsCardStrokeColor: Color {
-    colorScheme == .dark
-      ? Color.white.opacity(0.08)
-      : Color(red: 0.16, green: 0.22, blue: 0.31).opacity(0.08)
-  }
-
-  private var lsSectionFillColor: Color {
-    colorScheme == .dark
-      ? Color.white.opacity(0.08)
-      : Color(red: 0.16, green: 0.22, blue: 0.31).opacity(0.06)
-  }
-
-  private var lsEtaPanelFillColor: Color {
-    lsEtaColor(context.state).opacity(colorScheme == .dark ? 0.16 : 0.12)
-  }
-
-  private var lsEtaPanelStrokeColor: Color {
-    lsEtaColor(context.state).opacity(colorScheme == .dark ? 0.34 : 0.22)
-  }
-
   // MARK: Helpers
 
   private func lsTrimmed(_ value: String?) -> String? {
@@ -1092,12 +849,10 @@ private struct LockScreenActivityView: View {
     Text(name)
       .font(.system(size: 14, weight: .heavy, design: .rounded))
       .foregroundStyle(Color.white)
-      .lineLimit(1)
-      .minimumScaleFactor(0.7)
-      .padding(.horizontal, 9)
-      .padding(.vertical, 4)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
       .background(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
           .fill(
             LinearGradient(
               colors: [Color(red: 0.0, green: 0.7, blue: 0.8), Color(red: 0.0, green: 0.55, blue: 0.75)],
@@ -1105,10 +860,6 @@ private struct LockScreenActivityView: View {
               endPoint: .bottomTrailing
             )
           )
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .stroke(Color.white.opacity(0.16), lineWidth: 0.7)
       )
   }
 
@@ -1122,10 +873,6 @@ private struct LockScreenActivityView: View {
       .background(
         Capsule(style: .continuous)
           .fill(lsModePillBackgroundColor)
-      )
-      .overlay(
-        Capsule(style: .continuous)
-          .stroke(lsPrimaryTextColor.opacity(0.08), lineWidth: 0.6)
       )
   }
 
@@ -1161,30 +908,17 @@ private struct LockScreenActivityView: View {
       let currentIdx = (state.lineCurrentStopIndex.map { $0 >= 0 && $0 < count ? $0 : 0 }) ?? 0
       let highlightIdx = state.lineHighlightedStopIndex.flatMap { $0 >= 0 && $0 < count ? $0 : nil }
 
-      // Markers and labels share the same equal-width columns so each dot
-      // lines up exactly above its stop name.
-      VStack(spacing: 5) {
+      VStack(spacing: 6) {
         HStack(spacing: 0) {
           ForEach(state.lineStopNames.indices, id: \.self) { index in
-            ZStack {
-              HStack(spacing: 0) {
-                lsStopConnectorSegment(
-                  visible: index > 0,
-                  intensity: index - 1 < currentIdx ? 0.46 : 0.18
-                )
-                lsStopConnectorSegment(
-                  visible: index < count - 1,
-                  intensity: index < currentIdx ? 0.46 : 0.18
-                )
-              }
-              lsStopMarker(isCurrent: index == currentIdx, isHighlighted: index == highlightIdx)
+            lsStopMarker(isCurrent: index == currentIdx, isHighlighted: index == highlightIdx)
+              .frame(width: 18)
+            if index < count - 1 {
+              lsStopConnector(intensity: index < currentIdx ? 0.46 : 0.18)
             }
-            .frame(maxWidth: .infinity)
           }
         }
-        .frame(height: 20)
-
-        HStack(alignment: .top, spacing: 0) {
+        HStack(alignment: .top, spacing: 6) {
           ForEach(state.lineStopNames.indices, id: \.self) { index in
             lsStopLabel(
               state.lineStopNames[index],
@@ -1206,28 +940,15 @@ private struct LockScreenActivityView: View {
           Spacer(minLength: 0)
         }
       } else {
-        VStack(spacing: 5) {
+        VStack(spacing: 6) {
           HStack(spacing: 0) {
-            ForEach(0..<3, id: \.self) { index in
-              ZStack {
-                HStack(spacing: 0) {
-                  lsStopConnectorSegment(
-                    visible: index > 0,
-                    intensity: index == 1 ? 0.4 : 0.22
-                  )
-                  lsStopConnectorSegment(
-                    visible: index < 2,
-                    intensity: index == 0 ? 0.4 : 0.22
-                  )
-                }
-                lsStopMarker(isCurrent: index == 1, isHighlighted: index == 1)
-              }
-              .frame(maxWidth: .infinity)
-            }
+            lsStopMarker(isCurrent: false, isHighlighted: false).frame(width: 18)
+            lsStopConnector(intensity: 0.4)
+            lsStopMarker(isCurrent: true, isHighlighted: true).frame(width: 18)
+            lsStopConnector(intensity: 0.22)
+            lsStopMarker(isCurrent: false, isHighlighted: false).frame(width: 18)
           }
-          .frame(height: 20)
-
-          HStack(alignment: .top, spacing: 0) {
+          HStack(alignment: .center, spacing: 8) {
             lsStopLabel(prev ?? "起點", isCurrent: false, isHighlighted: false)
             lsStopLabel(current, isCurrent: true, isHighlighted: true)
             lsStopLabel(next ?? "終點", isCurrent: false, isHighlighted: false)
@@ -1266,11 +987,12 @@ private struct LockScreenActivityView: View {
   }
 
   @ViewBuilder
-  private func lsStopConnectorSegment(visible: Bool, intensity: Double) -> some View {
-    Rectangle()
-      .fill(visible ? lsSecondaryTextColor.opacity(max(intensity, 0.12)) : Color.clear)
+  private func lsStopConnector(intensity: Double) -> some View {
+    Capsule(style: .continuous)
+      .fill(lsSecondaryTextColor.opacity(max(intensity, 0.12)))
       .frame(maxWidth: .infinity)
       .frame(height: 2)
+      .padding(.horizontal, 4)
   }
 
   @ViewBuilder
@@ -1279,14 +1001,15 @@ private struct LockScreenActivityView: View {
     let color: Color = isCurrent ? lsPrimaryTextColor : (isHighlighted ? lsHighlightTextColor : lsSecondaryTextColor)
     Text(label)
       .font(.system(
-        size: isCurrent ? 11 : 10,
+        size: isCurrent ? 10.5 : 9.5,
         weight: isCurrent || isHighlighted ? .semibold : .medium
       ))
       .foregroundStyle(color)
-      .lineLimit(1)
-      .minimumScaleFactor(0.6)
+      .lineLimit(2)
+      .minimumScaleFactor(0.7)
+      .lineSpacing(-1)
       .multilineTextAlignment(.center)
-      .frame(maxWidth: .infinity, alignment: .center)
+      .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
   }
 
   private func lsCompactStopLabel(_ text: String) -> String {

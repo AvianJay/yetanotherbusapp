@@ -1309,8 +1309,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final manufacturer = androidInfo.manufacturer.toLowerCase();
       final brand = androidInfo.brand.toLowerCase();
 
-      final isTargetBrand =
-          manufacturer.contains('oppo') ||
+      final isTargetBrand = manufacturer.contains('oppo') ||
           brand.contains('oppo') ||
           manufacturer.contains('realme') ||
           brand.contains('realme') ||
@@ -2922,18 +2921,17 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       onboardStatusParts.add(nearestEtaText);
     }
     final preferredRidingVehicleId = _liveActivityRidingVehicleId?.trim();
-    final hasPreferredRidingVehicleId =
-        preferredRidingVehicleId != null && preferredRidingVehicleId.isNotEmpty;
+    final hasPreferredRidingVehicleId = preferredRidingVehicleId != null &&
+        preferredRidingVehicleId.isNotEmpty;
     final ridingVehicleIndex = _findStopIndexForVehicleId(
       pathStops,
       preferredRidingVehicleId,
     );
-    final displayIndex =
-        ridingVehicleIndex ??
+    final displayIndex = ridingVehicleIndex ??
         (hasPreferredRidingVehicleId ? nearestIndex : busIndex ?? nearestIndex);
     final displayStop = pathStops[displayIndex];
-    final displayVehicleId =
-        ridingVehicleIndex == null && hasPreferredRidingVehicleId
+    final displayVehicleId = ridingVehicleIndex == null &&
+            hasPreferredRidingVehicleId
         ? preferredRidingVehicleId
         : _vehicleIdAtStop(displayStop, preferredRidingVehicleId);
     if (ridingVehicleIndex != null || !hasPreferredRidingVehicleId) {
@@ -3223,7 +3221,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (await _shouldAssignFavoriteDestination()) {
       final destination = await _pickFavoriteDestinationStop(
         pathId: stop.pathId,
-        originStopId: stop.stopId,
       );
       if (!mounted) {
         return;
@@ -3286,22 +3283,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return shouldAssign == true;
   }
 
-  Future<StopInfo?> _pickFavoriteDestinationStop({
-    required int pathId,
-    required int originStopId,
-  }) async {
+  Future<StopInfo?> _pickFavoriteDestinationStop({required int pathId}) async {
     final detail = _detail;
     if (detail == null) {
       return null;
     }
     final pathStops = detail.stopsByPath[pathId] ?? const <StopInfo>[];
-    final destinationStops = pathStops
-        .where((stop) => stop.stopId != originStopId)
-        .toList(growable: false);
-    if (destinationStops.isEmpty) {
+    if (pathStops.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('這個方向沒有其他可選擇的目的地站牌。')));
+      ).showSnackBar(const SnackBar(content: Text('這個方向目前沒有可選擇的站牌。')));
       return null;
     }
 
@@ -3314,13 +3305,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           child: SizedBox(
             height: MediaQuery.of(context).size.height * 0.72,
             child: ListView.separated(
-              itemCount: destinationStops.length,
+              itemCount: pathStops.length,
               separatorBuilder: (_, _) => const Divider(height: 1),
               itemBuilder: (context, index) {
-                final destinationStop = destinationStops[index];
+                final destinationStop = pathStops[index];
                 return ListTile(
                   title: Text(destinationStop.stopName),
-                  subtitle: Text('第 ${destinationStop.sequence} 站'),
+                  subtitle: Text('第 ${index + 1} 站'),
                   onTap: () => Navigator.of(context).pop(destinationStop),
                 );
               },
@@ -3531,9 +3522,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         return ListTile(
                           leading: CircleAvatar(
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
                               child: FittedBox(
                                 fit: BoxFit.scaleDown,
                                 child: Text(
@@ -3937,7 +3926,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final hasArrivingBus =
         stop.buses.any((vehicle) => vehicle.carOnStop) ||
         (seconds != null && seconds <= 0);
-    final isLessThanOneMinute = seconds != null && seconds > 0 && seconds < 60;
+    final isLessThanOneMinute =
+        seconds != null && seconds > 0 && seconds < 60;
     final isUrgentEta = seconds != null && seconds >= 60 && seconds < 180;
     final hasFullBus = stop.buses.any((vehicle) => vehicle.full);
     final hasElectricBus = stop.buses.any(_isElectricVehicle);
@@ -3959,9 +3949,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     if (isLessThanOneMinute) {
       return _VehicleStatusStyle(
-        icon: hasElectricBus
-            ? Icons.electric_bolt_rounded
-            : Icons.timer_rounded,
+        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.timer_rounded,
         backgroundColor: Colors.deepOrange.shade600,
         foregroundColor: Colors.white,
         borderColor: Colors.orange.shade200.withValues(alpha: 0.8),
@@ -3972,9 +3960,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     if (isUrgentEta) {
       return _VehicleStatusStyle(
-        icon: hasElectricBus
-            ? Icons.electric_bolt_rounded
-            : Icons.timer_rounded,
+        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.timer_rounded,
         backgroundColor: Colors.orange.shade700,
         foregroundColor: Colors.white,
         borderColor: Colors.orange.shade200.withValues(alpha: 0.78),
@@ -3985,9 +3971,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     if (hasFullBus) {
       return _VehicleStatusStyle(
-        icon: hasElectricBus
-            ? Icons.electric_bolt_rounded
-            : Icons.groups_rounded,
+        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.groups_rounded,
         backgroundColor: Colors.brown.shade600,
         foregroundColor: Colors.white,
         borderColor: Colors.orange.shade200.withValues(alpha: 0.75),
@@ -4198,11 +4182,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     if (stop.buses.isNotEmpty) {
-      final statusStyle = _vehicleStatusStyle(
-        theme,
-        stop,
-        isNearest: isNearest,
-      );
+      final statusStyle = _vehicleStatusStyle(theme, stop, isNearest: isNearest);
 
       return PopupMenuButton<BusVehicle>(
         padding: EdgeInsets.zero,
@@ -4836,7 +4816,13 @@ class _RouteStatusPill extends StatelessWidget {
         border: borderColor == null ? null : Border.all(color: borderColor!),
         boxShadow: glowColor == null
             ? null
-            : [BoxShadow(color: glowColor!, blurRadius: 14, spreadRadius: 1)],
+            : [
+                BoxShadow(
+                  color: glowColor!,
+                  blurRadius: 14,
+                  spreadRadius: 1,
+                ),
+              ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -5064,9 +5050,9 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     if (!shared) {
       await Clipboard.setData(ClipboardData(text: url));
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('已複製連結')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已複製連結')),
+      );
     }
   }
 
@@ -5202,7 +5188,8 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     if (explicit != null) {
       return explicit;
     }
-    return date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
+    return date.weekday == DateTime.saturday ||
+        date.weekday == DateTime.sunday;
   }
 
   String _dateKey(DateTime date) {
@@ -5252,9 +5239,8 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     final theme = Theme.of(context);
 
     // Filter entries that run on the selected date, then group by direction.
-    final activeEntries = _schedule!
-        .where(_isEntryActiveOnSelectedDate)
-        .toList();
+    final activeEntries =
+        _schedule!.where(_isEntryActiveOnSelectedDate).toList();
 
     if (activeEntries.isEmpty) {
       return [
@@ -5324,7 +5310,10 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   for (final entry in frequencyEntries)
-                    Text(entry.displayText, style: theme.textTheme.bodySmall),
+                    Text(
+                      entry.displayText,
+                      style: theme.textTheme.bodySmall,
+                    ),
                 ],
               ),
             ),
@@ -5343,7 +5332,10 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
                       color: theme.colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: Text(time, style: theme.textTheme.bodySmall),
+                    child: Text(
+                      time,
+                      style: theme.textTheme.bodySmall,
+                    ),
                   ),
               ],
             )
@@ -5464,7 +5456,8 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
     final key = _dateKey(date);
     final explicit = _holidayMap[key];
     if (explicit != null) return explicit;
-    return date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
+    return date.weekday == DateTime.saturday ||
+        date.weekday == DateTime.sunday;
   }
 
   String _dateKey(DateTime date) {
@@ -5604,7 +5597,9 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
                 ],
               ),
               const Divider(height: 16),
-              Expanded(child: _buildBody(theme, scrollController)),
+              Expanded(
+                child: _buildBody(theme, scrollController),
+              ),
             ],
           ),
         );
@@ -5730,10 +5725,7 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
               if (stopTimes.values.any((e) => e)) ...[
                 const SizedBox(width: 6),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.tertiaryContainer,
                     borderRadius: BorderRadius.circular(4),

@@ -377,14 +377,14 @@ class AppSettings {
       appUpdateChannel: _defaultAppUpdateChannel(),
       appUpdateCheckMode:
           const bool.fromEnvironment('APP_BUILD_AAB', defaultValue: false)
-          ? AppUpdateCheckMode.off
-          : (const String.fromEnvironment(
-                      'APP_UPDATE_CHANNEL',
-                      defaultValue: 'nightly',
-                    ) ==
-                    'developer'
-                ? AppUpdateCheckMode.off
-                : AppUpdateCheckMode.popup),
+              ? AppUpdateCheckMode.off
+              : (const String.fromEnvironment(
+                    'APP_UPDATE_CHANNEL',
+                    defaultValue: 'nightly',
+                  ) ==
+                  'developer'
+              ? AppUpdateCheckMode.off
+              : AppUpdateCheckMode.popup),
       desktopDiscordPresenceEnabled: true,
       desktopDiscordShowProvider: false,
       desktopDiscordShowScreen: true,
@@ -491,12 +491,12 @@ class AppSettings {
             (const bool.fromEnvironment('APP_BUILD_AAB', defaultValue: false)
                 ? 'off'
                 : (const String.fromEnvironment(
-                            'APP_UPDATE_CHANNEL',
-                            defaultValue: 'nightly',
-                          ) ==
-                          'developer'
-                      ? 'off'
-                      : 'popup')),
+                          'APP_UPDATE_CHANNEL',
+                          defaultValue: 'nightly',
+                        ) ==
+                        'developer'
+                    ? 'off'
+                    : 'popup')),
       ),
       desktopDiscordPresenceEnabled:
           json['desktopDiscordPresenceEnabled'] as bool? ?? true,
@@ -752,34 +752,20 @@ class FavoriteStop {
   });
 
   factory FavoriteStop.fromJson(Map<String, dynamic> json) {
-    final pathId = (json['pathId'] as num?)?.toInt() ?? 0;
-    final stopId = (json['stopId'] as num?)?.toInt() ?? 0;
-    final rawDestinationPathId = (json['destinationPathId'] as num?)?.toInt();
-    final rawDestinationStopIdValue = (json['destinationStopId'] as num?)
-        ?.toInt();
-    final rawDestinationStopId =
-        rawDestinationStopIdValue != null && rawDestinationStopIdValue > 0
-        ? rawDestinationStopIdValue
-        : null;
-    final destinationMatchesStop =
-        rawDestinationStopId != null &&
-        rawDestinationStopId == stopId &&
-        (rawDestinationPathId == null || rawDestinationPathId == pathId);
     return FavoriteStop(
       provider: busProviderFromString(json['provider'] as String? ?? 'tpe'),
       routeKey: (json['routeKey'] as num?)?.toInt() ?? 0,
-      pathId: pathId,
-      stopId: stopId,
+      pathId: (json['pathId'] as num?)?.toInt() ?? 0,
+      stopId: (json['stopId'] as num?)?.toInt() ?? 0,
       routeId: (json['routeId'] as String?)?.trim().isNotEmpty == true
           ? (json['routeId'] as String).trim()
           : null,
       routeName: json['routeName'] as String?,
       stopName: json['stopName'] as String?,
-      destinationPathId: destinationMatchesStop ? null : rawDestinationPathId,
-      destinationStopId: destinationMatchesStop ? null : rawDestinationStopId,
-      destinationStopName: destinationMatchesStop
-          ? null
-          : (json['destinationStopName'] as String?)?.trim().isNotEmpty == true
+      destinationPathId: (json['destinationPathId'] as num?)?.toInt(),
+      destinationStopId: (json['destinationStopId'] as num?)?.toInt(),
+      destinationStopName:
+          (json['destinationStopName'] as String?)?.trim().isNotEmpty == true
           ? (json['destinationStopName'] as String).trim()
           : null,
     );
@@ -798,32 +784,6 @@ class FavoriteStop {
 
   String get stableKey => '${provider.name}:$routeKey:$pathId:$stopId';
 
-  bool get destinationMatchesStop {
-    final destinationId = destinationStopId;
-    if (destinationId == null) {
-      return false;
-    }
-    return destinationId == stopId && (destinationPathId ?? pathId) == pathId;
-  }
-
-  bool get hasDestination =>
-      destinationStopId != null &&
-      destinationStopId! > 0 &&
-      !destinationMatchesStop;
-
-  int? get effectiveDestinationPathId {
-    return hasDestination ? destinationPathId ?? pathId : null;
-  }
-
-  int? get effectiveDestinationStopId {
-    return hasDestination ? destinationStopId : null;
-  }
-
-  String? get effectiveDestinationStopName {
-    final name = destinationStopName?.trim();
-    return hasDestination && name != null && name.isNotEmpty ? name : null;
-  }
-
   Map<String, dynamic> toJson() {
     return {
       'provider': provider.name,
@@ -833,12 +793,10 @@ class FavoriteStop {
       if (routeId != null) 'routeId': routeId,
       if (routeName != null) 'routeName': routeName,
       if (stopName != null) 'stopName': stopName,
-      if (effectiveDestinationPathId != null)
-        'destinationPathId': effectiveDestinationPathId,
-      if (effectiveDestinationStopId != null)
-        'destinationStopId': effectiveDestinationStopId,
-      if (effectiveDestinationStopName != null)
-        'destinationStopName': effectiveDestinationStopName,
+      if (destinationPathId != null) 'destinationPathId': destinationPathId,
+      if (destinationStopId != null) 'destinationStopId': destinationStopId,
+      if (destinationStopName != null)
+        'destinationStopName': destinationStopName,
     };
   }
 

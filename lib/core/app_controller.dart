@@ -153,9 +153,9 @@ class AppController extends ChangeNotifier {
                 '${favorite.pathId}:'
                 '${favorite.stopId}:'
                 '${favorite.stopName ?? ''}:'
-                '${favorite.effectiveDestinationPathId ?? 0}:'
-                '${favorite.effectiveDestinationStopId ?? 0}:'
-                '${favorite.effectiveDestinationStopName ?? ''}',
+                '${favorite.destinationPathId ?? 0}:'
+                '${favorite.destinationStopId ?? 0}:'
+                '${favorite.destinationStopName ?? ''}',
           ),
         ),
       )
@@ -1017,26 +1017,23 @@ class AppController extends ChangeNotifier {
   }
 
   List<Map<String, dynamic>> _buildWearUsageProfilesPayload() {
-    final providerProfiles =
-        _routeUsageProfiles
-            .where((entry) => entry.provider == _settings.provider)
-            .toList()
-          ..sort((a, b) => b.totalOpens.compareTo(a.totalOpens));
+    final providerProfiles = _routeUsageProfiles
+        .where((entry) => entry.provider == _settings.provider)
+        .toList()
+      ..sort((a, b) => b.totalOpens.compareTo(a.totalOpens));
     final limited = providerProfiles.take(40);
     return limited
-        .map(
-          (profile) => {
-            'provider': profile.provider.name,
-            'routeKey': profile.routeKey,
-            'routeName': profile.routeName,
-            'totalOpens': profile.totalOpens,
-            'lastOpenedAtMs': profile.lastOpenedAtMs,
-            'hourlyOpens': profile.hourlyOpens.map(
-              (key, value) => MapEntry(key.toString(), value),
-            ),
-            'recentSelectionMs': profile.selectionTimestampsWithin(),
-          },
-        )
+        .map((profile) => {
+              'provider': profile.provider.name,
+              'routeKey': profile.routeKey,
+              'routeName': profile.routeName,
+              'totalOpens': profile.totalOpens,
+              'lastOpenedAtMs': profile.lastOpenedAtMs,
+              'hourlyOpens': profile.hourlyOpens.map(
+                (key, value) => MapEntry(key.toString(), value),
+              ),
+              'recentSelectionMs': profile.selectionTimestampsWithin(),
+            })
         .toList(growable: false);
   }
 
@@ -1070,8 +1067,14 @@ class AppController extends ChangeNotifier {
           ? suggestion.profile.routeName
           : (detail?.route.routeName ?? routeId),
       'provider': suggestion.profile.provider.name,
-      if (path != null) ...{'pathId': path.pathId, 'pathName': path.name},
-      if (stop != null) ...{'stopId': stop.stopId, 'stopName': stop.stopName},
+      if (path != null) ...{
+        'pathId': path.pathId,
+        'pathName': path.name,
+      },
+      if (stop != null) ...{
+        'stopId': stop.stopId,
+        'stopName': stop.stopName,
+      },
       'reason': suggestion.reason,
       if (suggestion.distanceMeters != null)
         'distanceMeters': suggestion.distanceMeters,
@@ -1742,8 +1745,7 @@ class AppController extends ChangeNotifier {
     // Desktop platforms always auto-download database updates regardless of
     // the saved mode, since they typically have stable Wi-Fi/Ethernet and
     // Connectivity detection may not work reliably on desktop.
-    final isDesktop =
-        !kIsWeb &&
+    final isDesktop = !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.windows ||
             defaultTargetPlatform == TargetPlatform.linux ||
             defaultTargetPlatform == TargetPlatform.macOS);
@@ -2230,8 +2232,7 @@ class AppController extends ChangeNotifier {
     final signature = smartRouteSignature;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final signatureUnchanged = _lastWearSmartSignature == signature;
-    final tooSoon =
-        nowMs - _lastWearSmartPushAtMs <
+    final tooSoon = nowMs - _lastWearSmartPushAtMs <
         const Duration(minutes: 5).inMilliseconds;
     if (signatureUnchanged && tooSoon) {
       return;
@@ -2306,7 +2307,6 @@ class AppController extends ChangeNotifier {
     FavoriteStop favorite, {
     String? groupName,
   }) async {
-    final normalizedFavorite = _favoriteWithoutSelfDestination(favorite);
     final targetGroup = groupName?.trim().isNotEmpty == true
         ? groupName!.trim()
         : (_favoriteGroups.isEmpty
@@ -2321,9 +2321,7 @@ class AppController extends ChangeNotifier {
       (sum, list) => sum + list.length,
     );
     final alreadyExists =
-        _favoriteGroups[targetGroup]?.any(
-          (item) => item.sameAs(normalizedFavorite),
-        ) ??
+        _favoriteGroups[targetGroup]?.any((item) => item.sameAs(favorite)) ??
         false;
     if (!alreadyExists && currentTotal >= maxFavoritesTotal) {
       throw FavoriteGroupFullException(targetGroup, maxFavoritesTotal);
@@ -2335,39 +2333,39 @@ class AppController extends ChangeNotifier {
     };
     next.putIfAbsent(targetGroup, () => <FavoriteStop>[]);
     final existingIndex = next[targetGroup]!.indexWhere(
-      (item) => item.sameAs(normalizedFavorite),
+      (item) => item.sameAs(favorite),
     );
     final replacedExisting = existingIndex != -1;
     if (existingIndex == -1) {
-      next[targetGroup]!.add(normalizedFavorite);
+      next[targetGroup]!.add(favorite);
     } else {
       final existing = next[targetGroup]![existingIndex];
-      final routeId = normalizedFavorite.routeId?.trim().isNotEmpty == true
-          ? normalizedFavorite.routeId
+      final routeId = favorite.routeId?.trim().isNotEmpty == true
+          ? favorite.routeId
           : existing.routeId;
-      final routeName = normalizedFavorite.routeName?.trim().isNotEmpty == true
-          ? normalizedFavorite.routeName
+      final routeName = favorite.routeName?.trim().isNotEmpty == true
+          ? favorite.routeName
           : existing.routeName;
-      final stopName = normalizedFavorite.stopName?.trim().isNotEmpty == true
-          ? normalizedFavorite.stopName
+      final stopName = favorite.stopName?.trim().isNotEmpty == true
+          ? favorite.stopName
           : existing.stopName;
-      final destinationStopId = normalizedFavorite.effectiveDestinationStopId;
+      final destinationStopId = favorite.destinationStopId;
       final mergedDestinationStopId =
-          destinationStopId ?? existing.effectiveDestinationStopId;
+          destinationStopId ?? existing.destinationStopId;
       final mergedDestinationPathId = mergedDestinationStopId == null
           ? null
           : (destinationStopId == null
-                ? existing.effectiveDestinationPathId
-                : normalizedFavorite.effectiveDestinationPathId);
+                ? existing.destinationPathId
+                : (favorite.destinationPathId ?? favorite.pathId));
       final mergedDestinationStopName = destinationStopId == null
-          ? existing.effectiveDestinationStopName
-          : normalizedFavorite.effectiveDestinationStopName;
+          ? existing.destinationStopName
+          : favorite.destinationStopName;
 
       next[targetGroup]![existingIndex] = FavoriteStop(
-        provider: normalizedFavorite.provider,
-        routeKey: normalizedFavorite.routeKey,
-        pathId: normalizedFavorite.pathId,
-        stopId: normalizedFavorite.stopId,
+        provider: favorite.provider,
+        routeKey: favorite.routeKey,
+        pathId: favorite.pathId,
+        stopId: favorite.stopId,
         routeId: routeId,
         routeName: routeName,
         stopName: stopName,
@@ -2383,32 +2381,17 @@ class AppController extends ChangeNotifier {
     await AndroidHomeIntegration.refreshFavoriteWidgets();
     await _syncWearOsSnapshot(requestRefresh: false);
     final savedFavorite = next[targetGroup]!.firstWhere(
-      (item) => item.sameAs(normalizedFavorite),
-      orElse: () => normalizedFavorite,
+      (item) => item.sameAs(favorite),
+      orElse: () => favorite,
     );
     await analytics.logFavoriteStopSaved(
-      provider: normalizedFavorite.provider,
-      routeKey: normalizedFavorite.routeKey,
+      provider: favorite.provider,
+      routeKey: favorite.routeKey,
       replacedExisting: replacedExisting,
-      hasDestination: savedFavorite.hasDestination,
+      hasDestination: savedFavorite.destinationStopId != null,
     );
     notifyListeners();
     return targetGroup;
-  }
-
-  FavoriteStop _favoriteWithoutSelfDestination(FavoriteStop favorite) {
-    if (!favorite.destinationMatchesStop) {
-      return favorite;
-    }
-    return FavoriteStop(
-      provider: favorite.provider,
-      routeKey: favorite.routeKey,
-      pathId: favorite.pathId,
-      stopId: favorite.stopId,
-      routeId: favorite.routeId,
-      routeName: favorite.routeName,
-      stopName: favorite.stopName,
-    );
   }
 
   Future<bool> updateFavoriteDestination(
@@ -2423,22 +2406,13 @@ class AppController extends ChangeNotifier {
       return false;
     }
 
-    final requestedDestinationStopId =
+    final normalizedDestinationStopId =
         destinationStopId != null && destinationStopId > 0
         ? destinationStopId
         : null;
-    final requestedDestinationPathId = requestedDestinationStopId == null
+    final normalizedDestinationPathId = normalizedDestinationStopId == null
         ? null
         : (destinationPathId ?? favorite.pathId);
-    final isSelfDestination =
-        requestedDestinationStopId == favorite.stopId &&
-        requestedDestinationPathId == favorite.pathId;
-    final normalizedDestinationStopId = isSelfDestination
-        ? null
-        : requestedDestinationStopId;
-    final normalizedDestinationPathId = isSelfDestination
-        ? null
-        : requestedDestinationPathId;
     final normalizedDestinationStopName = normalizedDestinationStopId == null
         ? null
         : (destinationStopName?.trim().isNotEmpty == true
@@ -2453,9 +2427,9 @@ class AppController extends ChangeNotifier {
       }
 
       found = true;
-      if (item.effectiveDestinationPathId == normalizedDestinationPathId &&
-          item.effectiveDestinationStopId == normalizedDestinationStopId &&
-          item.effectiveDestinationStopName == normalizedDestinationStopName) {
+      if (item.destinationPathId == normalizedDestinationPathId &&
+          item.destinationStopId == normalizedDestinationStopId &&
+          item.destinationStopName == normalizedDestinationStopName) {
         return item;
       }
 
@@ -2504,7 +2478,7 @@ class AppController extends ChangeNotifier {
     await analytics.logFavoriteStopRemoved(
       provider: favorite.provider,
       routeKey: favorite.routeKey,
-      hadDestination: favorite.hasDestination,
+      hadDestination: favorite.destinationStopId != null,
     );
     notifyListeners();
   }
@@ -2564,16 +2538,9 @@ class AppController extends ChangeNotifier {
                 ? resolved.route.routeId
                 : null);
 
-      final nextDestinationPathId = favorite.effectiveDestinationPathId;
-      final nextDestinationStopId = favorite.effectiveDestinationStopId;
-      final nextDestinationStopName = favorite.effectiveDestinationStopName;
-
       if (nextRouteName == favorite.routeName &&
           nextStopName == favorite.stopName &&
-          nextRouteId == favorite.routeId &&
-          nextDestinationPathId == favorite.destinationPathId &&
-          nextDestinationStopId == favorite.destinationStopId &&
-          nextDestinationStopName == favorite.destinationStopName) {
+          nextRouteId == favorite.routeId) {
         return favorite;
       }
 
@@ -2586,9 +2553,9 @@ class AppController extends ChangeNotifier {
         routeId: nextRouteId,
         routeName: nextRouteName,
         stopName: nextStopName,
-        destinationPathId: nextDestinationPathId,
-        destinationStopId: nextDestinationStopId,
-        destinationStopName: nextDestinationStopName,
+        destinationPathId: favorite.destinationPathId,
+        destinationStopId: favorite.destinationStopId,
+        destinationStopName: favorite.destinationStopName,
       );
     }).toList();
 

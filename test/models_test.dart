@@ -84,65 +84,6 @@ void main() {
     expect(formatDistance(1530), '1.5km');
   });
 
-  test('favorite stop ignores a destination that points at itself', () {
-    const favorite = FavoriteStop(
-      provider: BusProvider.txg,
-      routeKey: 3,
-      pathId: 1,
-      stopId: 100,
-      stopName: '臺中市議會',
-      destinationPathId: 1,
-      destinationStopId: 100,
-      destinationStopName: '臺中市議會',
-    );
-
-    expect(favorite.hasDestination, isFalse);
-    expect(favorite.effectiveDestinationPathId, isNull);
-    expect(favorite.effectiveDestinationStopId, isNull);
-    expect(favorite.effectiveDestinationStopName, isNull);
-    expect(favorite.toJson().containsKey('destinationStopId'), isFalse);
-  });
-
-  test('favorite stop keeps a distinct destination', () {
-    const favorite = FavoriteStop(
-      provider: BusProvider.txg,
-      routeKey: 3,
-      pathId: 1,
-      stopId: 100,
-      stopName: '臺中市議會',
-      destinationPathId: 1,
-      destinationStopId: 120,
-      destinationStopName: '臺中高工',
-    );
-
-    final json = favorite.toJson();
-
-    expect(favorite.hasDestination, isTrue);
-    expect(favorite.effectiveDestinationPathId, 1);
-    expect(favorite.effectiveDestinationStopId, 120);
-    expect(favorite.effectiveDestinationStopName, '臺中高工');
-    expect(json['destinationPathId'], 1);
-    expect(json['destinationStopId'], 120);
-    expect(json['destinationStopName'], '臺中高工');
-  });
-
-  test('favorite stop drops stale self-destination when restored', () {
-    final restored = FavoriteStop.fromJson({
-      'provider': 'txg',
-      'routeKey': 3,
-      'pathId': 1,
-      'stopId': 100,
-      'stopName': '臺中市議會',
-      'destinationPathId': 1,
-      'destinationStopId': 100,
-      'destinationStopName': '臺中市議會',
-    });
-
-    expect(restored.hasDestination, isFalse);
-    expect(restored.destinationStopId, isNull);
-    expect(restored.destinationStopName, isNull);
-  });
-
   test('app settings persist mobile map provider', () {
     final settings = AppSettings.defaults().copyWith(
       mobileMapProvider: MobileMapProvider.osm,

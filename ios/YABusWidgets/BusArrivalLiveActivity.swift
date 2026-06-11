@@ -777,112 +777,120 @@ private struct LockScreenActivityView: View {
   @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
-    ZStack {
+    // IMPORTANT: do NOT wrap this in a `ZStack { RoundedRectangle()… ; content }`.
+    // A bare Shape used as a ZStack sibling is greedy and expands to fill every
+    // size the system proposes. On the unlocked lock screen and during the
+    // lock-screen → Dynamic Island hand-off the system proposes a large size,
+    // which made the card balloon into a giant blank rectangle. Applying the
+    // card as a `.background` modifier keeps it sized to the content instead.
+    HStack(alignment: .top, spacing: 14) {
+      VStack(alignment: .leading, spacing: 8) {
+        HStack(alignment: .top, spacing: 10) {
+          lsRouteBadge(context.attributes.routeName)
+
+          VStack(alignment: .leading, spacing: 5) {
+            Text(context.attributes.pathName)
+              .font(.system(size: 14, weight: .semibold))
+              .foregroundStyle(lsSecondaryTextColor)
+              .lineLimit(1)
+              .minimumScaleFactor(0.8)
+              .truncationMode(.tail)
+
+            if let modeLabel = lsTrimmed(context.state.modeLabel) {
+              lsModePill(modeLabel)
+            }
+          }
+        }
+
+        HStack(spacing: 6) {
+          Image(systemName: "mappin.circle.fill")
+            .font(.system(size: 14))
+            .foregroundStyle(lsHighlightTextColor)
+          Text(lsDisplayStopName(context.state))
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(lsPrimaryTextColor)
+            .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+          RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(lsSectionFillColor)
+        )
+
+        if let statusText = lsTrimmed(context.state.statusText) {
+          Text(statusText)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(lsSecondaryTextColor)
+            .lineLimit(2)
+            .minimumScaleFactor(0.85)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        lsStopLineView(context.state)
+          .padding(.top, 2)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      VStack(alignment: .trailing, spacing: 8) {
+        VStack(alignment: .trailing, spacing: 2) {
+          Text("到站")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(lsEtaColor(context.state).opacity(0.9))
+
+          lsCountdownText(
+            context.state,
+            font: .system(size: 30, weight: .bold, design: .rounded)
+          )
+          .foregroundStyle(lsEtaColor(context.state))
+          .lineLimit(1)
+          .minimumScaleFactor(0.5)
+          .monospacedDigit()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+          RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(lsEtaPanelFillColor)
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .stroke(lsEtaPanelStrokeColor, lineWidth: 1)
+        )
+
+        if let vehicleId = lsTrimmed(context.state.vehicleId) {
+          HStack(spacing: 4) {
+            Image(systemName: "bus.fill")
+              .font(.system(size: 10))
+            Text(vehicleId)
+              .font(.system(size: 11, weight: .medium, design: .monospaced))
+              .lineLimit(1)
+          }
+          .foregroundStyle(lsSecondaryTextColor)
+        }
+
+        HStack(spacing: 3) {
+          Image(systemName: "arrow.clockwise")
+            .font(.system(size: 8, weight: .semibold))
+          Text(context.state.updatedAt, style: .relative)
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .lineLimit(1)
+        }
+        .foregroundStyle(lsTimestampTextColor)
+      }
+      .fixedSize(horizontal: true, vertical: false)
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 14)
+    .background(
       RoundedRectangle(cornerRadius: 24, style: .continuous)
         .fill(lsCardFillColor)
-      RoundedRectangle(cornerRadius: 24, style: .continuous)
-        .stroke(lsCardStrokeColor, lineWidth: 1)
-
-      HStack(alignment: .top, spacing: 14) {
-        VStack(alignment: .leading, spacing: 8) {
-          HStack(alignment: .top, spacing: 10) {
-            lsRouteBadge(context.attributes.routeName)
-
-            VStack(alignment: .leading, spacing: 5) {
-              Text(context.attributes.pathName)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(lsSecondaryTextColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .truncationMode(.tail)
-
-              if let modeLabel = lsTrimmed(context.state.modeLabel) {
-                lsModePill(modeLabel)
-              }
-            }
-          }
-
-          HStack(spacing: 6) {
-            Image(systemName: "mappin.circle.fill")
-              .font(.system(size: 14))
-              .foregroundStyle(lsHighlightTextColor)
-            Text(lsDisplayStopName(context.state))
-              .font(.system(size: 16, weight: .semibold))
-              .foregroundStyle(lsPrimaryTextColor)
-              .lineLimit(1)
-          }
-          .padding(.horizontal, 10)
-          .padding(.vertical, 7)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-              .fill(lsSectionFillColor)
-          )
-
-          if let statusText = lsTrimmed(context.state.statusText) {
-            Text(statusText)
-              .font(.system(size: 12, weight: .medium))
-              .foregroundStyle(lsSecondaryTextColor)
-              .lineLimit(2)
-              .minimumScaleFactor(0.85)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-
-          lsStopLineView(context.state)
-            .padding(.top, 2)
-        }
-
-        VStack(alignment: .trailing, spacing: 8) {
-          VStack(alignment: .trailing, spacing: 2) {
-            Text("到站")
-              .font(.system(size: 10, weight: .semibold))
-              .foregroundStyle(lsEtaColor(context.state).opacity(0.9))
-
-            lsCountdownText(
-              context.state,
-              font: .system(size: 30, weight: .bold, design: .rounded)
-            )
-            .foregroundStyle(lsEtaColor(context.state))
-            .lineLimit(1)
-            .minimumScaleFactor(0.5)
-            .monospacedDigit()
-          }
-          .padding(.horizontal, 10)
-          .padding(.vertical, 8)
-          .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-              .fill(lsEtaPanelFillColor)
-          )
-          .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-              .stroke(lsEtaPanelStrokeColor, lineWidth: 1)
-          )
-
-          if let vehicleId = lsTrimmed(context.state.vehicleId) {
-            HStack(spacing: 4) {
-              Image(systemName: "bus.fill")
-                .font(.system(size: 10))
-              Text(vehicleId)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .lineLimit(1)
-            }
-            .foregroundStyle(lsSecondaryTextColor)
-          }
-
-          HStack(spacing: 3) {
-            Image(systemName: "arrow.clockwise")
-              .font(.system(size: 8, weight: .semibold))
-            Text(context.state.updatedAt, style: .relative)
-              .font(.system(size: 10, weight: .medium, design: .monospaced))
-              .lineLimit(1)
-          }
-          .foregroundStyle(lsTimestampTextColor)
-        }
-        .fixedSize(horizontal: true, vertical: false)
-      }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 14)
-    }
+        .overlay(
+          RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .stroke(lsCardStrokeColor, lineWidth: 1)
+        )
+    )
     .padding(.horizontal, 6)
     .padding(.vertical, 4)
     .widgetURL(

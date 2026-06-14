@@ -1247,15 +1247,21 @@ class RouteTripMonitorService : Service() {
         userBusLiveStop: LiveStopState? = null,
     ): String? {
         val normalizedCurrent = normalizeVehicleId(currentTrackedBusId)
-        if (normalizedCurrent != null) {
+        val currentStops = listOf(userBusLiveStop, nearestLiveStop, boardingLiveStop, destinationLiveStop)
+        if (
+            normalizedCurrent != null &&
+                currentStops.any { stopState ->
+                    isVehicleSeenAtStop(stopState, normalizedCurrent)
+                }
+        ) {
             return normalizedCurrent
         }
 
-        listOf(userBusLiveStop, nearestLiveStop, boardingLiveStop, destinationLiveStop).forEach { stopState ->
+        currentStops.forEach { stopState ->
             firstKnownVehicleId(stopState)?.let { return it }
         }
 
-        return normalizedCurrent
+        return null
     }
 
     private fun firstKnownVehicleId(stopState: LiveStopState?): String? {

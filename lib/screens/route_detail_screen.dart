@@ -545,6 +545,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           msg: previousStop.msg,
           t: previousStop.t,
           buses: previousStop.buses,
+          etas: previousStop.etas,
         );
       }).toList();
     }
@@ -2416,8 +2417,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return nearestIndex == -1 ? null : nearestIndex;
   }
 
-  String _displayEtaText(StopInfo stop) {
-    final message = stop.msg?.trim() ?? '';
+  String _displayEtaText(StopInfo stop, {String? vehicleId}) {
+    final message =
+        effectiveStopEtaMessageForVehicle(stop, vehicleId)?.trim() ?? '';
     if (message.isNotEmpty) {
       if (message.contains('進站') || message.contains('到站')) {
         return '進站中';
@@ -2434,7 +2436,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return message;
     }
 
-    final seconds = effectiveStopEtaSeconds(stop);
+    final seconds = effectiveStopEtaSecondsForVehicle(stop, vehicleId);
     if (seconds == null) {
       return '--';
     }
@@ -2456,6 +2458,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final message = stop.msg?.trim() ?? '';
     final seconds = effectiveStopEtaSeconds(stop);
     return stop.buses.isNotEmpty ||
+        stop.etas.any((eta) => normalizeBusVehicleId(eta.vehicleId) != null) ||
         (seconds != null && seconds <= 0) ||
         message.contains('進站') ||
         message.contains('到站');
@@ -2540,7 +2543,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         nearestIndex >= boardingIndex &&
         busNearUser) {
       _liveActivityRideConfirmed = true;
-      _liveActivityRidingVehicleId = busVehicleId;
+      _liveActivityRidingVehicleId = normalizeBusVehicleId(busVehicleId);
       unawaited(TripMonitorNotifications.cancelBoardingCheckPrompt());
     }
 
@@ -2605,22 +2608,50 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return parts.join(' · ');
   }
 
-  String? _vehicleIdForStop(StopInfo stop) {
-    if (stop.buses.isEmpty) {
-      return null;
+  String? _vehicleIdForStop(StopInfo stop, {String? preferredVehicleId}) {
+    final preferred = normalizeBusVehicleId(preferredVehicleId);
+    if (preferred != null &&
+        (stop.buses.any(
+              (vehicle) => normalizeBusVehicleId(vehicle.id) == preferred,
+            ) ||
+            stop.etas.any(
+              (eta) => normalizeBusVehicleId(eta.vehicleId) == preferred,
+            ))) {
+      return preferred;
     }
-    return stop.buses.first.id;
+
+    for (final vehicle in stop.buses) {
+      final vehicleId = normalizeBusVehicleId(vehicle.id);
+      if (vehicleId != null) {
+        return vehicleId;
+      }
+    }
+    for (final eta in stop.etas) {
+      final vehicleId = normalizeBusVehicleId(eta.vehicleId);
+      if (vehicleId != null) {
+        return vehicleId;
+      }
+    }
+    return null;
   }
 
   int? _findStopIndexForVehicleId(List<StopInfo> stops, String? vehicleId) {
-    final normalizedVehicleId = vehicleId?.trim();
-    if (normalizedVehicleId == null || normalizedVehicleId.isEmpty) {
+    final normalizedVehicleId = normalizeBusVehicleId(vehicleId);
+    if (normalizedVehicleId == null) {
       return null;
     }
     for (var index = 0; index < stops.length; index++) {
-      if (stops[index].buses.any(
-        (vehicle) => vehicle.id == normalizedVehicleId,
-      )) {
+      final stop = stops[index];
+      final vehicleSeenAtStop =
+          stop.buses.any(
+            (vehicle) =>
+                normalizeBusVehicleId(vehicle.id) == normalizedVehicleId,
+          ) ||
+          stop.etas.any(
+            (eta) =>
+                normalizeBusVehicleId(eta.vehicleId) == normalizedVehicleId,
+          );
+      if (vehicleSeenAtStop) {
         return index;
       }
     }
@@ -2628,13 +2659,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   String? _vehicleIdAtStop(StopInfo stop, String? preferredVehicleId) {
-    final normalizedVehicleId = preferredVehicleId?.trim();
-    if (normalizedVehicleId != null &&
-        normalizedVehicleId.isNotEmpty &&
-        stop.buses.any((vehicle) => vehicle.id == normalizedVehicleId)) {
-      return normalizedVehicleId;
-    }
-    return _vehicleIdForStop(stop);
+    return _vehicleIdForStop(stop, preferredVehicleId: preferredVehicleId);
   }
 
   ({String? previousStopName, String? nextStopName}) _adjacentStopNames(
@@ -2866,7 +2891,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       destinationIndex,
     );
     final boardingStop = pathStops[boardingIndex];
-    final boardingEtaText = _displayEtaText(boardingStop);
+    final boardingVehicleId = busIndex == null
+        ? _vehicleIdForStop(boardingStop)
+        : _vehicleIdForStop(pathStops[busIndex]);
+    final boardingEtaText = _displayEtaText(
+      boardingStop,
+      vehicleId: boardingVehicleId,
+    );
     final busStopsUntilBoarding = busIndex == null
         ? null
         : math.max(boardingIndex - busIndex, 0);
@@ -2877,9 +2908,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       boardingEtaText: boardingEtaText,
       boardingDistanceMeters: _distanceToStop(boardingStop),
       busIndex: busIndex,
-      busVehicleId: busIndex == null
-          ? null
-          : _vehicleIdForStop(pathStops[busIndex]),
+      busVehicleId: boardingVehicleId,
     );
 
     if (!hasBoarded) {
@@ -2907,34 +2936,38 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           destinationStop: destinationStop,
           busStopsUntilBoarding: busStopsUntilBoarding,
         ),
-        etaSeconds: effectiveStopEtaSeconds(boardingStop),
-        etaMessage: boardingStop.msg,
-        vehicleId: _vehicleIdForStop(boardingStop),
+        etaSeconds: effectiveStopEtaSecondsForVehicle(
+          boardingStop,
+          boardingVehicleId,
+        ),
+        etaMessage: effectiveStopEtaMessageForVehicle(
+          boardingStop,
+          boardingVehicleId,
+        ),
+        vehicleId: boardingVehicleId,
         progressValue: boardingProgressValue,
         progressTotal: boardingIndex + 1,
       );
     }
 
     final currentProgress = math.min(nearestIndex + 1, destinationIndex + 1);
-    final onboardStatusParts = <String>['已上車', '最近站牌 ${nearestStop.stopName}'];
-    if (nearestEtaText != '--') {
-      onboardStatusParts.add(nearestEtaText);
-    }
-    final preferredRidingVehicleId = _liveActivityRidingVehicleId?.trim();
-    final hasPreferredRidingVehicleId = preferredRidingVehicleId != null &&
-        preferredRidingVehicleId.isNotEmpty;
+    final preferredRidingVehicleId = normalizeBusVehicleId(
+      _liveActivityRidingVehicleId,
+    );
+    final hasPreferredRidingVehicleId = preferredRidingVehicleId != null;
     final ridingVehicleIndex = _findStopIndexForVehicleId(
       pathStops,
       preferredRidingVehicleId,
     );
-    final displayIndex = ridingVehicleIndex ??
+    final displayIndex =
+        ridingVehicleIndex ??
         (hasPreferredRidingVehicleId ? nearestIndex : busIndex ?? nearestIndex);
     final displayStop = pathStops[displayIndex];
-    final displayVehicleId = ridingVehicleIndex == null &&
-            hasPreferredRidingVehicleId
-        ? preferredRidingVehicleId
-        : _vehicleIdAtStop(displayStop, preferredRidingVehicleId);
-    if (ridingVehicleIndex != null || !hasPreferredRidingVehicleId) {
+    final displayVehicleId =
+        ridingVehicleIndex != null || !hasPreferredRidingVehicleId
+        ? _vehicleIdAtStop(displayStop, preferredRidingVehicleId)
+        : null;
+    if (displayVehicleId != null) {
       _liveActivityRidingVehicleId = displayVehicleId;
     }
     final stopLine = _buildLiveActivityStopLine(
@@ -2942,11 +2975,27 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       anchorIndex: displayIndex,
       highlightedIndex: destinationIndex,
     );
-    final adjacentStops = _adjacentStopNames(pathStops, displayStop.stopId);
+    final adjacentStops = _adjacentStopNames(pathStops, destinationStop.stopId);
+    final etaVehicleId = displayVehicleId ?? preferredRidingVehicleId;
+    final destinationEtaText = _displayEtaText(
+      destinationStop,
+      vehicleId: etaVehicleId,
+    );
+    final onboardStatusParts = <String>[
+      '已上車',
+      '目的地 ${destinationStop.stopName}',
+    ];
+    if (destinationEtaText != '--') {
+      onboardStatusParts.add(destinationEtaText);
+    }
+    onboardStatusParts.add('最近站牌 ${nearestStop.stopName}');
+    if (nearestEtaText != '--') {
+      onboardStatusParts.add(nearestEtaText);
+    }
 
     return LiveActivityDisplayState(
-      stopId: displayStop.stopId,
-      stopName: displayStop.stopName,
+      stopId: destinationStop.stopId,
+      stopName: destinationStop.stopName,
       alertStopName: destinationStop.stopName,
       previousStopName: adjacentStops.previousStopName,
       nextStopName: adjacentStops.nextStopName,
@@ -2955,8 +3004,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       lineHighlightedStopIndex: stopLine.highlightedStopIndex,
       modeLabel: '已上車',
       statusText: onboardStatusParts.join(' · '),
-      etaSeconds: effectiveStopEtaSeconds(displayStop),
-      etaMessage: displayStop.msg,
+      etaSeconds: effectiveStopEtaSecondsForVehicle(
+        destinationStop,
+        etaVehicleId,
+      ),
+      etaMessage: effectiveStopEtaMessageForVehicle(
+        destinationStop,
+        etaVehicleId,
+      ),
       vehicleId: displayVehicleId,
       progressValue: currentProgress,
       progressTotal: destinationIndex + 1,

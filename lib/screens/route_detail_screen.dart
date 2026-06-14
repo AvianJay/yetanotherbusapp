@@ -946,7 +946,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         return SizeTransition(
           sizeFactor: animation,
           axis: Axis.horizontal,
-          axisAlignment: -1,
+          alignment: Alignment.centerLeft,
           child: child,
         );
       },
@@ -3308,6 +3308,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   Future<List<_RelatedStopRouteEta>> _loadRelatedStopRouteEtas(
     StopInfo stop,
   ) async {
+    final controller = AppControllerScope.read(context);
     final routes = await _loadRelatedStopRoutes(stop);
     if (routes.isEmpty) {
       return const <_RelatedStopRouteEta>[];
@@ -3315,9 +3316,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     BatchLiveStopMap liveMaps = const <String, LiveStopMap>{};
     try {
-      liveMaps = await AppControllerScope.read(
-        context,
-      ).repository.getBatchLiveStopMaps(
+      liveMaps = await controller.repository.getBatchLiveStopMaps(
         routes.map((result) => result.route.routeId).toList(growable: false),
       );
     } catch (error) {
@@ -3495,8 +3494,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         final route = result.route;
                         final direction = _relatedRouteDirectionText(route);
                         final subtitleParts = <String>[
-                          '${_relatedStopStatusText(item.liveStop)}',
-                          if (direction.isNotEmpty) '$direction'
+                          _relatedStopStatusText(item.liveStop),
+                          if (direction.isNotEmpty) direction
                         ];
                         return ListTile(
                           leading: EtaBadge(

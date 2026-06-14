@@ -909,7 +909,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           TextSpan(
                             style: theme.textTheme.bodyMedium,
                             children: [
-                              const TextSpan(text: '貢獻者清單：\nAvianJay\n'),
+                              const TextSpan(text: '貢獻者清單：\nAvianJay\nitouSouta\n'),
                               TextSpan(
                                 text: 'Axoled',
                                 style: theme.textTheme.bodyMedium?.copyWith(

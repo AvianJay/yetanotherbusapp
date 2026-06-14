@@ -946,7 +946,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         return SizeTransition(
           sizeFactor: animation,
           axis: Axis.horizontal,
-          alignment: Alignment.centerLeft,
           child: child,
         );
       },

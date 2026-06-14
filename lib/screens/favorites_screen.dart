@@ -234,7 +234,6 @@ class _FavoritesScreenState extends State<FavoritesScreen>
         return SizeTransition(
           sizeFactor: animation,
           axis: Axis.horizontal,
-          alignment: Alignment.centerLeft,
           child: child,
         );
       },

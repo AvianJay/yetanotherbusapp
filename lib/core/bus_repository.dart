@@ -1417,6 +1417,7 @@ class BusRepository {
         msg: livePayload?.msg,
         t: livePayload?.t,
         buses: livePayload?.buses ?? const [],
+        etas: livePayload?.etas ?? const [],
       );
       stopsByPath.putIfAbsent(row.pathId, () => <StopInfo>[]).add(stop);
     }
@@ -1527,6 +1528,7 @@ class BusRepository {
         msg: livePayload?.msg,
         t: livePayload?.t,
         buses: livePayload?.buses ?? const [],
+        etas: livePayload?.etas ?? const [],
       );
       stopsByPath.putIfAbsent(pathId, () => <StopInfo>[]).add(stop);
     }
@@ -1611,6 +1613,7 @@ class BusRepository {
               msg: payload?.msg,
               t: payload?.t,
               buses: payload?.buses ?? const [],
+              etas: payload?.etas ?? const [],
             );
           }),
         );
@@ -1957,6 +1960,7 @@ class BusRepository {
               .whereType<Map>()
               .map(_parseBusVehicle)
               .toList(),
+          etas: _parseStopEtas(rawStop['etas']),
         );
       }
     }
@@ -2088,6 +2092,7 @@ class BusRepository {
                 .whereType<Map>()
                 .map(_parseBusVehicle)
                 .toList(),
+            etas: _parseStopEtas(rawStop['etas']),
           );
         }
       }
@@ -2255,9 +2260,110 @@ class BusRepository {
       id: id,
       type: payload['type']?.toString() ?? '',
       note: note,
-      full: fullValue == true || fullValue?.toString() == '1',
-      carOnStop: carOnStopValue == true || carOnStopValue?.toString() == '1',
+      full: _truthyPayloadValue(fullValue),
+      carOnStop: _truthyPayloadValue(carOnStopValue),
+      electric: _payloadIndicatesElectric(payload),
     );
+  }
+
+  List<StopEta> _parseStopEtas(Object? rawEtas) {
+    if (rawEtas is! List) {
+      return const [];
+    }
+
+    final result = <StopEta>[];
+    for (final rawEta in rawEtas) {
+      if (rawEta is! Map) {
+        continue;
+      }
+      final vehicleId =
+          _nonEmptyString(rawEta['plate']) ??
+          _nonEmptyString(rawEta['vehicle_id']) ??
+          _nonEmptyString(rawEta['id']);
+      final message = _nonEmptyString(rawEta['message']);
+      final eta = StopEta(
+        sec: _nullableInt(rawEta['eta']),
+        msg: message,
+        vehicleId: vehicleId,
+      );
+      if (eta.sec == null && eta.msg == null && eta.vehicleId == null) {
+        continue;
+      }
+      result.add(eta);
+    }
+    return result;
+  }
+
+  String? _nonEmptyString(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
+  }
+
+  bool _truthyPayloadValue(Object? value) {
+    if (value == true) {
+      return true;
+    }
+    final normalized = value?.toString().trim().toLowerCase();
+    return normalized == '1' ||
+        normalized == 'true' ||
+        normalized == 'yes' ||
+        normalized == 'y';
+  }
+
+  bool _payloadIndicatesElectric(Map<dynamic, dynamic> payload) {
+    const explicitKeys = [
+      'electric',
+      'isElectric',
+      'is_electric',
+      'ev',
+      'isEv',
+      'is_ev',
+    ];
+    for (final key in explicitKeys) {
+      if (_truthyPayloadValue(payload[key])) {
+        return true;
+      }
+    }
+
+    const textKeys = [
+      'note',
+      'message',
+      'vehicle_type',
+      'vehicleType',
+      'bus_type',
+      'busType',
+      'car_type',
+      'carType',
+      'energy',
+      'fuel',
+      'fuel_type',
+      'power_type',
+      'powerType',
+      'type_name',
+      'vehicle_kind',
+      'kind',
+      'category',
+      'tags',
+    ];
+    for (final key in textKeys) {
+      final value = payload[key]?.toString().trim();
+      if (value != null && _textIndicatesElectric(value)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _textIndicatesElectric(String value) {
+    final lower = value.toLowerCase();
+    return value.contains('電動') ||
+        value.contains('純電') ||
+        value.contains('電巴') ||
+        lower.contains('electric') ||
+        lower.contains('e-bus') ||
+        lower.contains('e_bus') ||
+        RegExp(r'(^|[^a-z])ev([^a-z]|$)').hasMatch(lower);
   }
 
   RoutePathPoint? _parseRoutePathPoint(Map<dynamic, dynamic> payload) {
@@ -3436,12 +3542,14 @@ class LiveStopPayload {
     required this.msg,
     required this.t,
     required this.buses,
+    required this.etas,
   });
 
   final int? sec;
   final String? msg;
   final String? t;
   final List<BusVehicle> buses;
+  final List<StopEta> etas;
 }
 
 typedef LiveStopMap = Map<String, LiveStopPayload>;

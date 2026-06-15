@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../app/bus_app.dart';
@@ -9,6 +10,7 @@ import '../core/app_controller.dart';
 import '../core/models.dart';
 import '../core/route_search_ranking.dart';
 import '../widgets/background_image_wrapper.dart';
+import '../widgets/cat_state_card.dart';
 import 'route_detail_navigation.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -948,6 +950,7 @@ class _SearchScreenState extends State<SearchScreen> {
     bool saveHistory = false,
     String source = 'search_result',
   }) async {
+    unawaited(HapticFeedback.selectionClick());
     final busController = AppControllerScope.read(context);
     if (saveHistory && route != null) {
       await busController.addHistoryEntry(route, provider: provider);
@@ -1041,29 +1044,24 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (_error != null)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('搜尋失敗：$_error'),
-                ),
+              CatStateCard(
+                mood: CatStateMood.cry,
+                title: '搜尋撞到貓貓了',
+                message: _error,
               )
             else if (_isResolvingStopDistances && _results.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('正在搜尋站牌…'),
-                ),
+              const CatStateCard(
+                mood: CatStateMood.laugh,
+                title: '貓貓正在翻站牌',
+                message: '正在搜尋附近可搭的站牌...',
               )
             else if (_results.isEmpty)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    missingProviders.isEmpty
-                        ? '找不到符合的路線或站牌。'
-                        : '找不到符合的路線或站牌。部分站牌搜尋需要本機資料庫。',
-                  ),
-                ),
+              CatStateCard(
+                mood: CatStateMood.sad,
+                title: '沒有找到這台貓公車',
+                message: missingProviders.isEmpty
+                    ? '試試看少打一點，或換成站牌名稱搜尋。'
+                    : '部分站牌搜尋需要本機資料庫，先更新資料庫後再試一次。',
               )
             else
               ..._results.map(

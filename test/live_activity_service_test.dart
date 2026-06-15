@@ -21,7 +21,7 @@ void main() {
           case 'startLiveActivity':
             return 'mock-activity-id';
           case 'updateLiveActivity':
-            return null;
+            return true;
           case 'endLiveActivity':
             return null;
           case 'isLiveActivityActive':
@@ -103,7 +103,7 @@ void main() {
 
     log.clear();
 
-    await LiveActivityService.updateLiveActivity(
+    final updated = await LiveActivityService.updateLiveActivity(
       const LiveActivityDisplayState(
         stopId: 102,
         stopName: '龍山寺',
@@ -118,6 +118,7 @@ void main() {
       ),
     );
 
+    expect(updated, isTrue);
     expect(log, hasLength(1));
     expect(log.single.method, 'updateLiveActivity');
     final args = log.single.arguments as Map<dynamic, dynamic>;
@@ -138,10 +139,81 @@ void main() {
     await LiveActivityService.endLiveActivity();
     log.clear();
 
-    await LiveActivityService.updateLiveActivity(
+    final updated = await LiveActivityService.updateLiveActivity(
       const LiveActivityDisplayState(stopId: 101, stopName: '西門町'),
     );
 
+    expect(updated, isFalse);
+    expect(log, isEmpty);
+  });
+
+  test('updateLiveActivity skips updates from a non-owner', () async {
+    await LiveActivityService.startLiveActivity(
+      routeName: '307',
+      pathName: '往板橋',
+      routeKey: 307,
+      provider: 'twn',
+      pathId: 0,
+      state: const LiveActivityDisplayState(stopId: 100, stopName: '臺北車站'),
+    );
+    log.clear();
+
+    final updated = await LiveActivityService.updateLiveActivity(
+      const LiveActivityDisplayState(stopId: 999, stopName: '別條路線'),
+      ownerActivityId: 'stale-activity-id',
+    );
+
+    expect(updated, isFalse);
+    expect(log, isEmpty);
+    expect(LiveActivityService.isActive, isTrue);
+  });
+
+  test('updateLiveActivity clears active id when native reports a missing '
+      'activity', () async {
+    await LiveActivityService.startLiveActivity(
+      routeName: '307',
+      pathName: '往板橋',
+      routeKey: 307,
+      provider: 'twn',
+      pathId: 0,
+      state: const LiveActivityDisplayState(stopId: 100, stopName: '臺北車站'),
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      channel,
+      (MethodCall methodCall) async {
+        log.add(methodCall);
+        return methodCall.method == 'updateLiveActivity' ? false : null;
+      },
+    );
+    log.clear();
+
+    final updated = await LiveActivityService.updateLiveActivity(
+      const LiveActivityDisplayState(stopId: 101, stopName: '西門町'),
+      ownerActivityId: LiveActivityService.activeActivityId,
+    );
+
+    expect(updated, isFalse);
+    expect(LiveActivityService.isActive, isFalse);
+  });
+
+  test('endLiveActivity skips when another owner holds the activity',
+      () async {
+    await LiveActivityService.startLiveActivity(
+      routeName: '307',
+      pathName: '往板橋',
+      routeKey: 307,
+      provider: 'twn',
+      pathId: 0,
+      state: const LiveActivityDisplayState(stopId: 100, stopName: '臺北車站'),
+    );
+    log.clear();
+
+    await LiveActivityService.endLiveActivity(
+      ownerActivityId: 'stale-activity-id',
+    );
+
+    expect(LiveActivityService.isActive, isTrue);
     expect(log, isEmpty);
   });
 

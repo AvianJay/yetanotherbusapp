@@ -78,6 +78,7 @@ final class LiveActivityBridge {
     let pathId = args["pathId"] as? Int ?? 0
     let displayStopId = args["displayStopId"] as? Int ?? 0
     let displayStopName = args["displayStopName"] as? String ?? ""
+    let alertStopName = args["alertStopName"] as? String
     let previousStopName = args["previousStopName"] as? String
     let nextStopName = args["nextStopName"] as? String
     let lineStopNames = args["lineStopNames"] as? [String] ?? []
@@ -85,7 +86,6 @@ final class LiveActivityBridge {
     let lineHighlightedStopIndex = args["lineHighlightedStopIndex"] as? Int
     let modeLabel = args["modeLabel"] as? String
     let statusText = args["statusText"] as? String
-    let alertKind = args["alertKind"] as? String
 
     let etaSeconds = args["etaSeconds"] as? Int
     let etaMessage = args["etaMessage"] as? String
@@ -106,6 +106,7 @@ final class LiveActivityBridge {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: displayStopId,
       displayStopName: displayStopName,
+      alertStopName: alertStopName,
       previousStopName: previousStopName,
       nextStopName: nextStopName,
       lineStopNames: lineStopNames,
@@ -142,7 +143,7 @@ final class LiveActivityBridge {
 
   private func handleUpdate(call: FlutterMethodCall, result: @escaping FlutterResult) {
     guard #available(iOS 16.2, *) else {
-      result(nil)
+      result(false)
       return
     }
 
@@ -153,6 +154,7 @@ final class LiveActivityBridge {
 
     let displayStopId = args["displayStopId"] as? Int ?? 0
     let displayStopName = args["displayStopName"] as? String ?? ""
+    let alertStopName = args["alertStopName"] as? String
     let previousStopName = args["previousStopName"] as? String
     let nextStopName = args["nextStopName"] as? String
     let lineStopNames = args["lineStopNames"] as? [String] ?? []
@@ -170,6 +172,7 @@ final class LiveActivityBridge {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: displayStopId,
       displayStopName: displayStopName,
+      alertStopName: alertStopName,
       previousStopName: previousStopName,
       nextStopName: nextStopName,
       lineStopNames: lineStopNames,
@@ -187,13 +190,16 @@ final class LiveActivityBridge {
 
     Task {
       guard let activityId = currentActivityId else {
-        await MainActor.run { result(nil) }
+        await MainActor.run { result(false) }
         return
       }
 
       let activities = Activity<BusArrivalAttributes>.activities
       guard let activity = activities.first(where: { $0.id == activityId }) else {
-        await MainActor.run { result(nil) }
+        // The activity was dismissed or replaced; let Dart know so it can
+        // restart instead of assuming the update succeeded.
+        currentActivityId = nil
+        await MainActor.run { result(false) }
         return
       }
 
@@ -209,7 +215,7 @@ final class LiveActivityBridge {
       } else {
         await activity.update(content)
       }
-      await MainActor.run { result(nil) }
+      await MainActor.run { result(true) }
     }
   }
 
@@ -247,6 +253,7 @@ final class LiveActivityBridge {
     let finalState = BusArrivalAttributes.ContentState(
       displayStopId: 0,
       displayStopName: "",
+      alertStopName: nil,
       previousStopName: nil,
       nextStopName: nil,
       lineStopNames: [],
@@ -288,11 +295,12 @@ final class LiveActivityBridge {
     kind: String?,
     state: BusArrivalAttributes.ContentState
   ) -> AlertConfiguration? {
+    let stopName = state.alertStopName ?? state.displayStopName
     switch kind {
     case "boarding_imminent":
       return AlertConfiguration(
         title: "快到站了",
-        body: "\(state.displayStopName) 即將到站",
+        body: "\(stopName) 即將到站",
         sound: .default
       )
     case "boarded_no_destination":
@@ -304,13 +312,13 @@ final class LiveActivityBridge {
     case "destination_imminent":
       return AlertConfiguration(
         title: "準備下車",
-        body: "再幾站就到 \(state.displayStopName)",
+        body: "再幾站就到 \(stopName)",
         sound: .default
       )
     case "destination_arriving":
       return AlertConfiguration(
         title: "快到站了",
-        body: "\(state.displayStopName) 快到了",
+        body: "\(stopName) 快到了",
         sound: .default
       )
     default:

@@ -46,8 +46,12 @@
 		<true/>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>NSCameraUsageDescription</key>
+		<string>沒有相機權限要怎麼拍新的背景圖片呢 o(*￣▽￣*)ブ</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>沒有相簿存取權限要怎麼選擇背景圖片呢 o(*￣▽￣*)ブ</string>
+		<key>NSUserNotificationsUsageDescription</key>
+		<string>沒有通知權限要怎麼提醒你公車到了呢 o(*￣▽￣*)ブ</string>
 		<key>NSLocationWhenInUseUsageDescription</key>
 		<string>我需要定位權限才可以找附近站牌。</string>
 		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

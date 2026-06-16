@@ -24,6 +24,7 @@ class HomeScreen extends StatelessWidget {
   const HomeScreen({required this.onModeChanged, super.key});
 
   static const _desktopSidebarBreakpoint = 1100.0;
+  static const _desktopSidebarWidth = 450.0;
 
   final ValueChanged<TransitMode> onModeChanged;
 
@@ -39,63 +40,108 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildFeatureList(
-    BuildContext context,
-    AppController controller, {
-    required bool showSmartRecommendation,
-  }) {
+  Widget _buildFeatureList(BuildContext context, AppController controller) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
       children: [
-        if (showSmartRecommendation &&
-            controller.settings.enableSmartRecommendations) ...[
+        if (controller.settings.enableSmartRecommendations) ...[
           _SmartRecommendationCard(controller: controller),
           const SizedBox(height: 16),
         ],
-        _FeatureCard(
-          icon: Icons.search_rounded,
-          title: '搜尋路線',
-          subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                settings: const RouteSettings(name: 'search'),
-                builder: (_) => const SearchScreen(),
-              ),
-            );
-          },
-        ),
+        _buildSearchFeatureCard(context),
         const SizedBox(height: 12),
-        _FeatureCard(
-          icon: Icons.favorite_outline_rounded,
-          title: '我的最愛',
-          subtitle: '整理常用站牌與群組，快速跳回指定站點。',
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                settings: const RouteSettings(name: 'favorites'),
-                builder: (_) => const FavoritesScreen(),
-              ),
-            );
-          },
-        ),
+        _buildFavoritesFeatureCard(context),
         const SizedBox(height: 12),
-        _FeatureCard(
-          icon: Icons.near_me_outlined,
-          title: '附近站牌',
-          subtitle: '依照你目前位置找附近的公車站牌。',
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                settings: const RouteSettings(name: 'nearby'),
-                builder: (_) => const NearbyScreen(),
-              ),
-            );
-          },
-        ),
+        _buildNearbyFeatureCard(context),
         const SizedBox(height: 16),
         const AdBannerWidget(),
       ],
+    );
+  }
+
+  Widget _buildDesktopMainPanel(
+    BuildContext context,
+    AppController controller,
+  ) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 32, 12, 32),
+      children: [
+        SizedBox(
+          height: 212,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: _buildSearchFeatureCard(context, bigIcon: true)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildFavoritesFeatureCard(context, bigIcon: true),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: _buildNearbyFeatureCard(context, bigIcon: true)),
+            ],
+          ),
+        ),
+        if (controller.settings.enableSmartRecommendations) ...[
+          const SizedBox(height: 16),
+          _SmartRecommendationCard(controller: controller),
+        ],
+        const SizedBox(height: 16),
+        const AdBannerWidget(),
+      ],
+    );
+  }
+
+  Widget _buildSearchFeatureCard(BuildContext context, {bool bigIcon = false}) {
+    return _FeatureCard(
+      icon: Icons.search_rounded,
+      title: '搜尋路線',
+      bigIcon: bigIcon,
+      // subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: 'search'),
+            builder: (_) => const SearchScreen(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFavoritesFeatureCard(
+    BuildContext context, {
+    bool bigIcon = false,
+  }) {
+    return _FeatureCard(
+      icon: Icons.favorite_outline_rounded,
+      title: '我的最愛',
+      bigIcon: bigIcon,
+      // subtitle: '整理常用站牌與群組，快速跳回指定站點。',
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: 'favorites'),
+            builder: (_) => const FavoritesScreen(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildNearbyFeatureCard(BuildContext context, {bool bigIcon = false}) {
+    return _FeatureCard(
+      icon: Icons.near_me_outlined,
+      title: '附近站牌',
+      bigIcon: bigIcon,
+      // subtitle: '依照你目前位置找附近的公車站牌。',
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: 'nearby'),
+            builder: (_) => const NearbyScreen(),
+          ),
+        );
+      },
     );
   }
 
@@ -103,7 +149,7 @@ class HomeScreen extends StatelessWidget {
     final theme = Theme.of(context);
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(0, 12, 20, 24),
+      padding: const EdgeInsets.fromLTRB(12, 32, 24, 32),
       children: [
         _DesktopNearbyMapPanel(controller: controller),
         const SizedBox(height: 16),
@@ -177,11 +223,6 @@ class HomeScreen extends StatelessWidget {
         .containsKey('bus');
     final isWideLayout =
         MediaQuery.sizeOf(context).width >= _desktopSidebarBreakpoint;
-    final featureList = _buildFeatureList(
-      context,
-      controller,
-      showSmartRecommendation: !isWideLayout,
-    );
 
     return Scaffold(
       backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
@@ -262,14 +303,14 @@ class HomeScreen extends StatelessWidget {
             ? Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(child: featureList),
+                  Expanded(child: _buildDesktopMainPanel(context, controller)),
                   SizedBox(
-                    width: 380,
+                    width: _desktopSidebarWidth,
                     child: _buildDesktopSidebar(context, controller),
                   ),
                 ],
               )
-            : featureList,
+            : _buildFeatureList(context, controller),
       ),
     );
   }
@@ -537,7 +578,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       context,
       routeKey: suggestion.profile.routeKey,
       provider: suggestion.profile.provider,
-      routeIdHint: suggestion.detail?.route.routeId ?? suggestion.favorite?.routeId,
+      routeIdHint:
+          suggestion.detail?.route.routeId ?? suggestion.favorite?.routeId,
       routeNameHint:
           suggestion.detail?.route.routeName ?? suggestion.profile.routeName,
       initialPathId: pathId,
@@ -1357,53 +1399,84 @@ class _FeatureCard extends StatelessWidget {
   const _FeatureCard({
     required this.icon,
     required this.title,
-    required this.subtitle,
+    // required this.subtitle,
     required this.onTap,
+    required this.bigIcon,
   });
 
   final IconData icon;
   final String title;
-  final String subtitle;
+  // final String subtitle;
   final VoidCallback onTap;
+  final bool bigIcon;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final colorScheme = Theme.of(context).colorScheme;
+    final iconTile = Container(
+      width: 58,
+      height: 58,
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Icon(icon, color: colorScheme.onPrimaryContainer),
+    );
+    final expandedIconTile = Center(
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: Container(
+          decoration: BoxDecoration(
+            color: colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          alignment: Alignment.center,
+          child: Icon(icon, size: 44, color: colorScheme.onPrimaryContainer),
+        ),
+      ),
+    );
+    final titleText = Text(
+      title,
+      style: theme.textTheme.titleMedium,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
 
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            children: [
-              Container(
-                width: 58,
-                height: 58,
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Icon(icon, color: colorScheme.onPrimaryContainer),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          padding: EdgeInsets.fromLTRB(
+            18,
+            bigIcon ? 16 : 18,
+            18,
+            bigIcon ? 14 : 18,
+          ),
+          child: bigIcon
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(title, style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium,
+                    Expanded(child: expandedIconTile),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(child: titleText),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.chevron_right_rounded),
+                      ],
                     ),
                   ],
+                )
+              : Row(
+                  children: [
+                    iconTile,
+                    const SizedBox(width: 16),
+                    Expanded(child: titleText),
+                    const Icon(Icons.chevron_right_rounded),
+                  ],
                 ),
-              ),
-              const Icon(Icons.chevron_right_rounded),
-            ],
-          ),
         ),
       ),
     );

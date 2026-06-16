@@ -973,7 +973,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         return SizeTransition(
           sizeFactor: animation,
           axis: Axis.horizontal,
-          axisAlignment: -1,
           child: child,
         );
       },
@@ -3486,6 +3485,146 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         .toList(growable: false);
   }
 
+  Future<List<_RelatedStopRouteEta>> _loadRelatedStopRouteEtas(
+    StopInfo stop,
+  ) async {
+    final controller = AppControllerScope.read(context);
+    final routes = await _loadRelatedStopRoutes(stop);
+    if (routes.isEmpty) {
+      return const <_RelatedStopRouteEta>[];
+    }
+
+    BatchLiveStopMap liveMaps = const <String, LiveStopMap>{};
+    try {
+      liveMaps = await controller.repository.getBatchLiveStopMaps(
+        routes.map((result) => result.route.routeId).toList(growable: false),
+      );
+    } catch (error) {
+      debugPrint('Related stop route ETA load error: $error');
+    }
+
+    final items = routes.map((result) {
+      final liveMap = liveMaps[result.route.routeId.trim()];
+      final livePayload =
+          liveMap?[_relatedStopRealtimeKey(result.matchedStop)];
+      final liveStop = livePayload == null
+          ? result.matchedStop
+          : result.matchedStop.copyWith(
+              sec: livePayload.sec,
+              msg: livePayload.msg,
+              t: livePayload.t,
+              buses: livePayload.buses,
+            );
+      return _RelatedStopRouteEta(result: result, liveStop: liveStop);
+    }).toList();
+
+    items.sort(_compareRelatedStopRouteEtas);
+    return items;
+  }
+
+  String _relatedStopRealtimeKey(StopInfo stop) {
+    return '${stop.pathId}:${stop.stopId}';
+  }
+
+  String _relatedRouteDirectionText(RouteSummary route) {
+    final description = route.description.trim();
+    if (description.isEmpty) {
+      return '';
+    }
+    return description.startsWith('往') ? description : '往 $description';
+  }
+
+  int _compareRelatedStopRouteEtas(
+    _RelatedStopRouteEta left,
+    _RelatedStopRouteEta right,
+  ) {
+    final leftBucket = _relatedStopEtaSortBucket(left.liveStop);
+    final rightBucket = _relatedStopEtaSortBucket(right.liveStop);
+    if (leftBucket != rightBucket) {
+      return leftBucket.compareTo(rightBucket);
+    }
+
+    final leftSec = left.liveStop.sec;
+    final rightSec = right.liveStop.sec;
+    if (leftSec != null && rightSec != null && leftSec != rightSec) {
+      return leftSec.compareTo(rightSec);
+    }
+
+    final leftMessageEta = _relatedStopMessageEta(left.liveStop);
+    final rightMessageEta = _relatedStopMessageEta(right.liveStop);
+    if (leftMessageEta != null && rightMessageEta != null &&
+        leftMessageEta != rightMessageEta) {
+      return leftMessageEta.compareTo(rightMessageEta);
+    }
+    if (leftMessageEta != null) {
+      return -1;
+    }
+    if (rightMessageEta != null) {
+      return 1;
+    }
+
+    return left.result.route.routeKey.compareTo(right.result.route.routeKey);
+  }
+
+  int _relatedStopEtaSortBucket(StopInfo stop) {
+    if (stop.sec != null) {
+      return 0;
+    }
+    if (_relatedStopMessageEta(stop) != null) {
+      return 1;
+    }
+    if (stop.msg?.trim().isNotEmpty ?? false) {
+      return 2;
+    }
+    return 3;
+  }
+
+  int? _relatedStopMessageEta(StopInfo stop) {
+    final message = stop.msg?.trim();
+    if (message == null || message.isEmpty) {
+      return null;
+    }
+
+    final match = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch(message);
+    if (match == null) {
+      return null;
+    }
+
+    final hour = int.tryParse(match.group(1)!);
+    final minute = int.tryParse(match.group(2)!);
+    if (hour == null || minute == null) {
+      return null;
+    }
+
+    return hour * 60 + minute;
+  }
+
+  String _relatedStopStatusText(StopInfo stop) {
+    final message = stop.msg?.trim() ?? '';
+    if (message.isNotEmpty) {
+      return message;
+    }
+
+    final seconds = stop.sec;
+    if (seconds == null) {
+      return '無即時資料';
+    }
+    if (seconds <= 0) {
+      return '進站中';
+    }
+    if (seconds < 60) {
+      return '$seconds 秒';
+    }
+
+    final minutes = seconds ~/ 60;
+    final leftoverSeconds = seconds % 60;
+    if (AppControllerScope.read(context).settings.alwaysShowSeconds &&
+        leftoverSeconds > 0) {
+      return '約 $minutes 分 $leftoverSeconds 秒';
+    }
+    return '約 $minutes 分鐘';
+  }
+
   Future<void> _openRelatedRouteDetail(StopRouteSearchResult result) async {
     final controller = AppControllerScope.read(context);
     final provider = busProviderFromString(result.route.sourceProvider);
@@ -3520,7 +3659,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     final stopName = stop.stopName.trim();
-    final relatedRoutesFuture = _loadRelatedStopRoutes(stop);
+    final relatedRoutesFuture = _loadRelatedStopRouteEtas(stop);
     final selectedRoute = await showModalBottomSheet<StopRouteSearchResult>(
       context: context,
       isScrollControlled: true,
@@ -3530,7 +3669,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         return SafeArea(
           child: SizedBox(
             height: MediaQuery.of(context).size.height * 0.72,
-            child: FutureBuilder<List<StopRouteSearchResult>>(
+            child: FutureBuilder<List<_RelatedStopRouteEta>>(
               future: relatedRoutesFuture,
               builder: (context, snapshot) {
                 Widget content;
@@ -3549,7 +3688,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                   );
                 } else {
                   final routes =
-                      snapshot.data ?? const <StopRouteSearchResult>[];
+                      snapshot.data ?? const <_RelatedStopRouteEta>[];
                   if (routes.isEmpty) {
                     content = Center(
                       child: Padding(
@@ -3566,32 +3705,21 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       itemCount: routes.length,
                       separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (context, index) {
-                        final result = routes[index];
+                        final item = routes[index];
+                        final result = item.result;
                         final route = result.route;
+                        final direction = _relatedRouteDirectionText(route);
                         final subtitleParts = <String>[
-                          if (route.description.trim().isNotEmpty)
-                            route.description.trim(),
-                          if (result.matchedStop.sequence > 0)
-                            '第 ${result.matchedStop.sequence} 站',
+                          _relatedStopStatusText(item.liveStop),
+                          if (direction.isNotEmpty) direction
                         ];
                         return ListTile(
-                          leading: CircleAvatar(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  route.routeName.trim().isEmpty
-                                      ? '?'
-                                      : route.routeName.characters
-                                            .take(4)
-                                            .toString(),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
+                          leading: EtaBadge(
+                            stop: item.liveStop,
+                            alwaysShowSeconds: AppControllerScope.read(
+                              context,
+                            ).settings.alwaysShowSeconds,
+                            size: 52,
                           ),
                           title: Text(route.routeName),
                           subtitle: subtitleParts.isEmpty
@@ -5830,6 +5958,16 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
       ],
     );
   }
+}
+
+class _RelatedStopRouteEta {
+  const _RelatedStopRouteEta({
+    required this.result,
+    required this.liveStop,
+  });
+
+  final StopRouteSearchResult result;
+  final StopInfo liveStop;
 }
 
 enum _StopAction {

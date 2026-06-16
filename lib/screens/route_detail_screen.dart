@@ -3369,17 +3369,53 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return leftSec.compareTo(rightSec);
     }
 
-    return left.result.route.routeName.compareTo(right.result.route.routeName);
+    final leftMessageEta = _relatedStopMessageEta(left.liveStop);
+    final rightMessageEta = _relatedStopMessageEta(right.liveStop);
+    if (leftMessageEta != null && rightMessageEta != null &&
+        leftMessageEta != rightMessageEta) {
+      return leftMessageEta.compareTo(rightMessageEta);
+    }
+    if (leftMessageEta != null) {
+      return -1;
+    }
+    if (rightMessageEta != null) {
+      return 1;
+    }
+
+    return left.result.route.routeKey.compareTo(right.result.route.routeKey);
   }
 
   int _relatedStopEtaSortBucket(StopInfo stop) {
     if (stop.sec != null) {
       return 0;
     }
-    if (stop.msg?.trim().isNotEmpty ?? false) {
+    if (_relatedStopMessageEta(stop) != null) {
       return 1;
     }
-    return 2;
+    if (stop.msg?.trim().isNotEmpty ?? false) {
+      return 2;
+    }
+    return 3;
+  }
+
+  int? _relatedStopMessageEta(StopInfo stop) {
+    final message = stop.msg?.trim();
+    if (message == null || message.isEmpty) {
+      return null;
+    }
+
+    final match = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch(message);
+    if (match == null) {
+      return null;
+    }
+
+    final hour = int.tryParse(match.group(1)!);
+    final minute = int.tryParse(match.group(2)!);
+    if (hour == null || minute == null) {
+      return null;
+    }
+
+    return hour * 60 + minute;
   }
 
   String _relatedStopStatusText(StopInfo stop) {

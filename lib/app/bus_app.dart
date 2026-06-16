@@ -18,6 +18,7 @@ import '../core/app_route_observer.dart';
 import '../core/ios_widget_integration.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
+import '../core/startup_permission_service.dart';
 import '../core/web_update_checker_stub.dart'
     if (dart.library.html) '../core/web_update_checker_web.dart'
     as web_update;
@@ -378,7 +379,14 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
           _maybeScheduleAnnouncementOpen();
         });
     _scheduleIOSWidgetSync();
+    _scheduleStartupPermissionPrompt();
     _initWebUpdateChecker();
+  }
+
+  void _scheduleStartupPermissionPrompt() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(StartupPermissionService.instance.requestInitialPermissions());
+    });
   }
 
   void _initWebUpdateChecker() {

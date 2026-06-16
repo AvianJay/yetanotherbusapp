@@ -20,6 +20,99 @@ void main() {
     expect(eta.text, '2分\n5秒');
   });
 
+  test('eta presentation keeps floor minutes when seconds are hidden', () {
+    final stop = StopInfo(
+      routeKey: 1,
+      pathId: 0,
+      stopId: 10,
+      stopName: 'Main Station',
+      sequence: 1,
+      lon: 121.5,
+      lat: 25.0,
+      sec: 61,
+    );
+
+    final eta = buildEtaPresentation(stop, alwaysShowSeconds: false);
+
+    expect(eta.text, '1分');
+  });
+
+  test('effective stop eta subtracts elapsed time from realtime timestamp', () {
+    final now = DateTime(2026, 6, 9, 8, 0);
+    final stop = StopInfo(
+      routeKey: 1,
+      pathId: 0,
+      stopId: 10,
+      stopName: 'Main Station',
+      sequence: 1,
+      lon: 121.5,
+      lat: 25.0,
+      sec: 90,
+      t: now.subtract(const Duration(seconds: 35)).toIso8601String(),
+    );
+
+    expect(effectiveStopEtaSeconds(stop, now: now), 55);
+  });
+
+  test('effective stop eta ignores stale timestamps', () {
+    final now = DateTime(2026, 6, 9, 8, 0);
+    final stop = StopInfo(
+      routeKey: 1,
+      pathId: 0,
+      stopId: 10,
+      stopName: 'Main Station',
+      sequence: 1,
+      lon: 121.5,
+      lat: 25.0,
+      sec: 90,
+      t: now.subtract(const Duration(minutes: 20)).toIso8601String(),
+    );
+
+    expect(effectiveStopEtaSeconds(stop, now: now), 90);
+  });
+
+  test('vehicle eta lookup normalizes plate ids', () {
+    final stop = StopInfo(
+      routeKey: 1,
+      pathId: 0,
+      stopId: 10,
+      stopName: 'Main Station',
+      sequence: 1,
+      lon: 121.5,
+      lat: 25.0,
+      etas: const [
+        StopEta(sec: 60, vehicleId: 'EAL-5959'),
+        StopEta(sec: 180, vehicleId: 'abc 1234'),
+      ],
+    );
+
+    expect(stopEtaForVehicle(stop, ' eal-5959 ')?.sec, 60);
+    expect(stopEtaForVehicle(stop, 'ABC1234')?.sec, 180);
+  });
+
+  test('vehicle eta uses matching bus instead of stop summary', () {
+    final now = DateTime(2026, 6, 9, 8, 0);
+    final stop = StopInfo(
+      routeKey: 1,
+      pathId: 0,
+      stopId: 10,
+      stopName: 'Destination',
+      sequence: 1,
+      lon: 121.5,
+      lat: 25.0,
+      sec: 90,
+      t: now.subtract(const Duration(seconds: 30)).toIso8601String(),
+      etas: const [
+        StopEta(sec: 45, msg: '即將進站', vehicleId: 'wrong-bus'),
+        StopEta(sec: 300, vehicleId: 'EAL-5959'),
+      ],
+    );
+
+    expect(effectiveStopEtaSecondsForVehicle(stop, 'EAL-5959', now: now), 270);
+    expect(effectiveStopEtaMessageForVehicle(stop, 'EAL-5959'), isNull);
+    expect(effectiveStopEtaMessageForVehicle(stop, 'wrong-bus'), '即將進站');
+  });
+
   test('formatEtaBadgeText wraps text by length', () {
     expect(formatEtaBadgeText(''), '');
     expect(formatEtaBadgeText('12:34'), '12:34');

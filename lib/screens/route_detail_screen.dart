@@ -24,6 +24,7 @@ import '../core/route_detail_launch_bridge.dart';
 import '../core/trip_monitor_notifications.dart';
 import '../core/twbusforum.dart';
 import '../widgets/background_image_wrapper.dart';
+import '../widgets/cat_state_card.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/route_bus_map_sheet.dart';
 import '../widgets/ad_banner_widget.dart';
@@ -95,6 +96,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _isRouteVisible = true;
   int? _liveActivityStopId;
   int? _liveActivityPathId;
+  int? _liveActivityRouteKey;
+  String? _liveActivityProviderName;
+  String? _liveActivityId;
+  String? _liveActivityRidingVehicleId;
   bool _liveActivityBoardingWindowOpen = false;
   bool _liveActivityRideConfirmed = false;
   DateTime? _liveActivityBoardingWindowOpenedAt;
@@ -192,7 +197,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     unawaited(TripMonitorNotifications.cancelBoardingCheckPrompt());
     unawaited(AndroidTripMonitor.stop());
-    unawaited(LiveActivityService.endLiveActivity());
+    if (_liveActivityId != null) {
+      unawaited(
+        LiveActivityService.endLiveActivity(ownerActivityId: _liveActivityId),
+      );
+    }
     super.dispose();
   }
 
@@ -373,6 +382,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
   }
 
+  void _playSelectionHaptic() {
+    unawaited(HapticFeedback.selectionClick());
+  }
+
+  void _playSuccessHaptic() {
+    unawaited(HapticFeedback.lightImpact());
+  }
+
   Future<void> _markCurrentRouteAlertsAsRead() async {
     final routeId = _detail?.route.routeId.trim();
     if (routeId == null || routeId.isEmpty || _alerts.isEmpty) {
@@ -528,6 +545,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           msg: previousStop.msg,
           t: previousStop.t,
           buses: previousStop.buses,
+          etas: previousStop.etas,
         );
       }).toList();
     }
@@ -552,9 +570,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     final initialIndex = _resolveInitialPathIndex(detail.paths);
     _targetInitialPathId = detail.paths[initialIndex].pathId;
+    // Preserve the selection by pathId rather than raw tab index, so a
+    // refresh that reorders (or adds/removes) paths cannot silently switch
+    // the screen, and the Live Activity, to a different direction.
+    final previousSelectedPathId = _currentPathId;
+    final preservedIndex = previousSelectedPathId == null
+        ? -1
+        : pathIds.indexOf(previousSelectedPathId);
     final selectedIndex = _tabController == null
         ? initialIndex
-        : _tabController!.index.clamp(0, pathIds.length - 1);
+        : (preservedIndex != -1
+              ? preservedIndex
+              : _tabController!.index.clamp(0, pathIds.length - 1));
 
     if (_tabController?.length == pathIds.length) {
       _tabController!.index = selectedIndex;
@@ -1945,6 +1972,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (!mounted) {
       return;
     }
+    _playSuccessHaptic();
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('已將 ${stop.stopName} 設為上車站。')));
@@ -1967,6 +1995,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (!mounted) {
       return;
     }
+    _playSuccessHaptic();
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('已將 ${stop.stopName} 設為下車提醒。')));
@@ -1989,6 +2018,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (!mounted) {
       return;
     }
+    _playSelectionHaptic();
     final message = fallbackBoardingStop == null
         ? '已清除手動上車站，之後拿到定位會再自動判斷。'
         : '已改回使用目前位置判斷上車站。';
@@ -2011,6 +2041,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _destinationStopName = null;
     });
     await _configureBackgroundTripMonitorIfNeeded();
+    _playSelectionHaptic();
   }
 
   ScrollController _scrollControllerForPath(int pathId) {
@@ -2226,7 +2257,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       };
     }
 
-    final seconds = stop.sec;
+    final seconds = effectiveStopEtaSeconds(stop);
     if (seconds == null) {
       return null;
     }
@@ -2278,6 +2309,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _liveActivityDestinationAlertStage = 0;
     _iosBoardingCheckPromptSent = false;
     _liveActivityLastNearestStopIndex = null;
+    _liveActivityRidingVehicleId = null;
   }
 
   Future<void> _startLiveActivity(
@@ -2300,29 +2332,44 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (didStart) {
       setState(() {
         _liveActivityActive = true;
+        _liveActivityId = LiveActivityService.activeActivityId;
         _liveActivityStopId = displayState.stopId;
         _liveActivityPathId = pathInfo.pathId;
+        _liveActivityRouteKey = widget.routeKey;
+        _liveActivityProviderName = widget.provider.name;
       });
     } else {
       setState(() {
         _liveActivityActive = false;
+        _liveActivityId = null;
         _liveActivityStopId = null;
         _liveActivityPathId = null;
+        _liveActivityRouteKey = null;
+        _liveActivityProviderName = null;
       });
     }
   }
 
   Future<void> _stopLiveActivity() async {
     await TripMonitorNotifications.cancelBoardingCheckPrompt();
-    await LiveActivityService.endLiveActivity();
+    // Only end the activity this screen started; another route screen may
+    // own the currently visible Live Activity.
+    if (_liveActivityId != null) {
+      await LiveActivityService.endLiveActivity(
+        ownerActivityId: _liveActivityId,
+      );
+    }
     if (!mounted) {
       return;
     }
     setState(() {
       _resetLiveActivityRideState();
       _liveActivityActive = false;
+      _liveActivityId = null;
       _liveActivityStopId = null;
       _liveActivityPathId = null;
+      _liveActivityRouteKey = null;
+      _liveActivityProviderName = null;
     });
   }
 
@@ -2369,8 +2416,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return nearestIndex == -1 ? null : nearestIndex;
   }
 
-  String _displayEtaText(StopInfo stop) {
-    final message = stop.msg?.trim() ?? '';
+  String _displayEtaText(StopInfo stop, {String? vehicleId}) {
+    final message =
+        effectiveStopEtaMessageForVehicle(stop, vehicleId)?.trim() ?? '';
     if (message.isNotEmpty) {
       if (message.contains('進站') || message.contains('到站')) {
         return '進站中';
@@ -2387,7 +2435,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return message;
     }
 
-    final seconds = stop.sec;
+    final seconds = effectiveStopEtaSecondsForVehicle(stop, vehicleId);
     if (seconds == null) {
       return '--';
     }
@@ -2407,8 +2455,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   bool _isBusApproachingStop(StopInfo stop) {
     final message = stop.msg?.trim() ?? '';
+    final seconds = effectiveStopEtaSeconds(stop);
     return stop.buses.isNotEmpty ||
-        (stop.sec != null && stop.sec! <= 0) ||
+        stop.etas.any((eta) => normalizeBusVehicleId(eta.vehicleId) != null) ||
+        (seconds != null && seconds <= 0) ||
         message.contains('進站') ||
         message.contains('到站');
   }
@@ -2466,6 +2516,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     required String boardingEtaText,
     required double? boardingDistanceMeters,
     required int? busIndex,
+    required String? busVehicleId,
   }) {
     final userNearBoardingStop =
         (boardingDistanceMeters != null && boardingDistanceMeters <= 180.0) ||
@@ -2491,6 +2542,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         nearestIndex >= boardingIndex &&
         busNearUser) {
       _liveActivityRideConfirmed = true;
+      _liveActivityRidingVehicleId = normalizeBusVehicleId(busVehicleId);
       unawaited(TripMonitorNotifications.cancelBoardingCheckPrompt());
     }
 
@@ -2536,15 +2588,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   String _buildWaitingBoardingText({
     required String pathName,
     required StopInfo boardingStop,
-    required StopInfo destinationStop,
+    StopInfo? destinationStop,
     required int? busStopsUntilBoarding,
   }) {
     final parts = <String>[
       _pathStatusPrefix(pathName),
       '尚未上車',
       '上車站 ${boardingStop.stopName}',
-      '目的地 ${destinationStop.stopName}',
     ];
+    if (destinationStop != null &&
+        destinationStop.stopId != boardingStop.stopId) {
+      parts.add('目的地 ${destinationStop.stopName}');
+    }
     final busDistanceSummary = _buildBusDistanceSummary(busStopsUntilBoarding);
     if (busDistanceSummary != null) {
       parts.add(busDistanceSummary);
@@ -2552,11 +2607,58 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return parts.join(' · ');
   }
 
-  String? _vehicleIdForStop(StopInfo stop) {
-    if (stop.buses.isEmpty) {
+  String? _vehicleIdForStop(StopInfo stop, {String? preferredVehicleId}) {
+    final preferred = normalizeBusVehicleId(preferredVehicleId);
+    if (preferred != null &&
+        (stop.buses.any(
+              (vehicle) => normalizeBusVehicleId(vehicle.id) == preferred,
+            ) ||
+            stop.etas.any(
+              (eta) => normalizeBusVehicleId(eta.vehicleId) == preferred,
+            ))) {
+      return preferred;
+    }
+
+    for (final vehicle in stop.buses) {
+      final vehicleId = normalizeBusVehicleId(vehicle.id);
+      if (vehicleId != null) {
+        return vehicleId;
+      }
+    }
+    for (final eta in stop.etas) {
+      final vehicleId = normalizeBusVehicleId(eta.vehicleId);
+      if (vehicleId != null) {
+        return vehicleId;
+      }
+    }
+    return null;
+  }
+
+  int? _findStopIndexForVehicleId(List<StopInfo> stops, String? vehicleId) {
+    final normalizedVehicleId = normalizeBusVehicleId(vehicleId);
+    if (normalizedVehicleId == null) {
       return null;
     }
-    return stop.buses.first.id;
+    for (var index = 0; index < stops.length; index++) {
+      final stop = stops[index];
+      final vehicleSeenAtStop =
+          stop.buses.any(
+            (vehicle) =>
+                normalizeBusVehicleId(vehicle.id) == normalizedVehicleId,
+          ) ||
+          stop.etas.any(
+            (eta) =>
+                normalizeBusVehicleId(eta.vehicleId) == normalizedVehicleId,
+          );
+      if (vehicleSeenAtStop) {
+        return index;
+      }
+    }
+    return null;
+  }
+
+  String? _vehicleIdAtStop(StopInfo stop, String? preferredVehicleId) {
+    return _vehicleIdForStop(stop, preferredVehicleId: preferredVehicleId);
   }
 
   ({String? previousStopName, String? nextStopName}) _adjacentStopNames(
@@ -2709,6 +2811,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         boardingEtaText: boardingEtaText,
         boardingDistanceMeters: _distanceToStop(boardingStop),
         busIndex: busIndex,
+        busVehicleId: busIndex == null
+            ? null
+            : _vehicleIdForStop(pathStops[busIndex]),
       );
       if (!hasBoarded) {
         final boardingProgressValue = busIndex == null
@@ -2735,10 +2840,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           statusText: _buildWaitingBoardingText(
             pathName: pathInfo.name,
             boardingStop: boardingStop,
-            destinationStop: boardingStop,
             busStopsUntilBoarding: busStopsUntilBoarding,
           ),
-          etaSeconds: boardingStop.sec,
+          etaSeconds: effectiveStopEtaSeconds(boardingStop),
           etaMessage: boardingStop.msg,
           vehicleId: _vehicleIdForStop(boardingStop),
           progressValue: boardingProgressValue,
@@ -2770,7 +2874,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         lineHighlightedStopIndex: stopLine.highlightedStopIndex,
         modeLabel: '最近站牌',
         statusText: '尚未設定下車站',
-        etaSeconds: nearestStop.sec,
+        etaSeconds: effectiveStopEtaSeconds(nearestStop),
         etaMessage: nearestStop.msg,
         vehicleId: _vehicleIdForStop(nearestStop),
         progressValue: currentProgress,
@@ -2786,7 +2890,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       destinationIndex,
     );
     final boardingStop = pathStops[boardingIndex];
-    final boardingEtaText = _displayEtaText(boardingStop);
+    final boardingVehicleId = busIndex == null
+        ? _vehicleIdForStop(boardingStop)
+        : _vehicleIdForStop(pathStops[busIndex]);
+    final boardingEtaText = _displayEtaText(
+      boardingStop,
+      vehicleId: boardingVehicleId,
+    );
     final busStopsUntilBoarding = busIndex == null
         ? null
         : math.max(boardingIndex - busIndex, 0);
@@ -2797,6 +2907,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       boardingEtaText: boardingEtaText,
       boardingDistanceMeters: _distanceToStop(boardingStop),
       busIndex: busIndex,
+      busVehicleId: boardingVehicleId,
     );
 
     if (!hasBoarded) {
@@ -2824,29 +2935,67 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           destinationStop: destinationStop,
           busStopsUntilBoarding: busStopsUntilBoarding,
         ),
-        etaSeconds: boardingStop.sec,
-        etaMessage: boardingStop.msg,
-        vehicleId: _vehicleIdForStop(boardingStop),
+        etaSeconds: effectiveStopEtaSecondsForVehicle(
+          boardingStop,
+          boardingVehicleId,
+        ),
+        etaMessage: effectiveStopEtaMessageForVehicle(
+          boardingStop,
+          boardingVehicleId,
+        ),
+        vehicleId: boardingVehicleId,
         progressValue: boardingProgressValue,
         progressTotal: boardingIndex + 1,
       );
     }
 
     final currentProgress = math.min(nearestIndex + 1, destinationIndex + 1);
-    final onboardStatusParts = <String>['已上車', '最近站牌 ${nearestStop.stopName}'];
-    if (nearestEtaText != '--') {
-      onboardStatusParts.add(nearestEtaText);
+    final preferredRidingVehicleId = normalizeBusVehicleId(
+      _liveActivityRidingVehicleId,
+    );
+    final hasPreferredRidingVehicleId = preferredRidingVehicleId != null;
+    final ridingVehicleIndex = _findStopIndexForVehicleId(
+      pathStops,
+      preferredRidingVehicleId,
+    );
+    final displayIndex =
+        ridingVehicleIndex ??
+        (hasPreferredRidingVehicleId ? nearestIndex : busIndex ?? nearestIndex);
+    final displayStop = pathStops[displayIndex];
+    final displayVehicleId =
+        ridingVehicleIndex != null || !hasPreferredRidingVehicleId
+        ? _vehicleIdAtStop(displayStop, preferredRidingVehicleId)
+        : null;
+    if (displayVehicleId != null) {
+      _liveActivityRidingVehicleId = displayVehicleId;
     }
     final stopLine = _buildLiveActivityStopLine(
       pathStops,
-      anchorIndex: busIndex ?? nearestIndex,
+      anchorIndex: displayIndex,
       highlightedIndex: destinationIndex,
     );
     final adjacentStops = _adjacentStopNames(pathStops, destinationStop.stopId);
+    final etaVehicleId = displayVehicleId ?? preferredRidingVehicleId;
+    final destinationEtaText = _displayEtaText(
+      destinationStop,
+      vehicleId: etaVehicleId,
+    );
+    final onboardStatusParts = <String>[
+      '已上車',
+      '目的地 ${destinationStop.stopName}',
+    ];
+    if (destinationEtaText != '--') {
+      onboardStatusParts.add(destinationEtaText);
+    }
+    onboardStatusParts.add('最近站牌 ${nearestStop.stopName}');
+    if (nearestEtaText != '--') {
+      onboardStatusParts.add(nearestEtaText);
+    }
 
     return LiveActivityDisplayState(
       stopId: destinationStop.stopId,
       stopName: destinationStop.stopName,
+      alertStopName: destinationStop.stopName,
       previousStopName: adjacentStops.previousStopName,
       nextStopName: adjacentStops.nextStopName,
       lineStopNames: stopLine.stopNames,
@@ -2854,9 +3003,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       lineHighlightedStopIndex: stopLine.highlightedStopIndex,
       modeLabel: '已上車',
       statusText: onboardStatusParts.join(' · '),
-      etaSeconds: destinationStop.sec,
-      etaMessage: destinationStop.msg,
-      vehicleId: _vehicleIdForStop(destinationStop),
+      etaSeconds: effectiveStopEtaSecondsForVehicle(
+        destinationStop,
+        etaVehicleId,
+      ),
+      etaMessage: effectiveStopEtaMessageForVehicle(
+        destinationStop,
+        etaVehicleId,
+      ),
+      vehicleId: displayVehicleId,
       progressValue: currentProgress,
       progressTotal: destinationIndex + 1,
       alertKind: _maybeIssueLiveActivityDestinationArrivalAlert(
@@ -2870,6 +3025,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     RouteDetailData detail,
     PathInfo pathInfo,
   ) async {
+    // Only the route screen the user is actually looking at (top of the
+    // navigation stack) may drive the Live Activity. Without this guard a
+    // screen lower in the stack could keep pushing its own route data into
+    // an activity started by another screen, making the Dynamic Island show
+    // the wrong bus/route.
+    if (!_isRouteVisible) {
+      return;
+    }
+
     final displayState = _buildLiveActivityDisplayState(detail, pathInfo);
     if (displayState == null) {
       await _stopLiveActivity();
@@ -2877,14 +3041,27 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     final needsRestart =
-        !_liveActivityActive || _liveActivityPathId != pathInfo.pathId;
+        !_liveActivityActive ||
+        !LiveActivityService.ownsActivity(_liveActivityId) ||
+        _liveActivityPathId != pathInfo.pathId ||
+        _liveActivityRouteKey != widget.routeKey ||
+        _liveActivityProviderName != widget.provider.name;
     if (needsRestart) {
       await _startLiveActivity(pathInfo, displayState);
       return;
     }
 
-    await LiveActivityService.updateLiveActivity(displayState);
+    final updated = await LiveActivityService.updateLiveActivity(
+      displayState,
+      ownerActivityId: _liveActivityId,
+    );
     if (!mounted) {
+      return;
+    }
+    if (!updated) {
+      // The activity was dismissed or replaced natively; restart it so the
+      // user keeps getting updates for the bus they are riding.
+      await _startLiveActivity(pathInfo, displayState);
       return;
     }
     if (_liveActivityStopId != displayState.stopId) {
@@ -2950,7 +3127,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   Future<void> _maybeRefreshBackgroundTripMonitor() async {
-    if (!_isIOS || _appIsForeground || _backgroundDataRefreshInFlight) {
+    if (!_isIOS ||
+        !_isRouteVisible ||
+        _appIsForeground ||
+        _backgroundDataRefreshInFlight) {
       return;
     }
 
@@ -3122,6 +3302,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final message = assignedDestinationName == null
         ? '已加入 $selectedGroup'
         : '已加入 $selectedGroup，目的地：$assignedDestinationName';
+    _playSuccessHaptic();
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
@@ -3886,35 +4067,152 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return stop.stopName;
   }
 
-  String _vehicleStatusLabel(StopInfo stop) {
-    if (stop.buses.length > 1) {
-      return '${stop.buses.length} 輛公車';
-    }
-    return stop.buses.first.id;
+  bool _isElectricVehicle(BusVehicle vehicle) {
+    final vehicleId = vehicle.id.trim().toUpperCase();
+    final note = vehicle.note.toLowerCase();
+    final type = vehicle.type.toLowerCase();
+    return vehicle.electric ||
+        vehicleId.startsWith('E') ||
+        vehicleId.endsWith('FV') ||
+        vehicle.note.contains('電動') ||
+        vehicle.note.contains('純電') ||
+        vehicle.note.contains('電巴') ||
+        note.contains('electric') ||
+        note.contains('e-bus') ||
+        note.contains('e_bus') ||
+        type.contains('electric') ||
+        type.contains('e-bus') ||
+        type.contains('e_bus');
   }
 
-  IconData _vehicleStatusIcon(StopInfo stop, {required bool isNearest}) {
-    if (isNearest) {
-      return Icons.gps_fixed_rounded;
+  String _vehicleStatusTooltip(StopInfo stop) {
+    final ids = stop.buses.map((vehicle) => vehicle.id).join('、');
+    final flags = <String>[
+      if (stop.buses.any((vehicle) => vehicle.carOnStop)) '進站中',
+      if (stop.buses.any((vehicle) => vehicle.full)) '客滿',
+      if (stop.buses.any(_isElectricVehicle)) '電動車',
+      if (stop.buses.any((vehicle) => vehicle.type == '1')) '無障礙',
+    ];
+    if (flags.isEmpty) {
+      return ids;
     }
-    return stop.buses.first.type == '1'
-        ? Icons.accessible_rounded
-        : Icons.directions_bus_rounded;
+    return '$ids · ${flags.join(' · ')}';
   }
 
-  Color _vehicleStatusBackgroundColor(
+  _VehicleStatusStyle _vehicleStatusStyle(
     ThemeData theme,
     StopInfo stop, {
     required bool isNearest,
   }) {
-    final vehicle = stop.buses.first;
+    final seconds = effectiveStopEtaSeconds(stop);
+    final hasMultipleBuses = stop.buses.length > 1;
+    final hasArrivingBus =
+        stop.buses.any((vehicle) => vehicle.carOnStop) ||
+        (seconds != null && seconds <= 0);
+    final isLessThanOneMinute =
+        seconds != null && seconds > 0 && seconds < 60;
+    final isUrgentEta = seconds != null && seconds >= 60 && seconds < 180;
+    final hasFullBus = stop.buses.any((vehicle) => vehicle.full);
+    final hasElectricBus = stop.buses.any(_isElectricVehicle);
+    final hasAccessibleBus = stop.buses.any((vehicle) => vehicle.type == '1');
+    final vehicleIcon = hasElectricBus
+        ? Icons.electric_bolt_rounded
+        : Icons.directions_bus_filled_rounded;
+
+    if (hasArrivingBus) {
+      return _VehicleStatusStyle(
+        icon: vehicleIcon,
+        backgroundColor: Colors.red.shade700,
+        foregroundColor: Colors.white,
+        borderColor: Colors.red.shade200.withValues(alpha: 0.85),
+        glowColor: Colors.red.shade500.withValues(alpha: 0.38),
+        showStackedBuses: hasMultipleBuses,
+      );
+    }
+
+    if (isLessThanOneMinute) {
+      return _VehicleStatusStyle(
+        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.timer_rounded,
+        backgroundColor: Colors.deepOrange.shade600,
+        foregroundColor: Colors.white,
+        borderColor: Colors.orange.shade200.withValues(alpha: 0.8),
+        glowColor: Colors.deepOrange.shade400.withValues(alpha: 0.32),
+        showStackedBuses: hasMultipleBuses,
+      );
+    }
+
+    if (isUrgentEta) {
+      return _VehicleStatusStyle(
+        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.timer_rounded,
+        backgroundColor: Colors.orange.shade700,
+        foregroundColor: Colors.white,
+        borderColor: Colors.orange.shade200.withValues(alpha: 0.78),
+        glowColor: Colors.orange.shade400.withValues(alpha: 0.28),
+        showStackedBuses: hasMultipleBuses,
+      );
+    }
+
+    if (hasFullBus) {
+      return _VehicleStatusStyle(
+        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.groups_rounded,
+        backgroundColor: Colors.brown.shade600,
+        foregroundColor: Colors.white,
+        borderColor: Colors.orange.shade200.withValues(alpha: 0.75),
+        glowColor: Colors.brown.shade400.withValues(alpha: 0.28),
+        showStackedBuses: hasMultipleBuses,
+      );
+    }
+
+    if (hasElectricBus) {
+      return _VehicleStatusStyle(
+        icon: Icons.electric_bolt_rounded,
+        backgroundColor: Colors.amber.shade500,
+        foregroundColor: Colors.black87,
+        borderColor: Colors.amber.shade100.withValues(alpha: 0.9),
+        glowColor: Colors.amber.shade400.withValues(alpha: 0.3),
+        showStackedBuses: hasMultipleBuses,
+      );
+    }
+
     if (isNearest) {
-      return Colors.cyan.shade400;
+      return _VehicleStatusStyle(
+        icon: Icons.gps_fixed_rounded,
+        backgroundColor: Colors.cyan.shade400,
+        foregroundColor: Colors.black87,
+        borderColor: Colors.cyan.shade100.withValues(alpha: 0.8),
+        glowColor: Colors.cyan.shade300.withValues(alpha: 0.32),
+        showStackedBuses: hasMultipleBuses,
+      );
     }
-    if (vehicle.id.startsWith('E') || vehicle.id.endsWith('FV')) {
-      return Colors.amber.shade600;
+
+    if (hasMultipleBuses) {
+      return _VehicleStatusStyle(
+        icon: Icons.directions_bus_rounded,
+        backgroundColor: theme.colorScheme.secondaryContainer,
+        foregroundColor: theme.colorScheme.onSecondaryContainer,
+        borderColor: theme.colorScheme.secondary.withValues(alpha: 0.45),
+        glowColor: theme.colorScheme.secondary.withValues(alpha: 0.2),
+        showStackedBuses: true,
+      );
     }
-    return theme.colorScheme.primary;
+
+    if (hasAccessibleBus) {
+      return _VehicleStatusStyle(
+        icon: Icons.accessible_rounded,
+        backgroundColor: Colors.indigo.shade500,
+        foregroundColor: Colors.white,
+        borderColor: Colors.indigo.shade100.withValues(alpha: 0.7),
+        glowColor: Colors.indigo.shade300.withValues(alpha: 0.2),
+      );
+    }
+
+    return _VehicleStatusStyle(
+      icon: Icons.directions_bus_rounded,
+      backgroundColor: theme.colorScheme.primary,
+      foregroundColor: theme.colorScheme.onPrimary,
+      borderColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
+      glowColor: theme.colorScheme.primary.withValues(alpha: 0.16),
+    );
   }
 
   double _measureMaxLineWidth(
@@ -3939,6 +4237,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     BuildContext context, {
     required IconData icon,
     String? label,
+    bool showStackedBuses = false,
   }) {
     final hasLabel = label != null && label.trim().isNotEmpty;
     final labelWidth = hasLabel
@@ -3950,7 +4249,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         : 0.0;
     final horizontalPadding = hasLabel ? 28.0 : 20.0;
     final gap = hasLabel ? 8.0 : 0.0;
-    return horizontalPadding + 18.0 + gap + labelWidth;
+    final iconWidth = showStackedBuses ? 28.0 : 18.0;
+    return horizontalPadding + iconWidth + gap + labelWidth;
   }
 
   bool _shouldUseCompactVehicleStatus(
@@ -3974,10 +4274,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         height: 1.2,
       ),
     );
+    final statusStyle = _vehicleStatusStyle(theme, stop, isNearest: isNearest);
     final fullPillWidth = _estimateRouteStatusPillWidth(
       context,
-      icon: _vehicleStatusIcon(stop, isNearest: isNearest),
-      label: _vehicleStatusLabel(stop),
+      icon: statusStyle.icon,
+      label: null,
+      showStackedBuses: statusStyle.showStackedBuses,
     );
     final hasAlert = _stopHasAlert(stop);
     final alertWidth = hasAlert ? 16.0 : 0.0;
@@ -4043,8 +4345,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     StopInfo stop, {
     required bool isNearest,
     required bool isDestination,
-    bool compact = false,
   }) {
+    if (isNearest) {
+      return const _RouteStatusPill(
+        icon: Icons.gps_fixed_rounded,
+        label: '你的位置',
+        backgroundColor: Color(0xFF4CAF50),
+        foregroundColor: Colors.white,
+      );
+    }
+
     if (isDestination) {
       return _RouteStatusPill(
         icon: Icons.flag_rounded,
@@ -4055,24 +4365,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     if (stop.buses.isNotEmpty) {
-      final backgroundColor = _vehicleStatusBackgroundColor(
-        theme,
-        stop,
-        isNearest: isNearest,
-      );
-      final foregroundColor = backgroundColor.computeLuminance() > 0.6
-          ? Colors.black87
-          : Colors.white;
-      final label = _vehicleStatusLabel(stop);
-      final tooltip = stop.buses.length == 1
-          ? stop.buses.first.id
-          : stop.buses.map((vehicle) => vehicle.id).join('、');
+      final statusStyle = _vehicleStatusStyle(theme, stop, isNearest: isNearest);
 
       return PopupMenuButton<BusVehicle>(
         padding: EdgeInsets.zero,
-        tooltip: tooltip,
-        onSelected: (vehicle) =>
-            unawaited(_handleVehicleAction(vehicle, _VehicleAction.twBusForum)),
+        tooltip: _vehicleStatusTooltip(stop),
+        onSelected: (vehicle) {
+          _playSelectionHaptic();
+          unawaited(_handleVehicleAction(vehicle, _VehicleAction.twBusForum));
+        },
         itemBuilder: (context) {
           return [
             for (final vehicle in stop.buses)
@@ -4083,20 +4384,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           ];
         },
         child: _RouteStatusPill(
-          icon: _vehicleStatusIcon(stop, isNearest: isNearest),
-          label: compact ? null : label,
-          backgroundColor: backgroundColor,
-          foregroundColor: foregroundColor,
+          icon: statusStyle.icon,
+          label: null,
+          backgroundColor: statusStyle.backgroundColor,
+          foregroundColor: statusStyle.foregroundColor,
+          borderColor: statusStyle.borderColor,
+          glowColor: statusStyle.glowColor,
+          showStackedBuses: statusStyle.showStackedBuses,
         ),
-      );
-    }
-
-    if (isNearest) {
-      return const _RouteStatusPill(
-        icon: Icons.gps_fixed_rounded,
-        label: '目前位置',
-        backgroundColor: Color(0xFF4CAF50),
-        foregroundColor: Colors.white,
       );
     }
 
@@ -4130,7 +4425,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        onTap: () => unawaited(_openStopActionsWithShortcut(stop)),
+        onTap: () {
+          _playSelectionHaptic();
+          unawaited(_openStopActionsWithShortcut(stop));
+        },
         child: Padding(
           padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
           child: Row(
@@ -4160,29 +4458,34 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       stop,
                       isNearest: isNearest,
                       isDestination: isDestination,
-                      compact: useCompactVehicleStatus,
                     );
+                    final vehicleStatusStyle = stop.buses.isEmpty
+                        ? null
+                        : _vehicleStatusStyle(
+                            theme,
+                            stop,
+                            isNearest: isNearest,
+                          );
                     final trailingStatusWidth = switch ((
+                      isNearest,
                       isDestination,
                       stop.buses.isNotEmpty,
-                      isNearest,
                     )) {
                       (true, _, _) => _estimateRouteStatusPillWidth(
+                        context,
+                        icon: Icons.gps_fixed_rounded,
+                        label: '你的位置',
+                      ),
+                      (false, true, _) => _estimateRouteStatusPillWidth(
                         context,
                         icon: Icons.flag_rounded,
                         label: '下車站',
                       ),
-                      (false, true, _) => _estimateRouteStatusPillWidth(
-                        context,
-                        icon: _vehicleStatusIcon(stop, isNearest: isNearest),
-                        label: useCompactVehicleStatus
-                            ? null
-                            : _vehicleStatusLabel(stop),
-                      ),
                       (false, false, true) => _estimateRouteStatusPillWidth(
                         context,
-                        icon: Icons.gps_fixed_rounded,
-                        label: '目前位置',
+                        icon: vehicleStatusStyle!.icon,
+                        label: null,
+                        showStackedBuses: vehicleStatusStyle.showStackedBuses,
                       ),
                       _ => 0.0,
                     };
@@ -4294,12 +4597,33 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           ),
         Expanded(
           child: _tabController == null
-              ? const Center(child: Text('目前沒有可顯示的方向'))
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: CatStateCard(
+                      mood: CatStateMood.sad,
+                      title: '這條路線還沒有方向資料',
+                      message: '貓貓翻不到去程或返程，稍後再試試看。',
+                    ),
+                  ),
+                )
               : TabBarView(
                   controller: _tabController,
                   children: detail.paths.map((path) {
                     final pathStops =
                         detail.stopsByPath[path.pathId] ?? const <StopInfo>[];
+                    if (pathStops.isEmpty) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: CatStateCard(
+                            mood: CatStateMood.sad,
+                            title: '這個方向沒有站牌',
+                            message: '可能是資料還沒同步完成，等一下再更新。',
+                          ),
+                        ),
+                      );
+                    }
                     return ListView.separated(
                       controller: _scrollControllerForPath(path.pathId),
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
@@ -4532,7 +4856,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             ? Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
-                  child: Text(_error ?? '目前無法載入公車資訊'),
+                  child: CatStateCard(
+                    mood: CatStateMood.cry,
+                    title: '公車資訊被貓貓壓住了',
+                    message: _error ?? '目前無法載入公車資訊，稍後再更新一次。',
+                    actionLabel: '重新載入',
+                    onAction: () => unawaited(_refresh()),
+                  ),
                 ),
               )
             : LayoutBuilder(
@@ -4592,18 +4922,68 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 }
 
+class _VehicleStatusStyle {
+  const _VehicleStatusStyle({
+    required this.icon,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    required this.borderColor,
+    required this.glowColor,
+    this.showStackedBuses = false,
+  });
+
+  final IconData icon;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final Color borderColor;
+  final Color glowColor;
+  final bool showStackedBuses;
+}
+
 class _RouteStatusPill extends StatelessWidget {
   const _RouteStatusPill({
     required this.icon,
     this.label,
     required this.backgroundColor,
     required this.foregroundColor,
+    this.borderColor,
+    this.glowColor,
+    this.showStackedBuses = false,
   });
 
   final IconData icon;
   final String? label;
   final Color backgroundColor;
   final Color foregroundColor;
+  final Color? borderColor;
+  final Color? glowColor;
+  final bool showStackedBuses;
+
+  Widget _buildIcon() {
+    if (!showStackedBuses) {
+      return Icon(icon, size: 18, color: foregroundColor);
+    }
+
+    return SizedBox(
+      width: 28,
+      height: 18,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 8,
+            top: 1,
+            child: Icon(
+              Icons.directions_bus_rounded,
+              size: 16,
+              color: foregroundColor.withValues(alpha: 0.58),
+            ),
+          ),
+          Icon(icon, size: 18, color: foregroundColor),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -4616,11 +4996,21 @@ class _RouteStatusPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(999),
+        border: borderColor == null ? null : Border.all(color: borderColor!),
+        boxShadow: glowColor == null
+            ? null
+            : [
+                BoxShadow(
+                  color: glowColor!,
+                  blurRadius: 14,
+                  spreadRadius: 1,
+                ),
+              ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18, color: foregroundColor),
+          _buildIcon(),
           if (hasLabel) ...[
             const SizedBox(width: 8),
             Text(

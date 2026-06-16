@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
@@ -10,6 +11,7 @@ import '../core/models.dart';
 import '../widgets/eta_badge.dart';
 import 'favorite_groups_screen.dart';
 import '../widgets/background_image_wrapper.dart';
+import '../widgets/cat_state_card.dart';
 import 'route_detail_navigation.dart';
 
 class FavoritesScreen extends StatefulWidget {
@@ -512,6 +514,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     if (!mounted) {
       return;
     }
+    unawaited(HapticFeedback.lightImpact());
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('已從 $groupName 移除 ${item.stop.stopName}')),
     );
@@ -586,6 +589,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
         return;
       }
       if (didChange) {
+        unawaited(HapticFeedback.lightImpact());
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('已將目的地設為 ${destination.stopName}')),
         );
@@ -605,6 +609,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       return;
     }
     if (didChange) {
+      unawaited(HapticFeedback.selectionClick());
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('已清除這個最愛的目的地設定')));
@@ -709,7 +714,13 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text('載入最愛失敗：$_error'),
+          child: CatStateCard(
+            mood: CatStateMood.cry,
+            title: '最愛清單卡住了',
+            message: _error,
+            actionLabel: '再試一次',
+            onAction: () => _scheduleRefresh(forceResolveStatic: true),
+          ),
         ),
       );
     }
@@ -817,6 +828,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                     )
                   : null,
               onTap: () async {
+                unawaited(HapticFeedback.selectionClick());
                 await controller.recordRouteSelection(
                   provider: item.reference.provider,
                   routeKey: item.reference.routeKey,
@@ -859,7 +871,11 @@ class _EmptyFavoritesState extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Text(message, textAlign: TextAlign.center),
+        child: CatStateCard(
+          mood: CatStateMood.sad,
+          title: '貓貓還沒有固定站牌',
+          message: message,
+        ),
       ),
     );
   }

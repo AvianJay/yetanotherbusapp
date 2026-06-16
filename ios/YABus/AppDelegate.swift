@@ -50,7 +50,6 @@ import UIKit
     LiveActivityBridge.shared.endAllActivitiesFromHost()
     super.applicationWillTerminate(application)
   }
-
   private func configureBridges(messenger: FlutterBinaryMessenger) {
     AppLaunchBridge.shared.configure(messenger: messenger)
     WidgetDataBridge.shared.configure(messenger: messenger)

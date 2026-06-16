@@ -1367,6 +1367,7 @@ class BusVehicle {
     required this.note,
     required this.full,
     required this.carOnStop,
+    this.electric = false,
   });
 
   final String id;
@@ -1374,6 +1375,15 @@ class BusVehicle {
   final String note;
   final bool full;
   final bool carOnStop;
+  final bool electric;
+}
+
+class StopEta {
+  const StopEta({this.sec, this.msg, this.vehicleId});
+
+  final int? sec;
+  final String? msg;
+  final String? vehicleId;
 }
 
 class StopInfo {
@@ -1389,6 +1399,7 @@ class StopInfo {
     this.msg,
     this.t,
     this.buses = const [],
+    this.etas = const [],
   });
 
   factory StopInfo.fromMap(Map<String, Object?> map) {
@@ -1414,12 +1425,14 @@ class StopInfo {
   final String? msg;
   final String? t;
   final List<BusVehicle> buses;
+  final List<StopEta> etas;
 
   StopInfo copyWith({
     int? sec,
     String? msg,
     String? t,
     List<BusVehicle>? buses,
+    List<StopEta>? etas,
   }) {
     return StopInfo(
       routeKey: routeKey,
@@ -1433,6 +1446,7 @@ class StopInfo {
       msg: msg ?? this.msg,
       t: t ?? this.t,
       buses: buses ?? this.buses,
+      etas: etas ?? this.etas,
     );
   }
 }
@@ -1544,6 +1558,104 @@ String formatEtaBadgeText(String text) {
   return trimmed;
 }
 
+DateTime? _parseStopRealtimeUpdatedAt(String? value, DateTime now) {
+  final text = value?.trim();
+  if (text == null || text.isEmpty) {
+    return null;
+  }
+
+  final numericValue = int.tryParse(text);
+  if (numericValue != null) {
+    if (numericValue > 1000000000000) {
+      return DateTime.fromMillisecondsSinceEpoch(
+        numericValue,
+        isUtc: true,
+      ).toLocal();
+    }
+    if (numericValue > 1000000000) {
+      return DateTime.fromMillisecondsSinceEpoch(
+        numericValue * 1000,
+        isUtc: true,
+      ).toLocal();
+    }
+  }
+
+  final parsed = DateTime.tryParse(text)?.toLocal();
+  if (parsed == null || parsed.isAfter(now.add(const Duration(seconds: 15)))) {
+    return null;
+  }
+  return parsed;
+}
+
+String? normalizeBusVehicleId(String? vehicleId) {
+  final cleaned = vehicleId?.trim().replaceAll(' ', '') ?? '';
+  if (cleaned.isEmpty) {
+    return null;
+  }
+  return cleaned.toUpperCase();
+}
+
+StopEta? stopEtaForVehicle(StopInfo stop, String? vehicleId) {
+  final normalizedVehicleId = normalizeBusVehicleId(vehicleId);
+  if (normalizedVehicleId == null) {
+    return null;
+  }
+
+  for (final eta in stop.etas) {
+    if (normalizeBusVehicleId(eta.vehicleId) == normalizedVehicleId) {
+      return eta;
+    }
+  }
+  return null;
+}
+
+int? _effectiveEtaSeconds(int? seconds, String? updatedAtText, DateTime now) {
+  if (seconds == null || seconds <= 0) {
+    return seconds;
+  }
+
+  final updatedAt = _parseStopRealtimeUpdatedAt(updatedAtText, now);
+  if (updatedAt == null) {
+    return seconds;
+  }
+
+  final elapsedSeconds = now.difference(updatedAt).inSeconds;
+  if (elapsedSeconds <= 0) {
+    return seconds;
+  }
+
+  // Avoid turning very stale fallback data into fake arrivals.
+  if (elapsedSeconds > math.max(seconds + 120, 600)) {
+    return seconds;
+  }
+
+  return math.max(0, seconds - elapsedSeconds);
+}
+
+int? effectiveStopEtaSeconds(StopInfo stop, {DateTime? now}) {
+  return _effectiveEtaSeconds(stop.sec, stop.t, now ?? DateTime.now());
+}
+
+int? effectiveStopEtaSecondsForVehicle(
+  StopInfo stop,
+  String? vehicleId, {
+  DateTime? now,
+}) {
+  final eta = stopEtaForVehicle(stop, vehicleId);
+  if (eta == null) {
+    return effectiveStopEtaSeconds(stop, now: now);
+  }
+  return _effectiveEtaSeconds(eta.sec, stop.t, now ?? DateTime.now());
+}
+
+String? effectiveStopEtaMessageForVehicle(StopInfo stop, String? vehicleId) {
+  final etaMessage = stopEtaForVehicle(stop, vehicleId)?.msg?.trim();
+  if (etaMessage != null && etaMessage.isNotEmpty) {
+    return etaMessage;
+  }
+  return stop.msg;
+}
+
 EtaPresentation buildEtaPresentation(
   StopInfo stop, {
   required bool alwaysShowSeconds,
@@ -1565,7 +1677,7 @@ EtaPresentation buildEtaPresentation(
     );
   }
 
-  final seconds = stop.sec;
+  final seconds = effectiveStopEtaSeconds(stop);
   if (seconds == null) {
     return EtaPresentation(
       text: '--',
@@ -1611,7 +1723,8 @@ bool hasRealtimeStopData(StopInfo stop) {
   return stop.sec != null ||
       (stop.msg?.trim().isNotEmpty ?? false) ||
       (stop.t?.trim().isNotEmpty ?? false) ||
-      stop.buses.isNotEmpty;
+      stop.buses.isNotEmpty ||
+      stop.etas.isNotEmpty;
 }
 
 String formatDistance(double meters) {

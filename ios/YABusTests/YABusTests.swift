@@ -31,6 +31,7 @@ class YABusTests: XCTestCase {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: 100,
       displayStopName: "臺北車站",
+      alertStopName: "臺北車站",
       previousStopName: "善導寺",
       nextStopName: "西門町",
       lineStopNames: ["善導寺", "臺北車站", "西門町"],
@@ -54,6 +55,7 @@ class YABusTests: XCTestCase {
 
     XCTAssertEqual(decoded.displayStopId, 100)
     XCTAssertEqual(decoded.displayStopName, "臺北車站")
+    XCTAssertEqual(decoded.alertStopName, "臺北車站")
     XCTAssertEqual(decoded.previousStopName, "善導寺")
     XCTAssertEqual(decoded.nextStopName, "西門町")
     XCTAssertEqual(decoded.lineStopNames, ["善導寺", "臺北車站", "西門町"])
@@ -73,6 +75,7 @@ class YABusTests: XCTestCase {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: 101,
       displayStopName: "西門町",
+      alertStopName: nil,
       previousStopName: "臺北車站",
       nextStopName: "龍山寺",
       lineStopNames: ["臺北車站", "西門町", "龍山寺"],
@@ -94,6 +97,7 @@ class YABusTests: XCTestCase {
 
     XCTAssertEqual(decoded.displayStopId, 101)
     XCTAssertEqual(decoded.displayStopName, "西門町")
+    XCTAssertNil(decoded.alertStopName)
     XCTAssertEqual(decoded.previousStopName, "臺北車站")
     XCTAssertEqual(decoded.nextStopName, "龍山寺")
     XCTAssertEqual(decoded.lineStopNames, ["臺北車站", "西門町", "龍山寺"])
@@ -111,6 +115,7 @@ class YABusTests: XCTestCase {
     let state1 = BusArrivalAttributes.ContentState(
       displayStopId: 102,
       displayStopName: "龍山寺",
+      alertStopName: "龍山寺",
       previousStopName: "西門町",
       nextStopName: "江子翠",
       lineStopNames: ["西門町", "龍山寺", "江子翠"],
@@ -129,6 +134,7 @@ class YABusTests: XCTestCase {
     let state2 = BusArrivalAttributes.ContentState(
       displayStopId: 102,
       displayStopName: "龍山寺",
+      alertStopName: "龍山寺",
       previousStopName: "西門町",
       nextStopName: "江子翠",
       lineStopNames: ["西門町", "龍山寺", "江子翠"],
@@ -153,6 +159,7 @@ class YABusTests: XCTestCase {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: 102,
       displayStopName: "龍山寺",
+      alertStopName: nil,
       previousStopName: "西門町",
       nextStopName: "江子翠",
       lineStopNames: ["西門町", "龍山寺", "江子翠"],
@@ -180,6 +187,7 @@ class YABusTests: XCTestCase {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: 101,
       displayStopName: "西門町",
+      alertStopName: nil,
       previousStopName: "臺北車站",
       nextStopName: "龍山寺",
       lineStopNames: ["臺北車站", "西門町", "龍山寺"],
@@ -203,6 +211,7 @@ class YABusTests: XCTestCase {
     let state = BusArrivalAttributes.ContentState(
       displayStopId: 103,
       displayStopName: "板橋公車站",
+      alertStopName: nil,
       previousStopName: "江子翠",
       nextStopName: "新埔",
       lineStopNames: ["江子翠", "板橋公車站", "新埔"],

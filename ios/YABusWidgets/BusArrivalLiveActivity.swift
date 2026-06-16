@@ -20,7 +20,7 @@ struct BusArrivalLiveActivity: Widget {
         DynamicIslandExpandedRegion(.bottom) {
           expandedBottom(context: context)
             .padding(.horizontal, 10)
-            .padding(.bottom, 4)
+            .padding(.bottom, 8)
         }
       } compactLeading: {
         compactLeadingView(context: context)
@@ -151,10 +151,13 @@ struct BusArrivalLiveActivity: Widget {
 
       HStack {
         if let statusText = trimmedText(context.state.statusText) {
-          Text(statusText)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
+          Text(dynamicIslandStatusText(statusText))
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(.primary.opacity(0.78))
             .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .allowsTightening(true)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         Spacer(minLength: 6)
         Text(context.state.updatedAt, style: .time)
@@ -378,7 +381,11 @@ struct BusArrivalLiveActivity: Widget {
       .minimumScaleFactor(0.7)
       .lineSpacing(-1)
       .multilineTextAlignment(.center)
-      .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
+      .frame(
+        maxWidth: .infinity,
+        minHeight: surface == .dynamicIsland ? 23 : 28,
+        alignment: .top
+      )
   }
 
   private func stopLineData(
@@ -462,6 +469,51 @@ struct BusArrivalLiveActivity: Widget {
     }
 
     return String(candidate.prefix(4)) + "…"
+  }
+
+  private func dynamicIslandStatusText(_ statusText: String) -> String {
+    let parts = statusText
+      .components(separatedBy: " · ")
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+
+    guard !parts.isEmpty else {
+      return statusText
+    }
+
+    var selected: [String] = []
+    if let destination = parts.first(where: { $0.hasPrefix("目的地 ") }) {
+      selected.append(destination)
+    } else if let boarding = parts.first(where: { $0.hasPrefix("上車站 ") }) {
+      selected.append(boarding)
+    } else if let nearest = parts.first(where: { $0.hasPrefix("最近站牌 ") }) {
+      selected.append(nearest)
+    } else {
+      selected.append(parts[0])
+    }
+
+    if let eta = parts.first(where: isCompactEtaStatusPart), !selected.contains(eta) {
+      selected.append(eta)
+    } else if let busSummary = parts.first(where: { $0.hasPrefix("公車") }), !selected.contains(busSummary) {
+      selected.append(busSummary)
+    }
+
+    return selected.joined(separator: " · ")
+  }
+
+  private func isCompactEtaStatusPart(_ value: String) -> Bool {
+    if value.hasPrefix("目的地 ") ||
+      value.hasPrefix("上車站 ") ||
+      value.hasPrefix("最近站牌 ") ||
+      value.hasPrefix("公車") {
+      return false
+    }
+
+    return value.contains("秒") ||
+      value.contains("分") ||
+      value.contains("進站") ||
+      value.contains("發車") ||
+      value.contains("末班")
   }
 
   private func trimmedText(_ value: String?) -> String? {
@@ -658,70 +710,83 @@ private struct LockScreenActivityView: View {
   @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
-    HStack(spacing: 16) {
-      VStack(alignment: .leading, spacing: 6) {
-        HStack(spacing: 8) {
-          lsRouteBadge(context.attributes.routeName)
-          Text(context.attributes.pathName)
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(lsSecondaryTextColor)
-            .lineLimit(1)
-        }
-
-        if let modeLabel = lsTrimmed(context.state.modeLabel) {
-          lsModePill(modeLabel)
-        }
-
-        HStack(spacing: 5) {
-          Image(systemName: "mappin.circle.fill")
-            .font(.system(size: 14))
-            .foregroundStyle(lsHighlightTextColor)
-          Text(lsDisplayStopName(context.state))
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(lsPrimaryTextColor)
-            .lineLimit(1)
-        }
-
-        if let statusText = lsTrimmed(context.state.statusText) {
-          Text(statusText)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(lsSecondaryTextColor)
-            .lineLimit(2)
-        }
-
-        lsStopLineView(context.state)
-          .padding(.top, 4)
-      }
-
-      Spacer(minLength: 8)
-
-      VStack(alignment: .trailing, spacing: 4) {
-        lsCountdownText(
-          context.state,
-          font: .system(size: 32, weight: .bold, design: .rounded)
-        )
-        .foregroundStyle(lsEtaColor(context.state))
-        .lineLimit(1)
-        .minimumScaleFactor(0.5)
-        .monospacedDigit()
-
-        if let vehicleId = lsTrimmed(context.state.vehicleId) {
-          HStack(spacing: 3) {
-            Image(systemName: "bus")
-              .font(.system(size: 10))
-            Text(vehicleId)
-              .font(.system(size: 11, weight: .medium, design: .monospaced))
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+          HStack(spacing: 8) {
+            lsRouteBadge(context.attributes.routeName)
+            Text(context.attributes.pathName)
+              .font(.system(size: 13, weight: .medium))
+              .foregroundStyle(lsSecondaryTextColor)
+              .lineLimit(1)
+              .minimumScaleFactor(0.8)
           }
-          .foregroundStyle(lsSecondaryTextColor)
-        }
 
-        Text(context.state.updatedAt, style: .time)
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(lsTimestampTextColor)
+          if let modeLabel = lsTrimmed(context.state.modeLabel) {
+            lsModePill(modeLabel)
+          }
+
+          HStack(spacing: 5) {
+            Image(systemName: "mappin.circle.fill")
+              .font(.system(size: 14))
+              .foregroundStyle(lsHighlightTextColor)
+            Text(lsDisplayStopName(context.state))
+              .font(.system(size: 16, weight: .semibold))
+              .foregroundStyle(lsPrimaryTextColor)
+              .lineLimit(1)
+              .minimumScaleFactor(0.82)
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        VStack(alignment: .trailing, spacing: 5) {
+          lsCountdownText(
+            context.state,
+            font: .system(size: 30, weight: .bold, design: .rounded)
+          )
+          .foregroundStyle(lsEtaColor(context.state))
+          .lineLimit(1)
+          .minimumScaleFactor(0.48)
+          .monospacedDigit()
+          .padding(.horizontal, 12)
+          .padding(.vertical, 5)
+          .frame(minWidth: 108, alignment: .trailing)
+          .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+              .fill(lsEtaColor(context.state).opacity(colorScheme == .dark ? 0.18 : 0.16))
+          )
+
+          if let vehicleId = lsTrimmed(context.state.vehicleId) {
+            HStack(spacing: 3) {
+              Image(systemName: "bus")
+                .font(.system(size: 10))
+              Text(vehicleId)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+            }
+            .foregroundStyle(lsSecondaryTextColor)
+          }
+
+          Text(context.state.updatedAt, style: .time)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundStyle(lsTimestampTextColor)
+        }
       }
+
+      if let statusText = lsTrimmed(context.state.statusText) {
+        Text(statusText)
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(lsSecondaryTextColor)
+          .lineLimit(2)
+          .minimumScaleFactor(0.82)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      lsStopLineView(context.state)
+        .padding(.top, 2)
     }
     .padding(.horizontal, 20)
-    .padding(.vertical, 14)
+    .padding(.vertical, 16)
     .widgetURL(
       BusArrivalDeepLink.route(
         provider: context.attributes.provider,

@@ -28,6 +28,11 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   static const _favoriteWidgetRefreshOptions = <int>[0, 15, 30, 60, 120, 180];
   static final _discordCommunityUri = Uri.parse('https://dc.avianjay.sbs/');
+  static const _rgbContributorPalette = <Color>[
+    Color(0xFFFF4D4D),
+    Color(0xFF16C172),
+    Color(0xFF2D9CFF),
+  ];
 
   late Future<WearOsSyncStatus> _wearSyncStatusFuture;
   int _adToggleCount = 0;
@@ -177,6 +182,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     messenger.showSnackBar(const SnackBar(content: Text('無法開啟 Discord 社群連結。')));
+  }
+
+  InlineSpan _buildRgbContributorSpan(
+    String name,
+    ThemeData theme,
+    Color color,
+  ) {
+    final style = theme.textTheme.bodyMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.35,
+    );
+
+    return TextSpan(
+      text: name,
+      style: style?.copyWith(
+        color: color,
+        shadows: [
+          Shadow(color: color.withValues(alpha: 0.9), blurRadius: 10),
+          Shadow(color: color.withValues(alpha: 0.55), blurRadius: 22),
+        ],
+      ),
+    );
   }
 
   @override
@@ -909,25 +936,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           TextSpan(
                             style: theme.textTheme.bodyMedium,
                             children: [
-                              const TextSpan(text: '貢獻者清單：\nAvianJay\nitouSouta\n'),
-                              TextSpan(
-                                text: 'Axoled',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.primary,
-                                  fontWeight: FontWeight.w700,
-                                  shadows: [
-                                    Shadow(
-                                      color: theme.colorScheme.primary
-                                          .withValues(alpha: 0.85),
-                                      blurRadius: 12,
-                                    ),
-                                    Shadow(
-                                      color: theme.colorScheme.tertiary
-                                          .withValues(alpha: 0.65),
-                                      blurRadius: 24,
-                                    ),
-                                  ],
-                                ),
+                              const TextSpan(text: '貢獻者清單：\n'),
+                              _buildRgbContributorSpan(
+                                'AvianJay',
+                                theme,
+                                _rgbContributorPalette[0],
+                              ),
+                              const TextSpan(text: '\n'),
+                              _buildRgbContributorSpan(
+                                'itouSouta',
+                                theme,
+                                _rgbContributorPalette[1],
+                              ),
+                              const TextSpan(text: '\n'),
+                              _buildRgbContributorSpan(
+                                'Axoled',
+                                theme,
+                                _rgbContributorPalette[2],
                               ),
                             ],
                           ),

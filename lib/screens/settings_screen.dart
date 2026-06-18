@@ -269,6 +269,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             }
                           },
                         ),
+                        const SizedBox(height: 12),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('精簡模式'),
+                          subtitle: const Text('首頁與部分卡片減少說明文字顯示；桌面首頁固定維持精簡。'),
+                          value: controller.settings.enableCompactMode,
+                          onChanged: controller.updateEnableCompactMode,
+                        ),
                         if (isAndroid || isIOS) ...[
                           const SizedBox(height: 12),
                           DropdownButtonFormField<MobileMapProvider>(

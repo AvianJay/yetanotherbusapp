@@ -326,6 +326,7 @@ class AppSettings {
     required this.overlayOpacity,
     required this.alwaysShowSeconds,
     required this.enableHapticFeedback,
+    required this.enableCompactMode,
     required this.enableSmartRecommendations,
     required this.enableSmartRouteNotifications,
     required this.keepScreenAwakeOnRouteDetail,
@@ -365,6 +366,7 @@ class AppSettings {
       overlayOpacity: 0.85,
       alwaysShowSeconds: false,
       enableHapticFeedback: true,
+      enableCompactMode: false,
       enableSmartRecommendations: true,
       enableSmartRouteNotifications: false,
       keepScreenAwakeOnRouteDetail: true,
@@ -463,6 +465,7 @@ class AppSettings {
       overlayOpacity: (json['overlayOpacity'] as num?)?.toDouble() ?? 0.85,
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
       enableHapticFeedback: json['enableHapticFeedback'] as bool? ?? true,
+      enableCompactMode: json['enableCompactMode'] as bool? ?? false,
       enableSmartRecommendations:
           json['enableSmartRecommendations'] as bool? ?? true,
       enableSmartRouteNotifications:
@@ -537,6 +540,7 @@ class AppSettings {
   final double overlayOpacity;
   final bool alwaysShowSeconds;
   final bool enableHapticFeedback;
+  final bool enableCompactMode;
   final bool enableSmartRecommendations;
   final bool enableSmartRouteNotifications;
   final bool keepScreenAwakeOnRouteDetail;
@@ -575,6 +579,7 @@ class AppSettings {
     double? overlayOpacity,
     bool? alwaysShowSeconds,
     bool? enableHapticFeedback,
+    bool? enableCompactMode,
     bool? enableSmartRecommendations,
     bool? enableSmartRouteNotifications,
     bool? keepScreenAwakeOnRouteDetail,
@@ -616,6 +621,7 @@ class AppSettings {
       overlayOpacity: overlayOpacity ?? this.overlayOpacity,
       alwaysShowSeconds: alwaysShowSeconds ?? this.alwaysShowSeconds,
       enableHapticFeedback: enableHapticFeedback ?? this.enableHapticFeedback,
+      enableCompactMode: enableCompactMode ?? this.enableCompactMode,
       enableSmartRecommendations:
           enableSmartRecommendations ?? this.enableSmartRecommendations,
       enableSmartRouteNotifications:
@@ -674,6 +680,7 @@ class AppSettings {
       'overlayOpacity': overlayOpacity,
       'alwaysShowSeconds': alwaysShowSeconds,
       'enableHapticFeedback': enableHapticFeedback,
+      'enableCompactMode': enableCompactMode,
       'enableSmartRecommendations': enableSmartRecommendations,
       'enableSmartRouteNotifications': enableSmartRouteNotifications,
       'keepScreenAwakeOnRouteDetail': keepScreenAwakeOnRouteDetail,

@@ -41,18 +41,22 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _buildFeatureList(BuildContext context, AppController controller) {
+    final compactMode = _useCompactHomeMode(context, controller.settings);
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
       children: [
         if (controller.settings.enableSmartRecommendations) ...[
-          _SmartRecommendationCard(controller: controller),
+          _SmartRecommendationCard(
+            controller: controller,
+            compactMode: compactMode,
+          ),
           const SizedBox(height: 16),
         ],
-        _buildSearchFeatureCard(context),
+        _buildSearchFeatureCard(context, compactMode: compactMode),
         const SizedBox(height: 12),
-        _buildFavoritesFeatureCard(context),
+        _buildFavoritesFeatureCard(context, compactMode: compactMode),
         const SizedBox(height: 12),
-        _buildNearbyFeatureCard(context),
+        _buildNearbyFeatureCard(context, compactMode: compactMode),
         const SizedBox(height: 16),
         const AdBannerWidget(),
       ],
@@ -63,6 +67,7 @@ class HomeScreen extends StatelessWidget {
     BuildContext context,
     AppController controller,
   ) {
+    final compactMode = _useCompactHomeMode(context, controller.settings);
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 32, 12, 32),
       children: [
@@ -71,19 +76,38 @@ class HomeScreen extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: _buildSearchFeatureCard(context, bigIcon: true)),
-              const SizedBox(width: 12),
               Expanded(
-                child: _buildFavoritesFeatureCard(context, bigIcon: true),
+                child: _buildSearchFeatureCard(
+                  context,
+                  bigIcon: true,
+                  compactMode: compactMode,
+                ),
               ),
               const SizedBox(width: 12),
-              Expanded(child: _buildNearbyFeatureCard(context, bigIcon: true)),
+              Expanded(
+                child: _buildFavoritesFeatureCard(
+                  context,
+                  bigIcon: true,
+                  compactMode: compactMode,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildNearbyFeatureCard(
+                  context,
+                  bigIcon: true,
+                  compactMode: compactMode,
+                ),
+              ),
             ],
           ),
         ),
         if (controller.settings.enableSmartRecommendations) ...[
           const SizedBox(height: 16),
-          _SmartRecommendationCard(controller: controller),
+          _SmartRecommendationCard(
+            controller: controller,
+            compactMode: compactMode,
+          ),
         ],
         const SizedBox(height: 16),
         const AdBannerWidget(),
@@ -91,12 +115,17 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSearchFeatureCard(BuildContext context, {bool bigIcon = false}) {
+  Widget _buildSearchFeatureCard(
+    BuildContext context, {
+    bool bigIcon = false,
+    bool compactMode = false,
+  }) {
     return _FeatureCard(
       icon: Icons.search_rounded,
       title: '搜尋路線',
+      subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
       bigIcon: bigIcon,
-      // subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
+      compact: compactMode,
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -111,12 +140,14 @@ class HomeScreen extends StatelessWidget {
   Widget _buildFavoritesFeatureCard(
     BuildContext context, {
     bool bigIcon = false,
+    bool compactMode = false,
   }) {
     return _FeatureCard(
       icon: Icons.favorite_outline_rounded,
       title: '我的最愛',
+      subtitle: '整理常用站牌與群組，快速跳回指定站點。',
       bigIcon: bigIcon,
-      // subtitle: '整理常用站牌與群組，快速跳回指定站點。',
+      compact: compactMode,
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -128,12 +159,17 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildNearbyFeatureCard(BuildContext context, {bool bigIcon = false}) {
+  Widget _buildNearbyFeatureCard(
+    BuildContext context, {
+    bool bigIcon = false,
+    bool compactMode = false,
+  }) {
     return _FeatureCard(
       icon: Icons.near_me_outlined,
       title: '附近站牌',
+      subtitle: '依照你目前位置找附近的公車站牌。',
       bigIcon: bigIcon,
-      // subtitle: '依照你目前位置找附近的公車站牌。',
+      compact: compactMode,
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -329,6 +365,17 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
+bool _useCompactHomeMode(BuildContext context, AppSettings settings) {
+  final isDesktopApp =
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.macOS);
+  return isDesktopApp ||
+      settings.enableCompactMode ||
+      MediaQuery.sizeOf(context).width >= HomeScreen._desktopSidebarBreakpoint;
+}
+
 class _WebPwaInstallButton extends StatelessWidget {
   const _WebPwaInstallButton();
 
@@ -403,9 +450,13 @@ class _WebPwaInstallButton extends StatelessWidget {
 }
 
 class _SmartRecommendationCard extends StatefulWidget {
-  const _SmartRecommendationCard({required this.controller});
+  const _SmartRecommendationCard({
+    required this.controller,
+    required this.compactMode,
+  });
 
   final AppController controller;
+  final bool compactMode;
 
   @override
   State<_SmartRecommendationCard> createState() =>
@@ -642,6 +693,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return _SmartRecommendationShell(
       title: '智慧推薦',
       subtitle: '根據你在不同時段最常點開的路線，主動推薦現在最可能要查的那一條。',
+      compact: widget.compactMode,
       trailing: IconButton(
         tooltip: '設定',
         onPressed: _openSettings,
@@ -667,9 +719,10 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
 
   // ignore: unused_element
   Widget _buildNeedDatabaseState(BuildContext context) {
-    return const _SmartRecommendationShell(
+    return _SmartRecommendationShell(
       title: '智慧推薦',
       subtitle: '根據你平常點開路線的時間點，推薦你現在最可能要看的路線。',
+      compact: widget.compactMode,
       child: Text('請先下載本地資料庫。下載完成後，這張卡片才會開始學習你的使用習慣並顯示附近站牌到站時間。'),
     );
   }
@@ -679,6 +732,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return _SmartRecommendationShell(
       title: '智慧推薦',
       subtitle: '根據你平常點開路線的時間點，推薦你現在最可能要看的路線。',
+      compact: widget.compactMode,
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -757,6 +811,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return _SmartRecommendationShell(
       title: '智慧推薦',
       subtitle: suggestion.reason,
+      compact: widget.compactMode,
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -826,13 +881,15 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                                 ),
                               ],
                               if (showDistance) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  '距離你約 ${formatDistance(suggestion.distanceMeters!)}。',
-                                  style: theme.textTheme.bodySmall,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                                if (!widget.compactMode) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '距離你約 ${formatDistance(suggestion.distanceMeters!)}。',
+                                    style: theme.textTheme.bodySmall,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
                               ],
                             ],
                           ),
@@ -885,6 +942,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return _SmartRecommendationShell(
       title: '智慧推薦',
       subtitle: '最近的站點。',
+      compact: widget.compactMode,
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -920,7 +978,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (nearby.path != null) ...[
+                  if (nearby.path != null && !widget.compactMode) ...[
                     const SizedBox(height: 8),
                     Text(
                       '方向：${nearby.path!.name}',
@@ -966,9 +1024,10 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
-          return const _SmartRecommendationShell(
+          return _SmartRecommendationShell(
             title: '智慧推薦',
             subtitle: '正在整理你這個時段最常看的路線...',
+            compact: widget.compactMode,
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Center(child: CircularProgressIndicator()),
@@ -1174,6 +1233,10 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final selected = _selectedResult;
+    final compactMode = _useCompactHomeMode(
+      context,
+      widget.controller.settings,
+    );
 
     return Card(
       child: Padding(
@@ -1188,8 +1251,10 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('附近地圖', style: theme.textTheme.headlineSmall),
-                      const SizedBox(height: 6),
-                      Text('今天想去哪搭公車？', style: theme.textTheme.bodyMedium),
+                      if (!compactMode) ...[
+                        const SizedBox(height: 6),
+                        Text('今天想去哪搭公車？', style: theme.textTheme.bodyMedium),
+                      ],
                     ],
                   ),
                 ),
@@ -1353,16 +1418,19 @@ class _SmartRecommendationShell extends StatelessWidget {
     required this.subtitle,
     required this.child,
     this.trailing,
+    this.compact = false,
   });
 
   final String title;
   final String subtitle;
   final Widget child;
   final Widget? trailing;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hasSubtitle = !compact && subtitle.trim().isNotEmpty;
 
     return Card(
       child: Padding(
@@ -1378,8 +1446,10 @@ class _SmartRecommendationShell extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(title, style: theme.textTheme.headlineSmall),
-                      const SizedBox(height: 6),
-                      Text(subtitle, style: theme.textTheme.bodyMedium),
+                      if (hasSubtitle) ...[
+                        const SizedBox(height: 6),
+                        Text(subtitle, style: theme.textTheme.bodyMedium),
+                      ],
                     ],
                   ),
                 ),
@@ -1399,16 +1469,18 @@ class _FeatureCard extends StatelessWidget {
   const _FeatureCard({
     required this.icon,
     required this.title,
-    // required this.subtitle,
+    required this.subtitle,
     required this.onTap,
     required this.bigIcon,
+    required this.compact,
   });
 
   final IconData icon;
   final String title;
-  // final String subtitle;
+  final String subtitle;
   final VoidCallback onTap;
   final bool bigIcon;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1442,6 +1514,7 @@ class _FeatureCard extends StatelessWidget {
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
     );
+    final showSubtitle = !bigIcon && !compact && subtitle.trim().isNotEmpty;
 
     return Card(
       child: InkWell(
@@ -1470,10 +1543,27 @@ class _FeatureCard extends StatelessWidget {
                   ],
                 )
               : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     iconTile,
                     const SizedBox(width: 16),
-                    Expanded(child: titleText),
+                    Expanded(
+                      child: showSubtitle
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                titleText,
+                                const SizedBox(height: 4),
+                                Text(
+                                  subtitle,
+                                  style: theme.textTheme.bodyMedium,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            )
+                          : titleText,
+                    ),
                     const Icon(Icons.chevron_right_rounded),
                   ],
                 ),

@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
+import '../core/app_motion.dart';
 import '../core/app_routes.dart';
 import '../core/models.dart';
 
@@ -37,8 +38,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Future<void> _goToStep(int index) async {
     await _pageController.animateToPage(
       index,
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeOutCubic,
+      duration: AppMotion.emphasis,
+      curve: AppMotion.enter,
     );
   }
 
@@ -150,7 +151,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
 
     if (mounted && _stepIndex == 1) {
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await Future<void>.delayed(AppMotion.settle);
       await _nextStep();
     }
   }
@@ -175,7 +176,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         right: index == _effectiveStepCount - 1 ? 0 : 8,
                       ),
                       child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
+                        duration: AppMotion.standard,
+                        curve: AppMotion.enter,
                         height: 6,
                         decoration: BoxDecoration(
                           color: active

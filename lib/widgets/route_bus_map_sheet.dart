@@ -10,6 +10,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 
 import '../app/bus_app.dart';
+import '../core/app_motion.dart';
 import '../core/models.dart';
 import 'eta_badge.dart';
 import 'platform_map_provider.dart';
@@ -1950,7 +1951,8 @@ class _BusMarker extends StatelessWidget {
         : Colors.white;
     return AnimatedScale(
       scale: selected ? 1.08 : 1,
-      duration: const Duration(milliseconds: 180),
+      duration: AppMotion.quick,
+      curve: AppMotion.enter,
       child: Container(
         decoration: BoxDecoration(
           color: color,
@@ -1992,7 +1994,8 @@ class _StopMarker extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedScale(
       scale: selected ? 1.08 : 1,
-      duration: const Duration(milliseconds: 180),
+      duration: AppMotion.quick,
+      curve: AppMotion.enter,
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(999),

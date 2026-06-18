@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
+import '../core/app_motion.dart';
 import '../core/app_route_observer.dart';
 import '../core/bus_repository.dart';
 import '../core/models.dart';
@@ -229,9 +230,9 @@ class _FavoritesScreenState extends State<FavoritesScreen>
 
   Widget _buildBottomProgressIndicator() {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
+      duration: AppMotion.progress,
+      switchInCurve: AppMotion.enter,
+      switchOutCurve: AppMotion.exit,
       transitionBuilder: (child, animation) {
         return SizeTransition(
           sizeFactor: animation,

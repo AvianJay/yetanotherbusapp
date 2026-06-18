@@ -821,7 +821,9 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         context: context,
         onTap: () => _openSuggestion(suggestion),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: widget.compactMode
+              ? CrossAxisAlignment.center
+              : CrossAxisAlignment.start,
           children: [
             Expanded(
               child: Column(
@@ -849,8 +851,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                   //     style: theme.textTheme.bodySmall,
                   //   ),
                   // ],
-                  const SizedBox(height: 10),
-                  if (recommendedStop != null)
+                  if (recommendedStop != null) ...[
+                    const SizedBox(height: 10),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -895,8 +897,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                           ),
                         ),
                       ],
-                    )
-                  else if (destinationLabel != null)
+                    ),
+                  ] else if (destinationLabel != null)
                     Text(
                       '目的地：$destinationLabel',
                       style: theme.textTheme.bodySmall,
@@ -904,7 +906,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                       overflow: TextOverflow.ellipsis,
                     )
                   else
-                    Text('', style: theme.textTheme.bodySmall),
+                    const SizedBox.shrink(),
                 ],
               ),
             ),
@@ -1543,7 +1545,9 @@ class _FeatureCard extends StatelessWidget {
                   ],
                 )
               : Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: showSubtitle
+                      ? CrossAxisAlignment.start
+                      : CrossAxisAlignment.center,
                   children: [
                     iconTile,
                     const SizedBox(width: 16),

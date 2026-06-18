@@ -22,6 +22,7 @@ import 'auth_token_store.dart';
 import 'background_image_store.dart';
 import 'bus_repository.dart';
 import 'desktop_discord_presence_service.dart';
+import 'haptic_feedback_service.dart';
 import 'ios_widget_integration.dart';
 import 'live_activity_service.dart';
 import 'models.dart';
@@ -251,6 +252,7 @@ class AppController extends ChangeNotifier {
     _authSession = authService.session;
     await _loadAccountSyncLocalState();
     _settings = await storage.loadSettings();
+    AppHaptics.setEnabled(_settings.enableHapticFeedback);
     _settingsLastModifiedAtMs = await storage.loadSettingsLastModifiedAtMs();
     final normalizedBackgroundPaths = await _backgroundImageStore
         .normalizeSettingsPaths(_settings.pageBackgroundImagePaths);
@@ -442,6 +444,7 @@ class AppController extends ChangeNotifier {
     final effectiveModifiedAtMs =
         modifiedAtMs ?? DateTime.now().millisecondsSinceEpoch;
     await storage.saveSettings(_settings, modifiedAtMs: effectiveModifiedAtMs);
+    AppHaptics.setEnabled(_settings.enableHapticFeedback);
     _settingsLastModifiedAtMs = effectiveModifiedAtMs;
     if (scheduleSync) {
       _scheduleChangeDrivenAccountSync();
@@ -1017,23 +1020,26 @@ class AppController extends ChangeNotifier {
   }
 
   List<Map<String, dynamic>> _buildWearUsageProfilesPayload() {
-    final providerProfiles = _routeUsageProfiles
-        .where((entry) => entry.provider == _settings.provider)
-        .toList()
-      ..sort((a, b) => b.totalOpens.compareTo(a.totalOpens));
+    final providerProfiles =
+        _routeUsageProfiles
+            .where((entry) => entry.provider == _settings.provider)
+            .toList()
+          ..sort((a, b) => b.totalOpens.compareTo(a.totalOpens));
     final limited = providerProfiles.take(40);
     return limited
-        .map((profile) => {
-              'provider': profile.provider.name,
-              'routeKey': profile.routeKey,
-              'routeName': profile.routeName,
-              'totalOpens': profile.totalOpens,
-              'lastOpenedAtMs': profile.lastOpenedAtMs,
-              'hourlyOpens': profile.hourlyOpens.map(
-                (key, value) => MapEntry(key.toString(), value),
-              ),
-              'recentSelectionMs': profile.selectionTimestampsWithin(),
-            })
+        .map(
+          (profile) => {
+            'provider': profile.provider.name,
+            'routeKey': profile.routeKey,
+            'routeName': profile.routeName,
+            'totalOpens': profile.totalOpens,
+            'lastOpenedAtMs': profile.lastOpenedAtMs,
+            'hourlyOpens': profile.hourlyOpens.map(
+              (key, value) => MapEntry(key.toString(), value),
+            ),
+            'recentSelectionMs': profile.selectionTimestampsWithin(),
+          },
+        )
         .toList(growable: false);
   }
 
@@ -1067,14 +1073,8 @@ class AppController extends ChangeNotifier {
           ? suggestion.profile.routeName
           : (detail?.route.routeName ?? routeId),
       'provider': suggestion.profile.provider.name,
-      if (path != null) ...{
-        'pathId': path.pathId,
-        'pathName': path.name,
-      },
-      if (stop != null) ...{
-        'stopId': stop.stopId,
-        'stopName': stop.stopName,
-      },
+      if (path != null) ...{'pathId': path.pathId, 'pathName': path.name},
+      if (stop != null) ...{'stopId': stop.stopId, 'stopName': stop.stopName},
       'reason': suggestion.reason,
       if (suggestion.distanceMeters != null)
         'distanceMeters': suggestion.distanceMeters,
@@ -1489,6 +1489,12 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateEnableHapticFeedback(bool value) async {
+    _settings = _settings.copyWith(enableHapticFeedback: value);
+    await _persistSettings();
+    notifyListeners();
+  }
+
   Future<void> updateEnableSmartRecommendations(bool value) async {
     _settings = _settings.copyWith(enableSmartRecommendations: value);
     await _persistSettings();
@@ -1745,7 +1751,8 @@ class AppController extends ChangeNotifier {
     // Desktop platforms always auto-download database updates regardless of
     // the saved mode, since they typically have stable Wi-Fi/Ethernet and
     // Connectivity detection may not work reliably on desktop.
-    final isDesktop = !kIsWeb &&
+    final isDesktop =
+        !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.windows ||
             defaultTargetPlatform == TargetPlatform.linux ||
             defaultTargetPlatform == TargetPlatform.macOS);
@@ -2232,7 +2239,8 @@ class AppController extends ChangeNotifier {
     final signature = smartRouteSignature;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final signatureUnchanged = _lastWearSmartSignature == signature;
-    final tooSoon = nowMs - _lastWearSmartPushAtMs <
+    final tooSoon =
+        nowMs - _lastWearSmartPushAtMs <
         const Duration(minutes: 5).inMilliseconds;
     if (signatureUnchanged && tooSoon) {
       return;
@@ -2609,6 +2617,7 @@ class AppController extends ChangeNotifier {
     final usage = _stringMap(root['usage']);
     if (usage != null) {
       _copyKnownKey(usage, merged, 'alwaysShowSeconds');
+      _copyKnownKey(usage, merged, 'enableHapticFeedback');
       _copyKnownKey(usage, merged, 'enableSmartRecommendations');
       _copyKnownKey(usage, merged, 'enableSmartRouteNotifications');
       _copyKnownKey(usage, merged, 'keepScreenAwakeOnRouteDetail');
@@ -2727,6 +2736,7 @@ Map<String, dynamic> _preferencesSyncPayloadFromSettings(AppSettings settings) {
     },
     'usage': {
       'alwaysShowSeconds': json['alwaysShowSeconds'],
+      'enableHapticFeedback': json['enableHapticFeedback'],
       'enableSmartRecommendations': json['enableSmartRecommendations'],
       'enableSmartRouteNotifications': json['enableSmartRouteNotifications'],
       'keepScreenAwakeOnRouteDetail': json['keepScreenAwakeOnRouteDetail'],

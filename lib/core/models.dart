@@ -325,6 +325,7 @@ class AppSettings {
     required this.pageBackgroundImageOpacities,
     required this.overlayOpacity,
     required this.alwaysShowSeconds,
+    required this.enableHapticFeedback,
     required this.enableSmartRecommendations,
     required this.enableSmartRouteNotifications,
     required this.keepScreenAwakeOnRouteDetail,
@@ -363,6 +364,7 @@ class AppSettings {
       pageBackgroundImageOpacities: const {},
       overlayOpacity: 0.85,
       alwaysShowSeconds: false,
+      enableHapticFeedback: true,
       enableSmartRecommendations: true,
       enableSmartRouteNotifications: false,
       keepScreenAwakeOnRouteDetail: true,
@@ -377,14 +379,14 @@ class AppSettings {
       appUpdateChannel: _defaultAppUpdateChannel(),
       appUpdateCheckMode:
           const bool.fromEnvironment('APP_BUILD_AAB', defaultValue: false)
-              ? AppUpdateCheckMode.off
-              : (const String.fromEnvironment(
-                    'APP_UPDATE_CHANNEL',
-                    defaultValue: 'nightly',
-                  ) ==
-                  'developer'
-              ? AppUpdateCheckMode.off
-              : AppUpdateCheckMode.popup),
+          ? AppUpdateCheckMode.off
+          : (const String.fromEnvironment(
+                      'APP_UPDATE_CHANNEL',
+                      defaultValue: 'nightly',
+                    ) ==
+                    'developer'
+                ? AppUpdateCheckMode.off
+                : AppUpdateCheckMode.popup),
       desktopDiscordPresenceEnabled: true,
       desktopDiscordShowProvider: false,
       desktopDiscordShowScreen: true,
@@ -460,6 +462,7 @@ class AppSettings {
           const {},
       overlayOpacity: (json['overlayOpacity'] as num?)?.toDouble() ?? 0.85,
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
+      enableHapticFeedback: json['enableHapticFeedback'] as bool? ?? true,
       enableSmartRecommendations:
           json['enableSmartRecommendations'] as bool? ?? true,
       enableSmartRouteNotifications:
@@ -491,12 +494,12 @@ class AppSettings {
             (const bool.fromEnvironment('APP_BUILD_AAB', defaultValue: false)
                 ? 'off'
                 : (const String.fromEnvironment(
-                          'APP_UPDATE_CHANNEL',
-                          defaultValue: 'nightly',
-                        ) ==
-                        'developer'
-                    ? 'off'
-                    : 'popup')),
+                            'APP_UPDATE_CHANNEL',
+                            defaultValue: 'nightly',
+                          ) ==
+                          'developer'
+                      ? 'off'
+                      : 'popup')),
       ),
       desktopDiscordPresenceEnabled:
           json['desktopDiscordPresenceEnabled'] as bool? ?? true,
@@ -533,6 +536,7 @@ class AppSettings {
   final Map<String, double> pageBackgroundImageOpacities;
   final double overlayOpacity;
   final bool alwaysShowSeconds;
+  final bool enableHapticFeedback;
   final bool enableSmartRecommendations;
   final bool enableSmartRouteNotifications;
   final bool keepScreenAwakeOnRouteDetail;
@@ -570,6 +574,7 @@ class AppSettings {
     Map<String, double>? pageBackgroundImageOpacities,
     double? overlayOpacity,
     bool? alwaysShowSeconds,
+    bool? enableHapticFeedback,
     bool? enableSmartRecommendations,
     bool? enableSmartRouteNotifications,
     bool? keepScreenAwakeOnRouteDetail,
@@ -610,6 +615,7 @@ class AppSettings {
           pageBackgroundImageOpacities ?? this.pageBackgroundImageOpacities,
       overlayOpacity: overlayOpacity ?? this.overlayOpacity,
       alwaysShowSeconds: alwaysShowSeconds ?? this.alwaysShowSeconds,
+      enableHapticFeedback: enableHapticFeedback ?? this.enableHapticFeedback,
       enableSmartRecommendations:
           enableSmartRecommendations ?? this.enableSmartRecommendations,
       enableSmartRouteNotifications:
@@ -667,6 +673,7 @@ class AppSettings {
       'pageBackgroundImageOpacities': pageBackgroundImageOpacities,
       'overlayOpacity': overlayOpacity,
       'alwaysShowSeconds': alwaysShowSeconds,
+      'enableHapticFeedback': enableHapticFeedback,
       'enableSmartRecommendations': enableSmartRecommendations,
       'enableSmartRouteNotifications': enableSmartRouteNotifications,
       'keepScreenAwakeOnRouteDetail': keepScreenAwakeOnRouteDetail,

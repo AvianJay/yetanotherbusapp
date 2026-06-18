@@ -13,6 +13,7 @@ import '../app/bus_app.dart';
 import '../core/android_home_integration.dart';
 import '../core/android_trip_monitor.dart';
 import '../core/app_controller.dart';
+import '../core/haptic_feedback_service.dart';
 import '../core/app_launch_service.dart';
 import '../core/app_route_observer.dart';
 import '../core/app_routes.dart';
@@ -383,11 +384,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   void _playSelectionHaptic() {
-    unawaited(HapticFeedback.selectionClick());
+    unawaited(AppHaptics.selectionClick());
   }
 
   void _playSuccessHaptic() {
-    unawaited(HapticFeedback.lightImpact());
+    unawaited(AppHaptics.lightImpact());
   }
 
   Future<void> _markCurrentRouteAlertsAsRead() async {
@@ -1309,7 +1310,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final manufacturer = androidInfo.manufacturer.toLowerCase();
       final brand = androidInfo.brand.toLowerCase();
 
-      final isTargetBrand = manufacturer.contains('oppo') ||
+      final isTargetBrand =
+          manufacturer.contains('oppo') ||
           brand.contains('oppo') ||
           manufacturer.contains('realme') ||
           brand.contains('realme') ||
@@ -3505,8 +3507,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     final items = routes.map((result) {
       final liveMap = liveMaps[result.route.routeId.trim()];
-      final livePayload =
-          liveMap?[_relatedStopRealtimeKey(result.matchedStop)];
+      final livePayload = liveMap?[_relatedStopRealtimeKey(result.matchedStop)];
       final liveStop = livePayload == null
           ? result.matchedStop
           : result.matchedStop.copyWith(
@@ -3552,7 +3553,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     final leftMessageEta = _relatedStopMessageEta(left.liveStop);
     final rightMessageEta = _relatedStopMessageEta(right.liveStop);
-    if (leftMessageEta != null && rightMessageEta != null &&
+    if (leftMessageEta != null &&
+        rightMessageEta != null &&
         leftMessageEta != rightMessageEta) {
       return leftMessageEta.compareTo(rightMessageEta);
     }
@@ -3711,7 +3713,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         final direction = _relatedRouteDirectionText(route);
                         final subtitleParts = <String>[
                           _relatedStopStatusText(item.liveStop),
-                          if (direction.isNotEmpty) direction
+                          if (direction.isNotEmpty) direction,
                         ];
                         return ListTile(
                           leading: EtaBadge(
@@ -4109,8 +4111,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final hasArrivingBus =
         stop.buses.any((vehicle) => vehicle.carOnStop) ||
         (seconds != null && seconds <= 0);
-    final isLessThanOneMinute =
-        seconds != null && seconds > 0 && seconds < 60;
+    final isLessThanOneMinute = seconds != null && seconds > 0 && seconds < 60;
     final isUrgentEta = seconds != null && seconds >= 60 && seconds < 180;
     final hasFullBus = stop.buses.any((vehicle) => vehicle.full);
     final hasElectricBus = stop.buses.any(_isElectricVehicle);
@@ -4132,7 +4133,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     if (isLessThanOneMinute) {
       return _VehicleStatusStyle(
-        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.timer_rounded,
+        icon: hasElectricBus
+            ? Icons.electric_bolt_rounded
+            : Icons.timer_rounded,
         backgroundColor: Colors.deepOrange.shade600,
         foregroundColor: Colors.white,
         borderColor: Colors.orange.shade200.withValues(alpha: 0.8),
@@ -4143,7 +4146,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     if (isUrgentEta) {
       return _VehicleStatusStyle(
-        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.timer_rounded,
+        icon: hasElectricBus
+            ? Icons.electric_bolt_rounded
+            : Icons.timer_rounded,
         backgroundColor: Colors.orange.shade700,
         foregroundColor: Colors.white,
         borderColor: Colors.orange.shade200.withValues(alpha: 0.78),
@@ -4154,7 +4159,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     if (hasFullBus) {
       return _VehicleStatusStyle(
-        icon: hasElectricBus ? Icons.electric_bolt_rounded : Icons.groups_rounded,
+        icon: hasElectricBus
+            ? Icons.electric_bolt_rounded
+            : Icons.groups_rounded,
         backgroundColor: Colors.brown.shade600,
         foregroundColor: Colors.white,
         borderColor: Colors.orange.shade200.withValues(alpha: 0.75),
@@ -4365,7 +4372,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     if (stop.buses.isNotEmpty) {
-      final statusStyle = _vehicleStatusStyle(theme, stop, isNearest: isNearest);
+      final statusStyle = _vehicleStatusStyle(
+        theme,
+        stop,
+        isNearest: isNearest,
+      );
 
       return PopupMenuButton<BusVehicle>(
         padding: EdgeInsets.zero,
@@ -4999,13 +5010,7 @@ class _RouteStatusPill extends StatelessWidget {
         border: borderColor == null ? null : Border.all(color: borderColor!),
         boxShadow: glowColor == null
             ? null
-            : [
-                BoxShadow(
-                  color: glowColor!,
-                  blurRadius: 14,
-                  spreadRadius: 1,
-                ),
-              ],
+            : [BoxShadow(color: glowColor!, blurRadius: 14, spreadRadius: 1)],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -5233,9 +5238,9 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     if (!shared) {
       await Clipboard.setData(ClipboardData(text: url));
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已複製連結')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已複製連結')));
     }
   }
 
@@ -5371,8 +5376,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     if (explicit != null) {
       return explicit;
     }
-    return date.weekday == DateTime.saturday ||
-        date.weekday == DateTime.sunday;
+    return date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
   }
 
   String _dateKey(DateTime date) {
@@ -5422,8 +5426,9 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     final theme = Theme.of(context);
 
     // Filter entries that run on the selected date, then group by direction.
-    final activeEntries =
-        _schedule!.where(_isEntryActiveOnSelectedDate).toList();
+    final activeEntries = _schedule!
+        .where(_isEntryActiveOnSelectedDate)
+        .toList();
 
     if (activeEntries.isEmpty) {
       return [
@@ -5493,10 +5498,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   for (final entry in frequencyEntries)
-                    Text(
-                      entry.displayText,
-                      style: theme.textTheme.bodySmall,
-                    ),
+                    Text(entry.displayText, style: theme.textTheme.bodySmall),
                 ],
               ),
             ),
@@ -5515,10 +5517,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
                       color: theme.colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: Text(
-                      time,
-                      style: theme.textTheme.bodySmall,
-                    ),
+                    child: Text(time, style: theme.textTheme.bodySmall),
                   ),
               ],
             )
@@ -5639,8 +5638,7 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
     final key = _dateKey(date);
     final explicit = _holidayMap[key];
     if (explicit != null) return explicit;
-    return date.weekday == DateTime.saturday ||
-        date.weekday == DateTime.sunday;
+    return date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
   }
 
   String _dateKey(DateTime date) {
@@ -5780,9 +5778,7 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
                 ],
               ),
               const Divider(height: 16),
-              Expanded(
-                child: _buildBody(theme, scrollController),
-              ),
+              Expanded(child: _buildBody(theme, scrollController)),
             ],
           ),
         );
@@ -5908,7 +5904,10 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
               if (stopTimes.values.any((e) => e)) ...[
                 const SizedBox(width: 6),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.tertiaryContainer,
                     borderRadius: BorderRadius.circular(4),
@@ -5961,10 +5960,7 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
 }
 
 class _RelatedStopRouteEta {
-  const _RelatedStopRouteEta({
-    required this.result,
-    required this.liveStop,
-  });
+  const _RelatedStopRouteEta({required this.result, required this.liveStop});
 
   final StopRouteSearchResult result;
   final StopInfo liveStop;

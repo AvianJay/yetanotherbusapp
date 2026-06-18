@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
+import '../core/haptic_feedback_service.dart';
 import '../core/models.dart';
 import '../core/route_search_ranking.dart';
 import '../widgets/background_image_wrapper.dart';
@@ -950,7 +950,7 @@ class _SearchScreenState extends State<SearchScreen> {
     bool saveHistory = false,
     String source = 'search_result',
   }) async {
-    unawaited(HapticFeedback.selectionClick());
+    unawaited(AppHaptics.selectionClick());
     final busController = AppControllerScope.read(context);
     if (saveHistory && route != null) {
       await busController.addHistoryEntry(route, provider: provider);

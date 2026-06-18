@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
+import '../core/haptic_feedback_service.dart';
 import '../core/app_route_observer.dart';
 import '../core/bus_repository.dart';
 import '../core/models.dart';
@@ -514,7 +514,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     if (!mounted) {
       return;
     }
-    unawaited(HapticFeedback.lightImpact());
+    unawaited(AppHaptics.lightImpact());
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('已從 $groupName 移除 ${item.stop.stopName}')),
     );
@@ -589,7 +589,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
         return;
       }
       if (didChange) {
-        unawaited(HapticFeedback.lightImpact());
+        unawaited(AppHaptics.lightImpact());
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('已將目的地設為 ${destination.stopName}')),
         );
@@ -609,7 +609,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       return;
     }
     if (didChange) {
-      unawaited(HapticFeedback.selectionClick());
+      unawaited(AppHaptics.selectionClick());
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('已清除這個最愛的目的地設定')));
@@ -828,7 +828,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                     )
                   : null,
               onTap: () async {
-                unawaited(HapticFeedback.selectionClick());
+                unawaited(AppHaptics.selectionClick());
                 await controller.recordRouteSelection(
                   provider: item.reference.provider,
                   routeKey: item.reference.routeKey,

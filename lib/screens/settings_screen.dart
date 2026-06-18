@@ -544,6 +544,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           value: controller.settings.alwaysShowSeconds,
                           onChanged: controller.updateAlwaysShowSeconds,
                         ),
+                        if (isAndroid || isIOS)
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('震動回饋'),
+                            subtitle: const Text('點選及操作時提供觸覺回饋'),
+                            value: controller.settings.enableHapticFeedback,
+                            onChanged: controller.updateEnableHapticFeedback,
+                          ),
                         if (!kIsWeb &&
                             defaultTargetPlatform == TargetPlatform.android)
                           SwitchListTile(

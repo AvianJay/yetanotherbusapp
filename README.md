@@ -175,7 +175,7 @@ flutter build windows
 
 ## 授權
 
-本專案採用 MIT License
+本專案採用 AGPL-3.0 license
 
 ## Acknowledgements
 

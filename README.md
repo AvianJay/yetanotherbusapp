@@ -16,7 +16,7 @@
 
 ## 關於專案
 
-YetAnotherBusApp（YaBus）是一個以 Flutter 開發的跨平台公車動態查詢應用程式。
+YetAnotherBusApp（YABus）是一個以 Flutter 開發的跨平台公車動態查詢應用程式。
 
 目標提供：
 

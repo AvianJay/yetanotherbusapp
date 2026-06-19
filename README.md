@@ -1,16 +1,18 @@
 
-<img src="assets/branding/icon.png" width="96" height="96">
+<img src="assets/branding/icon.png" width="90" height="90">
 <h1>YetAnotherBusApp</h1>
 
 
-  現代化跨平台公車動態查詢 App
+現代化跨平台公車動態查詢 App
 
+<p align="left">
   <a href="https://github.com/AvianJay/yetanotherbusapp/actions/workflows/build.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/AvianJay/yetanotherbusapp/build.yml?branch=main">
   </a>
   <img src="https://img.shields.io/github/license/AvianJay/yetanotherbusapp">
   <img src="https://img.shields.io/github/stars/AvianJay/yetanotherbusapp">
   <img src="https://img.shields.io/github/downloads/AvianJay/yetanotherbusapp/total">
+</p>
 
 ## 關於專案
 

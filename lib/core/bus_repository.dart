@@ -1900,6 +1900,9 @@ class BusRepository {
     return metadata;
   }
 
+  Future<LiveStopMap> getLiveStopMap(String routeId) =>
+      _getLiveStopMap(routeId);
+
   Future<LiveStopMap> _getLiveStopMap(String routeId) async {
     final cached = _readFreshCache(_realtimeCache, routeId, _realtimeCacheTtl);
     if (cached != null) {

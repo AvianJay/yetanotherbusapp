@@ -3505,6 +3505,31 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       debugPrint('Related stop route ETA load error: $error');
     }
 
+    final missingRouteIds = routes
+        .map((result) => result.route.routeId.trim())
+        .where((id) => !liveMaps.containsKey(id))
+        .toSet();
+    if (missingRouteIds.isNotEmpty) {
+      final fallbackEntries = await Future.wait(
+        missingRouteIds.map((routeId) async {
+          try {
+            final liveMap =
+                await controller.repository.getLiveStopMap(routeId);
+            return MapEntry(routeId, liveMap);
+          } catch (_) {
+            return null;
+          }
+        }),
+      );
+      final merged = Map<String, LiveStopMap>.from(liveMaps);
+      for (final entry in fallbackEntries) {
+        if (entry != null) {
+          merged[entry.key] = entry.value;
+        }
+      }
+      liveMaps = merged;
+    }
+
     final items = routes.map((result) {
       final liveMap = liveMaps[result.route.routeId.trim()];
       final livePayload = liveMap?[_relatedStopRealtimeKey(result.matchedStop)];

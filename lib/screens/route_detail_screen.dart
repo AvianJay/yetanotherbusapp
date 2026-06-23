@@ -127,6 +127,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int _refreshRequestId = 0;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
   Map<int, int> _nearestStopByPath = const <int, int>{};
+  Map<String, RouteRealtimeBus> _realtimeBusesById =
+      const <String, RouteRealtimeBus>{};
   final Map<int, GlobalKey> _stopKeys = <int, GlobalKey>{};
   final Map<int, ScrollController> _scrollControllers =
       <int, ScrollController>{};
@@ -314,6 +316,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _alertsFetched = true;
         unawaited(_fetchAndShowAlerts(displayDetail.route.routeId));
       }
+      unawaited(_refreshRealtimeBusCache(displayDetail.route.routeId));
       _startCountdown(
         fetchedDetail.hasLiveData
             ? controller.settings.busUpdateTime
@@ -336,6 +339,37 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _statusMessage = previousDetail == null ? '讀取失敗' : '更新失敗，保留上一筆資料';
       });
       _startCountdown(controller.settings.busErrorUpdateTime);
+    }
+  }
+
+  Future<void> _refreshRealtimeBusCache(String routeId) async {
+    final trimmedRouteId = routeId.trim();
+    final pathId = _currentPathId;
+    if (trimmedRouteId.isEmpty || pathId == null) {
+      return;
+    }
+
+    try {
+      final controller = AppControllerScope.read(context);
+      final buses = await controller.repository.getRouteRealtimeBuses(
+        trimmedRouteId,
+        pathId: pathId,
+      );
+      if (!mounted || _detail?.route.routeId.trim() != trimmedRouteId) {
+        return;
+      }
+      setState(() {
+        _realtimeBusesById = {
+          for (final bus in buses) normalizeBusVehicleId(bus.id) ?? bus.id: bus,
+        };
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _realtimeBusesById = const <String, RouteRealtimeBus>{};
+      });
     }
   }
 
@@ -617,6 +651,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       }
       _syncSelectedMapPathId();
       setState(() {});
+      final routeId = _detail?.route.routeId.trim();
+      if (routeId != null && routeId.isNotEmpty) {
+        unawaited(_refreshRealtimeBusCache(routeId));
+      }
       _scrollToInitialStopIfNeeded();
       _maybeScrollToCurrentLocation();
       unawaited(_configureBackgroundTripMonitorIfNeeded());
@@ -4065,6 +4103,184 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
   }
 
+  String _formatVehicleUpdatedAt(DateTime? updatedAt) {
+    if (updatedAt == null) {
+      return '--';
+    }
+    final hour = updatedAt.hour.toString().padLeft(2, '0');
+    final minute = updatedAt.minute.toString().padLeft(2, '0');
+    final second = updatedAt.second.toString().padLeft(2, '0');
+    return '$hour:$minute:$second';
+  }
+
+  String _vehicleSourceLabel(BusVehicle vehicle) {
+    return isBackfillBusSource(vehicle.source) ? '回灌補點' : '即時定位';
+  }
+
+  String _vehicleOfflineLabel(BusVehicle vehicle) {
+    final offlineState = _vehicleOfflineState(vehicle);
+    final updatedAt = offlineState.updatedAt;
+    if (updatedAt == null) {
+      return isBackfillBusSource(vehicle.source) ? '補點資料' : '未提供時間';
+    }
+    final ageSeconds = math.max(
+      0,
+      DateTime.now().difference(updatedAt).inSeconds,
+    );
+    if (ageSeconds < 20) {
+      return '剛更新';
+    }
+    if (ageSeconds < 60) {
+      return '$ageSeconds 秒前';
+    }
+    final minutes = ageSeconds ~/ 60;
+    if (minutes < 60) {
+      return '$minutes 分鐘前';
+    }
+    final hours = minutes ~/ 60;
+    return '$hours 小時前';
+  }
+
+  Future<void> _showVehicleDetails(
+    StopInfo stop,
+    BusVehicle vehicle, {
+    required bool isNearest,
+  }) async {
+    final theme = Theme.of(context);
+    final statusStyle = _vehicleStatusStyleForVehicle(
+      theme,
+      stop,
+      vehicle,
+      isNearest: isNearest,
+    );
+    final realtimeBus = _realtimeBusForVehicle(vehicle);
+    final etaSeconds = effectiveStopEtaSecondsForVehicle(stop, vehicle.id);
+    final etaMessage = effectiveStopEtaMessageForVehicle(stop, vehicle.id);
+    final detailRows = <({String label, String value})>[
+      (label: '來源', value: _vehicleSourceLabel(vehicle)),
+      (label: '更新', value: _formatVehicleUpdatedAt(realtimeBus?.updatedAt)),
+      (label: '離線', value: _vehicleOfflineLabel(vehicle)),
+      (
+        label: '本站 ETA',
+        value: etaMessage?.trim().isNotEmpty == true
+            ? etaMessage!.trim()
+            : etaSeconds == null
+            ? '--'
+            : etaSeconds <= 0
+            ? '進站中'
+            : etaSeconds < 60
+            ? '$etaSeconds 秒'
+            : '${etaSeconds ~/ 60} 分',
+      ),
+      if (vehicle.note.trim().isNotEmpty)
+        (label: '備註', value: vehicle.note.trim()),
+      if (vehicle.full) (label: '車況', value: '客滿'),
+      if (vehicle.carOnStop) (label: '到站', value: '目前在站'),
+      if (_isElectricVehicle(vehicle)) (label: '車型', value: '電動公車'),
+      if (vehicle.type == '1') (label: '設備', value: '低地板 / 無障礙'),
+      if (realtimeBus?.speedKph != null)
+        (label: '速度', value: '${realtimeBus!.speedKph!.round()} km/h'),
+      if (realtimeBus?.azimuth != null)
+        (label: '方向', value: '${realtimeBus!.azimuth!.round()}°'),
+    ];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final bottomTheme = Theme.of(sheetContext);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    _RouteStatusPill(
+                      icon: statusStyle.icon,
+                      label: null,
+                      backgroundColor: statusStyle.backgroundColor,
+                      foregroundColor: statusStyle.foregroundColor,
+                      borderColor: statusStyle.borderColor,
+                      glowColor: statusStyle.glowColor,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            vehicle.id,
+                            style: bottomTheme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            stop.stopName,
+                            style: bottomTheme.textTheme.bodyMedium?.copyWith(
+                              color: bottomTheme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                for (final row in detailRows) ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 72,
+                        child: Text(
+                          row.label,
+                          style: bottomTheme.textTheme.labelLarge?.copyWith(
+                            color: bottomTheme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          row.value,
+                          style: bottomTheme.textTheme.bodyLarge,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed: () {
+                      Navigator.of(sheetContext).pop();
+                      _playSelectionHaptic();
+                      unawaited(
+                        _handleVehicleAction(
+                          vehicle,
+                          _VehicleAction.twBusForum,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.open_in_new_rounded),
+                    label: const Text('搜尋 TWBusforum'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   String _displayStopName(StopInfo stop) {
     return stop.stopName;
   }
@@ -4087,6 +4303,32 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         type.contains('e_bus');
   }
 
+  RouteRealtimeBus? _realtimeBusForVehicle(BusVehicle vehicle) {
+    final normalizedId = normalizeBusVehicleId(vehicle.id);
+    if (normalizedId == null) {
+      return null;
+    }
+    return _realtimeBusesById[normalizedId];
+  }
+
+  Color _blendColor(Color start, Color end, double amount) {
+    return Color.lerp(start, end, amount.clamp(0.0, 1.0)) ?? end;
+  }
+
+  ({double severity, DateTime? updatedAt}) _vehicleOfflineState(
+    BusVehicle vehicle,
+  ) {
+    final realtimeBus = _realtimeBusForVehicle(vehicle);
+    final updatedAt = realtimeBus?.updatedAt;
+    return (
+      severity: busOfflineSeverity(
+        source: vehicle.source,
+        updatedAt: updatedAt,
+      ),
+      updatedAt: updatedAt,
+    );
+  }
+
   String _vehicleStatusTooltip(StopInfo stop) {
     final ids = stop.buses.map((vehicle) => vehicle.id).join('、');
     final flags = <String>[
@@ -4101,11 +4343,137 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return '$ids · ${flags.join(' · ')}';
   }
 
+  _VehicleStatusStyle _vehicleStatusStyleForVehicle(
+    ThemeData theme,
+    StopInfo stop,
+    BusVehicle vehicle, {
+    required bool isNearest,
+  }) {
+    final seconds = effectiveStopEtaSecondsForVehicle(stop, vehicle.id);
+    final hasArrivingBus =
+        vehicle.carOnStop || (seconds != null && seconds <= 0);
+    final isLessThanOneMinute = seconds != null && seconds > 0 && seconds < 60;
+    final isUrgentEta = seconds != null && seconds >= 60 && seconds < 180;
+    final hasFullBus = vehicle.full;
+    final hasElectricBus = _isElectricVehicle(vehicle);
+    final hasAccessibleBus = vehicle.type == '1';
+    final vehicleIcon = hasElectricBus
+        ? Icons.electric_bolt_rounded
+        : Icons.directions_bus_filled_rounded;
+
+    _VehicleStatusStyle style;
+    if (hasArrivingBus) {
+      style = _VehicleStatusStyle(
+        icon: vehicleIcon,
+        backgroundColor: Colors.red.shade700,
+        foregroundColor: Colors.white,
+        borderColor: Colors.red.shade200.withValues(alpha: 0.85),
+        glowColor: Colors.red.shade500.withValues(alpha: 0.38),
+      );
+    } else if (isLessThanOneMinute) {
+      style = _VehicleStatusStyle(
+        icon: hasElectricBus
+            ? Icons.electric_bolt_rounded
+            : Icons.timer_rounded,
+        backgroundColor: Colors.deepOrange.shade600,
+        foregroundColor: Colors.white,
+        borderColor: Colors.orange.shade200.withValues(alpha: 0.8),
+        glowColor: Colors.deepOrange.shade400.withValues(alpha: 0.32),
+      );
+    } else if (isUrgentEta) {
+      style = _VehicleStatusStyle(
+        icon: hasElectricBus
+            ? Icons.electric_bolt_rounded
+            : Icons.timer_rounded,
+        backgroundColor: Colors.orange.shade700,
+        foregroundColor: Colors.white,
+        borderColor: Colors.orange.shade200.withValues(alpha: 0.78),
+        glowColor: Colors.orange.shade400.withValues(alpha: 0.28),
+      );
+    } else if (hasFullBus) {
+      style = _VehicleStatusStyle(
+        icon: hasElectricBus
+            ? Icons.electric_bolt_rounded
+            : Icons.groups_rounded,
+        backgroundColor: Colors.brown.shade600,
+        foregroundColor: Colors.white,
+        borderColor: Colors.orange.shade200.withValues(alpha: 0.75),
+        glowColor: Colors.brown.shade400.withValues(alpha: 0.28),
+      );
+    } else if (hasElectricBus) {
+      style = _VehicleStatusStyle(
+        icon: Icons.electric_bolt_rounded,
+        backgroundColor: Colors.amber.shade500,
+        foregroundColor: Colors.black87,
+        borderColor: Colors.amber.shade100.withValues(alpha: 0.9),
+        glowColor: Colors.amber.shade400.withValues(alpha: 0.3),
+      );
+    } else if (isNearest) {
+      style = _VehicleStatusStyle(
+        icon: Icons.gps_fixed_rounded,
+        backgroundColor: Colors.cyan.shade400,
+        foregroundColor: Colors.black87,
+        borderColor: Colors.cyan.shade100.withValues(alpha: 0.8),
+        glowColor: Colors.cyan.shade300.withValues(alpha: 0.32),
+      );
+    } else if (hasAccessibleBus) {
+      style = _VehicleStatusStyle(
+        icon: Icons.accessible_rounded,
+        backgroundColor: Colors.indigo.shade500,
+        foregroundColor: Colors.white,
+        borderColor: Colors.indigo.shade100.withValues(alpha: 0.7),
+        glowColor: Colors.indigo.shade300.withValues(alpha: 0.2),
+      );
+    } else {
+      style = _VehicleStatusStyle(
+        icon: Icons.directions_bus_rounded,
+        backgroundColor: theme.colorScheme.primary,
+        foregroundColor: theme.colorScheme.onPrimary,
+        borderColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
+        glowColor: theme.colorScheme.primary.withValues(alpha: 0.16),
+      );
+    }
+
+    final offlineState = _vehicleOfflineState(vehicle);
+    if (offlineState.severity <= 0) {
+      return style;
+    }
+
+    return _VehicleStatusStyle(
+      icon: offlineState.severity >= 0.65 ? Icons.wifi_off_rounded : style.icon,
+      backgroundColor: _blendColor(
+        style.backgroundColor,
+        Colors.red.shade800,
+        offlineState.severity * 0.88,
+      ),
+      foregroundColor: style.foregroundColor,
+      borderColor: _blendColor(
+        style.borderColor,
+        Colors.red.shade200,
+        offlineState.severity * 0.72,
+      ),
+      glowColor: _blendColor(
+        style.glowColor,
+        Colors.red.shade400.withValues(alpha: 0.34),
+        offlineState.severity * 0.82,
+      ),
+    );
+  }
+
   _VehicleStatusStyle _vehicleStatusStyle(
     ThemeData theme,
     StopInfo stop, {
     required bool isNearest,
   }) {
+    if (stop.buses.length == 1) {
+      return _vehicleStatusStyleForVehicle(
+        theme,
+        stop,
+        stop.buses.first,
+        isNearest: isNearest,
+      );
+    }
+
     final seconds = effectiveStopEtaSeconds(stop);
     final hasMultipleBuses = stop.buses.length > 1;
     final hasArrivingBus =
@@ -4116,12 +4484,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final hasFullBus = stop.buses.any((vehicle) => vehicle.full);
     final hasElectricBus = stop.buses.any(_isElectricVehicle);
     final hasAccessibleBus = stop.buses.any((vehicle) => vehicle.type == '1');
+    final maxOfflineSeverity = stop.buses
+        .map((vehicle) => _vehicleOfflineState(vehicle).severity)
+        .fold<double>(0.0, math.max);
     final vehicleIcon = hasElectricBus
         ? Icons.electric_bolt_rounded
         : Icons.directions_bus_filled_rounded;
 
+    _VehicleStatusStyle style;
     if (hasArrivingBus) {
-      return _VehicleStatusStyle(
+      style = _VehicleStatusStyle(
         icon: vehicleIcon,
         backgroundColor: Colors.red.shade700,
         foregroundColor: Colors.white,
@@ -4129,10 +4501,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         glowColor: Colors.red.shade500.withValues(alpha: 0.38),
         showStackedBuses: hasMultipleBuses,
       );
-    }
-
-    if (isLessThanOneMinute) {
-      return _VehicleStatusStyle(
+    } else if (isLessThanOneMinute) {
+      style = _VehicleStatusStyle(
         icon: hasElectricBus
             ? Icons.electric_bolt_rounded
             : Icons.timer_rounded,
@@ -4142,10 +4512,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         glowColor: Colors.deepOrange.shade400.withValues(alpha: 0.32),
         showStackedBuses: hasMultipleBuses,
       );
-    }
-
-    if (isUrgentEta) {
-      return _VehicleStatusStyle(
+    } else if (isUrgentEta) {
+      style = _VehicleStatusStyle(
         icon: hasElectricBus
             ? Icons.electric_bolt_rounded
             : Icons.timer_rounded,
@@ -4155,10 +4523,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         glowColor: Colors.orange.shade400.withValues(alpha: 0.28),
         showStackedBuses: hasMultipleBuses,
       );
-    }
-
-    if (hasFullBus) {
-      return _VehicleStatusStyle(
+    } else if (hasFullBus) {
+      style = _VehicleStatusStyle(
         icon: hasElectricBus
             ? Icons.electric_bolt_rounded
             : Icons.groups_rounded,
@@ -4168,10 +4534,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         glowColor: Colors.brown.shade400.withValues(alpha: 0.28),
         showStackedBuses: hasMultipleBuses,
       );
-    }
-
-    if (hasElectricBus) {
-      return _VehicleStatusStyle(
+    } else if (hasElectricBus) {
+      style = _VehicleStatusStyle(
         icon: Icons.electric_bolt_rounded,
         backgroundColor: Colors.amber.shade500,
         foregroundColor: Colors.black87,
@@ -4179,10 +4543,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         glowColor: Colors.amber.shade400.withValues(alpha: 0.3),
         showStackedBuses: hasMultipleBuses,
       );
-    }
-
-    if (isNearest) {
-      return _VehicleStatusStyle(
+    } else if (isNearest) {
+      style = _VehicleStatusStyle(
         icon: Icons.gps_fixed_rounded,
         backgroundColor: Colors.cyan.shade400,
         foregroundColor: Colors.black87,
@@ -4190,10 +4552,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         glowColor: Colors.cyan.shade300.withValues(alpha: 0.32),
         showStackedBuses: hasMultipleBuses,
       );
-    }
-
-    if (hasMultipleBuses) {
-      return _VehicleStatusStyle(
+    } else if (hasMultipleBuses) {
+      style = _VehicleStatusStyle(
         icon: Icons.directions_bus_rounded,
         backgroundColor: theme.colorScheme.secondaryContainer,
         foregroundColor: theme.colorScheme.onSecondaryContainer,
@@ -4201,24 +4561,47 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         glowColor: theme.colorScheme.secondary.withValues(alpha: 0.2),
         showStackedBuses: true,
       );
-    }
-
-    if (hasAccessibleBus) {
-      return _VehicleStatusStyle(
+    } else if (hasAccessibleBus) {
+      style = _VehicleStatusStyle(
         icon: Icons.accessible_rounded,
         backgroundColor: Colors.indigo.shade500,
         foregroundColor: Colors.white,
         borderColor: Colors.indigo.shade100.withValues(alpha: 0.7),
         glowColor: Colors.indigo.shade300.withValues(alpha: 0.2),
       );
+    } else {
+      style = _VehicleStatusStyle(
+        icon: Icons.directions_bus_rounded,
+        backgroundColor: theme.colorScheme.primary,
+        foregroundColor: theme.colorScheme.onPrimary,
+        borderColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
+        glowColor: theme.colorScheme.primary.withValues(alpha: 0.16),
+      );
+    }
+
+    if (maxOfflineSeverity <= 0) {
+      return style;
     }
 
     return _VehicleStatusStyle(
-      icon: Icons.directions_bus_rounded,
-      backgroundColor: theme.colorScheme.primary,
-      foregroundColor: theme.colorScheme.onPrimary,
-      borderColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
-      glowColor: theme.colorScheme.primary.withValues(alpha: 0.16),
+      icon: maxOfflineSeverity >= 0.65 ? Icons.wifi_off_rounded : style.icon,
+      backgroundColor: _blendColor(
+        style.backgroundColor,
+        Colors.red.shade800,
+        maxOfflineSeverity * 0.82,
+      ),
+      foregroundColor: style.foregroundColor,
+      borderColor: _blendColor(
+        style.borderColor,
+        Colors.red.shade200,
+        maxOfflineSeverity * 0.7,
+      ),
+      glowColor: _blendColor(
+        style.glowColor,
+        Colors.red.shade400.withValues(alpha: 0.32),
+        maxOfflineSeverity * 0.8,
+      ),
+      showStackedBuses: style.showStackedBuses,
     );
   }
 
@@ -4377,13 +4760,39 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         stop,
         isNearest: isNearest,
       );
+      final primaryVehicle = stop.buses.first;
+      final pill = _RouteStatusPill(
+        icon: statusStyle.icon,
+        label: null,
+        backgroundColor: statusStyle.backgroundColor,
+        foregroundColor: statusStyle.foregroundColor,
+        borderColor: statusStyle.borderColor,
+        glowColor: statusStyle.glowColor,
+        showStackedBuses: statusStyle.showStackedBuses,
+      );
+
+      if (stop.buses.length == 1) {
+        return Tooltip(
+          message: _vehicleStatusTooltip(stop),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: () {
+              _playSelectionHaptic();
+              unawaited(
+                _showVehicleDetails(stop, primaryVehicle, isNearest: isNearest),
+              );
+            },
+            child: pill,
+          ),
+        );
+      }
 
       return PopupMenuButton<BusVehicle>(
         padding: EdgeInsets.zero,
         tooltip: _vehicleStatusTooltip(stop),
         onSelected: (vehicle) {
           _playSelectionHaptic();
-          unawaited(_handleVehicleAction(vehicle, _VehicleAction.twBusForum));
+          unawaited(_showVehicleDetails(stop, vehicle, isNearest: isNearest));
         },
         itemBuilder: (context) {
           return [
@@ -4394,15 +4803,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               ),
           ];
         },
-        child: _RouteStatusPill(
-          icon: statusStyle.icon,
-          label: null,
-          backgroundColor: statusStyle.backgroundColor,
-          foregroundColor: statusStyle.foregroundColor,
-          borderColor: statusStyle.borderColor,
-          glowColor: statusStyle.glowColor,
-          showStackedBuses: statusStyle.showStackedBuses,
-        ),
+        child: pill,
       );
     }
 

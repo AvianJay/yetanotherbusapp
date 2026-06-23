@@ -2263,6 +2263,7 @@ class BusRepository {
       full: _truthyPayloadValue(fullValue),
       carOnStop: _truthyPayloadValue(carOnStopValue),
       electric: _payloadIndicatesElectric(payload),
+      source: _nonEmptyString(payload['source']) ?? 'tdx',
     );
   }
 
@@ -2285,6 +2286,8 @@ class BusRepository {
         sec: _nullableInt(rawEta['eta']),
         msg: message,
         vehicleId: vehicleId,
+        source: _nonEmptyString(rawEta['source']) ?? 'tdx',
+        estimated: _truthyPayloadValue(rawEta['estimated']),
       );
       if (eta.sec == null && eta.msg == null && eta.vehicleId == null) {
         continue;

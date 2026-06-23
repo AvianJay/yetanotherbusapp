@@ -1374,6 +1374,44 @@ BusStatusDescriptor describeBusStatus(int? statusCode) {
   };
 }
 
+const String tdxBusDataSource = 'tdx';
+const String backfillBusesDataSource = 'backfill_buses';
+
+bool isBackfillBusSource(String? source) {
+  return source?.trim().toLowerCase() == backfillBusesDataSource;
+}
+
+double busOfflineSeverity({
+  String? source,
+  DateTime? updatedAt,
+  DateTime? now,
+}) {
+  final normalizedNow = now ?? DateTime.now();
+  final baseSeverity = isBackfillBusSource(source) ? 0.58 : 0.0;
+  if (updatedAt == null) {
+    return baseSeverity;
+  }
+
+  final age = normalizedNow.difference(updatedAt);
+  if (age <= Duration.zero) {
+    return baseSeverity;
+  }
+
+  const warningAge = Duration(seconds: 20);
+  const dangerAge = Duration(seconds: 140);
+  if (age <= warningAge) {
+    return baseSeverity;
+  }
+  if (age >= dangerAge) {
+    return 1.0;
+  }
+
+  final spanSeconds = dangerAge.inMilliseconds - warningAge.inMilliseconds;
+  final ageSeconds = age.inMilliseconds - warningAge.inMilliseconds;
+  final progressiveSeverity = ageSeconds / spanSeconds;
+  return math.max(baseSeverity, progressiveSeverity.clamp(0.0, 1.0));
+}
+
 class BusVehicle {
   const BusVehicle({
     required this.id,
@@ -1382,6 +1420,7 @@ class BusVehicle {
     required this.full,
     required this.carOnStop,
     this.electric = false,
+    this.source = 'tdx',
   });
 
   final String id;
@@ -1390,14 +1429,23 @@ class BusVehicle {
   final bool full;
   final bool carOnStop;
   final bool electric;
+  final String source;
 }
 
 class StopEta {
-  const StopEta({this.sec, this.msg, this.vehicleId});
+  const StopEta({
+    this.sec,
+    this.msg,
+    this.vehicleId,
+    this.source = 'tdx',
+    this.estimated = false,
+  });
 
   final int? sec;
   final String? msg;
   final String? vehicleId;
+  final String source;
+  final bool estimated;
 }
 
 class StopInfo {

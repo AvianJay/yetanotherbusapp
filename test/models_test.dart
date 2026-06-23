@@ -113,6 +113,39 @@ void main() {
     expect(effectiveStopEtaMessageForVehicle(stop, 'wrong-bus'), '即將進站');
   });
 
+  test('backfill source starts with elevated offline severity', () {
+    expect(
+      busOfflineSeverity(
+        source: 'backfill_buses',
+        updatedAt: DateTime(2026, 6, 23, 10, 0, 0),
+        now: DateTime(2026, 6, 23, 10, 0, 5),
+      ),
+      greaterThan(0.5),
+    );
+  });
+
+  test('fresh native bus stays near zero offline severity', () {
+    expect(
+      busOfflineSeverity(
+        source: 'tdx',
+        updatedAt: DateTime(2026, 6, 23, 10, 0, 0),
+        now: DateTime(2026, 6, 23, 10, 0, 5),
+      ),
+      0,
+    );
+  });
+
+  test('stale native bus reaches high offline severity', () {
+    expect(
+      busOfflineSeverity(
+        source: 'tdx',
+        updatedAt: DateTime(2026, 6, 23, 10, 0, 0),
+        now: DateTime(2026, 6, 23, 10, 2, 40),
+      ),
+      1,
+    );
+  });
+
   test('formatEtaBadgeText wraps text by length', () {
     expect(formatEtaBadgeText(''), '');
     expect(formatEtaBadgeText('12:34'), '12:34');

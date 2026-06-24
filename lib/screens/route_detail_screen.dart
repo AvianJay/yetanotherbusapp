@@ -4105,16 +4105,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
   }
 
-  String _formatVehicleUpdatedAt(DateTime? updatedAt) {
-    if (updatedAt == null) {
-      return '--';
-    }
-    final hour = updatedAt.hour.toString().padLeft(2, '0');
-    final minute = updatedAt.minute.toString().padLeft(2, '0');
-    final second = updatedAt.second.toString().padLeft(2, '0');
-    return '$hour:$minute:$second';
-  }
-
   String _vehicleSourceLabel(BusVehicle vehicle) {
     return isBackfillBusSource(vehicle.source) ? '回灌補點' : '即時定位';
   }
@@ -4155,12 +4145,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       vehicle,
       isNearest: isNearest,
     );
-    final realtimeBus = _realtimeBusForVehicle(vehicle);
     final etaSeconds = effectiveStopEtaSecondsForVehicle(stop, vehicle.id);
     final etaMessage = effectiveStopEtaMessageForVehicle(stop, vehicle.id);
     final detailRows = <({String label, String value})>[
       (label: '來源', value: _vehicleSourceLabel(vehicle)),
-      (label: '更新', value: _formatVehicleUpdatedAt(realtimeBus?.updatedAt)),
       (label: '離線', value: _vehicleOfflineLabel(vehicle)),
       (
         label: '本站 ETA',
@@ -4180,10 +4168,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (vehicle.carOnStop) (label: '到站', value: '目前在站'),
       if (_isElectricVehicle(vehicle)) (label: '車型', value: '電動公車'),
       if (vehicle.type == '1') (label: '設備', value: '低地板 / 無障礙'),
-      if (realtimeBus?.speedKph != null)
-        (label: '速度', value: '${realtimeBus!.speedKph!.round()} km/h'),
-      if (realtimeBus?.azimuth != null)
-        (label: '方向', value: '${realtimeBus!.azimuth!.round()}°'),
     ];
 
     await showModalBottomSheet<void>(
@@ -4303,10 +4287,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         type.contains('electric') ||
         type.contains('e-bus') ||
         type.contains('e_bus');
-  }
-
-  RouteRealtimeBus? _realtimeBusForVehicle(BusVehicle vehicle) {
-    return null;
   }
 
   Color _blendColor(Color start, Color end, double amount) {

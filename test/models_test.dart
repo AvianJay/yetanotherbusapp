@@ -113,14 +113,14 @@ void main() {
     expect(effectiveStopEtaMessageForVehicle(stop, 'wrong-bus'), '即將進站');
   });
 
-  test('backfill source starts with elevated offline severity', () {
+  test('backfill source no longer forces offline severity', () {
     expect(
       busOfflineSeverity(
         source: 'backfill_buses',
         updatedAt: DateTime(2026, 6, 23, 10, 0, 0),
         now: DateTime(2026, 6, 23, 10, 0, 5),
       ),
-      greaterThan(0.5),
+      0,
     );
   });
 

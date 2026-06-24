@@ -61,6 +61,7 @@ class RouteDetailScreen extends StatefulWidget {
 class _RouteDetailScreenState extends State<RouteDetailScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver, RouteAware {
   static const double _wideLayoutBreakpoint = 1080;
+  static const Duration _maxMergedPreviousLiveAge = Duration(seconds: 90);
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final RouteDetailLaunchHandler _launchHandler;
@@ -127,8 +128,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int _refreshRequestId = 0;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
   Map<int, int> _nearestStopByPath = const <int, int>{};
-  Map<String, RouteRealtimeBus> _realtimeBusesById =
-      const <String, RouteRealtimeBus>{};
   final Map<int, GlobalKey> _stopKeys = <int, GlobalKey>{};
   final Map<int, ScrollController> _scrollControllers =
       <int, ScrollController>{};
@@ -316,7 +315,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _alertsFetched = true;
         unawaited(_fetchAndShowAlerts(displayDetail.route.routeId));
       }
-      unawaited(_refreshRealtimeBusCache(displayDetail.route.routeId));
       _startCountdown(
         fetchedDetail.hasLiveData
             ? controller.settings.busUpdateTime
@@ -339,37 +337,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _statusMessage = previousDetail == null ? '讀取失敗' : '更新失敗，保留上一筆資料';
       });
       _startCountdown(controller.settings.busErrorUpdateTime);
-    }
-  }
-
-  Future<void> _refreshRealtimeBusCache(String routeId) async {
-    final trimmedRouteId = routeId.trim();
-    final pathId = _currentPathId;
-    if (trimmedRouteId.isEmpty || pathId == null) {
-      return;
-    }
-
-    try {
-      final controller = AppControllerScope.read(context);
-      final buses = await controller.repository.getRouteRealtimeBuses(
-        trimmedRouteId,
-        pathId: pathId,
-      );
-      if (!mounted || _detail?.route.routeId.trim() != trimmedRouteId) {
-        return;
-      }
-      setState(() {
-        _realtimeBusesById = {
-          for (final bus in buses) normalizeBusVehicleId(bus.id) ?? bus.id: bus,
-        };
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _realtimeBusesById = const <String, RouteRealtimeBus>{};
-      });
     }
   }
 
@@ -555,6 +522,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     RouteDetailData next,
     RouteDetailData previous,
   ) {
+    final now = DateTime.now();
     final previousStops = <int, StopInfo>{};
     for (final entry in previous.stopsByPath.entries) {
       for (final stop in entry.value) {
@@ -575,6 +543,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           return stop;
         }
 
+        final previousUpdatedAt = _parseStopRealtimeUpdatedAt(
+          previousStop.t,
+          now,
+        );
+        if (previousUpdatedAt == null ||
+            now.difference(previousUpdatedAt) > _maxMergedPreviousLiveAge) {
+          return stop;
+        }
+
         return stop.copyWith(
           sec: previousStop.sec,
           msg: previousStop.msg,
@@ -591,6 +568,35 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       stopsByPath: mergedStopsByPath,
       hasLiveData: next.hasLiveData,
     );
+  }
+
+  DateTime? _parseStopRealtimeUpdatedAt(String? value, DateTime now) {
+    final text = value?.trim();
+    if (text == null || text.isEmpty) {
+      return null;
+    }
+
+    final numericValue = int.tryParse(text);
+    if (numericValue != null) {
+      if (numericValue > 1000000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(
+          numericValue,
+          isUtc: true,
+        ).toLocal();
+      }
+      if (numericValue > 1000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(
+          numericValue * 1000,
+          isUtc: true,
+        ).toLocal();
+      }
+    }
+
+    final parsed = DateTime.tryParse(text)?.toLocal();
+    if (parsed == null || parsed.isAfter(now.add(const Duration(seconds: 15)))) {
+      return null;
+    }
+    return parsed;
   }
 
   void _syncTabController(RouteDetailData detail) {
@@ -651,10 +657,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       }
       _syncSelectedMapPathId();
       setState(() {});
-      final routeId = _detail?.route.routeId.trim();
-      if (routeId != null && routeId.isNotEmpty) {
-        unawaited(_refreshRealtimeBusCache(routeId));
-      }
       _scrollToInitialStopIfNeeded();
       _maybeScrollToCurrentLocation();
       unawaited(_configureBackgroundTripMonitorIfNeeded());
@@ -4304,11 +4306,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   RouteRealtimeBus? _realtimeBusForVehicle(BusVehicle vehicle) {
-    final normalizedId = normalizeBusVehicleId(vehicle.id);
-    if (normalizedId == null) {
-      return null;
-    }
-    return _realtimeBusesById[normalizedId];
+    return null;
   }
 
   Color _blendColor(Color start, Color end, double amount) {
@@ -4318,14 +4316,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   ({double severity, DateTime? updatedAt}) _vehicleOfflineState(
     BusVehicle vehicle,
   ) {
-    final realtimeBus = _realtimeBusForVehicle(vehicle);
-    final updatedAt = realtimeBus?.updatedAt;
     return (
-      severity: busOfflineSeverity(
-        source: vehicle.source,
-        updatedAt: updatedAt,
-      ),
-      updatedAt: updatedAt,
+      severity: busOfflineSeverity(source: vehicle.source),
+      updatedAt: null,
     );
   }
 

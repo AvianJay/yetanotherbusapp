@@ -135,14 +135,14 @@ void main() {
     );
   });
 
-  test('stale native bus reaches high offline severity', () {
+  test('native bus stays non-offline even when timestamp is old', () {
     expect(
       busOfflineSeverity(
         source: 'tdx',
         updatedAt: DateTime(2026, 6, 23, 10, 0, 0),
         now: DateTime(2026, 6, 23, 10, 2, 40),
       ),
-      1,
+      0,
     );
   });
 

@@ -1386,30 +1386,7 @@ double busOfflineSeverity({
   DateTime? updatedAt,
   DateTime? now,
 }) {
-  final normalizedNow = now ?? DateTime.now();
-  final baseSeverity = isBackfillBusSource(source) ? 0.58 : 0.0;
-  if (updatedAt == null) {
-    return baseSeverity;
-  }
-
-  final age = normalizedNow.difference(updatedAt);
-  if (age <= Duration.zero) {
-    return baseSeverity;
-  }
-
-  const warningAge = Duration(seconds: 20);
-  const dangerAge = Duration(seconds: 140);
-  if (age <= warningAge) {
-    return baseSeverity;
-  }
-  if (age >= dangerAge) {
-    return 1.0;
-  }
-
-  final spanSeconds = dangerAge.inMilliseconds - warningAge.inMilliseconds;
-  final ageSeconds = age.inMilliseconds - warningAge.inMilliseconds;
-  final progressiveSeverity = ageSeconds / spanSeconds;
-  return math.max(baseSeverity, progressiveSeverity.clamp(0.0, 1.0));
+  return isBackfillBusSource(source) ? 0.72 : 0.0;
 }
 
 class BusVehicle {

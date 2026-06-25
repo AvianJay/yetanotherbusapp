@@ -1648,6 +1648,14 @@ StopEta? stopEtaForVehicle(StopInfo stop, String? vehicleId) {
   return null;
 }
 
+bool hasSyntheticVehicleEta(StopInfo stop, String? vehicleId) {
+  final eta = stopEtaForVehicle(stop, vehicleId);
+  if (eta == null) {
+    return false;
+  }
+  return eta.estimated || isBackfillBusSource(eta.source);
+}
+
 int? _effectiveEtaSeconds(int? seconds, String? updatedAtText, DateTime now) {
   if (seconds == null || seconds <= 0) {
     return seconds;

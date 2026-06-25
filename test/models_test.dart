@@ -124,6 +124,34 @@ void main() {
     );
   });
 
+  test('synthetic vehicle eta is detected from backfill metadata', () {
+    final stop = StopInfo(
+      routeKey: 1,
+      pathId: 0,
+      stopId: 10,
+      stopName: 'Main Station',
+      sequence: 1,
+      lon: 121.5,
+      lat: 25.0,
+      etas: const [
+        StopEta(
+          sec: 0,
+          vehicleId: 'BBB-0002',
+          source: 'backfill_buses',
+          estimated: true,
+        ),
+        StopEta(
+          sec: 60,
+          vehicleId: 'AAA-0001',
+          source: 'tdx',
+        ),
+      ],
+    );
+
+    expect(hasSyntheticVehicleEta(stop, 'BBB-0002'), isTrue);
+    expect(hasSyntheticVehicleEta(stop, 'AAA-0001'), isFalse);
+  });
+
   test('fresh native bus stays near zero offline severity', () {
     expect(
       busOfflineSeverity(

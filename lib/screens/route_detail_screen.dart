@@ -1240,10 +1240,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     );
   }
 
-  Future<void> _openBusMapSheet() async {
+  Future<void> _openBusMapSheet({int? pathId}) async {
     final detail = _detail;
     final routeId = detail?.route.routeId.trim() ?? '';
-    final currentPathId = _currentPathId;
+    final currentPathId = pathId ?? _currentPathId;
     if (detail == null ||
         detail.paths.isEmpty ||
         routeId.isEmpty ||
@@ -4105,32 +4105,23 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
   }
 
-  String _vehicleSourceLabel(BusVehicle vehicle) {
-    return isBackfillBusSource(vehicle.source) ? '回灌補點' : '即時定位';
+  Future<void> _showStopOnMap(StopInfo stop) async {
+    _handleMapPathSelection(stop.pathId);
+    final isWideLayout =
+        MediaQuery.sizeOf(context).width >= _wideLayoutBreakpoint;
+    if (isWideLayout) {
+      if (!_showWideMapPanel) {
+        setState(() {
+          _showWideMapPanel = true;
+        });
+      }
+      return;
+    }
+    await _openBusMapSheet(pathId: stop.pathId);
   }
 
-  String _vehicleOfflineLabel(BusVehicle vehicle) {
-    final offlineState = _vehicleOfflineState(vehicle);
-    final updatedAt = offlineState.updatedAt;
-    if (updatedAt == null) {
-      return isBackfillBusSource(vehicle.source) ? '補點資料' : '未提供時間';
-    }
-    final ageSeconds = math.max(
-      0,
-      DateTime.now().difference(updatedAt).inSeconds,
-    );
-    if (ageSeconds < 20) {
-      return '剛更新';
-    }
-    if (ageSeconds < 60) {
-      return '$ageSeconds 秒前';
-    }
-    final minutes = ageSeconds ~/ 60;
-    if (minutes < 60) {
-      return '$minutes 分鐘前';
-    }
-    final hours = minutes ~/ 60;
-    return '$hours 小時前';
+  String _vehicleSourceLabel(BusVehicle vehicle) {
+    return isBackfillBusSource(vehicle.source) ? '回灌補點' : '即時定位';
   }
 
   Future<void> _showVehicleDetails(
@@ -4149,7 +4140,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final etaMessage = effectiveStopEtaMessageForVehicle(stop, vehicle.id);
     final detailRows = <({String label, String value})>[
       (label: '來源', value: _vehicleSourceLabel(vehicle)),
-      (label: '離線', value: _vehicleOfflineLabel(vehicle)),
       (
         label: '本站 ETA',
         value: etaMessage?.trim().isNotEmpty == true
@@ -4244,6 +4234,19 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      Navigator.of(sheetContext).pop();
+                      _playSelectionHaptic();
+                      unawaited(_showStopOnMap(stop));
+                    },
+                    icon: const Icon(Icons.map_rounded),
+                    label: const Text('在地圖中查看'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
                   child: FilledButton.tonalIcon(
                     onPressed: () {
                       Navigator.of(sheetContext).pop();
@@ -4302,6 +4305,30 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     );
   }
 
+  bool _hasUrgentVehicleEta(
+    StopInfo stop,
+    BusVehicle vehicle, {
+    required bool Function(int seconds) predicate,
+  }) {
+    if (hasSyntheticVehicleEta(stop, vehicle.id)) {
+      return false;
+    }
+    final seconds = effectiveStopEtaSecondsForVehicle(stop, vehicle.id);
+    return seconds != null && predicate(seconds);
+  }
+
+  bool _hasUrgentStopEta(
+    StopInfo stop, {
+    required bool Function(int seconds) predicate,
+  }) {
+    for (final vehicle in stop.buses) {
+      if (_hasUrgentVehicleEta(stop, vehicle, predicate: predicate)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   String _vehicleStatusTooltip(StopInfo stop) {
     final ids = stop.buses.map((vehicle) => vehicle.id).join('、');
     final flags = <String>[
@@ -4323,10 +4350,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     required bool isNearest,
   }) {
     final seconds = effectiveStopEtaSecondsForVehicle(stop, vehicle.id);
+    final hasSyntheticEta = hasSyntheticVehicleEta(stop, vehicle.id);
     final hasArrivingBus =
-        vehicle.carOnStop || (seconds != null && seconds <= 0);
-    final isLessThanOneMinute = seconds != null && seconds > 0 && seconds < 60;
-    final isUrgentEta = seconds != null && seconds >= 60 && seconds < 180;
+        vehicle.carOnStop ||
+        (!hasSyntheticEta && seconds != null && seconds <= 0);
+    final isLessThanOneMinute =
+        !hasSyntheticEta && seconds != null && seconds > 0 && seconds < 60;
+    final isUrgentEta =
+        !hasSyntheticEta && seconds != null && seconds >= 60 && seconds < 180;
     final hasFullBus = vehicle.full;
     final hasElectricBus = _isElectricVehicle(vehicle);
     final hasAccessibleBus = vehicle.type == '1';
@@ -4447,13 +4478,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       );
     }
 
-    final seconds = effectiveStopEtaSeconds(stop);
     final hasMultipleBuses = stop.buses.length > 1;
     final hasArrivingBus =
         stop.buses.any((vehicle) => vehicle.carOnStop) ||
-        (seconds != null && seconds <= 0);
-    final isLessThanOneMinute = seconds != null && seconds > 0 && seconds < 60;
-    final isUrgentEta = seconds != null && seconds >= 60 && seconds < 180;
+        _hasUrgentStopEta(stop, predicate: (seconds) => seconds <= 0);
+    final isLessThanOneMinute = _hasUrgentStopEta(
+      stop,
+      predicate: (seconds) => seconds > 0 && seconds < 60,
+    );
+    final isUrgentEta = _hasUrgentStopEta(
+      stop,
+      predicate: (seconds) => seconds >= 60 && seconds < 180,
+    );
     final hasFullBus = stop.buses.any((vehicle) => vehicle.full);
     final hasElectricBus = stop.buses.any(_isElectricVehicle);
     final hasAccessibleBus = stop.buses.any((vehicle) => vehicle.type == '1');

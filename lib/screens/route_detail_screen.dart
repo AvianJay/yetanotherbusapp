@@ -4296,8 +4296,37 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return Color.lerp(start, end, amount.clamp(0.0, 1.0)) ?? end;
   }
 
-  double _vehicleOfflineSeverity(BusVehicle vehicle) {
-    return busOfflineSeverity(source: vehicle.source);
+  ({double severity, DateTime? updatedAt}) _vehicleOfflineState(
+    BusVehicle vehicle,
+  ) {
+    return (
+      severity: busOfflineSeverity(source: vehicle.source),
+      updatedAt: null,
+    );
+  }
+
+  bool _hasUrgentVehicleEta(
+    StopInfo stop,
+    BusVehicle vehicle, {
+    required bool Function(int seconds) predicate,
+  }) {
+    if (hasSyntheticVehicleEta(stop, vehicle.id)) {
+      return false;
+    }
+    final seconds = effectiveStopEtaSecondsForVehicle(stop, vehicle.id);
+    return seconds != null && predicate(seconds);
+  }
+
+  bool _hasUrgentStopEta(
+    StopInfo stop, {
+    required bool Function(int seconds) predicate,
+  }) {
+    for (final vehicle in stop.buses) {
+      if (_hasUrgentVehicleEta(stop, vehicle, predicate: predicate)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   String _vehicleStatusTooltip(StopInfo stop) {
@@ -4320,12 +4349,52 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     BusVehicle vehicle, {
     required bool isNearest,
   }) {
+    final seconds = effectiveStopEtaSecondsForVehicle(stop, vehicle.id);
+    final hasSyntheticEta = hasSyntheticVehicleEta(stop, vehicle.id);
+    final hasArrivingBus =
+        vehicle.carOnStop ||
+        (!hasSyntheticEta && seconds != null && seconds <= 0);
+    final isLessThanOneMinute =
+        !hasSyntheticEta && seconds != null && seconds > 0 && seconds < 60;
+    final isUrgentEta =
+        !hasSyntheticEta && seconds != null && seconds >= 60 && seconds < 180;
     final hasFullBus = vehicle.full;
     final hasElectricBus = _isElectricVehicle(vehicle);
     final hasAccessibleBus = vehicle.type == '1';
+    final vehicleIcon = hasElectricBus
+        ? Icons.electric_bolt_rounded
+        : Icons.directions_bus_filled_rounded;
 
     _VehicleStatusStyle style;
-    if (hasFullBus) {
+    if (hasArrivingBus) {
+      style = _VehicleStatusStyle(
+        icon: vehicleIcon,
+        backgroundColor: Colors.red.shade700,
+        foregroundColor: Colors.white,
+        borderColor: Colors.red.shade200.withValues(alpha: 0.85),
+        glowColor: Colors.red.shade500.withValues(alpha: 0.38),
+      );
+    } else if (isLessThanOneMinute) {
+      style = _VehicleStatusStyle(
+        icon: hasElectricBus
+            ? Icons.electric_bolt_rounded
+            : Icons.timer_rounded,
+        backgroundColor: Colors.deepOrange.shade600,
+        foregroundColor: Colors.white,
+        borderColor: Colors.orange.shade200.withValues(alpha: 0.8),
+        glowColor: Colors.deepOrange.shade400.withValues(alpha: 0.32),
+      );
+    } else if (isUrgentEta) {
+      style = _VehicleStatusStyle(
+        icon: hasElectricBus
+            ? Icons.electric_bolt_rounded
+            : Icons.timer_rounded,
+        backgroundColor: Colors.orange.shade700,
+        foregroundColor: Colors.white,
+        borderColor: Colors.orange.shade200.withValues(alpha: 0.78),
+        glowColor: Colors.orange.shade400.withValues(alpha: 0.28),
+      );
+    } else if (hasFullBus) {
       style = _VehicleStatusStyle(
         icon: hasElectricBus
             ? Icons.electric_bolt_rounded
@@ -4369,28 +4438,28 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       );
     }
 
-    final offlineSeverity = _vehicleOfflineSeverity(vehicle);
-    if (offlineSeverity <= 0) {
+    final offlineState = _vehicleOfflineState(vehicle);
+    if (offlineState.severity <= 0) {
       return style;
     }
 
     return _VehicleStatusStyle(
-      icon: offlineSeverity >= 0.65 ? Icons.wifi_off_rounded : style.icon,
+      icon: offlineState.severity >= 0.65 ? Icons.wifi_off_rounded : style.icon,
       backgroundColor: _blendColor(
         style.backgroundColor,
         Colors.red.shade800,
-        offlineSeverity * 0.88,
+        offlineState.severity * 0.88,
       ),
       foregroundColor: style.foregroundColor,
       borderColor: _blendColor(
         style.borderColor,
         Colors.red.shade200,
-        offlineSeverity * 0.72,
+        offlineState.severity * 0.72,
       ),
       glowColor: _blendColor(
         style.glowColor,
         Colors.red.shade400.withValues(alpha: 0.34),
-        offlineSeverity * 0.82,
+        offlineState.severity * 0.82,
       ),
     );
   }
@@ -4410,15 +4479,60 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     final hasMultipleBuses = stop.buses.length > 1;
+    final hasArrivingBus =
+        stop.buses.any((vehicle) => vehicle.carOnStop) ||
+        _hasUrgentStopEta(stop, predicate: (seconds) => seconds <= 0);
+    final isLessThanOneMinute = _hasUrgentStopEta(
+      stop,
+      predicate: (seconds) => seconds > 0 && seconds < 60,
+    );
+    final isUrgentEta = _hasUrgentStopEta(
+      stop,
+      predicate: (seconds) => seconds >= 60 && seconds < 180,
+    );
     final hasFullBus = stop.buses.any((vehicle) => vehicle.full);
     final hasElectricBus = stop.buses.any(_isElectricVehicle);
     final hasAccessibleBus = stop.buses.any((vehicle) => vehicle.type == '1');
     final maxOfflineSeverity = stop.buses
-        .map(_vehicleOfflineSeverity)
+        .map((vehicle) => _vehicleOfflineState(vehicle).severity)
         .fold<double>(0.0, math.max);
+    final vehicleIcon = hasElectricBus
+        ? Icons.electric_bolt_rounded
+        : Icons.directions_bus_filled_rounded;
 
     _VehicleStatusStyle style;
-    if (hasFullBus) {
+    if (hasArrivingBus) {
+      style = _VehicleStatusStyle(
+        icon: vehicleIcon,
+        backgroundColor: Colors.red.shade700,
+        foregroundColor: Colors.white,
+        borderColor: Colors.red.shade200.withValues(alpha: 0.85),
+        glowColor: Colors.red.shade500.withValues(alpha: 0.38),
+        showStackedBuses: hasMultipleBuses,
+      );
+    } else if (isLessThanOneMinute) {
+      style = _VehicleStatusStyle(
+        icon: hasElectricBus
+            ? Icons.electric_bolt_rounded
+            : Icons.timer_rounded,
+        backgroundColor: Colors.deepOrange.shade600,
+        foregroundColor: Colors.white,
+        borderColor: Colors.orange.shade200.withValues(alpha: 0.8),
+        glowColor: Colors.deepOrange.shade400.withValues(alpha: 0.32),
+        showStackedBuses: hasMultipleBuses,
+      );
+    } else if (isUrgentEta) {
+      style = _VehicleStatusStyle(
+        icon: hasElectricBus
+            ? Icons.electric_bolt_rounded
+            : Icons.timer_rounded,
+        backgroundColor: Colors.orange.shade700,
+        foregroundColor: Colors.white,
+        borderColor: Colors.orange.shade200.withValues(alpha: 0.78),
+        glowColor: Colors.orange.shade400.withValues(alpha: 0.28),
+        showStackedBuses: hasMultipleBuses,
+      );
+    } else if (hasFullBus) {
       style = _VehicleStatusStyle(
         icon: hasElectricBus
             ? Icons.electric_bolt_rounded

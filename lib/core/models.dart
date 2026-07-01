@@ -1374,6 +1374,21 @@ BusStatusDescriptor describeBusStatus(int? statusCode) {
   };
 }
 
+const String tdxBusDataSource = 'tdx';
+const String backfillBusesDataSource = 'backfill_buses';
+
+bool isBackfillBusSource(String? source) {
+  return source?.trim().toLowerCase() == backfillBusesDataSource;
+}
+
+double busOfflineSeverity({
+  String? source,
+  DateTime? updatedAt,
+  DateTime? now,
+}) {
+  return 0.0;
+}
+
 class BusVehicle {
   const BusVehicle({
     required this.id,
@@ -1382,6 +1397,7 @@ class BusVehicle {
     required this.full,
     required this.carOnStop,
     this.electric = false,
+    this.source = 'tdx',
   });
 
   final String id;
@@ -1390,14 +1406,23 @@ class BusVehicle {
   final bool full;
   final bool carOnStop;
   final bool electric;
+  final String source;
 }
 
 class StopEta {
-  const StopEta({this.sec, this.msg, this.vehicleId});
+  const StopEta({
+    this.sec,
+    this.msg,
+    this.vehicleId,
+    this.source = 'tdx',
+    this.estimated = false,
+  });
 
   final int? sec;
   final String? msg;
   final String? vehicleId;
+  final String source;
+  final bool estimated;
 }
 
 class StopInfo {
@@ -1621,6 +1646,14 @@ StopEta? stopEtaForVehicle(StopInfo stop, String? vehicleId) {
     }
   }
   return null;
+}
+
+bool hasSyntheticVehicleEta(StopInfo stop, String? vehicleId) {
+  final eta = stopEtaForVehicle(stop, vehicleId);
+  if (eta == null) {
+    return false;
+  }
+  return eta.estimated || isBackfillBusSource(eta.source);
 }
 
 int? _effectiveEtaSeconds(int? seconds, String? updatedAtText, DateTime now) {

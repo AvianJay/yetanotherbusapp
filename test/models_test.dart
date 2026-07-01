@@ -113,6 +113,67 @@ void main() {
     expect(effectiveStopEtaMessageForVehicle(stop, 'wrong-bus'), '即將進站');
   });
 
+  test('backfill source no longer forces offline severity', () {
+    expect(
+      busOfflineSeverity(
+        source: 'backfill_buses',
+        updatedAt: DateTime(2026, 6, 23, 10, 0, 0),
+        now: DateTime(2026, 6, 23, 10, 0, 5),
+      ),
+      0,
+    );
+  });
+
+  test('synthetic vehicle eta is detected from backfill metadata', () {
+    final stop = StopInfo(
+      routeKey: 1,
+      pathId: 0,
+      stopId: 10,
+      stopName: 'Main Station',
+      sequence: 1,
+      lon: 121.5,
+      lat: 25.0,
+      etas: const [
+        StopEta(
+          sec: 0,
+          vehicleId: 'BBB-0002',
+          source: 'backfill_buses',
+          estimated: true,
+        ),
+        StopEta(
+          sec: 60,
+          vehicleId: 'AAA-0001',
+          source: 'tdx',
+        ),
+      ],
+    );
+
+    expect(hasSyntheticVehicleEta(stop, 'BBB-0002'), isTrue);
+    expect(hasSyntheticVehicleEta(stop, 'AAA-0001'), isFalse);
+  });
+
+  test('fresh native bus stays near zero offline severity', () {
+    expect(
+      busOfflineSeverity(
+        source: 'tdx',
+        updatedAt: DateTime(2026, 6, 23, 10, 0, 0),
+        now: DateTime(2026, 6, 23, 10, 0, 5),
+      ),
+      0,
+    );
+  });
+
+  test('native bus stays non-offline even when timestamp is old', () {
+    expect(
+      busOfflineSeverity(
+        source: 'tdx',
+        updatedAt: DateTime(2026, 6, 23, 10, 0, 0),
+        now: DateTime(2026, 6, 23, 10, 2, 40),
+      ),
+      0,
+    );
+  });
+
   test('formatEtaBadgeText wraps text by length', () {
     expect(formatEtaBadgeText(''), '');
     expect(formatEtaBadgeText('12:34'), '12:34');

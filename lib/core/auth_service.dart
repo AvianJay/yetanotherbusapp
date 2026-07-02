@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'api_http.dart';
 import 'api_config.dart';
 import 'api_user_agent.dart';
 import 'auth_token_store.dart';
@@ -220,11 +221,7 @@ class AuthService {
     final uri = Uri.parse('${ApiConfig.baseUrl}/api/v1/auth/google-native');
     final response = await http.post(
       uri,
-      headers: ApiUserAgent.applyTo(const {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-        'Content-Type': 'application/json',
-      }),
+      headers: ApiUserAgent.applyTo(apiJsonContentHeaders),
       body: jsonEncode({
         'id_token': idToken,
         'device_key': deviceKey,
@@ -237,7 +234,7 @@ class AuthService {
       );
     }
 
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = apiDecodeJsonResponse(response);
     if (decoded is! Map) {
       throw const FormatException(
         'Native login response was not a JSON object.',
@@ -347,10 +344,7 @@ class AuthService {
     final uri = Uri.parse('${ApiConfig.baseUrl}/api/v1/auth/me');
     final response = await http.get(
       uri,
-      headers: ApiUserAgent.applyTo(const {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-      }),
+      headers: ApiUserAgent.applyTo(apiJsonHeaders),
     );
     if (response.statusCode == 401 || response.statusCode == 403) {
       throw const AuthTokenExpiredException();
@@ -364,7 +358,7 @@ class AuthService {
       );
     }
 
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = apiDecodeJsonResponse(response);
     if (decoded is! Map) {
       throw const FormatException('Account response was not a JSON object.');
     }
@@ -376,13 +370,7 @@ class AuthService {
     if (token != null && token.isNotEmpty) {
       try {
         final uri = Uri.parse('${ApiConfig.baseUrl}/api/v1/auth/logout');
-        await http.post(
-          uri,
-          headers: ApiUserAgent.applyTo(const {
-            'Accept': 'application/json',
-            'Accept-Encoding': 'gzip',
-          }),
-        );
+        await http.post(uri, headers: ApiUserAgent.applyTo(apiJsonHeaders));
       } catch (_) {
         // Local logout should still succeed if the network is unavailable.
       }

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'api_http.dart';
 import 'api_config.dart';
 import 'api_user_agent.dart';
 import 'auth_token_store.dart';
@@ -63,11 +64,7 @@ class FeedbackService {
 
     final response = await _client.post(
       Uri.parse('${ApiConfig.baseUrl}/api/v1/feedback'),
-      headers: ApiUserAgent.applyTo(const {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-        'Content-Type': 'application/json',
-      }),
+      headers: ApiUserAgent.applyTo(apiJsonContentHeaders),
       body: jsonEncode({'title': cleanedTitle, 'content': cleanedContent}),
     );
 
@@ -84,7 +81,7 @@ class FeedbackService {
       throw Exception(httpErrorMessage(response, '送出意見回饋失敗。'));
     }
 
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = apiDecodeJsonResponse(response);
     if (decoded is! Map) {
       throw const FormatException('Invalid feedback response payload.');
     }

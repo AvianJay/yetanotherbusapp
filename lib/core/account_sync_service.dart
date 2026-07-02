@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'account_sync_models.dart';
+import 'api_http.dart';
 import 'api_config.dart';
 import 'api_user_agent.dart';
 import 'auth_token_store.dart';
@@ -16,17 +17,14 @@ class AccountSyncService {
   Future<AccountSyncSummary> fetchSummary() async {
     final response = await _client.get(
       Uri.parse('${ApiConfig.baseUrl}/api/v1/account/sync'),
-      headers: ApiUserAgent.applyTo(const {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-      }),
+      headers: ApiUserAgent.applyTo(apiJsonHeaders),
     );
     _throwIfUnauthorized(response);
     if (response.statusCode != 200) {
       throw Exception(_errorMessage(response, '無法取得同步狀態。'));
     }
 
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = apiDecodeJsonResponse(response);
     if (decoded is! Map) {
       throw const FormatException('Invalid sync summary payload.');
     }
@@ -42,17 +40,14 @@ class AccountSyncService {
       Uri.parse(
         '${ApiConfig.baseUrl}/api/v1/account/sync/${namespace.apiValue}',
       ),
-      headers: ApiUserAgent.applyTo(const {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-      }),
+      headers: ApiUserAgent.applyTo(apiJsonHeaders),
     );
     _throwIfUnauthorized(response);
     if (response.statusCode != 200) {
       throw Exception(_errorMessage(response, '無法讀取雲端同步資料。'));
     }
 
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = apiDecodeJsonResponse(response);
     if (decoded is! Map) {
       throw const FormatException('Invalid sync document payload.');
     }
@@ -75,11 +70,7 @@ class AccountSyncService {
       Uri.parse(
         '${ApiConfig.baseUrl}/api/v1/account/sync/${namespace.apiValue}',
       ),
-      headers: ApiUserAgent.applyTo(const {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-        'Content-Type': 'application/json',
-      }),
+      headers: ApiUserAgent.applyTo(apiJsonContentHeaders),
       body: jsonEncode({
         'schema_version': schemaVersion,
         'client_modified_at': clientModifiedAt.toUtc().toIso8601String(),
@@ -120,7 +111,7 @@ void _throwIfUnauthorized(http.Response response) {
 }
 
 Map<String, dynamic> _decodedMap(http.Response response) {
-  final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+  final decoded = apiDecodeJsonResponse(response);
   if (decoded is! Map) {
     throw const FormatException('Invalid sync response payload.');
   }

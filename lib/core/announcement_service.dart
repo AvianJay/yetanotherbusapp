@@ -1,9 +1,8 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'announcement_models.dart';
+import 'api_http.dart';
 import 'api_config.dart';
 import 'api_user_agent.dart';
 import 'app_build_info.dart';
@@ -30,16 +29,13 @@ class AnnouncementService {
     ).replace(queryParameters: queryParameters);
     final response = await _client.get(
       uri,
-      headers: ApiUserAgent.applyTo(const {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-      }),
+      headers: ApiUserAgent.applyTo(apiJsonHeaders),
     );
     if (response.statusCode != 200) {
       throw Exception(_errorMessage(response, '公告載入失敗。'));
     }
 
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = apiDecodeJsonResponse(response);
     if (decoded is! List) {
       throw const FormatException('Invalid announcements payload.');
     }

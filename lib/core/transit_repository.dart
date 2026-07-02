@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'api_http.dart';
 import 'api_user_agent.dart';
 import 'api_config.dart';
 import 'http_error_utils.dart';
@@ -16,10 +17,7 @@ class TransitRepository {
   static const _apiBaseUrl = ApiConfig.baseUrl;
 
   final http.Client _client;
-  Map<String, String> get _headers => ApiUserAgent.applyTo(const {
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip',
-  });
+  Map<String, String> get _headers => ApiUserAgent.applyTo(apiJsonHeaders);
 
   // ── In-memory cache ─────────────────────────────────────────────────────
 
@@ -59,11 +57,11 @@ class TransitRepository {
       throw Exception(
         httpErrorMessage(
           response,
-          'API error ${response.statusCode}: ${response.body}',
+          'API error ${response.statusCode}: ${apiResponseText(response)}',
         ),
       );
     }
-    final decoded = json.decode(response.body);
+    final decoded = json.decode(apiResponseText(response));
     return decoded is List ? decoded : [];
   }
 
@@ -75,11 +73,11 @@ class TransitRepository {
       throw Exception(
         httpErrorMessage(
           response,
-          'API error ${response.statusCode}: ${response.body}',
+          'API error ${response.statusCode}: ${apiResponseText(response)}',
         ),
       );
     }
-    final decoded = json.decode(response.body);
+    final decoded = json.decode(apiResponseText(response));
     return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
   }
 
@@ -161,11 +159,12 @@ class TransitRepository {
         throw Exception(
           httpErrorMessage(
             response,
-            'API error ${response.statusCode}: ${response.body}',
+            'API error ${response.statusCode}: ${apiResponseText(response)}',
           ),
         );
       }
-      final decoded = json.decode(response.body) as Map<String, dynamic>;
+      final decoded =
+          json.decode(apiResponseText(response)) as Map<String, dynamic>;
       return MetroEtaResponse.fromJson(decoded);
     });
   }

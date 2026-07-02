@@ -1,9 +1,8 @@
-import 'dart:convert';
-
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'api_http.dart';
 import 'api_config.dart';
 import 'api_user_agent.dart';
 
@@ -108,16 +107,13 @@ class FirebaseBootstrap {
     try {
       final response = await http.get(
         Uri.parse('${ApiConfig.baseUrl}/api/v1/push/public-config'),
-        headers: ApiUserAgent.applyTo(const {
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip',
-        }),
+        headers: ApiUserAgent.applyTo(apiJsonHeaders),
       );
       if (response.statusCode != 200) {
         return _defaultWebMessagingConfig;
       }
 
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final decoded = apiDecodeJsonResponse(response);
       if (decoded is! Map) {
         return _defaultWebMessagingConfig;
       }

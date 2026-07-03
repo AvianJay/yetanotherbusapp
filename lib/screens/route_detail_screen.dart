@@ -66,6 +66,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final RouteDetailLaunchHandler _launchHandler;
   late final ValueNotifier<int?> _selectedMapPathId;
+  String? _focusedMapVehicleId;
+  int _focusedMapVehicleRequest = 0;
   late final ValueNotifier<Map<int, List<StopInfo>>> _liveMapStopsByPath;
   ModalRoute<dynamic>? _route;
   bool _isLoading = true;
@@ -593,7 +595,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     final parsed = DateTime.tryParse(text)?.toLocal();
-    if (parsed == null || parsed.isAfter(now.add(const Duration(seconds: 15)))) {
+    if (parsed == null ||
+        parsed.isAfter(now.add(const Duration(seconds: 15)))) {
       return null;
     }
     return parsed;
@@ -1240,7 +1243,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     );
   }
 
-  Future<void> _openBusMapSheet({int? pathId}) async {
+  void _requestMapVehicleFocus(String vehicleId) {
+    final normalizedVehicleId = normalizeBusVehicleId(vehicleId);
+    if (normalizedVehicleId == null) {
+      return;
+    }
+    setState(() {
+      _focusedMapVehicleId = normalizedVehicleId;
+      _focusedMapVehicleRequest += 1;
+    });
+  }
+
+  Future<void> _openBusMapSheet({int? pathId, String? vehicleId}) async {
     final detail = _detail;
     final routeId = detail?.route.routeId.trim() ?? '';
     final currentPathId = pathId ?? _currentPathId;
@@ -1252,6 +1266,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     _syncSelectedMapPathId(currentPathId);
+    if (vehicleId != null) {
+      _requestMapVehicleFocus(vehicleId);
+    }
     final controller = AppControllerScope.read(context);
     await showModalBottomSheet<void>(
       context: context,
@@ -1280,6 +1297,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               liveStopsByPathListenable: _liveMapStopsByPath,
               alwaysShowSeconds: controller.settings.alwaysShowSeconds,
               selectedPathIdListenable: _selectedMapPathId,
+              focusedVehicleId: _focusedMapVehicleId,
+              focusedVehicleRequest: _focusedMapVehicleRequest,
               refreshIntervalSeconds: controller.settings.busUpdateTime,
               dragScrollController: scrollController,
               onSelectedPathChanged: _handleMapPathSelection,
@@ -4105,11 +4124,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
   }
 
-  Future<void> _showStopOnMap(StopInfo stop) async {
+  Future<void> _showVehicleOnMap(StopInfo stop, BusVehicle vehicle) async {
     _handleMapPathSelection(stop.pathId);
     final isWideLayout =
         MediaQuery.sizeOf(context).width >= _wideLayoutBreakpoint;
     if (isWideLayout) {
+      _requestMapVehicleFocus(vehicle.id);
       if (!_showWideMapPanel) {
         setState(() {
           _showWideMapPanel = true;
@@ -4117,7 +4137,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       }
       return;
     }
-    await _openBusMapSheet(pathId: stop.pathId);
+    await _openBusMapSheet(pathId: stop.pathId, vehicleId: vehicle.id);
   }
 
   String _vehicleSourceLabel(BusVehicle vehicle) {
@@ -4238,7 +4258,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     onPressed: () {
                       Navigator.of(sheetContext).pop();
                       _playSelectionHaptic();
-                      unawaited(_showStopOnMap(stop));
+                      unawaited(_showVehicleOnMap(stop, vehicle));
                     },
                     icon: const Icon(Icons.map_rounded),
                     label: const Text('在地圖中查看'),
@@ -5106,6 +5126,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       liveStopsByPathListenable: _liveMapStopsByPath,
       alwaysShowSeconds: controller.settings.alwaysShowSeconds,
       selectedPathIdListenable: _selectedMapPathId,
+      focusedVehicleId: _focusedMapVehicleId,
+      focusedVehicleRequest: _focusedMapVehicleRequest,
       refreshIntervalSeconds: controller.settings.busUpdateTime,
       onSelectedPathChanged: _handleMapPathSelection,
       embedded: true,

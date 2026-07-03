@@ -26,6 +26,8 @@ class RouteBusMapSheet extends StatefulWidget {
     required this.alwaysShowSeconds,
     this.routeIdHint,
     required this.selectedPathIdListenable,
+    this.focusedVehicleId,
+    this.focusedVehicleRequest = 0,
     required this.refreshIntervalSeconds,
     this.dragScrollController,
     this.onSelectedPathChanged,
@@ -43,6 +45,8 @@ class RouteBusMapSheet extends StatefulWidget {
   final ValueListenable<Map<int, List<StopInfo>>>? liveStopsByPathListenable;
   final bool alwaysShowSeconds;
   final ValueListenable<int?> selectedPathIdListenable;
+  final String? focusedVehicleId;
+  final int focusedVehicleRequest;
   final int refreshIntervalSeconds;
   final ScrollController? dragScrollController;
   final ValueChanged<int>? onSelectedPathChanged;
@@ -76,6 +80,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   String? _selectedBusId;
   int? _selectedStopId;
   bool _followSelectedBus = false;
+  int _handledVehicleFocusRequest = -1;
   bool _showBuses = true;
   bool _showStops = true;
   LatLng? _userLocation;
@@ -160,6 +165,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         _selectedBusId = null;
         _selectedStopId = null;
         _followSelectedBus = false;
+        _handledVehicleFocusRequest = -1;
         _didFitCurrentPathWithUserLocation = false;
         _didFocusInitialUserLocation = false;
         _error = null;
@@ -167,6 +173,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         _busStates = <String, _AnimatedBusState>{};
       });
       unawaited(_loadMapData(fitCamera: true));
+    } else if (oldWidget.focusedVehicleId != widget.focusedVehicleId ||
+        oldWidget.focusedVehicleRequest != widget.focusedVehicleRequest) {
+      _applyFocusedVehicleRequest();
     }
   }
 
@@ -212,6 +221,44 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       return null;
     }
     return _busStates[selectedBusId];
+  }
+
+  String? _findBusStateIdByVehicleId(
+    String? vehicleId,
+    Map<String, _AnimatedBusState> states,
+  ) {
+    final normalizedVehicleId = normalizeBusVehicleId(vehicleId);
+    if (normalizedVehicleId == null) {
+      return null;
+    }
+    for (final entry in states.entries) {
+      if (normalizeBusVehicleId(entry.key) == normalizedVehicleId ||
+          normalizeBusVehicleId(entry.value.bus.id) == normalizedVehicleId) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
+
+  void _applyFocusedVehicleRequest() {
+    if (widget.focusedVehicleRequest == _handledVehicleFocusRequest) {
+      return;
+    }
+    final nextSelectedBusId = _findBusStateIdByVehicleId(
+      widget.focusedVehicleId,
+      _busStates,
+    );
+    if (nextSelectedBusId == null) {
+      return;
+    }
+    setState(() {
+      _selectedBusId = nextSelectedBusId;
+      _selectedStopId = null;
+      _followSelectedBus = true;
+      _showBuses = true;
+      _handledVehicleFocusRequest = widget.focusedVehicleRequest;
+    });
+    _syncSelectedBusCamera(force: true);
   }
 
   List<StopInfo> get _activePathStops =>
@@ -352,15 +399,21 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         buses,
         previousStates,
       );
-      final nextSelectedBusId =
-          _selectedBusId != null && nextStates.containsKey(_selectedBusId)
-          ? _selectedBusId
+      final focusedBusId =
+          widget.focusedVehicleRequest != _handledVehicleFocusRequest
+          ? _findBusStateIdByVehicleId(widget.focusedVehicleId, nextStates)
           : null;
-      final nextSelectedStopId =
-          _selectedStopId != null &&
-              (_stopsByPath[pathId] ?? const <StopInfo>[]).any(
-                (stop) => stop.stopId == _selectedStopId,
-              )
+      final nextSelectedBusId =
+          focusedBusId ??
+          (_selectedBusId != null && nextStates.containsKey(_selectedBusId)
+              ? _selectedBusId
+              : null);
+      final nextSelectedStopId = focusedBusId != null
+          ? null
+          : _selectedStopId != null &&
+                (_stopsByPath[pathId] ?? const <StopInfo>[]).any(
+                  (stop) => stop.stopId == _selectedStopId,
+                )
           ? _selectedStopId
           : null;
       setState(() {
@@ -368,7 +421,13 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         _busStates = nextStates;
         _selectedBusId = nextSelectedBusId;
         _selectedStopId = nextSelectedStopId;
-        _followSelectedBus = nextSelectedBusId != null && _followSelectedBus;
+        _followSelectedBus = focusedBusId != null
+            ? true
+            : nextSelectedBusId != null && _followSelectedBus;
+        if (focusedBusId != null) {
+          _showBuses = true;
+          _handledVehicleFocusRequest = widget.focusedVehicleRequest;
+        }
         _isRefreshing = false;
       });
       _scheduleNextRefresh();
@@ -471,7 +530,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
             });
             final geometry = _geometry;
             if (geometry != null) {
-              if (!_didFocusInitialUserLocation) {
+              if (_followSelectedBus) {
+                _syncSelectedBusCamera(force: true);
+              } else if (!_didFocusInitialUserLocation) {
                 _focusOnUserLocation(markInitial: true);
               } else if (!_didFitCurrentPathWithUserLocation) {
                 _fitCameraToGeometry(geometry);
@@ -481,7 +542,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
       final geometry = _geometry;
       if (geometry != null) {
-        if (!_didFocusInitialUserLocation) {
+        if (_followSelectedBus) {
+          _syncSelectedBusCamera(force: true);
+        } else if (!_didFocusInitialUserLocation) {
           _focusOnUserLocation(markInitial: true);
         } else if (!_didFitCurrentPathWithUserLocation) {
           _fitCameraToGeometry(geometry);

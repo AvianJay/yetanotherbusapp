@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'api_http.dart';
+
 const rateLimitedErrorMessage = '你已受到速率限制。';
 
 bool isRateLimitedStatusCode(int statusCode) => statusCode == 429;
@@ -18,7 +20,7 @@ String httpErrorMessage(http.Response response, String fallback) {
     return rateLimitedErrorMessage;
   }
   try {
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = jsonDecode(apiResponseText(response));
     if (decoded is Map) {
       final detail = '${decoded['detail'] ?? ''}'.trim();
       if (detail.isNotEmpty) {

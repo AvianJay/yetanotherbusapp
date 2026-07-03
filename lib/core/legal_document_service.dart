@@ -1,7 +1,6 @@
-import 'dart:convert';
-
 import 'package:http/http.dart' as http;
 
+import 'api_http.dart';
 import 'api_config.dart';
 import 'api_user_agent.dart';
 import 'http_error_utils.dart';
@@ -24,16 +23,13 @@ class LegalDocumentService {
     final uri = Uri.parse('${ApiConfig.baseUrl}$path');
     final response = await _client.get(
       uri,
-      headers: ApiUserAgent.applyTo(const {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-      }),
+      headers: ApiUserAgent.applyTo(apiJsonHeaders),
     );
     if (response.statusCode != 200) {
       throw Exception(_errorMessage(response, '文件載入失敗。'));
     }
 
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = apiDecodeJsonResponse(response);
     if (decoded is! Map<String, dynamic>) {
       throw const FormatException('Invalid legal document payload.');
     }

@@ -5,6 +5,7 @@ import '../app/bus_app.dart';
 import '../core/account_sync_models.dart';
 import '../core/app_controller.dart';
 import '../core/auth_service.dart';
+import '../core/friendly_error.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -58,7 +59,9 @@ class _AccountScreenState extends State<AccountScreen> {
         );
         return;
       }
-      messenger.showSnackBar(SnackBar(content: Text('登入失敗：$error')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('登入失敗：${friendlyErrorMessage(error)}')),
+      );
     }
   }
 
@@ -80,7 +83,9 @@ class _AccountScreenState extends State<AccountScreen> {
         );
         return;
       }
-      messenger.showSnackBar(SnackBar(content: Text('重新整理帳號失敗：$error')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('重新整理帳號失敗：${friendlyErrorMessage(error)}')),
+      );
     }
   }
 
@@ -105,7 +110,9 @@ class _AccountScreenState extends State<AccountScreen> {
         );
         return;
       }
-      messenger.showSnackBar(SnackBar(content: Text('更新同步設定失敗：$error')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('更新同步設定失敗：${friendlyErrorMessage(error)}')),
+      );
     }
   }
 
@@ -132,7 +139,9 @@ class _AccountScreenState extends State<AccountScreen> {
         );
         return;
       }
-      messenger.showSnackBar(SnackBar(content: Text('同步失敗：$error')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('同步失敗：${friendlyErrorMessage(error)}')),
+      );
     }
   }
 
@@ -210,7 +219,9 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted) {
         return;
       }
-      messenger.showSnackBar(SnackBar(content: Text('處理同步衝突失敗：$error')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('處理同步衝突失敗：${friendlyErrorMessage(error)}')),
+      );
     }
   }
 

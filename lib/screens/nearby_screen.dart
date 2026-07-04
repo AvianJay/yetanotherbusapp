@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../app/bus_app.dart';
+import '../core/friendly_error.dart';
 import '../core/models.dart';
 import 'adaptive_settings_presenter.dart';
 import '../widgets/background_image_wrapper.dart';
@@ -66,7 +67,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
         return;
       }
       setState(() {
-        _error = '$error';
+        _error = friendlyErrorMessage(error);
       });
     } finally {
       if (mounted) {

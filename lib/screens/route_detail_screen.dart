@@ -18,6 +18,7 @@ import '../core/app_launch_service.dart';
 import '../core/app_route_observer.dart';
 import '../core/app_routes.dart';
 import '../core/bus_repository.dart';
+import '../core/friendly_error.dart';
 import '../core/desktop_discord_presence_service.dart';
 import '../core/live_activity_service.dart';
 import '../core/models.dart';
@@ -335,7 +336,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       }
       setState(() {
         _isLoading = false;
-        _error = '$error';
+        _error = friendlyErrorMessage(error);
         _statusMessage = previousDetail == null ? '讀取失敗' : '更新失敗，保留上一筆資料';
       });
       _startCountdown(controller.settings.busErrorUpdateTime);
@@ -5533,7 +5534,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.toString();
+        _error = friendlyErrorMessage(e);
       });
     }
   }
@@ -6049,7 +6050,7 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.toString();
+        _error = friendlyErrorMessage(e);
       });
     }
   }

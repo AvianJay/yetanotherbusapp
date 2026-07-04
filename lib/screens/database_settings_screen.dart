@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
+import '../core/friendly_error.dart';
 import '../core/models.dart';
 
 class DatabaseSettingsScreen extends StatelessWidget {
@@ -35,7 +36,9 @@ class DatabaseSettingsScreen extends StatelessWidget {
       if (!context.mounted) {
         return;
       }
-      messenger.showSnackBar(SnackBar(content: Text('檢查資料庫更新失敗：$error')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('檢查資料庫更新失敗：${friendlyErrorMessage(error)}')),
+      );
     }
   }
 
@@ -62,7 +65,9 @@ class DatabaseSettingsScreen extends StatelessWidget {
       if (!context.mounted) {
         return;
       }
-      messenger.showSnackBar(SnackBar(content: Text('下載資料庫失敗：$error')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('下載資料庫失敗：${friendlyErrorMessage(error)}')),
+      );
     }
   }
 
@@ -454,7 +459,9 @@ class DatabaseSettingsScreen extends StatelessWidget {
                                       }
                                       messenger.showSnackBar(
                                         SnackBar(
-                                          content: Text('刪除資料庫失敗：$error'),
+                                          content: Text(
+                                            '刪除資料庫失敗：${friendlyErrorMessage(error)}',
+                                          ),
                                         ),
                                       );
                                     }

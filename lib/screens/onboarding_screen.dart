@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
 import '../core/app_routes.dart';
+import '../core/friendly_error.dart';
 import '../core/models.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -138,7 +139,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       }
     } catch (error) {
       setState(() {
-        _permissionMessage = '定位設定失敗（$error）。請改為手動選擇資料庫。';
+        _permissionMessage =
+            '定位設定失敗（${friendlyErrorMessage(error)}）。請改為手動選擇資料庫。';
       });
     } finally {
       if (mounted) {
@@ -557,7 +559,9 @@ class _DatabaseStep extends StatelessWidget {
                       }
                       final messenger = ScaffoldMessenger.of(context);
                       messenger.showSnackBar(
-                        SnackBar(content: Text('下載失敗：$error')),
+                        SnackBar(
+                          content: Text('下載失敗：${friendlyErrorMessage(error)}'),
+                        ),
                       );
                     }
                   },

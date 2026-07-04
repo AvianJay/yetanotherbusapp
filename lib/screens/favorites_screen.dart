@@ -7,6 +7,7 @@ import '../core/app_controller.dart';
 import '../core/haptic_feedback_service.dart';
 import '../core/app_route_observer.dart';
 import '../core/bus_repository.dart';
+import '../core/friendly_error.dart';
 import '../core/models.dart';
 import '../widgets/eta_badge.dart';
 import 'favorite_groups_screen.dart';
@@ -443,7 +444,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
 
       setState(() {
         _isLoading = false;
-        _error = '$error';
+        _error = friendlyErrorMessage(error);
         _refreshingGroupName = null;
         _refreshingSignature = '';
         _statusMessage = _items.isEmpty ? '載入失敗' : '更新失敗，保留上一筆資料';

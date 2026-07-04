@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import '../app/bus_app.dart';
 import '../core/app_routes.dart';
 import '../core/app_controller.dart';
+import '../core/friendly_error.dart';
 import '../core/models.dart';
 import '../core/pwa_install_service.dart';
 import '../widgets/eta_badge.dart';
@@ -1184,7 +1185,7 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
       setState(() {
         _results = const [];
         _selectedPointId = null;
-        _error = '$error';
+        _error = friendlyErrorMessage(error);
       });
     } finally {
       if (mounted) {

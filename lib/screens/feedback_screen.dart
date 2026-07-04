@@ -5,6 +5,7 @@ import '../core/app_controller.dart';
 import '../core/app_routes.dart';
 import '../core/auth_token_store.dart';
 import '../core/feedback_service.dart';
+import '../core/friendly_error.dart';
 import '../widgets/background_image_wrapper.dart';
 
 class FeedbackScreen extends StatefulWidget {
@@ -237,11 +238,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
 String _friendlyError(Object error) {
   final raw = '$error';
-  if (raw.startsWith('Exception: ')) {
-    return raw.substring('Exception: '.length);
-  }
   if (raw.startsWith('Invalid argument')) {
     return '送出資料格式不正確。';
   }
-  return raw;
+  return friendlyErrorMessage(error, fallback: '意見回饋送出失敗，請稍後再試。');
 }

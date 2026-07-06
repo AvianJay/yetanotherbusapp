@@ -74,6 +74,12 @@ https://busapp.avianjay.sbs/
 
 前往 Releases 頁面下載最新正式版本：
 
+<p>
+  <a href="https://play.google.com/store/apps/details?id=tw.avianjay.taiwanbus.flutter">
+    <img alt="Get it on Google Play" src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" width="180">
+  </a>
+</p>
+
 https://github.com/AvianJay/yetanotherbusapp/releases/latest
 
 

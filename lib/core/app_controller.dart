@@ -57,6 +57,8 @@ class AppController extends ChangeNotifier {
   }) : announcementService = announcementService ?? AnnouncementService();
 
   static const defaultFavoriteGroupName = '收藏';
+  static const autoFavoriteGroupName = '常用';
+  static const _autoFavoriteStopVisitThreshold = 5;
   static const Duration _accountSyncDebounce = Duration(seconds: 3);
   static const Duration _foregroundAccountSyncCooldown = Duration(minutes: 1);
 
@@ -83,6 +85,7 @@ class AppController extends ChangeNotifier {
   Map<String, List<FavoriteStop>> _favoriteGroups = const {};
   List<RouteUsageProfile> _routeUsageProfiles = const [];
   List<FavoriteUsageProfile> _favoriteUsageProfiles = const [];
+  List<FavoriteUsageProfile> _stopVisitProfiles = const [];
   int? _settingsLastModifiedAtMs;
   int? _favoriteGroupsLastModifiedAtMs;
   bool _initialized = false;
@@ -281,6 +284,7 @@ class AppController extends ChangeNotifier {
         .loadFavoriteGroupsLastModifiedAtMs();
     _routeUsageProfiles = await storage.loadRouteUsageProfiles();
     _favoriteUsageProfiles = await storage.loadFavoriteUsageProfiles();
+    _stopVisitProfiles = await storage.loadStopVisitProfiles();
     await AndroidHomeIntegration.updateFavoriteWidgetAutoRefreshMinutes(
       _settings.favoriteWidgetAutoRefreshMinutes,
     );
@@ -1508,6 +1512,12 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateEnableAutoFavoriteFrequentStops(bool value) async {
+    _settings = _settings.copyWith(enableAutoFavoriteFrequentStops: value);
+    await _persistSettings();
+    notifyListeners();
+  }
+
   Future<void> updateEnableSmartRouteNotifications(bool value) async {
     _settings = _settings.copyWith(enableSmartRouteNotifications: value);
     await _persistSettings();
@@ -2050,6 +2060,7 @@ class AppController extends ChangeNotifier {
   Future<void> clearRouteUsageProfiles() async {
     _routeUsageProfiles = const [];
     _favoriteUsageProfiles = const [];
+    _stopVisitProfiles = const [];
     await _persistSmartRouteProfiles();
   }
 
@@ -2061,16 +2072,20 @@ class AppController extends ChangeNotifier {
             .toList()
           ..sort(_compareRouteUsageProfiles);
     _favoriteUsageProfiles = const [];
+    _stopVisitProfiles = const [];
     await _persistSmartRouteProfiles();
   }
 
-  Future<void> recordRouteSelection({
+  Future<FavoriteStop?> recordRouteSelection({
     required BusProvider provider,
     required int routeKey,
     required String routeName,
     FavoriteStop? favorite,
     DateTime? selectedAt,
     String source = 'unknown',
+    int? pathId,
+    int? stopId,
+    String? stopName,
   }) async {
     final timestamp = selectedAt ?? DateTime.now();
     _routeUsageProfiles = _buildUpdatedRouteUsageProfiles(
@@ -2101,11 +2116,111 @@ class AppController extends ChangeNotifier {
         timestamp,
       );
     }
+
+    FavoriteStop? autoFavorited;
+    if (pathId != null && stopId != null) {
+      autoFavorited = await _recordStopVisitAndMaybeAutoFavorite(
+        provider: provider,
+        routeKey: routeKey,
+        routeName: routeName,
+        pathId: pathId,
+        stopId: stopId,
+        stopName: stopName,
+        timestamp: timestamp,
+      );
+    }
+
     await _persistSmartRouteProfiles();
     await analytics.logRouteSelected(
       provider: provider,
       routeKey: routeKey,
       source: source,
+    );
+    return autoFavorited;
+  }
+
+  /// Records a visit to a specific stop (regardless of favorite status) and,
+  /// if [enableAutoFavoriteFrequentStops] is on and the stop isn't already
+  /// favorited, promotes it into the [autoFavoriteGroupName] group once it's
+  /// been visited [_autoFavoriteStopVisitThreshold] times recently.
+  Future<FavoriteStop?> _recordStopVisitAndMaybeAutoFavorite({
+    required BusProvider provider,
+    required int routeKey,
+    required String routeName,
+    required int pathId,
+    required int stopId,
+    required String? stopName,
+    required DateTime timestamp,
+  }) async {
+    FavoriteUsageProfile? updatedProfile;
+    final next = <FavoriteUsageProfile>[];
+    var found = false;
+    for (final profile in _stopVisitProfiles) {
+      if (profile.provider == provider &&
+          profile.routeKey == routeKey &&
+          profile.pathId == pathId &&
+          profile.stopId == stopId) {
+        updatedProfile = profile.recordSelection(timestamp);
+        next.add(updatedProfile);
+        found = true;
+      } else {
+        next.add(profile);
+      }
+    }
+    if (!found) {
+      updatedProfile = FavoriteUsageProfile(
+        provider: provider,
+        routeKey: routeKey,
+        pathId: pathId,
+        stopId: stopId,
+        selectionTimestampsMs: <int>[timestamp.millisecondsSinceEpoch],
+      );
+      next.add(updatedProfile);
+    }
+    _stopVisitProfiles = next;
+
+    if (!_settings.enableAutoFavoriteFrequentStops || updatedProfile == null) {
+      return null;
+    }
+    if (updatedProfile.totalSelectionsAt() < _autoFavoriteStopVisitThreshold) {
+      return null;
+    }
+    final alreadyFavorited = _favoriteGroups.values.any(
+      (group) => group.any(
+        (item) =>
+            item.provider == provider &&
+            item.routeKey == routeKey &&
+            item.pathId == pathId &&
+            item.stopId == stopId,
+      ),
+    );
+    if (alreadyFavorited) {
+      return null;
+    }
+
+    try {
+      await addFavoriteStop(
+        FavoriteStop(
+          provider: provider,
+          routeKey: routeKey,
+          pathId: pathId,
+          stopId: stopId,
+          routeName: routeName.trim(),
+          stopName: stopName?.trim().isNotEmpty == true
+              ? stopName!.trim()
+              : null,
+        ),
+        groupName: autoFavoriteGroupName,
+      );
+    } on FavoriteGroupFullException {
+      return null;
+    }
+    return _favoriteGroups[autoFavoriteGroupName]?.firstWhere(
+      (item) =>
+          item.provider == provider &&
+          item.routeKey == routeKey &&
+          item.pathId == pathId &&
+          item.stopId == stopId,
     );
   }
 
@@ -2229,6 +2344,7 @@ class AppController extends ChangeNotifier {
   Future<void> _persistSmartRouteProfiles() async {
     await storage.saveRouteUsageProfiles(_routeUsageProfiles);
     await storage.saveFavoriteUsageProfiles(_favoriteUsageProfiles);
+    await storage.saveStopVisitProfiles(_stopVisitProfiles);
     await AndroidHomeIntegration.syncSmartRouteNotifications(
       _settings.enableSmartRouteNotifications,
     );

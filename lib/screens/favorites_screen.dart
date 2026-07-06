@@ -830,15 +830,21 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   : null,
               onTap: () async {
                 unawaited(AppHaptics.selectionClick());
-                await controller.recordRouteSelection(
+                final autoFavorited = await controller.recordRouteSelection(
                   provider: item.reference.provider,
                   routeKey: item.reference.routeKey,
                   routeName: item.route.routeName,
                   favorite: item.reference,
                   source: 'favorite',
+                  pathId: item.reference.pathId,
+                  stopId: item.reference.stopId,
+                  stopName: item.reference.stopName ?? item.stop.stopName,
                 );
                 if (!context.mounted) {
                   return;
+                }
+                if (autoFavorited != null) {
+                  showAutoFavoritedSnackBar(context, autoFavorited);
                 }
                 await openRouteDetailPage(
                   context,

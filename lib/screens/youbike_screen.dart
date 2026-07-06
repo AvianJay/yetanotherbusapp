@@ -10,6 +10,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../app/bus_app.dart';
 import '../core/transit_repository.dart';
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
 import '../widgets/platform_map_provider.dart';
 import '../widgets/ad_banner_widget.dart';
@@ -1091,8 +1092,13 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     final useGoogleMapsPointProvider = useGoogleMapsProviderFor(
       AppControllerScope.of(context).settings.mobileMapProvider,
     );
+    final hasBackgroundImage = hasBackgroundImageForPage(
+      AppControllerScope.of(context).settings,
+      pageKey: 'bus',
+    );
 
     return Scaffold(
+      backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YABike'),
         leading: Builder(
@@ -1127,7 +1133,10 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                 ? Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SizedBox(width: 380, child: _buildSplitStationSidebar(theme)),
+                      SizedBox(
+                        width: 380,
+                        child: _buildSplitStationSidebar(theme),
+                      ),
                       VerticalDivider(
                         width: 1,
                         thickness: 1,
@@ -1135,7 +1144,8 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                       ),
                       Expanded(
                         child: _buildMapContent(
-                          useGoogleMapsPointProvider: useGoogleMapsPointProvider,
+                          useGoogleMapsPointProvider:
+                              useGoogleMapsPointProvider,
                         ),
                       ),
                     ],

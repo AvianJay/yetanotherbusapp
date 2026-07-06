@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../app/bus_app.dart';
 import '../core/friendly_error.dart';
 import '../core/transit_repository.dart';
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/transit_drawer.dart';
 import '../widgets/transit_station_map.dart';
@@ -392,7 +394,12 @@ class _MetroScreenState extends State<MetroScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hasBackgroundImage = hasBackgroundImageForPage(
+      AppControllerScope.of(context).settings,
+      pageKey: 'bus',
+    );
     return Scaffold(
+      backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YAMetro'),
         leading: Builder(
@@ -462,7 +469,7 @@ class _MetroScreenState extends State<MetroScreen> {
           const AdBannerWidget(),
         ],
       ),
-      );
+    );
   }
 
   Widget _buildSystemSelector(ThemeData theme) {

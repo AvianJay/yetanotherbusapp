@@ -956,14 +956,19 @@ class _SearchScreenState extends State<SearchScreen> {
     if (saveHistory && route != null) {
       await busController.addHistoryEntry(route, provider: provider);
     }
-    await busController.recordRouteSelection(
+    final autoFavorited = await busController.recordRouteSelection(
       provider: provider,
       routeKey: routeKey,
       routeName: routeName,
       source: source,
+      pathId: initialPathId,
+      stopId: initialStopId,
     );
     if (!mounted) {
       return;
+    }
+    if (autoFavorited != null) {
+      showAutoFavoritedSnackBar(context, autoFavorited);
     }
     await openRouteDetailPage(
       context,

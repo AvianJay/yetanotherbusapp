@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../app/bus_app.dart';
 import '../core/friendly_error.dart';
 import '../core/transit_repository.dart';
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
 import '../widgets/transit_station_map.dart';
 import '../widgets/ad_banner_widget.dart';
@@ -216,7 +218,12 @@ class _TraScreenState extends State<TraScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hasBackgroundImage = hasBackgroundImageForPage(
+      AppControllerScope.of(context).settings,
+      pageKey: 'bus',
+    );
     return Scaffold(
+      backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YATrain'),
         leading: Builder(
@@ -274,7 +281,7 @@ class _TraScreenState extends State<TraScreen> {
           const AdBannerWidget(),
         ],
       ),
-      );
+    );
   }
 
   Widget _buildLiveOverview(ThemeData theme) {

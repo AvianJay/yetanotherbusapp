@@ -14,6 +14,7 @@ class StorageService {
   static const _favoritesKey = 'favorite_groups';
   static const _routeUsageProfilesKey = 'route_usage_profiles';
   static const _favoriteUsageProfilesKey = 'favorite_usage_profiles';
+  static const _stopVisitProfilesKey = 'stop_visit_profiles';
   static const _announcementLocalStateKey = 'announcement_local_state';
   static const _settingsLastModifiedAtKey = 'app_settings_last_modified_at_ms';
   static const _favoritesLastModifiedAtKey =
@@ -201,6 +202,44 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _favoriteUsageProfilesKey,
+      jsonEncode(profiles.map((entry) => entry.toJson()).toList()),
+    );
+  }
+
+  /// Tracks recent per-stop visit counts (regardless of favorite status),
+  /// used to decide when a stop crosses the threshold for auto-favoriting.
+  Future<List<FavoriteUsageProfile>> loadStopVisitProfiles() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_stopVisitProfilesKey);
+    if (raw == null || raw.isEmpty) {
+      return const [];
+    }
+
+    try {
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded
+          .whereType<Map>()
+          .map(
+            (entry) => FavoriteUsageProfile.fromJson(
+              entry.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .where(
+            (entry) =>
+                entry.routeKey > 0 && entry.pathId >= 0 && entry.stopId > 0,
+          )
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> saveStopVisitProfiles(
+    List<FavoriteUsageProfile> profiles,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _stopVisitProfilesKey,
       jsonEncode(profiles.map((entry) => entry.toJson()).toList()),
     );
   }

@@ -625,6 +625,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onChanged:
                               controller.updateEnableSmartRecommendations,
                         ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('自動加入常用最愛'),
+                          subtitle: const Text('同一站牌短期內搭乘多次後，自動加入「常用」最愛群組。'),
+                          value: controller
+                              .settings
+                              .enableAutoFavoriteFrequentStops,
+                          onChanged:
+                              controller.updateEnableAutoFavoriteFrequentStops,
+                        ),
                         if (isAndroid)
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,

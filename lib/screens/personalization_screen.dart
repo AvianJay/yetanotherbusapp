@@ -24,13 +24,16 @@ const _presetColors = <Color>[
 
 /// Page key → display label
 const _pageLabels = <String, String>{
-  'bus': '主頁',
+  'bus': '全域首頁',
   'route_detail': '公車資訊',
   'search': '搜尋',
   'favorites': '最愛',
   'nearby': '附近',
   'settings': '設定',
 };
+
+/// Page key → optional clarifying subtitle shown under the label.
+const _pageSubtitles = <String, String>{'bus': '同時套用於公車、捷運、高鐵、台鐵、YouBike 首頁'};
 
 /// Page key → icon
 const _pageIcons = <String, IconData>{
@@ -223,7 +226,7 @@ class PersonalizationScreen extends StatelessWidget {
                   Text('背景圖片', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 4),
                   Text(
-                    '設定各頁面的背景圖片。',
+                    '設定各頁面的背景圖片，首頁背景會同時套用於公車、捷運、高鐵、台鐵、YouBike 等首頁分頁。',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
@@ -693,6 +696,7 @@ class _PerPageBackgroundScreen extends StatelessWidget {
                     _PageBackgroundRow(
                       pageKey: pageKey,
                       label: _pageLabels[pageKey]!,
+                      subtitle: _pageSubtitles[pageKey],
                       icon: _pageIcons[pageKey]!,
                       imagePath: settings.pageBackgroundImagePaths[pageKey],
                       imageOpacity:
@@ -1436,6 +1440,7 @@ class _PageBackgroundRow extends StatelessWidget {
     required this.onClear,
     required this.onOpacityChanged,
     required this.colorScheme,
+    this.subtitle,
   });
 
   final String pageKey;
@@ -1447,6 +1452,7 @@ class _PageBackgroundRow extends StatelessWidget {
   final VoidCallback onClear;
   final ValueChanged<double> onOpacityChanged;
   final ColorScheme colorScheme;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -1492,6 +1498,18 @@ class _PageBackgroundRow extends StatelessWidget {
               ],
             ],
           ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 2),
+            Padding(
+              padding: const EdgeInsets.only(left: 28),
+              child: Text(
+                subtitle!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
 
           // Action buttons

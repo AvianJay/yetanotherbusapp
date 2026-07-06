@@ -629,15 +629,21 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     final favorite = suggestion.favorite;
     final pathId = suggestion.recommendedPath?.pathId;
     final stopId = suggestion.recommendedStop?.stopId;
-    await controller.recordRouteSelection(
+    final autoFavorited = await controller.recordRouteSelection(
       provider: suggestion.profile.provider,
       routeKey: suggestion.profile.routeKey,
       routeName: suggestion.profile.routeName,
       favorite: favorite,
       source: 'smart_suggestion',
+      pathId: pathId,
+      stopId: stopId,
+      stopName: suggestion.recommendedStop?.stopName,
     );
     if (!mounted) {
       return;
+    }
+    if (autoFavorited != null) {
+      showAutoFavoritedSnackBar(context, autoFavorited);
     }
     await openRouteDetailPage(
       context,
@@ -659,14 +665,20 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     final routeProvider = busProviderFromString(
       nearby.result.route.sourceProvider,
     );
-    await controller.recordRouteSelection(
+    final autoFavorited = await controller.recordRouteSelection(
       provider: routeProvider,
       routeKey: nearby.result.route.routeKey,
       routeName: nearby.result.route.routeName,
       source: 'nearby_fallback',
+      pathId: nearby.result.stop.pathId,
+      stopId: nearby.result.stop.stopId,
+      stopName: nearby.result.stop.stopName,
     );
     if (!mounted) {
       return;
+    }
+    if (autoFavorited != null) {
+      showAutoFavoritedSnackBar(context, autoFavorited);
     }
     await openRouteDetailPage(
       context,
@@ -1208,14 +1220,20 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
     }
 
     final routeProvider = busProviderFromString(selected.route.sourceProvider);
-    await widget.controller.recordRouteSelection(
+    final autoFavorited = await widget.controller.recordRouteSelection(
       provider: routeProvider,
       routeKey: selected.route.routeKey,
       routeName: selected.route.routeName,
       source: 'home_nearby_map',
+      pathId: selected.stop.pathId,
+      stopId: selected.stop.stopId,
+      stopName: selected.stop.stopName,
     );
     if (!mounted) {
       return;
+    }
+    if (autoFavorited != null) {
+      showAutoFavoritedSnackBar(context, autoFavorited);
     }
     await openRouteDetailPage(
       context,

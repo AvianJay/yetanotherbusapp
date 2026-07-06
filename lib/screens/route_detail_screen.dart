@@ -3720,14 +3720,27 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   Future<void> _openRelatedRouteDetail(StopRouteSearchResult result) async {
     final controller = AppControllerScope.read(context);
     final provider = busProviderFromString(result.route.sourceProvider);
-    await controller.recordRouteSelection(
+    final autoFavorited = await controller.recordRouteSelection(
       provider: provider,
       routeKey: result.route.routeKey,
       routeName: result.route.routeName,
       source: 'route_detail_related_stop_routes',
+      pathId: result.matchedStop.pathId,
+      stopId: result.matchedStop.stopId,
+      stopName: result.matchedStop.stopName,
     );
     if (!mounted) {
       return;
+    }
+    if (autoFavorited != null) {
+      final label = autoFavorited.stopName?.trim().isNotEmpty == true
+          ? autoFavorited.stopName!.trim()
+          : autoFavorited.routeName?.trim().isNotEmpty == true
+          ? autoFavorited.routeName!.trim()
+          : '這個站牌';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('常搭這班車？已自動把「$label」加入常用最愛。')));
     }
 
     await Navigator.of(context).push(

@@ -250,14 +250,20 @@ class _NearbyScreenState extends State<NearbyScreen> {
   Future<void> _openRoute(NearbyStopResult item) async {
     final controller = AppControllerScope.read(context);
     final routeProvider = busProviderFromString(item.route.sourceProvider);
-    await controller.recordRouteSelection(
+    final autoFavorited = await controller.recordRouteSelection(
       provider: routeProvider,
       routeKey: item.route.routeKey,
       routeName: item.route.routeName,
       source: 'nearby',
+      pathId: item.stop.pathId,
+      stopId: item.stop.stopId,
+      stopName: item.stop.stopName,
     );
     if (!mounted) {
       return;
+    }
+    if (autoFavorited != null) {
+      showAutoFavoritedSnackBar(context, autoFavorited);
     }
     await openRouteDetailPage(
       context,

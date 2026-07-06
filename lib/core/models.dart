@@ -328,6 +328,7 @@ class AppSettings {
     required this.enableHapticFeedback,
     required this.enableCompactMode,
     required this.enableSmartRecommendations,
+    required this.enableAutoFavoriteFrequentStops,
     required this.enableSmartRouteNotifications,
     required this.keepScreenAwakeOnRouteDetail,
     required this.enableRouteBackgroundMonitor,
@@ -368,6 +369,7 @@ class AppSettings {
       enableHapticFeedback: true,
       enableCompactMode: false,
       enableSmartRecommendations: true,
+      enableAutoFavoriteFrequentStops: true,
       enableSmartRouteNotifications: false,
       keepScreenAwakeOnRouteDetail: true,
       enableRouteBackgroundMonitor: false,
@@ -468,6 +470,8 @@ class AppSettings {
       enableCompactMode: json['enableCompactMode'] as bool? ?? false,
       enableSmartRecommendations:
           json['enableSmartRecommendations'] as bool? ?? true,
+      enableAutoFavoriteFrequentStops:
+          json['enableAutoFavoriteFrequentStops'] as bool? ?? true,
       enableSmartRouteNotifications:
           json['enableSmartRouteNotifications'] as bool? ?? false,
       keepScreenAwakeOnRouteDetail:
@@ -542,6 +546,7 @@ class AppSettings {
   final bool enableHapticFeedback;
   final bool enableCompactMode;
   final bool enableSmartRecommendations;
+  final bool enableAutoFavoriteFrequentStops;
   final bool enableSmartRouteNotifications;
   final bool keepScreenAwakeOnRouteDetail;
   final bool enableRouteBackgroundMonitor;
@@ -581,6 +586,7 @@ class AppSettings {
     bool? enableHapticFeedback,
     bool? enableCompactMode,
     bool? enableSmartRecommendations,
+    bool? enableAutoFavoriteFrequentStops,
     bool? enableSmartRouteNotifications,
     bool? keepScreenAwakeOnRouteDetail,
     bool? enableRouteBackgroundMonitor,
@@ -624,6 +630,9 @@ class AppSettings {
       enableCompactMode: enableCompactMode ?? this.enableCompactMode,
       enableSmartRecommendations:
           enableSmartRecommendations ?? this.enableSmartRecommendations,
+      enableAutoFavoriteFrequentStops:
+          enableAutoFavoriteFrequentStops ??
+          this.enableAutoFavoriteFrequentStops,
       enableSmartRouteNotifications:
           enableSmartRouteNotifications ?? this.enableSmartRouteNotifications,
       keepScreenAwakeOnRouteDetail:
@@ -682,6 +691,7 @@ class AppSettings {
       'enableHapticFeedback': enableHapticFeedback,
       'enableCompactMode': enableCompactMode,
       'enableSmartRecommendations': enableSmartRecommendations,
+      'enableAutoFavoriteFrequentStops': enableAutoFavoriteFrequentStops,
       'enableSmartRouteNotifications': enableSmartRouteNotifications,
       'keepScreenAwakeOnRouteDetail': keepScreenAwakeOnRouteDetail,
       'enableRouteBackgroundMonitor': enableRouteBackgroundMonitor,

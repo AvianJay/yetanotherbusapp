@@ -41,6 +41,19 @@ Route<void> buildRouteDetailRoute({
   );
 }
 
+/// Shows a one-off notice when [recordRouteSelection] auto-adds a
+/// frequently-visited stop into the "常用" favorites group.
+void showAutoFavoritedSnackBar(BuildContext context, FavoriteStop favorite) {
+  final label = favorite.stopName?.trim().isNotEmpty == true
+      ? favorite.stopName!.trim()
+      : favorite.routeName?.trim().isNotEmpty == true
+      ? favorite.routeName!.trim()
+      : '這個站牌';
+  ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text('常搭這班車？已自動把「$label」加入常用最愛。')));
+}
+
 Future<void> openRouteDetailPage(
   BuildContext context, {
   required int routeKey,

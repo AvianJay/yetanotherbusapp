@@ -1894,6 +1894,9 @@ class BusRepository {
     return metadata;
   }
 
+  Future<LiveStopMap> getLiveStopMap(String routeId) =>
+      _getLiveStopMap(routeId);
+
   Future<LiveStopMap> _getLiveStopMap(String routeId) async {
     final cached = _readFreshCache(_realtimeCache, routeId, _realtimeCacheTtl);
     if (cached != null) {
@@ -1962,16 +1965,20 @@ class BusRepository {
     return result;
   }
 
-  /// Fetches realtime data for multiple routes in a single HTTP request.
+  /// Fetches realtime data for multiple routes, batching the HTTP requests.
   ///
-  /// [routeIds] must contain at most 25 unique, non-empty route IDs.
-  /// Duplicate IDs are silently de-duplicated.
+  /// The underlying API only accepts up to 25 route IDs per request, so when
+  /// more are given they are split into multiple parallel batch requests
+  /// (rather than silently dropping everything past the 25th) to avoid
+  /// falling back to slow, one-request-per-route lookups. Duplicate IDs are
+  /// silently de-duplicated.
   ///
   /// Returns a map of routeId -> live-stop-payload map for each route that
   /// the server was able to resolve.  Results are cached both as a batch
   /// (keyed by the sorted, joined ID list) and individually so that
   /// subsequent single-route lookups via [_getLiveStopMap] also benefit.
   Future<BatchLiveStopMap> getBatchLiveStopMaps(List<String> routeIds) async {
+    const chunkSize = 25;
     final deduped = <String>[];
     final seen = <String>{};
     for (final id in routeIds) {
@@ -1984,15 +1991,42 @@ class BusRepository {
     if (deduped.isEmpty) {
       return const {};
     }
-    if (deduped.length > 25) {
-      deduped.removeRange(25, deduped.length);
+    if (deduped.length <= chunkSize) {
+      return _getBatchLiveStopMapsChunk(deduped);
     }
 
+    final chunks = <List<String>>[];
+    for (var offset = 0; offset < deduped.length; offset += chunkSize) {
+      chunks.add(
+        deduped.sublist(offset, math.min(offset + chunkSize, deduped.length)),
+      );
+    }
+    final chunkResults = await Future.wait(
+      chunks.map((chunk) async {
+        try {
+          return await _getBatchLiveStopMapsChunk(chunk);
+        } catch (_) {
+          // Let one bad chunk fall back to per-route lookups upstream
+          // instead of discarding every other chunk's results too.
+          return const <String, LiveStopMap>{};
+        }
+      }),
+    );
+    final merged = <String, LiveStopMap>{};
+    for (final chunkResult in chunkResults) {
+      merged.addAll(chunkResult);
+    }
+    return merged;
+  }
+
+  Future<BatchLiveStopMap> _getBatchLiveStopMapsChunk(
+    List<String> routeIds,
+  ) async {
     // Check per-route caches first; if *every* route is fresh we can skip
     // the batch HTTP request entirely.
     final allCached = <String, LiveStopMap>{};
     var allFresh = true;
-    for (final routeId in deduped) {
+    for (final routeId in routeIds) {
       final cached = _readFreshCache(
         _realtimeCache,
         routeId,
@@ -2008,7 +2042,7 @@ class BusRepository {
       return allCached;
     }
 
-    final cacheKey = [...deduped]..sort();
+    final cacheKey = [...routeIds]..sort();
     final cacheKeyStr = cacheKey.join(',');
     final batchCached = _readFreshCache(
       _batchRealtimeCache,
@@ -2024,7 +2058,7 @@ class BusRepository {
       return inFlight;
     }
 
-    final future = _loadBatchLiveStopMaps(deduped);
+    final future = _loadBatchLiveStopMaps(routeIds);
     _batchRealtimeInFlight[cacheKeyStr] = future;
     try {
       final result = await future;

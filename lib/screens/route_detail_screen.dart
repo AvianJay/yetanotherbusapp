@@ -3522,40 +3522,39 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     final controller = AppControllerScope.read(context);
     final normalizedStopName = _normalizeStopRouteLookupName(stop.stopName);
-    final currentRouteId =
-        _detail?.route.routeId.trim() ?? widget.routeIdHint?.trim() ?? '';
     final results = await controller.searchRoutesByStop(
       stop.stopName,
       provider: widget.provider,
     );
 
     return results
-        .where((result) {
-          if (_normalizeStopRouteLookupName(result.matchedStop.stopName) !=
-              normalizedStopName) {
-            return false;
-          }
-          if (result.route.routeKey == widget.routeKey) {
-            return false;
-          }
-          if (currentRouteId.isNotEmpty &&
-              result.route.routeId.trim() == currentRouteId) {
-            return false;
-          }
-          return true;
-        })
+        .where(
+          (result) =>
+              _normalizeStopRouteLookupName(result.matchedStop.stopName) ==
+              normalizedStopName,
+        )
         .toList(growable: false);
   }
 
-  Future<List<_RelatedStopRouteEta>> _loadRelatedStopRouteEtas(
-    StopInfo stop,
+  List<_RelatedStopRouteEta> _buildInitialRelatedStopRouteEtas(
+    List<StopRouteSearchResult> routes,
+  ) {
+    final items = routes
+        .map(
+          (result) => _RelatedStopRouteEta(
+            result: result,
+            liveStop: result.matchedStop,
+          ),
+        )
+        .toList();
+    items.sort(_compareRelatedStopRouteEtas);
+    return items;
+  }
+
+  Future<BatchLiveStopMap> _fetchRelatedStopLiveMaps(
+    List<StopRouteSearchResult> routes,
   ) async {
     final controller = AppControllerScope.read(context);
-    final routes = await _loadRelatedStopRoutes(stop);
-    if (routes.isEmpty) {
-      return const <_RelatedStopRouteEta>[];
-    }
-
     BatchLiveStopMap liveMaps = const <String, LiveStopMap>{};
     try {
       liveMaps = await controller.repository.getBatchLiveStopMaps(
@@ -3565,6 +3564,37 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       debugPrint('Related stop route ETA load error: $error');
     }
 
+    final missingRouteIds = routes
+        .map((result) => result.route.routeId.trim())
+        .where((id) => !liveMaps.containsKey(id))
+        .toSet();
+    if (missingRouteIds.isEmpty) {
+      return liveMaps;
+    }
+
+    final fallbackEntries = await Future.wait(
+      missingRouteIds.map((routeId) async {
+        try {
+          final liveMap = await controller.repository.getLiveStopMap(routeId);
+          return MapEntry(routeId, liveMap);
+        } catch (_) {
+          return null;
+        }
+      }),
+    );
+    final merged = Map<String, LiveStopMap>.from(liveMaps);
+    for (final entry in fallbackEntries) {
+      if (entry != null) {
+        merged[entry.key] = entry.value;
+      }
+    }
+    return merged;
+  }
+
+  List<_RelatedStopRouteEta> _applyLiveMapsToRelatedStopRoutes(
+    List<StopRouteSearchResult> routes,
+    BatchLiveStopMap liveMaps,
+  ) {
     final items = routes.map((result) {
       final liveMap = liveMaps[result.route.routeId.trim()];
       final livePayload = liveMap?[_relatedStopRealtimeKey(result.matchedStop)];
@@ -3661,7 +3691,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return hour * 60 + minute;
   }
 
-  String _relatedStopStatusText(StopInfo stop) {
+  String _relatedStopStatusText(StopInfo stop, {bool isLoadingEta = false}) {
     final message = stop.msg?.trim() ?? '';
     if (message.isNotEmpty) {
       return message;
@@ -3669,7 +3699,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
     final seconds = stop.sec;
     if (seconds == null) {
-      return '無即時資料';
+      return isLoadingEta ? '讀取即時資料中…' : '無即時資料';
     }
     if (seconds <= 0) {
       return '進站中';
@@ -3721,109 +3751,19 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     final stopName = stop.stopName.trim();
-    final relatedRoutesFuture = _loadRelatedStopRouteEtas(stop);
     final selectedRoute = await showModalBottomSheet<StopRouteSearchResult>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) {
-        final theme = Theme.of(context);
-        return SafeArea(
-          child: SizedBox(
-            height: MediaQuery.of(context).size.height * 0.72,
-            child: FutureBuilder<List<_RelatedStopRouteEta>>(
-              future: relatedRoutesFuture,
-              builder: (context, snapshot) {
-                Widget content;
-                if (snapshot.connectionState != ConnectionState.done) {
-                  content = const Center(child: CircularProgressIndicator());
-                } else if (snapshot.hasError) {
-                  content = Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Text(
-                        '載入站牌經過路線時發生錯誤',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ),
-                  );
-                } else {
-                  final routes =
-                      snapshot.data ?? const <_RelatedStopRouteEta>[];
-                  if (routes.isEmpty) {
-                    content = Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Text(
-                          '找不到「$stopName」的其他路線',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ),
-                    );
-                  } else {
-                    content = ListView.separated(
-                      itemCount: routes.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final item = routes[index];
-                        final result = item.result;
-                        final route = result.route;
-                        final direction = _relatedRouteDirectionText(route);
-                        final subtitleParts = <String>[
-                          _relatedStopStatusText(item.liveStop),
-                          if (direction.isNotEmpty) direction,
-                        ];
-                        return ListTile(
-                          leading: EtaBadge(
-                            stop: item.liveStop,
-                            alwaysShowSeconds: AppControllerScope.read(
-                              context,
-                            ).settings.alwaysShowSeconds,
-                            size: 52,
-                          ),
-                          title: Text(route.routeName),
-                          subtitle: subtitleParts.isEmpty
-                              ? null
-                              : Text(subtitleParts.join(' · ')),
-                          trailing: const Icon(Icons.chevron_right_rounded),
-                          onTap: () => Navigator.of(context).pop(result),
-                        );
-                      },
-                    );
-                  }
-                }
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                      child: Text(
-                        '站牌經過路線',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                      child: Text(
-                        stopName,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                    Expanded(child: content),
-                  ],
-                );
-              },
-            ),
-          ),
-        );
-      },
+      builder: (context) => _RelatedStopRoutesSheet(
+        stopName: stopName,
+        loadRoutes: () => _loadRelatedStopRoutes(stop),
+        fetchLiveMaps: _fetchRelatedStopLiveMaps,
+        buildInitialItems: _buildInitialRelatedStopRouteEtas,
+        applyLiveMaps: _applyLiveMapsToRelatedStopRoutes,
+        statusText: _relatedStopStatusText,
+        directionText: _relatedRouteDirectionText,
+      ),
     );
 
     if (!mounted || selectedRoute == null) {
@@ -4669,7 +4609,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         : 0.0;
     final horizontalPadding = hasLabel ? 28.0 : 20.0;
     final gap = hasLabel ? 8.0 : 0.0;
-    final iconWidth = showStackedBuses ? 28.0 : 18.0;
+    final iconWidth = showStackedBuses ? 22.0 : 18.0;
     return horizontalPadding + iconWidth + gap + labelWidth;
   }
 
@@ -4799,6 +4739,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         borderColor: statusStyle.borderColor,
         glowColor: statusStyle.glowColor,
         showStackedBuses: statusStyle.showStackedBuses,
+        stackCount: stop.buses.length,
       );
 
       if (stop.buses.length == 1) {
@@ -5393,6 +5334,7 @@ class _RouteStatusPill extends StatelessWidget {
     this.borderColor,
     this.glowColor,
     this.showStackedBuses = false,
+    this.stackCount,
   });
 
   final IconData icon;
@@ -5402,28 +5344,46 @@ class _RouteStatusPill extends StatelessWidget {
   final Color? borderColor;
   final Color? glowColor;
   final bool showStackedBuses;
+  final int? stackCount;
 
   Widget _buildIcon() {
     if (!showStackedBuses) {
       return Icon(icon, size: 18, color: foregroundColor);
     }
 
+    final count = stackCount ?? 2;
+    final badgeText = count > 9 ? '9+' : '$count';
+
     return SizedBox(
-      width: 28,
-      height: 18,
+      width: 22,
+      height: 22,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
+          Icon(icon, size: 18, color: foregroundColor),
           Positioned(
-            left: 8,
-            top: 1,
-            child: Icon(
-              Icons.directions_bus_rounded,
-              size: 16,
-              color: foregroundColor.withValues(alpha: 0.58),
+            right: -2,
+            bottom: -2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: foregroundColor,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: backgroundColor, width: 1.5),
+              ),
+              child: Text(
+                badgeText,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  color: backgroundColor,
+                  height: 1,
+                ),
+              ),
             ),
           ),
-          Icon(icon, size: 18, color: foregroundColor),
         ],
       ),
     );
@@ -6397,6 +6357,174 @@ class _RelatedStopRouteEta {
 
   final StopRouteSearchResult result;
   final StopInfo liveStop;
+}
+
+class _RelatedStopRoutesSheet extends StatefulWidget {
+  const _RelatedStopRoutesSheet({
+    required this.stopName,
+    required this.loadRoutes,
+    required this.fetchLiveMaps,
+    required this.buildInitialItems,
+    required this.applyLiveMaps,
+    required this.statusText,
+    required this.directionText,
+  });
+
+  final String stopName;
+  final Future<List<StopRouteSearchResult>> Function() loadRoutes;
+  final Future<BatchLiveStopMap> Function(List<StopRouteSearchResult>)
+  fetchLiveMaps;
+  final List<_RelatedStopRouteEta> Function(List<StopRouteSearchResult>)
+  buildInitialItems;
+  final List<_RelatedStopRouteEta> Function(
+    List<StopRouteSearchResult>,
+    BatchLiveStopMap,
+  )
+  applyLiveMaps;
+  final String Function(StopInfo stop, {bool isLoadingEta}) statusText;
+  final String Function(RouteSummary route) directionText;
+
+  @override
+  State<_RelatedStopRoutesSheet> createState() =>
+      _RelatedStopRoutesSheetState();
+}
+
+class _RelatedStopRoutesSheetState extends State<_RelatedStopRoutesSheet> {
+  List<StopRouteSearchResult>? _routes;
+  List<_RelatedStopRouteEta> _items = const <_RelatedStopRouteEta>[];
+  Object? _error;
+  bool _loadingEtas = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    try {
+      final routes = await widget.loadRoutes();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _routes = routes;
+        _items = widget.buildInitialItems(routes);
+        _loadingEtas = routes.isNotEmpty;
+      });
+      if (routes.isEmpty) {
+        return;
+      }
+      final liveMaps = await widget.fetchLiveMaps(routes);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _items = widget.applyLiveMaps(routes, liveMaps);
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _error = error);
+    } finally {
+      if (mounted) {
+        setState(() => _loadingEtas = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget content;
+    if (_routes == null && _error == null) {
+      content = const Center(child: CircularProgressIndicator());
+    } else if (_error != null && (_routes == null || _routes!.isEmpty)) {
+      content = Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Text(
+            '載入站牌經過路線時發生錯誤',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+      );
+    } else if (_items.isEmpty) {
+      content = Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Text(
+            '找不到「${widget.stopName}」的路線',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+      );
+    } else {
+      content = ListView.separated(
+        itemCount: _items.length,
+        separatorBuilder: (_, _) => const Divider(height: 1),
+        itemBuilder: (context, index) {
+          final item = _items[index];
+          final result = item.result;
+          final route = result.route;
+          final direction = widget.directionText(route);
+          final subtitleParts = <String>[
+            widget.statusText(item.liveStop, isLoadingEta: _loadingEtas),
+            if (direction.isNotEmpty) direction,
+          ];
+          return ListTile(
+            leading: EtaBadge(
+              stop: item.liveStop,
+              alwaysShowSeconds: AppControllerScope.read(
+                context,
+              ).settings.alwaysShowSeconds,
+              size: 52,
+            ),
+            title: Text(route.routeName),
+            subtitle: subtitleParts.isEmpty
+                ? null
+                : Text(subtitleParts.join(' · ')),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).pop(result),
+          );
+        },
+      );
+    }
+
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.72,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+              child: Text(
+                '站牌經過路線',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Text(
+                widget.stopName,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            if (_loadingEtas) const LinearProgressIndicator(minHeight: 2),
+            Expanded(child: content),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 enum _StopAction {

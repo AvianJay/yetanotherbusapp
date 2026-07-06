@@ -10,6 +10,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 
 import '../app/bus_app.dart';
+import '../core/friendly_error.dart';
 import '../core/models.dart';
 import 'eta_badge.dart';
 import 'platform_map_provider.dart';
@@ -448,7 +449,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       }
       setState(() {
         _isRefreshing = false;
-        _error = '$error';
+        _error = friendlyErrorMessage(error);
       });
       _scheduleNextRefresh();
     }

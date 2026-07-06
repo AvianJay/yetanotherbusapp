@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/friendly_error.dart';
 import '../widgets/markdown_content_view.dart';
 
 class LegalMarkdownPage extends StatefulWidget {
@@ -45,7 +46,7 @@ class _LegalMarkdownPageState extends State<LegalMarkdownPage> {
         return;
       }
       setState(() {
-        _error = '$error';
+        _error = friendlyErrorMessage(error);
       });
     } finally {
       if (mounted) {

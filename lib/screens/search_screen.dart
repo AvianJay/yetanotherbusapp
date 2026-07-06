@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
+import '../core/friendly_error.dart';
 import '../core/haptic_feedback_service.dart';
 import '../core/models.dart';
 import '../core/route_search_ranking.dart';
@@ -475,7 +476,7 @@ class _SearchScreenState extends State<SearchScreen> {
         return;
       }
       setState(() {
-        _error = '$error';
+        _error = friendlyErrorMessage(error);
         _isResolvingStopDistances = false;
       });
       unawaited(

@@ -17,6 +17,7 @@ import 'core/api_user_agent.dart';
 import 'core/auth_service.dart';
 import 'core/bus_repository.dart';
 import 'core/database_factory.dart';
+import 'core/friendly_error.dart';
 import 'core/storage_service.dart';
 import 'core/ad_service.dart';
 
@@ -46,16 +47,25 @@ Future<void> main(List<String> args) async {
     runApp(BusApp(controller: controller, analytics: analytics));
     unawaited(AnnouncementPushService.instance.initialize());
   } catch (error) {
-    runApp(_StartupErrorApp(error: '$error'));
+    runApp(
+      _StartupErrorApp(
+        message: friendlyErrorMessage(
+          error,
+          fallback: '啟動時發生未預期的錯誤，請稍後再試。',
+        ),
+        detail: '$error',
+      ),
+    );
   } finally {
     FlutterNativeSplash.remove();
   }
 }
 
 class _StartupErrorApp extends StatelessWidget {
-  const _StartupErrorApp({required this.error});
+  const _StartupErrorApp({required this.message, required this.detail});
 
-  final String error;
+  final String message;
+  final String detail;
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +84,15 @@ class _StartupErrorApp extends StatelessWidget {
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 12),
-                  Text(error, textAlign: TextAlign.center),
+                  Text(message, textAlign: TextAlign.center),
+                  if (detail != message) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      detail,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
                 ],
               ),
             ),

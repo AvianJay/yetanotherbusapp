@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'app_update_installer.dart';
+import 'friendly_error.dart';
 import 'http_error_utils.dart';
 import 'app_update_service.dart';
 
@@ -102,7 +103,7 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
     } catch (error) {
       return AppUpdateInstallResult(
         status: AppUpdateInstallStatus.failed,
-        message: '下載或安裝更新失敗：$error',
+        message: '下載或安裝更新失敗：${friendlyErrorMessage(error)}',
       );
     }
   }
@@ -279,7 +280,7 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
     } catch (error) {
       return AppUpdateInstallResult(
         status: AppUpdateInstallStatus.failed,
-        message: '下載或安裝更新失敗：$error',
+        message: '下載或安裝更新失敗：${friendlyErrorMessage(error)}',
       );
     }
   }

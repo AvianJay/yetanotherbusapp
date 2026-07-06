@@ -22,6 +22,7 @@ import 'auth_token_store.dart';
 import 'background_image_store.dart';
 import 'bus_repository.dart';
 import 'desktop_discord_presence_service.dart';
+import 'friendly_error.dart';
 import 'haptic_feedback_service.dart';
 import 'ios_widget_integration.dart';
 import 'live_activity_service.dart';
@@ -1097,7 +1098,7 @@ class AppController extends ChangeNotifier {
       rethrow;
     } catch (error) {
       if (error is! AccountSyncConflictException) {
-        _accountSyncError = '$error';
+        _accountSyncError = friendlyErrorMessage(error);
       }
       rethrow;
     } finally {
@@ -1134,7 +1135,7 @@ class AppController extends ChangeNotifier {
       );
       _announcementsError = null;
     } catch (error) {
-      _announcementsError = '$error';
+      _announcementsError = friendlyErrorMessage(error);
     } finally {
       _announcementsLoading = false;
       notifyListeners();

@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'api_user_agent.dart';
 import 'app_build_info.dart';
+import 'friendly_error.dart';
 import 'http_error_utils.dart';
 import 'models.dart';
 
@@ -162,7 +163,7 @@ class AppUpdateService {
     } catch (error) {
       return AppUpdateCheckResult(
         status: AppUpdateStatus.unavailable,
-        message: '檢查更新失敗：$error',
+        message: '檢查更新失敗：${friendlyErrorMessage(error)}',
       );
     }
   }

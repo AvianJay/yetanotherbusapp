@@ -14,6 +14,7 @@ import '../core/app_launch_service.dart';
 import '../core/android_home_integration.dart';
 import '../core/desktop_discord_presence_service.dart';
 import '../core/desktop_discord_route_observer.dart';
+import '../core/friendly_error.dart';
 import '../core/app_route_observer.dart';
 import '../core/ios_widget_integration.dart';
 import '../core/models.dart';
@@ -544,7 +545,9 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
       if (!mounted) {
         return;
       }
-      messenger?.showSnackBar(SnackBar(content: Text('設定同步偏好失敗：$error')));
+      messenger?.showSnackBar(
+        SnackBar(content: Text('設定同步偏好失敗：${friendlyErrorMessage(error)}')),
+      );
     }
   }
 
@@ -691,7 +694,9 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
         if (!mounted) {
           return;
         }
-        messenger?.showSnackBar(SnackBar(content: Text('登入錯誤: $error')));
+        messenger?.showSnackBar(
+          SnackBar(content: Text('登入失敗：${friendlyErrorMessage(error)}')),
+        );
       }
       return;
     }
@@ -780,7 +785,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
               return;
             }
             messenger?.showSnackBar(
-              SnackBar(content: Text('自動更新資料庫失敗：$error')),
+              SnackBar(content: Text('自動更新資料庫失敗：${friendlyErrorMessage(error)}')),
             );
           }
         } else if (databasePlan.shouldShowPopup) {
@@ -805,7 +810,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
               }
               ScaffoldMessenger.maybeOf(
                 context,
-              )?.showSnackBar(SnackBar(content: Text('資料庫更新失敗：$error')));
+              )?.showSnackBar(SnackBar(content: Text('資料庫更新失敗：${friendlyErrorMessage(error)}')));
             }
           }
         } else if (databasePlan.shouldShowNotification) {
@@ -841,7 +846,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
                     }
                     ScaffoldMessenger.maybeOf(
                       context,
-                    )?.showSnackBar(SnackBar(content: Text('資料庫更新失敗：$error')));
+                    )?.showSnackBar(SnackBar(content: Text('資料庫更新失敗：${friendlyErrorMessage(error)}')));
                   }
                 },
               ),
@@ -857,7 +862,9 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
       if (mounted) {
         ScaffoldMessenger.maybeOf(
           context,
-        )?.showSnackBar(SnackBar(content: Text('檢查資料庫更新失敗：$error')));
+        )?.showSnackBar(
+          SnackBar(content: Text('檢查資料庫更新失敗：${friendlyErrorMessage(error)}')),
+        );
       }
     }
 

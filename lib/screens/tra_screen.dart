@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/friendly_error.dart';
 import '../core/transit_repository.dart';
 import '../widgets/transit_drawer.dart';
 import '../widgets/transit_station_map.dart';
@@ -87,7 +88,7 @@ class _TraScreenState extends State<TraScreen> {
       }
     } catch (error) {
       if (!mounted) return;
-      setState(() => _pageError = '$error');
+      setState(() => _pageError = friendlyErrorMessage(error));
     } finally {
       if (mounted) {
         setState(() => _loadingStations = false);
@@ -184,7 +185,7 @@ class _TraScreenState extends State<TraScreen> {
       setState(() => _results = results);
     } catch (error) {
       if (!mounted) return;
-      setState(() => _queryError = '$error');
+      setState(() => _queryError = friendlyErrorMessage(error));
     } finally {
       if (mounted) {
         setState(() => _searching = false);

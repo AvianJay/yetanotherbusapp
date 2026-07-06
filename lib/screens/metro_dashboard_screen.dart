@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/friendly_error.dart';
 import '../core/transit_repository.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/transit_drawer.dart';
@@ -79,7 +80,7 @@ class _MetroScreenState extends State<MetroScreen> {
       if (!mounted) {
         return;
       }
-      setState(() => _pageError = '$error');
+      setState(() => _pageError = friendlyErrorMessage(error));
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -133,7 +134,7 @@ class _MetroScreenState extends State<MetroScreen> {
       if (!mounted) {
         return;
       }
-      setState(() => _pageError = '$error');
+      setState(() => _pageError = friendlyErrorMessage(error));
     } finally {
       if (mounted) {
         setState(() => _loadingSystem = false);
@@ -183,7 +184,7 @@ class _MetroScreenState extends State<MetroScreen> {
       if (!mounted) {
         return;
       }
-      setState(() => _lineError = '$error');
+      setState(() => _lineError = friendlyErrorMessage(error));
     } finally {
       if (mounted) {
         setState(() => _loadingEta = false);

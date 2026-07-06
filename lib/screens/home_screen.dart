@@ -231,17 +231,30 @@ class HomeScreen extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 16),
-                FilledButton.tonalIcon(
-                  onPressed: () => openAdaptiveSettingsScreen(context),
-                  icon: const Icon(Icons.tune_rounded),
-                  label: const Text('開啟設定'),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => openAdaptiveSettingsScreen(context),
+                    icon: const Icon(Icons.tune_rounded),
+                    label: const Text('開啟設定'),
+                    style: FilledButton.styleFrom(
+                      alignment: Alignment.centerLeft,
+                    ),
+                  ),
                 ),
                 if (!kIsWeb) ...[
                   const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: () => _openDatabaseSettings(context, controller),
-                    icon: const Icon(Icons.storage_rounded),
-                    label: const Text('資料庫與下載'),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          _openDatabaseSettings(context, controller),
+                      icon: const Icon(Icons.storage_rounded),
+                      label: const Text('資料庫與下載'),
+                      style: OutlinedButton.styleFrom(
+                        alignment: Alignment.centerLeft,
+                      ),
+                    ),
                   ),
                 ],
               ],
@@ -694,7 +707,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return _SmartRecommendationShell(
       title: '智慧推薦',
       subtitle: '根據你在不同時段最常點開的路線，主動推薦現在最可能要查的那一條。',
-      compact: widget.compactMode,
       trailing: IconButton(
         tooltip: '設定',
         onPressed: _openSettings,
@@ -723,7 +735,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return _SmartRecommendationShell(
       title: '智慧推薦',
       subtitle: '根據你平常點開路線的時間點，推薦你現在最可能要看的路線。',
-      compact: widget.compactMode,
       child: Text('請先下載本地資料庫。下載完成後，這張卡片才會開始學習你的使用習慣並顯示附近站牌到站時間。'),
     );
   }
@@ -733,7 +744,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return _SmartRecommendationShell(
       title: '智慧推薦',
       subtitle: '根據你平常點開路線的時間點，推薦你現在最可能要看的路線。',
-      compact: widget.compactMode,
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -812,7 +822,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return _SmartRecommendationShell(
       title: '智慧推薦',
       subtitle: suggestion.reason,
-      compact: widget.compactMode,
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -884,15 +893,13 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                                 ),
                               ],
                               if (showDistance) ...[
-                                if (!widget.compactMode) ...[
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '距離你約 ${formatDistance(suggestion.distanceMeters!)}。',
-                                    style: theme.textTheme.bodySmall,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
+                                const SizedBox(height: 2),
+                                Text(
+                                  '距離你約 ${formatDistance(suggestion.distanceMeters!)}。',
+                                  style: theme.textTheme.bodySmall,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ],
                             ],
                           ),
@@ -945,7 +952,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return _SmartRecommendationShell(
       title: '智慧推薦',
       subtitle: '最近的站點。',
-      compact: widget.compactMode,
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -981,7 +987,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (nearby.path != null && !widget.compactMode) ...[
+                  if (nearby.path != null) ...[
                     const SizedBox(height: 8),
                     Text(
                       '方向：${nearby.path!.name}',
@@ -1030,7 +1036,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
           return _SmartRecommendationShell(
             title: '智慧推薦',
             subtitle: '正在整理你這個時段最常看的路線...',
-            compact: widget.compactMode,
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Center(child: CircularProgressIndicator()),
@@ -1421,19 +1426,17 @@ class _SmartRecommendationShell extends StatelessWidget {
     required this.subtitle,
     required this.child,
     this.trailing,
-    this.compact = false,
   });
 
   final String title;
   final String subtitle;
   final Widget child;
   final Widget? trailing;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasSubtitle = !compact && subtitle.trim().isNotEmpty;
+    final hasSubtitle = subtitle.trim().isNotEmpty;
 
     return Card(
       child: Padding(
@@ -1498,26 +1501,14 @@ class _FeatureCard extends StatelessWidget {
       ),
       child: Icon(icon, color: colorScheme.onPrimaryContainer),
     );
-    final expandedIconTile = Center(
-      child: AspectRatio(
-        aspectRatio: 1,
-        child: Container(
-          decoration: BoxDecoration(
-            color: colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          alignment: Alignment.center,
-          child: Icon(icon, size: 44, color: colorScheme.onPrimaryContainer),
-        ),
-      ),
-    );
     final titleText = Text(
       title,
       style: theme.textTheme.titleMedium,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
     );
-    final showSubtitle = !bigIcon && !compact && subtitle.trim().isNotEmpty;
+    final showSubtitle = !compact && subtitle.trim().isNotEmpty;
+    final showBigIconSubtitle = subtitle.trim().isNotEmpty;
 
     return Card(
       child: InkWell(
@@ -1528,20 +1519,52 @@ class _FeatureCard extends StatelessWidget {
             18,
             bigIcon ? 16 : 18,
             18,
-            bigIcon ? 14 : 18,
+            bigIcon ? 16 : 18,
           ),
           child: bigIcon
               ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: expandedIconTile),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(child: titleText),
-                        const SizedBox(width: 8),
-                        const Icon(Icons.chevron_right_rounded),
-                      ],
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        icon,
+                        size: 26,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (showBigIconSubtitle) ...[
+                      const SizedBox(height: 6),
+                      Expanded(
+                        child: Text(
+                          subtitle,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ] else
+                      const Spacer(),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: colorScheme.onSurfaceVariant,
                     ),
                   ],
                 )

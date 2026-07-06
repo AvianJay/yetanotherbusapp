@@ -260,14 +260,14 @@ class _TransitStationMapState extends State<TransitStationMap> {
                           final selected = point.id == widget.selectedPointId;
                           return Marker(
                             point: point.latLng,
-                            width: selected ? 160 : 148,
-                            height: selected ? 70 : 62,
+                            width: selected ? 160 : 28,
+                            height: selected ? 70 : 28,
+                            alignment: Alignment.bottomCenter,
                             child: GestureDetector(
                               onTap: () => widget.onPointSelected?.call(point),
                               child: _TransitPointMarker(
                                 point: point,
                                 selected: selected,
-                                labelMaxWidth: selected ? 104 : 92,
                               ),
                             ),
                           );
@@ -313,40 +313,44 @@ class _TransitStationMapState extends State<TransitStationMap> {
 }
 
 class _TransitPointMarker extends StatelessWidget {
-  const _TransitPointMarker({
-    required this.point,
-    required this.selected,
-    required this.labelMaxWidth,
-  });
+  const _TransitPointMarker({required this.point, required this.selected});
 
   final TransitMapPoint point;
   final bool selected;
-  final double labelMaxWidth;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final markerColor = point.color ?? theme.colorScheme.primary;
 
+    if (!selected) {
+      // Unselected points only show a plain dot: several nearby stops often
+      // sit just a few pixels apart on screen, and giving every one of them
+      // a full label pill makes them pile up into an unreadable cluster.
+      return Container(
+        width: 12,
+        height: 12,
+        decoration: BoxDecoration(
+          color: markerColor,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+        ),
+      );
+    }
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+        Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surface.withValues(
-              alpha: selected ? 0.96 : 0.9,
-            ),
+            color: theme.colorScheme.surface.withValues(alpha: 0.96),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: selected ? markerColor : theme.colorScheme.outlineVariant,
-              width: selected ? 1.8 : 1,
-            ),
+            border: Border.all(color: markerColor, width: 1.8),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: selected ? 0.18 : 0.1),
-                blurRadius: selected ? 10 : 6,
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 10,
                 offset: const Offset(0, 3),
               ),
             ],
@@ -355,8 +359,8 @@ class _TransitPointMarker extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: selected ? 12 : 10,
-                height: selected ? 12 : 10,
+                width: 12,
+                height: 12,
                 decoration: BoxDecoration(
                   color: markerColor,
                   shape: BoxShape.circle,
@@ -364,7 +368,7 @@ class _TransitPointMarker extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: labelMaxWidth),
+                constraints: const BoxConstraints(maxWidth: 104),
                 child: Text(
                   point.badge?.isNotEmpty == true
                       ? '${point.badge} ${point.label}'
@@ -373,7 +377,7 @@ class _TransitPointMarker extends StatelessWidget {
                   softWrap: false,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),

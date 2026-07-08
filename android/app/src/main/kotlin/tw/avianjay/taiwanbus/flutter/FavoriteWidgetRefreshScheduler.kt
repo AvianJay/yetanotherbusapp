@@ -19,26 +19,30 @@ object FavoriteWidgetRefreshScheduler {
     private const val SETTINGS_REFRESH_MINUTES_KEY = "favoriteWidgetAutoRefreshMinutes"
 
     fun sync(context: Context, minutes: Int) {
-        val workManager = WorkManager.getInstance(context)
-        if (minutes < 15 || !hasAnyFavoriteWidgets(context)) {
-            workManager.cancelUniqueWork(WORK_NAME)
-            return
+        // WorkManager may be unavailable in stripped-down widget-host starts;
+        // scheduling is best-effort and must never crash the caller.
+        runCatching {
+            val workManager = WorkManager.getInstance(context)
+            if (minutes < 15 || !hasAnyFavoriteWidgets(context)) {
+                workManager.cancelUniqueWork(WORK_NAME)
+                return
+            }
+
+            val request = PeriodicWorkRequestBuilder<FavoriteWidgetRefreshWorker>(
+                minutes.toLong(),
+                TimeUnit.MINUTES,
+            ).setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build(),
+            ).build()
+
+            workManager.enqueueUniquePeriodicWork(
+                WORK_NAME,
+                ExistingPeriodicWorkPolicy.UPDATE,
+                request,
+            )
         }
-
-        val request = PeriodicWorkRequestBuilder<FavoriteWidgetRefreshWorker>(
-            minutes.toLong(),
-            TimeUnit.MINUTES,
-        ).setConstraints(
-            Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build(),
-        ).build()
-
-        workManager.enqueueUniquePeriodicWork(
-            WORK_NAME,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            request,
-        )
     }
 
     fun syncFromPreferences(context: Context) {

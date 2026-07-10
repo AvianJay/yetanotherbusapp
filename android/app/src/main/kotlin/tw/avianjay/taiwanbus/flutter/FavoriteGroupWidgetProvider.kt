@@ -28,7 +28,9 @@ class FavoriteGroupWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
-        FavoriteWidgetRefreshScheduler.syncFromPreferences(context)
+        runCatching {
+            FavoriteWidgetRefreshScheduler.syncFromPreferences(context)
+        }
         FavoriteGroupWidgetSupport.updateWidgetsAsync(context, appWidgetIds)
     }
 
@@ -58,9 +60,13 @@ class FavoriteGroupWidgetProvider : AppWidgetProvider() {
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         super.onDeleted(context, appWidgetIds)
         appWidgetIds.forEach { appWidgetId ->
-            FavoriteGroupWidgetSupport.deleteConfiguredGroup(context, appWidgetId)
+            runCatching {
+                FavoriteGroupWidgetSupport.deleteConfiguredGroup(context, appWidgetId)
+            }
         }
-        FavoriteWidgetRefreshScheduler.syncFromPreferences(context)
+        runCatching {
+            FavoriteWidgetRefreshScheduler.syncFromPreferences(context)
+        }
     }
 }
 
@@ -122,19 +128,30 @@ object FavoriteGroupWidgetSupport {
         val appWidgetManager = AppWidgetManager.getInstance(appContext)
         if (showLoading) {
             appWidgetIds.forEach { appWidgetId ->
-                appWidgetManager.updateAppWidget(
-                    appWidgetId,
-                    buildLoadingRemoteViews(appContext, appWidgetId),
-                )
+                runCatching {
+                    appWidgetManager.updateAppWidget(
+                        appWidgetId,
+                        buildLoadingRemoteViews(appContext, appWidgetId),
+                    )
+                }
             }
         }
 
-        executor.execute {
-            try {
-                updateWidgetsNow(appContext, appWidgetIds)
-            } finally {
-                pendingResult?.finish()
+        val submitted = runCatching {
+            executor.execute {
+                try {
+                    updateWidgetsNow(appContext, appWidgetIds)
+                } catch (_: Exception) {
+                    // Never let a widget refresh take the whole process down;
+                    // leave whatever state is currently rendered.
+                    runCatching { renderErrorState(appContext, appWidgetIds) }
+                } finally {
+                    pendingResult?.finish()
+                }
             }
+        }
+        if (submitted.isFailure) {
+            pendingResult?.finish()
         }
     }
 
@@ -144,7 +161,14 @@ object FavoriteGroupWidgetSupport {
     ) {
         val appWidgetManager = AppWidgetManager.getInstance(context)
         appWidgetIds.forEach { appWidgetId ->
-            val renderResult = buildWidgetRenderResult(context, appWidgetId)
+            val renderResult = runCatching {
+                buildWidgetRenderResult(context, appWidgetId)
+            }.getOrElse {
+                WidgetRenderResult(
+                    views = buildErrorRemoteViews(context, appWidgetId),
+                    updateTimestamp = false,
+                )
+            }
             if (renderResult.updateTimestamp) {
                 val timestamp = System.currentTimeMillis()
                 saveLastUpdated(context, appWidgetId, timestamp)
@@ -153,10 +177,34 @@ object FavoriteGroupWidgetSupport {
                     formatLastUpdated(context, timestamp),
                 )
             }
-            appWidgetManager.updateAppWidget(
-                appWidgetId,
-                renderResult.views,
-            )
+            runCatching {
+                appWidgetManager.updateAppWidget(
+                    appWidgetId,
+                    renderResult.views,
+                )
+            }
+        }
+    }
+
+    private fun renderErrorState(context: Context, appWidgetIds: IntArray) {
+        val appWidgetManager = AppWidgetManager.getInstance(context)
+        appWidgetIds.forEach { appWidgetId ->
+            runCatching {
+                appWidgetManager.updateAppWidget(
+                    appWidgetId,
+                    buildErrorRemoteViews(context, appWidgetId),
+                )
+            }
+        }
+    }
+
+    private fun buildErrorRemoteViews(context: Context, appWidgetId: Int): RemoteViews {
+        val title = runCatching {
+            loadConfiguredGroup(context, appWidgetId)
+        }.getOrNull() ?: "YABus"
+        return buildBaseRemoteViews(context, appWidgetId, title).apply {
+            setViewVisibility(R.id.favorite_widget_empty, View.VISIBLE)
+            setTextViewText(R.id.favorite_widget_empty, "更新失敗，請點右上角重試。")
         }
     }
 
@@ -353,9 +401,10 @@ object FavoriteGroupWidgetSupport {
             FLUTTER_PREFERENCES_NAME,
             Context.MODE_PRIVATE,
         )
-        val raw = preferences.getString(FAVORITE_GROUPS_KEY, null)
-            ?: preferences.getString(FAVORITE_GROUPS_FALLBACK_KEY, null)
-            ?: return emptyMap()
+        val raw = runCatching {
+            preferences.getString(FAVORITE_GROUPS_KEY, null)
+                ?: preferences.getString(FAVORITE_GROUPS_FALLBACK_KEY, null)
+        }.getOrNull() ?: return emptyMap()
         val root = try {
             JSONObject(raw)
         } catch (_: Exception) {
@@ -406,22 +455,23 @@ object FavoriteGroupWidgetSupport {
         context: Context,
         item: FavoriteWidgetItem,
     ): WidgetRouteFetchResult {
-        val routeId = resolveRouteId(context, item)
-            ?: return WidgetRouteFetchResult(success = false, liveStops = emptyMap())
-        val encodedRouteId = URLEncoder.encode(routeId, Charsets.UTF_8.name())
-        val connection = URL("$API_BASE_URL/api/v1/routes/$encodedRouteId/realtime")
-            .openConnection() as HttpURLConnection
-        connection.connectTimeout = 10_000
-        connection.readTimeout = 10_000
-        connection.requestMethod = "GET"
-        connection.setRequestProperty("Accept", "application/json")
-        connection.setRequestProperty("User-Agent", NativeApiUserAgent.value())
-        connection.doInput = true
-        connection.useCaches = false
-
+        val failure = WidgetRouteFetchResult(success = false, liveStops = emptyMap())
+        val routeId = runCatching { resolveRouteId(context, item) }.getOrNull()
+            ?: return failure
+        var connection: HttpURLConnection? = null
         return try {
+            val encodedRouteId = URLEncoder.encode(routeId, Charsets.UTF_8.name())
+            connection = URL("$API_BASE_URL/api/v1/routes/$encodedRouteId/realtime")
+                .openConnection() as HttpURLConnection
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 10_000
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("User-Agent", NativeApiUserAgent.value())
+            connection.doInput = true
+            connection.useCaches = false
             if (connection.responseCode !in 200..299) {
-                return WidgetRouteFetchResult(success = false, liveStops = emptyMap())
+                return failure
             }
             val jsonText = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                 reader.readText()
@@ -431,9 +481,9 @@ object FavoriteGroupWidgetSupport {
                 liveStops = parseLiveStopMap(jsonText, item.pathId),
             )
         } catch (_: Exception) {
-            WidgetRouteFetchResult(success = false, liveStops = emptyMap())
+            failure
         } finally {
-            connection.disconnect()
+            connection?.disconnect()
         }
     }
 
@@ -481,8 +531,12 @@ object FavoriteGroupWidgetSupport {
                         ?.takeIf { it.isNotEmpty() }
                 }
             }
+        } catch (_: Exception) {
+            // Schema mismatch or a database mid-download must degrade to
+            // "no live data", not crash the widget host process.
+            null
         } finally {
-            database.close()
+            runCatching { database.close() }
         }
     }
 

@@ -647,21 +647,18 @@ class AppController extends ChangeNotifier {
   }) async {
     final namespace = AccountSyncNamespace.favorites;
     final status = accountSyncStatusFor(namespace);
-    final localFavoriteCount = _favoriteGroups.values.fold<int>(
-      0,
-      (total, group) => total + group.length,
-    );
+    final hasLocalFavoriteGroups = _favoriteGroups.isNotEmpty;
     final effectiveConflictPolicy =
         preferredConflictPolicy == AccountSyncConflictPolicy.abort
         ? AccountSyncConflictPolicy.merge
         : preferredConflictPolicy;
 
-    if (localFavoriteCount == 0 && status.hasCloudData) {
+    if (!hasLocalFavoriteGroups && status.hasCloudData) {
       await _restoreAccountNamespaceCore(namespace);
       return;
     }
     if (!status.hasCloudData) {
-      if (localFavoriteCount > 0 || status.localChanges) {
+      if (hasLocalFavoriteGroups || status.localChanges) {
         await _syncAccountNamespaceCore(
           namespace,
           conflictPolicy: effectiveConflictPolicy,
@@ -2716,7 +2713,7 @@ class AppController extends ChangeNotifier {
             key,
             value.map((item) => item.toJson()).toList(growable: false),
           ),
-        )..removeWhere((_, value) => value.isEmpty),
+        ),
       },
       AccountSyncNamespace.preferences => _mergeJsonMaps(
         _accountSyncLocalState.preferences.preservedPayload ?? const {},
@@ -2802,9 +2799,7 @@ class AppController extends ChangeNotifier {
           )
           .where((favorite) => favorite.routeKey > 0 && favorite.stopId > 0)
           .toList(growable: false);
-      if (favorites.isNotEmpty) {
-        groups[groupName] = favorites;
-      }
+      groups[groupName] = favorites;
     }
     return groups;
   }

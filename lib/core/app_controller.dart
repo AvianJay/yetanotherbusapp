@@ -1701,6 +1701,14 @@ class AppController extends ChangeNotifier {
   Future<AppUpdateCheckResult> checkForAppUpdate({
     AppUpdateChannel? channel,
   }) async {
+    if (kIsWeb) {
+      // Web updates ship via deployment (service worker + WebUpdateChecker),
+      // not GitHub releases – don't query the GitHub API.
+      return const AppUpdateCheckResult(
+        status: AppUpdateStatus.unavailable,
+        message: '網頁版由部署自動更新。',
+      );
+    }
     if (AppBuildInfo.isAabBuild) {
       return const AppUpdateCheckResult(
         status: AppUpdateStatus.unavailable,
@@ -1734,7 +1742,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<AppUpdateCheckResult?> maybeCheckForAppUpdateOnLaunch() async {
-    if (AppBuildInfo.isAabBuild) {
+    if (kIsWeb || AppBuildInfo.isAabBuild) {
       return null;
     }
     if (_startupAppUpdateChecked ||

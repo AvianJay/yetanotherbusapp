@@ -43,6 +43,20 @@ class WebUpdateChecker {
   static const _checkInterval = Duration(minutes: 30);
   static const _requestTimeout = Duration(seconds: 6);
 
+  /// The git SHA baked into this bundle at compile time (APP_GIT_SHA).
+  /// This identifies the code actually running, unlike version.json, which
+  /// the service worker fetches network-first and therefore always reflects
+  /// the *deployed* build – even when the cached app shell is stale.
+  static const _compiledGitShaRaw = String.fromEnvironment(
+    'APP_GIT_SHA',
+    defaultValue: 'unknown',
+  );
+
+  static String get _compiledGitSha {
+    final sha = _compiledGitShaRaw.trim().toLowerCase();
+    return (sha.isEmpty || sha == 'unknown') ? '' : sha;
+  }
+
   String _currentVersion = '';
   String _currentBuildNumber = '';
   String _currentGitSha = '';
@@ -81,13 +95,17 @@ class WebUpdateChecker {
   }
 
   Future<void> _loadCurrentVersion() async {
+    // The compiled-in SHA is authoritative for "what code is running".
+    _currentGitSha = _compiledGitSha;
     try {
       final response = await html.HttpRequest.getString(_versionJsonPath)
           .timeout(_requestTimeout);
       final data = jsonDecode(response) as Map<String, dynamic>;
       _currentVersion = (data['version'] as String?) ?? '';
       _currentBuildNumber = (data['buildNumber'] as String?) ?? '';
-      _currentGitSha = (data['gitSha'] as String?) ?? '';
+      if (_currentGitSha.isEmpty) {
+        _currentGitSha = (data['gitSha'] as String?) ?? '';
+      }
       _versionLoaded = true;
     } catch (_) {
       // version.json might not exist in dev mode; that's fine.
@@ -152,11 +170,13 @@ class WebUpdateChecker {
   /// one the user is currently running.
   ///
   /// Strategy:
-  /// 1. If the version strings differ, the higher one is newer.
-  /// 2. If versions are equal but build numbers differ (both numeric),
-  ///    the higher build number is newer.
-  /// 3. If versions and build numbers match but git SHAs differ,
-  ///    consider it an update (same version, different commit).
+  /// 1. If both git SHAs are known they are authoritative: different SHA
+  ///    means a different build is deployed, same SHA means up to date.
+  ///    (The current SHA is compiled into the bundle, so this works even
+  ///    when version.json reads the same before and after a deploy.)
+  /// 2. Otherwise, if the version strings differ, the higher one is newer.
+  /// 3. Otherwise, if build numbers differ (both numeric), the higher
+  ///    build number is newer.
   static bool _isNewer({
     required String currentVersion,
     required String currentBuildNumber,
@@ -165,6 +185,15 @@ class WebUpdateChecker {
     required String latestBuildNumber,
     required String latestGitSha,
   }) {
+    // Git SHA comparison – the compiled-in SHA identifies the running code
+    // exactly, so trust it in both directions when available.
+    if (latestGitSha.isNotEmpty &&
+        currentGitSha.isNotEmpty &&
+        latestGitSha != 'unknown' &&
+        currentGitSha != 'unknown') {
+      return latestGitSha != currentGitSha;
+    }
+
     // If the current version was never loaded, we can't compare.
     if (currentVersion.isEmpty) return false;
     if (latestVersion.isEmpty) return false;
@@ -183,13 +212,6 @@ class WebUpdateChecker {
     final latestBuild = int.tryParse(latestBuildNumber);
     if (currentBuild != null && latestBuild != null) {
       return latestBuild > currentBuild;
-    }
-
-    // Same version, can't compare builds: check git SHA.
-    if (latestGitSha.isNotEmpty &&
-        currentGitSha.isNotEmpty &&
-        latestGitSha != currentGitSha) {
-      return true;
     }
 
     return false;

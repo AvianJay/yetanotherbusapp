@@ -259,16 +259,13 @@ jobs:
           --dart-define=YABUS_GOOGLE_IOS_CLIENT_ID=${{ env.YABUS_GOOGLE_IOS_CLIENT_ID }}
           --dart-define=APP_NIGHTLY_ARTIFACT=web-release
 
-      - name: Write version.json
+      - name: Stamp web build (sw.js cache version + version.json)
         shell: bash
-        run: |
-          cat > build/web/version.json <<EOF
-          {
-            "version": "nightly",
-            "buildNumber": "${{ github.run_number }}",
-            "gitSha": "${{ github.sha }}"
-          }
-          EOF
+        env:
+          APP_VERSION: nightly
+          APP_BUILD_NUMBER: ${{ github.run_number }}
+          APP_GIT_SHA: ${{ github.sha }}
+        run: node scripts/stamp-web-build.mjs
 
       - name: Upload Web artifact
         uses: actions/upload-artifact@v6

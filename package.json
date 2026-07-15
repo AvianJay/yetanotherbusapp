@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "serve:web": "wrangler dev",
+    "predeploy:web": "node scripts/stamp-web-build.mjs",
     "deploy:web": "wrangler deploy"
   },
   "devDependencies": {

@@ -1444,6 +1444,7 @@ class StopInfo {
     required this.sequence,
     required this.lon,
     required this.lat,
+    this.rawStopId,
     this.sec,
     this.msg,
     this.t,
@@ -1470,6 +1471,14 @@ class StopInfo {
   final int sequence;
   final double lon;
   final double lat;
+
+  /// The original TDX stop ID string (e.g. "306232"), when available. Unlike
+  /// [stopId] — which is a hashed int used for compositing/deduplication — this
+  /// preserves the value the backend needs for the stop passby endpoint. Null
+  /// for stops loaded from sources that don't carry it (e.g. persisted
+  /// favorites).
+  final String? rawStopId;
+
   final int? sec;
   final String? msg;
   final String? t;
@@ -1491,6 +1500,7 @@ class StopInfo {
       sequence: sequence,
       lon: lon,
       lat: lat,
+      rawStopId: rawStopId,
       sec: sec ?? this.sec,
       msg: msg ?? this.msg,
       t: t ?? this.t,

@@ -3513,6 +3513,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
   }
 
+  // Whether the routes currently shown in the related-stop-routes sheet came
+  // from the server passby endpoint (ETA already embedded) rather than the
+  // local name-based lookup. Read by [_fetchRelatedStopLiveMaps] to decide
+  // whether a follow-up realtime fetch is needed. Only one sheet is open at a
+  // time, so a single flag is sufficient.
+  bool _relatedStopRoutesFromPassby = false;
+
   Future<List<StopRouteSearchResult>> _loadRelatedStopRoutes(
     StopInfo stop,
   ) async {
@@ -3521,6 +3528,28 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     final controller = AppControllerScope.read(context);
+    _relatedStopRoutesFromPassby = false;
+
+    // Prefer the server-side passby endpoint keyed on the original TDX stop ID.
+    // It resolves the passing routes and returns only this stop's ETA per
+    // route, so the client avoids requesting a large batch of full realtime
+    // snapshots (one per route, each carrying every stop).
+    final rawStopId = stop.rawStopId;
+    if (rawStopId != null) {
+      try {
+        final passby = await controller.repository.getStopPassby(rawStopId);
+        if (passby.isNotEmpty) {
+          _relatedStopRoutesFromPassby = true;
+          return passby;
+        }
+        // An empty result can mean the stop isn't present in the server's
+        // database (e.g. data drift); fall through to the local lookup.
+      } catch (error) {
+        debugPrint('Stop passby load error: $error');
+        // Fall back to the local name-based lookup below.
+      }
+    }
+
     final normalizedStopName = _normalizeStopRouteLookupName(stop.stopName);
     final results = await controller.searchRoutesByStop(
       stop.stopName,
@@ -3554,6 +3583,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   Future<BatchLiveStopMap> _fetchRelatedStopLiveMaps(
     List<StopRouteSearchResult> routes,
   ) async {
+    // Passby results already carry each route's ETA in matchedStop, so there
+    // is nothing more to fetch — applyLiveMaps falls back to matchedStop when
+    // the map has no entry for a route.
+    if (_relatedStopRoutesFromPassby) {
+      return const <String, LiveStopMap>{};
+    }
+
     final controller = AppControllerScope.read(context);
     BatchLiveStopMap liveMaps = const <String, LiveStopMap>{};
     try {

@@ -482,6 +482,7 @@ class BusRepository {
             routeKey: _routeKeyForRouteId(matchedRow.routeId),
             pathId: matchedRow.pathId,
             stopId: _parseStopId(matchedRow.stopId),
+            rawStopId: _rawStopIdString(matchedRow.stopId),
             stopName: matchedRow.stopName,
             sequence: matchedRow.sequence,
             lon: matchedRow.lon,
@@ -907,6 +908,7 @@ class BusRepository {
               routeKey: routeKey,
               pathId: row.pathId,
               stopId: _parseStopId(row.stopId),
+              rawStopId: _rawStopIdString(row.stopId),
               stopName: row.stopName,
               sequence: row.sequence,
               lon: row.lon,
@@ -942,6 +944,7 @@ class BusRepository {
             routeKey: routeKey,
             pathId: pathId,
             stopId: _parseStopId(stop['stopid']),
+            rawStopId: _rawStopIdString(stop['stopid']),
             stopName: stop['name']?.toString() ?? '',
             sequence: _toInt(stop['seq']),
             lon: _toDouble(stop['lon']),
@@ -1195,6 +1198,7 @@ class BusRepository {
           routeKey: _routeKeyForRouteId(routeId),
           pathId: pathId,
           stopId: stopId,
+          rawStopId: _rawStopIdString(row.stopId),
           stopName: row.stopName,
           sequence: row.sequence,
           lon: row.lon,
@@ -1297,6 +1301,7 @@ class BusRepository {
             routeKey: _routeKeyForRouteId(routeId),
             pathId: pathId,
             stopId: stopId,
+            rawStopId: _rawStopIdString(item['stopid']),
             stopName: stopName,
             sequence: sequence,
             lon: lon,
@@ -1403,6 +1408,7 @@ class BusRepository {
         routeKey: routeKey,
         pathId: row.pathId,
         stopId: _parseStopId(row.stopId),
+        rawStopId: _rawStopIdString(row.stopId),
         stopName: row.stopName,
         sequence: row.sequence,
         lon: row.lon,
@@ -1514,6 +1520,7 @@ class BusRepository {
         routeKey: routeKey,
         pathId: pathId,
         stopId: stopId,
+        rawStopId: _rawStopIdString(row['stopid']),
         stopName: row['name']?.toString() ?? '',
         sequence: (row['seq'] as num?)?.toInt() ?? 0,
         lon: (row['lon'] as num?)?.toDouble() ?? 0,
@@ -1575,6 +1582,7 @@ class BusRepository {
               routeKey: routeKey,
               pathId: pathId,
               stopId: _parseStopId(stop['stopid']),
+              rawStopId: _rawStopIdString(stop['stopid']),
               stopName: stop['name']?.toString() ?? '',
               sequence: _toInt(stop['seq']),
               lon: _toDouble(stop['lon']),
@@ -1963,6 +1971,94 @@ class BusRepository {
     }
 
     return result;
+  }
+
+  /// Fetches the routes passing a single physical stop, each already carrying
+  /// only that stop's realtime ETA.
+  ///
+  /// This is the server-side counterpart to discovering passing routes on the
+  /// client and then batch-requesting full realtime snapshots for all of them
+  /// (which downloads every stop of every route). The `passby` endpoint keys
+  /// off the original TDX [stopId] string, resolves the passing routes, and
+  /// returns one compact bucket per route — so the payload scales with the
+  /// number of passing routes, not with their combined stop counts.
+  ///
+  /// Each returned [StopRouteSearchResult] has its live ETA embedded in
+  /// [StopRouteSearchResult.matchedStop]; no follow-up realtime call is needed.
+  Future<List<StopRouteSearchResult>> getStopPassby(String stopId) async {
+    final trimmed = stopId.trim();
+    if (trimmed.isEmpty) {
+      return const <StopRouteSearchResult>[];
+    }
+
+    final response = await _client.get(
+      Uri.parse(
+        '$_apiBaseUrl/api/v1/stops/${Uri.encodeComponent(trimmed)}/passby',
+      ),
+      headers: _apiJsonHeaders,
+    );
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
+    if (response.statusCode == 404) {
+      return const <StopRouteSearchResult>[];
+    }
+    if (response.statusCode != 200) {
+      throw HttpException('站牌經過路線暫時無法取得 (${response.statusCode})。');
+    }
+
+    final decoded =
+        jsonDecode(apiResponseText(response)) as Map<String, dynamic>;
+    final rawRoutes = decoded['routes'] as List<dynamic>? ?? const [];
+
+    final results = <StopRouteSearchResult>[];
+    for (final rawRoute in rawRoutes) {
+      if (rawRoute is! Map) {
+        continue;
+      }
+      final routeId = rawRoute['routeid']?.toString() ?? '';
+      if (routeId.isEmpty) {
+        continue;
+      }
+      final pathId = _toInt(rawRoute['pathid']);
+      final entryStopId = _rawStopIdString(rawRoute['stopid']) ?? trimmed;
+      final provider = busProviderFromString(
+        routeId.length >= 3 ? routeId.substring(0, 3) : routeId,
+      );
+
+      final route = _routeSummaryFromPathRow(
+        provider: provider,
+        routeId: routeId,
+        routeName: rawRoute['route_name']?.toString() ?? routeId,
+        routeNameEn: rawRoute['route_name_en']?.toString() ?? '',
+        pathId: pathId,
+        pathName: rawRoute['path_name']?.toString() ?? '',
+      );
+
+      final matchedStop = StopInfo(
+        routeKey: _routeKeyForRouteId(routeId),
+        pathId: pathId,
+        stopId: _parseStopId(entryStopId),
+        rawStopId: entryStopId,
+        stopName: decoded['stop_name']?.toString() ?? '',
+        sequence: _toInt(rawRoute['seq']),
+        lon: 0,
+        lat: 0,
+        sec: _nullableInt(rawRoute['eta']),
+        msg: rawRoute['message']?.toString(),
+        t: rawRoute['updated_at']?.toString(),
+        buses: (rawRoute['buses'] as List<dynamic>? ?? const [])
+            .whereType<Map>()
+            .map(_parseBusVehicle)
+            .toList(),
+        etas: _parseStopEtas(rawRoute['etas']),
+      );
+
+      results.add(
+        StopRouteSearchResult(route: route, matchedStop: matchedStop),
+      );
+    }
+    return results;
   }
 
   /// Fetches realtime data for multiple routes, batching the HTTP requests.
@@ -3345,6 +3441,16 @@ class BusRepository {
       hash = (hash * prime) & 0x7fffffff;
     }
     return hash;
+  }
+
+  /// The original TDX stop ID as a clean string, or null when unusable.
+  ///
+  /// Returned value is what the `/stops/{stopid}/passby` endpoint expects.
+  /// Empty/whitespace-only inputs collapse to null so callers can cheaply
+  /// decide whether a passby lookup is even possible.
+  String? _rawStopIdString(Object? raw) {
+    final text = raw?.toString().trim() ?? '';
+    return text.isEmpty ? null : text;
   }
 
   int _parseStopId(Object? raw) {

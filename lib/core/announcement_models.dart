@@ -76,6 +76,20 @@ class AnnouncementAction {
   final String url;
 }
 
+class AnnouncementReaction {
+  const AnnouncementReaction({required this.emoji, required this.count});
+
+  factory AnnouncementReaction.fromJson(Map<String, dynamic> json) {
+    return AnnouncementReaction(
+      emoji: '${json['emoji'] ?? ''}'.trim(),
+      count: _parseUnixSeconds(json['count']),
+    );
+  }
+
+  final String emoji;
+  final int count;
+}
+
 class AppAnnouncement {
   const AppAnnouncement({
     required this.id,
@@ -90,6 +104,8 @@ class AppAnnouncement {
     this.soundUrl,
     this.embed,
     this.actions = const <AnnouncementAction>[],
+    this.reactions = const <AnnouncementReaction>[],
+    this.myReactions = const <String>{},
   });
 
   factory AppAnnouncement.fromJson(Map<String, dynamic> json) {
@@ -131,6 +147,8 @@ class AppAnnouncement {
                 )
                 .toList(growable: false)
           : const <AnnouncementAction>[],
+      reactions: _readReactions(json['reactions']),
+      myReactions: _readIdSet(json['my_reactions']),
     );
   }
 
@@ -146,6 +164,30 @@ class AppAnnouncement {
   final String? soundUrl;
   final AnnouncementEmbed? embed;
   final List<AnnouncementAction> actions;
+  final List<AnnouncementReaction> reactions;
+  final Set<String> myReactions;
+
+  AppAnnouncement copyWith({
+    List<AnnouncementReaction>? reactions,
+    Set<String>? myReactions,
+  }) {
+    return AppAnnouncement(
+      id: id,
+      title: title,
+      content: content,
+      contentType: contentType,
+      createdAt: createdAt,
+      behavior: behavior,
+      author: author,
+      expireAt: expireAt,
+      targets: targets,
+      soundUrl: soundUrl,
+      embed: embed,
+      actions: actions,
+      reactions: reactions ?? this.reactions,
+      myReactions: myReactions ?? this.myReactions,
+    );
+  }
 
   DateTime get createdAtDateTime => DateTime.fromMillisecondsSinceEpoch(
     createdAt * 1000,
@@ -235,6 +277,21 @@ int? _parseNullableUnixSeconds(Object? value) {
     return null;
   }
   return _parseUnixSeconds(value);
+}
+
+List<AnnouncementReaction> _readReactions(Object? value) {
+  if (value is! List) {
+    return const <AnnouncementReaction>[];
+  }
+  return value
+      .whereType<Map>()
+      .map(
+        (entry) => AnnouncementReaction.fromJson(
+          entry.map((key, value) => MapEntry(key.toString(), value)),
+        ),
+      )
+      .where((reaction) => reaction.emoji.isNotEmpty)
+      .toList(growable: false);
 }
 
 Set<String> _readIdSet(Object? value) {

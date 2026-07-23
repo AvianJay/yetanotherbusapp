@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 
 import 'android_home_integration.dart';
 import 'announcement_models.dart';
+import 'announcement_reaction_service.dart';
 import 'announcement_service.dart';
 import 'account_sync_models.dart';
 import 'account_sync_service.dart';
@@ -54,7 +55,10 @@ class AppController extends ChangeNotifier {
     required this.authService,
     required this.accountSyncService,
     AnnouncementService? announcementService,
-  }) : announcementService = announcementService ?? AnnouncementService();
+    AnnouncementReactionService? announcementReactionService,
+  }) : announcementService = announcementService ?? AnnouncementService(),
+       announcementReactionService =
+           announcementReactionService ?? AnnouncementReactionService();
 
   static const defaultFavoriteGroupName = '收藏';
   static const autoFavoriteGroupName = '常用';
@@ -71,6 +75,7 @@ class AppController extends ChangeNotifier {
   final AuthService authService;
   final AccountSyncService accountSyncService;
   final AnnouncementService announcementService;
+  final AnnouncementReactionService announcementReactionService;
   final BackgroundImageStore _backgroundImageStore = BackgroundImageStore();
 
   AppSettings _settings = AppSettings.defaults();
@@ -1151,6 +1156,112 @@ class AppController extends ChangeNotifier {
       }
     }
     return null;
+  }
+
+  /// Toggles [emoji] on an announcement for the signed-in user.
+  ///
+  /// Returns `false` (without any network call) when the user is not logged in,
+  /// so the UI can prompt them to sign in. The change is applied optimistically
+  /// and rolled back if the request fails.
+  Future<bool> toggleAnnouncementReaction(
+    String announcementId,
+    String emoji,
+  ) async {
+    if (!isAuthenticated) {
+      return false;
+    }
+    final normalizedEmoji = emoji.trim();
+    final index = _announcements.indexWhere(
+      (announcement) => announcement.id == announcementId,
+    );
+    if (normalizedEmoji.isEmpty || index < 0) {
+      return true;
+    }
+
+    final original = _announcements[index];
+    _replaceAnnouncement(index, _optimisticToggle(original, normalizedEmoji));
+    notifyListeners();
+
+    try {
+      final result = await announcementReactionService.toggleReaction(
+        announcementId,
+        normalizedEmoji,
+      );
+      // Re-locate: a concurrent refresh may have replaced the list.
+      final currentIndex = _announcements.indexWhere(
+        (announcement) => announcement.id == announcementId,
+      );
+      if (currentIndex >= 0) {
+        _replaceAnnouncement(
+          currentIndex,
+          _announcements[currentIndex].copyWith(
+            reactions: result.reactions,
+            myReactions: result.myReactions,
+          ),
+        );
+        notifyListeners();
+      }
+      return true;
+    } on AuthTokenExpiredException {
+      _rollbackAnnouncement(announcementId, original);
+      await _forceLocalLogout();
+      return false;
+    } catch (_) {
+      // Surface transient failures via the caller (a SnackBar), not the
+      // page-level error banner. The optimistic change is rolled back.
+      _rollbackAnnouncement(announcementId, original);
+      rethrow;
+    }
+  }
+
+  AppAnnouncement _optimisticToggle(AppAnnouncement announcement, String emoji) {
+    final myReactions = Set<String>.from(announcement.myReactions);
+    final reactions = List<AnnouncementReaction>.from(announcement.reactions);
+    final existingIndex = reactions.indexWhere(
+      (reaction) => reaction.emoji == emoji,
+    );
+
+    if (myReactions.remove(emoji)) {
+      if (existingIndex >= 0) {
+        final nextCount = reactions[existingIndex].count - 1;
+        if (nextCount <= 0) {
+          reactions.removeAt(existingIndex);
+        } else {
+          reactions[existingIndex] = AnnouncementReaction(
+            emoji: emoji,
+            count: nextCount,
+          );
+        }
+      }
+    } else {
+      myReactions.add(emoji);
+      if (existingIndex >= 0) {
+        reactions[existingIndex] = AnnouncementReaction(
+          emoji: emoji,
+          count: reactions[existingIndex].count + 1,
+        );
+      } else {
+        reactions.add(AnnouncementReaction(emoji: emoji, count: 1));
+      }
+    }
+
+    return announcement.copyWith(reactions: reactions, myReactions: myReactions);
+  }
+
+  void _replaceAnnouncement(int index, AppAnnouncement announcement) {
+    final next = List<AppAnnouncement>.from(_announcements);
+    next[index] = announcement;
+    _announcements = next;
+  }
+
+  void _rollbackAnnouncement(String announcementId, AppAnnouncement original) {
+    final index = _announcements.indexWhere(
+      (announcement) => announcement.id == announcementId,
+    );
+    if (index >= 0) {
+      _replaceAnnouncement(index, original);
+      notifyListeners();
+    }
   }
 
   AppAnnouncement? nextPendingAnnouncementPopup({

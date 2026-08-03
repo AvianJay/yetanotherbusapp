@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'android_home_integration.dart';
 import 'announcement_models.dart';
@@ -409,6 +410,87 @@ class AppController extends ChangeNotifier {
     } finally {
       _authAccountLoading = false;
       notifyListeners();
+    }
+  }
+
+  Future<bool> startAuthLink(String provider) async {
+    if (_authBusy || _authSession == null) {
+      return false;
+    }
+    _authBusy = true;
+    notifyListeners();
+    try {
+      final authorizationUrl = await authService.startProviderLink(provider);
+      return launchUrl(
+        Uri.parse(authorizationUrl),
+        mode: LaunchMode.externalApplication,
+        webOnlyWindowName: kIsWeb ? '_self' : null,
+      );
+    } finally {
+      _authBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<AuthLinkCallbackResult> completeAuthLinkCallback(
+    AppLaunchAction action,
+  ) async {
+    if (action.authError?.isNotEmpty == true) {
+      throw Exception(action.authError);
+    }
+    final status = (action.authLinkStatus ?? '').trim().toLowerCase();
+    final provider = (action.authProvider ?? '').trim();
+    switch (status) {
+      case 'linked':
+      case 'already_linked':
+        await _reloadAuthAccount();
+        return AuthLinkCallbackResult(
+          outcome: status == 'linked'
+              ? AuthLinkOutcome.linked
+              : AuthLinkOutcome.alreadyLinked,
+          provider: provider,
+        );
+      case 'merge_required':
+        final mergeToken = (action.authMergeToken ?? '').trim();
+        if (mergeToken.isEmpty) {
+          throw Exception('連結回調缺少合併憑證。');
+        }
+        final preview =
+            await authService.fetchPendingAccountMerge(mergeToken);
+        return AuthLinkCallbackResult(
+          outcome: AuthLinkOutcome.mergeRequired,
+          provider: provider,
+          mergePreview: preview,
+        );
+      default:
+        throw Exception('未知的連結狀態。');
+    }
+  }
+
+  Future<void> confirmPendingAccountMerge(String mergeToken) async {
+    if (_authBusy) {
+      return;
+    }
+    _authBusy = true;
+    notifyListeners();
+    try {
+      await authService.confirmAccountMerge(mergeToken);
+      await _reloadAuthAccount();
+    } on AuthTokenExpiredException {
+      await _forceLocalLogout();
+    } finally {
+      _authBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _reloadAuthAccount() async {
+    try {
+      _authAccount = await authService.fetchAccount();
+    } on AuthTokenExpiredException {
+      await _forceLocalLogout();
+    } catch (_) {
+      _authAccount = null;
     }
   }
 

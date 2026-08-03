@@ -33,6 +33,8 @@ class AppLaunchAction {
     this.authProvider,
     this.authDisplayName,
     this.authError,
+    this.authLinkStatus,
+    this.authMergeToken,
   });
 
   factory AppLaunchAction.fromMap(Map<Object?, Object?> map) {
@@ -47,6 +49,8 @@ class AppLaunchAction {
         authProvider: map['provider']?.toString(),
         authDisplayName: map['display_name']?.toString(),
         authError: map['error']?.toString(),
+        authLinkStatus: map['link_status']?.toString(),
+        authMergeToken: map['merge_token']?.toString(),
       );
     }
 
@@ -91,6 +95,8 @@ class AppLaunchAction {
   final String? authProvider;
   final String? authDisplayName;
   final String? authError;
+  final String? authLinkStatus;
+  final String? authMergeToken;
 }
 
 class AppLaunchService {

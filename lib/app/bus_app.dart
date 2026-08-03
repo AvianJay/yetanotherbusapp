@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../core/announcement_models.dart';
 import '../core/announcement_push_service.dart';
 import '../core/app_controller.dart';
+import '../core/auth_service.dart';
 import '../core/app_analytics.dart';
 import '../core/app_routes.dart';
 import '../core/app_launch_service.dart';
@@ -684,6 +685,10 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
 
     if (action.target == AppLaunchTarget.authCallback) {
       final messenger = ScaffoldMessenger.maybeOf(context);
+      if (action.authLinkStatus != null) {
+        await _consumeAuthLinkCallback(action, messenger);
+        return;
+      }
       try {
         await widget.controller.completeAuthCallback(action);
         if (!mounted) {
@@ -757,6 +762,125 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
       case AppLaunchTarget.authCallback:
         return;
     }
+  }
+
+  Future<void> _consumeAuthLinkCallback(
+    AppLaunchAction action,
+    ScaffoldMessengerState? messenger,
+  ) async {
+    try {
+      final result = await widget.controller.completeAuthLinkCallback(action);
+      if (!mounted) {
+        return;
+      }
+      switch (result.outcome) {
+        case AuthLinkOutcome.linked:
+          messenger?.showSnackBar(
+            SnackBar(content: Text('已連結 ${_providerLabel(result.provider)} 帳號。')),
+          );
+        case AuthLinkOutcome.alreadyLinked:
+          messenger?.showSnackBar(
+            SnackBar(content: Text('${_providerLabel(result.provider)} 已在此帳號上。')),
+          );
+        case AuthLinkOutcome.mergeRequired:
+          await _showAccountMergeDialog(result);
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        SnackBar(content: Text('連結失敗：${friendlyErrorMessage(error)}')),
+      );
+    }
+  }
+
+  Future<void> _showAccountMergeDialog(AuthLinkCallbackResult result) async {
+    final preview = result.mergePreview;
+    if (!mounted || preview == null) {
+      return;
+    }
+    final controller = widget.controller;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('合併帳號？'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '「${_providerLabel(result.provider)}」已經屬於另一個帳號。'
+                '合併後下列身分與資料會移入目前帳號，來源帳號將被刪除：',
+              ),
+              const SizedBox(height: 12),
+              for (final identity in preview.sourceIdentities)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    child: Icon(Icons.link_rounded, size: 18),
+                  ),
+                  title: Text(
+                    identity.displayName.trim().isEmpty
+                        ? _providerLabel(identity.provider)
+                        : identity.displayName,
+                  ),
+                  subtitle: Text(
+                    identity.email.trim().isEmpty
+                        ? _providerLabel(identity.provider)
+                        : identity.email,
+                  ),
+                ),
+              if (preview.activeDeviceCount > 0) ...[
+                const SizedBox(height: 8),
+                Text('來源帳號目前有 ${preview.activeDeviceCount} 台啟用中的裝置。'),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('合併帳號'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) {
+      return;
+    }
+    try {
+      await controller.confirmPendingAccountMerge(preview.mergeToken);
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text('帳號已合併，${_providerLabel(result.provider)} 已連結到目前帳號。'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        SnackBar(content: Text('合併失敗：${friendlyErrorMessage(error)}')),
+      );
+    }
+  }
+
+  static String _providerLabel(String provider) {
+    return switch (provider.trim().toLowerCase()) {
+      'discord' => 'Discord',
+      'google' => 'Google',
+      _ => provider.trim().isEmpty ? 'OAuth' : provider.trim(),
+    };
   }
 
   Future<void> _runStartupCheck() async {

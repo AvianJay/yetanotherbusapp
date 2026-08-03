@@ -17,7 +17,9 @@ Map<String, String>? takeWebAuthCallbackPayload() {
       return null;
     }
   }
-  if (!params.containsKey('token') && !params.containsKey('error')) {
+  if (!params.containsKey('token') &&
+      !params.containsKey('error') &&
+      !params.containsKey('link_status')) {
     return null;
   }
 

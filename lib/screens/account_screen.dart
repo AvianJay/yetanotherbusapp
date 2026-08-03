@@ -65,6 +65,34 @@ class _AccountScreenState extends State<AccountScreen> {
     }
   }
 
+  Future<void> _startAuthLink(
+    AppController controller,
+    String provider,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final opened = await controller.startAuthLink(provider);
+      if (!mounted || opened) {
+        return;
+      }
+      messenger.showSnackBar(const SnackBar(content: Text('無法開啟連結頁面。')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      if (error.toString().contains('Too Many Requests') ||
+          error.toString().contains('429')) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('你已受到速率限制。')),
+        );
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(content: Text('連結失敗：${friendlyErrorMessage(error)}')),
+      );
+    }
+  }
+
   Future<void> _refreshAccount(
     AppController controller, {
     bool quiet = false,
@@ -267,6 +295,9 @@ class _AccountScreenState extends State<AccountScreen> {
                   account: account,
                   session: session,
                   loading: controller.authAccountLoading,
+                  busy: controller.authBusy,
+                  onDiscordLink: () => _startAuthLink(controller, 'discord'),
+                  onGoogleLink: () => _startAuthLink(controller, 'google'),
                 ),
                 const SizedBox(height: 12),
                 _SyncCard(
@@ -351,11 +382,17 @@ class _LinkedProvidersCard extends StatelessWidget {
     required this.account,
     required this.session,
     required this.loading,
+    required this.busy,
+    required this.onDiscordLink,
+    required this.onGoogleLink,
   });
 
   final AuthAccount? account;
   final AuthSession? session;
   final bool loading;
+  final bool busy;
+  final VoidCallback onDiscordLink;
+  final VoidCallback onGoogleLink;
 
   @override
   Widget build(BuildContext context) {
@@ -390,6 +427,29 @@ class _LinkedProvidersCard extends StatelessWidget {
                       ? identity.providerUserId
                       : identity.email,
                 ),
+            if (!(loading && identities.isEmpty)) ...[
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  if (!(account?.hasDiscord ?? false)) ...[
+                    OutlinedButton.icon(
+                      onPressed: busy ? null : onDiscordLink,
+                      icon: const FaIcon(FontAwesomeIcons.discord, size: 16),
+                      label: const Text('連結 Discord'),
+                    ),
+                  ],
+                  if (!(account?.hasGoogle ?? false)) ...[
+                    OutlinedButton.icon(
+                      onPressed: busy ? null : onGoogleLink,
+                      icon: const FaIcon(FontAwesomeIcons.google, size: 16),
+                      label: const Text('連結 Google'),
+                    ),
+                  ],
+                ],
+              ),
+            ],
           ],
         ),
       ),

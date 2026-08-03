@@ -145,6 +145,85 @@ class AuthAccount {
   }
 }
 
+class AccountMergeIdentity {
+  const AccountMergeIdentity({
+    required this.provider,
+    required this.email,
+    required this.displayName,
+  });
+
+  final String provider;
+  final String email;
+  final String displayName;
+
+  factory AccountMergeIdentity.fromJson(Map<String, dynamic> json) {
+    return AccountMergeIdentity(
+      provider: '${json['provider'] ?? ''}',
+      email: '${json['email'] ?? ''}',
+      displayName: '${json['display_name'] ?? ''}',
+    );
+  }
+}
+
+class AccountMergePreview {
+  const AccountMergePreview({
+    required this.mergeToken,
+    required this.provider,
+    required this.expiresAt,
+    required this.activeDeviceCount,
+    required this.sourceIdentities,
+  });
+
+  final String mergeToken;
+  final String provider;
+  final int? expiresAt;
+  final int activeDeviceCount;
+  final List<AccountMergeIdentity> sourceIdentities;
+
+  AccountMergePreview copyWithMergeToken(String token) {
+    return AccountMergePreview(
+      mergeToken: token,
+      provider: provider,
+      expiresAt: expiresAt,
+      activeDeviceCount: activeDeviceCount,
+      sourceIdentities: sourceIdentities,
+    );
+  }
+
+  factory AccountMergePreview.fromJson(Map<String, dynamic> json) {
+    final rawIdentities = json['source_identities'];
+    return AccountMergePreview(
+      mergeToken: '${json['merge_token'] ?? ''}',
+      provider: '${json['provider'] ?? ''}',
+      expiresAt: _jsonInt(json['expires_at']),
+      activeDeviceCount: _jsonInt(json['active_device_count']) ?? 0,
+      sourceIdentities: rawIdentities is List
+          ? rawIdentities
+                .whereType<Map>()
+                .map(
+                  (entry) =>
+                      AccountMergeIdentity.fromJson(_stringKeyedMap(entry)),
+                )
+                .toList(growable: false)
+          : const [],
+    );
+  }
+}
+
+enum AuthLinkOutcome { linked, alreadyLinked, mergeRequired }
+
+class AuthLinkCallbackResult {
+  const AuthLinkCallbackResult({
+    required this.outcome,
+    required this.provider,
+    this.mergePreview,
+  });
+
+  final AuthLinkOutcome outcome;
+  final String provider;
+  final AccountMergePreview? mergePreview;
+}
+
 class AuthService {
   static const _deviceKeyKey = 'auth_device_key';
   static const _tokenKey = 'auth_token';
@@ -301,6 +380,126 @@ class AuthService {
           _googleSignInInitialized = true;
         });
     return _googleSignInInitializeFuture!;
+  }
+
+  Future<String> startProviderLink(String provider) async {
+    final normalizedProvider = provider.trim().toLowerCase();
+    if (normalizedProvider != 'discord' && normalizedProvider != 'google') {
+      throw ArgumentError('Unsupported auth provider: $provider');
+    }
+    final token = _session?.token ?? AuthTokenStore.token;
+    if (token == null || token.trim().isEmpty) {
+      throw StateError('Authentication required.');
+    }
+
+    final platform = kIsWeb ? 'web' : 'app';
+    final redirectUri = kIsWeb
+        ? ApiConfig.webAuthRedirectUri
+        : ApiConfig.appAuthRedirectUri;
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/api/v1/auth/link/$normalizedProvider-start',
+    );
+    final response = await http.post(
+      uri,
+      headers: ApiUserAgent.applyTo(apiJsonContentHeaders),
+      body: jsonEncode({
+        'platform': platform,
+        'redirect': redirectUri,
+      }),
+    );
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw const AuthTokenExpiredException();
+    }
+    if (response.statusCode != 200) {
+      throw Exception(
+        _authErrorMessage(response, 'Could not start provider linking'),
+      );
+    }
+
+    final decoded = apiDecodeJsonResponse(response);
+    if (decoded is! Map) {
+      throw const FormatException(
+        'Link start response was not a JSON object.',
+      );
+    }
+    final authorizationUrl =
+        '${_stringKeyedMap(decoded)['authorization_url'] ?? ''}'.trim();
+    if (authorizationUrl.isEmpty) {
+      throw const FormatException(
+        'Link start response did not include an authorization URL.',
+      );
+    }
+    return authorizationUrl;
+  }
+
+  Future<AccountMergePreview> fetchPendingAccountMerge(String mergeToken) async {
+    final token = _session?.token ?? AuthTokenStore.token;
+    if (token == null || token.trim().isEmpty) {
+      throw StateError('Authentication required.');
+    }
+    final cleanedToken = mergeToken.trim();
+    if (cleanedToken.isEmpty) {
+      throw ArgumentError('Missing merge token.');
+    }
+
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/api/v1/auth/link/pending'
+      '?merge_token=${Uri.encodeQueryComponent(cleanedToken)}',
+    );
+    final response = await http.get(
+      uri,
+      headers: ApiUserAgent.applyTo(apiJsonHeaders),
+    );
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw const AuthTokenExpiredException();
+    }
+    if (response.statusCode != 200) {
+      throw Exception(
+        httpStatusMessage(
+          response.statusCode,
+          'Could not load merge preview (${response.statusCode}).',
+        ),
+      );
+    }
+
+    final decoded = apiDecodeJsonResponse(response);
+    if (decoded is! Map) {
+      throw const FormatException(
+        'Merge preview response was not a JSON object.',
+      );
+    }
+    return AccountMergePreview.fromJson(
+      _stringKeyedMap(decoded),
+    ).copyWithMergeToken(cleanedToken);
+  }
+
+  Future<void> confirmAccountMerge(String mergeToken) async {
+    final token = _session?.token ?? AuthTokenStore.token;
+    if (token == null || token.trim().isEmpty) {
+      throw StateError('Authentication required.');
+    }
+    final cleanedToken = mergeToken.trim();
+    if (cleanedToken.isEmpty) {
+      throw ArgumentError('Missing merge token.');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/v1/auth/link/confirm');
+    final response = await http.post(
+      uri,
+      headers: ApiUserAgent.applyTo(apiJsonContentHeaders),
+      body: jsonEncode({'merge_token': cleanedToken}),
+    );
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw const AuthTokenExpiredException();
+    }
+    if (response.statusCode != 200) {
+      throw Exception(
+        httpStatusMessage(
+          response.statusCode,
+          'Could not confirm account merge (${response.statusCode}).',
+        ),
+      );
+    }
   }
 
   Future<void> completeCallback({

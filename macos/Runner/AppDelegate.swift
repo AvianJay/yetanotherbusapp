@@ -128,7 +128,7 @@ class AppDelegate: FlutterAppDelegate {
         payload[item.name] = item.value ?? ""
       }
     }
-    if payload["token"] == nil && payload["error"] == nil {
+    if payload["token"] == nil && payload["error"] == nil && payload["link_status"] == nil {
       return nil
     }
     return payload

@@ -2949,6 +2949,31 @@ class BusRepository {
       ]);
     }
 
+    final orderByClause = normalizedQuery.isEmpty
+        ? 'ORDER BY routes.routeid ASC, path_id ASC'
+        : '''
+        ORDER BY
+          CASE
+            WHEN routes.name LIKE ? THEN 0
+            WHEN routes.name LIKE ? THEN 1
+            WHEN routes.name LIKE ? THEN 2
+            WHEN routes.routeid LIKE ? THEN 3
+            WHEN routes.routeid LIKE ? THEN 4
+            ELSE 5
+          END ASC,
+          routes.routeid ASC,
+          path_id ASC
+        ''';
+    if (normalizedQuery.isNotEmpty) {
+      parameters.addAll(<Object?>[
+        normalizedQuery,
+        '$normalizedQuery%',
+        '%$normalizedQuery%',
+        normalizedQuery,
+        '%$normalizedQuery%',
+      ]);
+    }
+
     final limitClause = limit == null ? '' : 'LIMIT ?';
     if (limit != null) {
       parameters.add(limit);
@@ -2965,7 +2990,7 @@ class BusRepository {
         $pathNameEnColumn AS path_name_en
       $fromClause
       WHERE ${whereClauses.join(' AND ')}
-      ORDER BY routes.routeid ASC, path_id ASC
+      $orderByClause
       $limitClause
       ''', parameters);
 
@@ -3032,6 +3057,31 @@ class BusRepository {
       ]);
     }
 
+    final orderByClause = normalizedQuery.isEmpty
+        ? 'ORDER BY routes.routeid ASC, path_id ASC'
+        : '''
+        ORDER BY
+          CASE
+            WHEN routes.name LIKE ? THEN 0
+            WHEN routes.name LIKE ? THEN 1
+            WHEN routes.name LIKE ? THEN 2
+            WHEN routes.routeid LIKE ? THEN 3
+            WHEN routes.routeid LIKE ? THEN 4
+            ELSE 5
+          END ASC,
+          routes.routeid ASC,
+          path_id ASC
+        ''';
+    if (normalizedQuery.isNotEmpty) {
+      parameters.addAll(<Object?>[
+        normalizedQuery,
+        '$normalizedQuery%',
+        '%$normalizedQuery%',
+        normalizedQuery,
+        '%$normalizedQuery%',
+      ]);
+    }
+
     final limitClause = limit == null ? '' : 'LIMIT ?';
     if (limit != null) {
       parameters.add(limit);
@@ -3048,7 +3098,7 @@ class BusRepository {
         $pathNameEnColumn AS path_name_en
       $fromClause
       WHERE ${whereClauses.join(' AND ')}
-      ORDER BY routes.routeid ASC, path_id ASC
+      $orderByClause
       $limitClause
       ''', parameters);
 

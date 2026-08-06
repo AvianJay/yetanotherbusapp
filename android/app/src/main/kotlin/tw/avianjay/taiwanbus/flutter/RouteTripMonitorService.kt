@@ -2202,9 +2202,12 @@ class RouteTripMonitorService : Service() {
             NotificationChannel(
                 TRACKING_CHANNEL_ID,
                 "背景乘車提醒",
-                NotificationManager.IMPORTANCE_DEFAULT,
+                NotificationManager.IMPORTANCE_HIGH,
             ).apply {
                 description = "在背景持續追蹤目前路線與下車提醒。"
+                setSound(null, null)
+                enableLights(false)
+                enableVibration(false)
             },
         )
         manager.createNotificationChannel(

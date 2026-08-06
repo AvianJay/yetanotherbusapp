@@ -96,7 +96,16 @@ object TripMonitorEnhancedSurfaceSupport {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return
         }
-        if (!FeatureDetector.isSamsungNowBarSupported(context)) {
+
+        // For Android 16+ (One UI 8+), the Live Updates API is used automatically
+        // when the notification is marked as ongoing with proper category and ongoing activity support.
+        // The system handles the Now Bar display based on notification importance and user settings.
+        // We still apply Samsung-specific extras for backwards compatibility with One UI 7.
+        val isAndroid16OrLater = FeatureDetector.isAndroid16LiveUpdatesSupported()
+        val isSamsungDevice = Build.MANUFACTURER.equals("Samsung", ignoreCase = true) ||
+                              Build.BRAND.equals("Samsung", ignoreCase = true)
+
+        if (!isAndroid16OrLater && !FeatureDetector.isSamsungNowBarSupported(context)) {
             return
         }
 

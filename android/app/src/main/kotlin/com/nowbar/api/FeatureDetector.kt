@@ -24,8 +24,23 @@ object FeatureDetector {
     private const val ANDROID_16_SDK = 36
 
     @JvmStatic
-    fun isSamsungNowBarSupported(context: Context): Boolean =
-        context.packageManager.hasSystemFeature(FEATURE_SAMSUNG_NOWBAR)
+    fun isSamsungNowBarSupported(context: Context): Boolean {
+        // Check explicit feature flag first
+        if (context.packageManager.hasSystemFeature(FEATURE_SAMSUNG_NOWBAR)) {
+            return true
+        }
+
+        // Fallback: Samsung devices with One UI 7+ support Now Bar via ongoing activity extras
+        // even if the feature flag isn't properly advertised
+        if (Build.MANUFACTURER.equals("Samsung", ignoreCase = true) ||
+            Build.BRAND.equals("Samsung", ignoreCase = true)) {
+            // One UI 7 is based on Android 15 (API 35)
+            // But some devices might get it on Android 14 (API 34) via updates
+            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+        }
+
+        return false
+    }
 
     @JvmStatic
     fun isGoogleAmbientSupported(context: Context): Boolean =

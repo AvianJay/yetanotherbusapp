@@ -96,7 +96,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('route-keypad-prefix-棕')));
     expect(controller.text, '棕12');
 
-    await tester.tap(find.byKey(const ValueKey('route-keypad-prefix-幹線')));
+    final trunkPrefix = find.byKey(
+      const ValueKey<String>('route-keypad-prefix-幹線'),
+    );
+    await tester.ensureVisible(trunkPrefix);
+    await tester.pumpAndSettle();
+    await tester.tap(trunkPrefix);
     expect(controller.text, '幹線12');
     expect(controller.selection, const TextSelection.collapsed(offset: 4));
 
@@ -104,7 +109,12 @@ void main() {
       text: '綠棕12',
       selection: TextSelection.collapsed(offset: 4),
     );
-    await tester.tap(find.byKey(const ValueKey('route-keypad-prefix-紅')));
+    final redPrefix = find.byKey(
+      const ValueKey<String>('route-keypad-prefix-紅'),
+    );
+    await tester.ensureVisible(redPrefix);
+    await tester.pumpAndSettle();
+    await tester.tap(redPrefix);
 
     expect(controller.text, '紅12');
     expect(controller.selection, const TextSelection.collapsed(offset: 3));
@@ -139,6 +149,37 @@ void main() {
     expect(controller.text, '紅3');
     expect(controller.selection, const TextSelection.collapsed(offset: 1));
     expect(changes, ['A', '紅3']);
+  });
+
+  testWidgets('route prefixes stay in one horizontally scrollable row', (
+    tester,
+  ) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    await _pumpKeypad(
+      tester,
+      controller: controller,
+      size: const Size(320, 568),
+    );
+
+    final firstPrefix = find.byKey(
+      const ValueKey<String>('route-keypad-prefix-紅'),
+    );
+    final lastPrefix = find.byKey(
+      const ValueKey<String>('route-keypad-prefix-幹線'),
+    );
+    expect(tester.getTopLeft(firstPrefix).dy, tester.getTopLeft(lastPrefix).dy);
+
+    final beforeScroll = tester.getTopLeft(lastPrefix).dx;
+    await tester.drag(
+      find.byKey(const ValueKey<String>('route-keypad-prefix-scroll')),
+      const Offset(-180, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.getTopLeft(lastPrefix).dx, lessThan(beforeScroll));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('fits compact portrait and landscape viewports', (tester) async {

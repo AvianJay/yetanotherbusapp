@@ -218,7 +218,7 @@ class RouteSearchKeypad extends StatelessWidget {
                       MediaQuery.orientationOf(context) ==
                           Orientation.landscape &&
                       constraints.maxWidth >= 520;
-                  final prefixGrid = _PrefixGrid(
+                  final prefixRail = _PrefixRail(
                     keys: _prefixKeys,
                     onPressed: _selectPrefix,
                   );
@@ -233,7 +233,7 @@ class RouteSearchKeypad extends StatelessWidget {
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(child: prefixGrid),
+                        Expanded(child: prefixRail),
                         const SizedBox(width: 12),
                         Expanded(child: numberGrid),
                       ],
@@ -242,7 +242,7 @@ class RouteSearchKeypad extends StatelessWidget {
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      prefixGrid,
+                      prefixRail,
                       const SizedBox(height: 12),
                       numberGrid,
                     ],
@@ -257,8 +257,8 @@ class RouteSearchKeypad extends StatelessWidget {
   }
 }
 
-class _PrefixGrid extends StatelessWidget {
-  const _PrefixGrid({required this.keys, required this.onPressed});
+class _PrefixRail extends StatelessWidget {
+  const _PrefixRail({required this.keys, required this.onPressed});
 
   final List<_RoutePrefixKey> keys;
   final ValueChanged<String> onPressed;
@@ -266,52 +266,48 @@ class _PrefixGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return GridView.builder(
-      shrinkWrap: true,
-      primary: false,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: keys.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        mainAxisExtent: 48,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-      ),
-      itemBuilder: (context, index) {
-        final key = keys[index];
-        return FilledButton.tonal(
-          key: ValueKey<String>('route-keypad-prefix-${key.label}'),
-          onPressed: () => onPressed(key.label),
-          style: FilledButton.styleFrom(
-            minimumSize: const Size(48, 48),
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            foregroundColor: colorScheme.onSurface,
-            backgroundColor: colorScheme.surfaceContainerHighest,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: key.color,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: colorScheme.outline.withValues(alpha: 0.45),
-                  ),
+    return SingleChildScrollView(
+      key: const ValueKey<String>('route-keypad-prefix-scroll'),
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (var index = 0; index < keys.length; index += 1) ...[
+            if (index > 0) const SizedBox(width: 8),
+            FilledButton.tonal(
+              key: ValueKey<String>('route-keypad-prefix-${keys[index].label}'),
+              onPressed: () => onPressed(keys[index].label),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(48, 48),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                foregroundColor: colorScheme.onSurface,
+                backgroundColor: colorScheme.surfaceContainerHighest,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              const SizedBox(width: 5),
-              Flexible(child: Text(key.label, maxLines: 1)),
-            ],
-          ),
-        );
-      },
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: keys[index].color,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: colorScheme.outline.withValues(alpha: 0.45),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Text(keys[index].label, maxLines: 1),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

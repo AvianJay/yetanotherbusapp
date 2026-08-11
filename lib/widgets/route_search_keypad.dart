@@ -348,11 +348,14 @@ class _NumberGrid extends StatelessWidget {
           style: keyStyle,
           child: Text(digit),
         ),
-      FilledButton.tonal(
-        key: const ValueKey<String>('route-keypad-text'),
-        onPressed: onTextInputPressed,
-        style: keyStyle,
-        child: const Text('文字'),
+      Tooltip(
+        message: '切換文字鍵盤',
+        child: FilledButton.tonal(
+          key: const ValueKey<String>('route-keypad-text'),
+          onPressed: onTextInputPressed,
+          style: keyStyle,
+          child: const Icon(Icons.keyboard_rounded),
+        ),
       ),
       FilledButton.tonal(
         key: const ValueKey<String>('route-keypad-digit-0'),

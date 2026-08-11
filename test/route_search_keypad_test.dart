@@ -29,6 +29,14 @@ void main() {
     for (var digit = 0; digit <= 9; digit += 1) {
       expect(find.byKey(ValueKey('route-keypad-digit-$digit')), findsOneWidget);
     }
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('route-keypad-text')),
+        matching: find.byIcon(Icons.keyboard_rounded),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('切換文字鍵盤'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('route-keypad-prefix-紅')));
     await tester.tap(find.byKey(const ValueKey('route-keypad-digit-1')));

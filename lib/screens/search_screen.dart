@@ -12,6 +12,7 @@ import '../core/models.dart';
 import '../core/route_search_ranking.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/cat_state_card.dart';
+import '../widgets/route_search_keypad.dart';
 import 'route_detail_navigation.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -23,6 +24,7 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _controller = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
 
   Timer? _debounce;
   bool _isLoading = false;
@@ -32,10 +34,18 @@ class _SearchScreenState extends State<SearchScreen> {
   BusProvider? _webPreferredProvider;
   Position? _lastResolvedSearchPosition;
   int _activeSearchToken = 0;
+  late bool _isRouteKeypadVisible;
+  bool _isUsingNativeKeyboard = false;
+
+  bool get _supportsRouteKeypad =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
 
   @override
   void initState() {
     super.initState();
+    _isRouteKeypadVisible = _supportsRouteKeypad;
     if (kIsWeb) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         unawaited(_resolveWebPreferredProvider());
@@ -47,7 +57,91 @@ class _SearchScreenState extends State<SearchScreen> {
   void dispose() {
     _debounce?.cancel();
     _controller.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  void _showRouteKeypad() {
+    if (!_supportsRouteKeypad) {
+      return;
+    }
+    _searchFocusNode.unfocus();
+    setState(() {
+      _isUsingNativeKeyboard = false;
+      _isRouteKeypadVisible = true;
+    });
+  }
+
+  void _collapseRouteKeypad() {
+    _searchFocusNode.unfocus();
+    setState(() {
+      _isRouteKeypadVisible = false;
+    });
+  }
+
+  void _requestNativeKeyboard() {
+    if (!_supportsRouteKeypad) {
+      return;
+    }
+    _searchFocusNode.unfocus();
+    setState(() {
+      _isUsingNativeKeyboard = true;
+      _isRouteKeypadVisible = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _searchFocusNode.requestFocus();
+      }
+    });
+  }
+
+  void _onSearchFieldTap() {
+    if (_supportsRouteKeypad &&
+        !_isUsingNativeKeyboard &&
+        !_isRouteKeypadVisible) {
+      setState(() {
+        _isRouteKeypadVisible = true;
+      });
+    }
+  }
+
+  void _submitNativeSearch(String value) {
+    _debounce?.cancel();
+    _searchFocusNode.unfocus();
+    unawaited(_search(value));
+  }
+
+  Widget? _buildSearchSuffix() {
+    final showClear = _controller.text.isNotEmpty;
+    final showKeypad =
+        _supportsRouteKeypad &&
+        (_isUsingNativeKeyboard || !_isRouteKeypadVisible);
+    if (!showClear && !showKeypad) {
+      return null;
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showClear)
+          IconButton(
+            key: const ValueKey<String>('clear-search-query'),
+            tooltip: '清除搜尋',
+            onPressed: () {
+              _controller.clear();
+              _onQueryChanged('');
+            },
+            icon: const Icon(Icons.close_rounded),
+          ),
+        if (showKeypad)
+          IconButton(
+            key: const ValueKey<String>('show-route-keypad'),
+            tooltip: '開啟快捷鍵盤',
+            onPressed: _showRouteKeypad,
+            icon: const Icon(Icons.dialpad_rounded),
+          ),
+      ],
+    );
   }
 
   void _onQueryChanged(String value) {
@@ -1006,21 +1100,17 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             TextField(
               controller: _controller,
+              focusNode: _searchFocusNode,
               onChanged: _onQueryChanged,
+              onTap: _onSearchFieldTap,
+              readOnly: _supportsRouteKeypad && !_isUsingNativeKeyboard,
+              showCursor: true,
               textInputAction: TextInputAction.search,
-              onSubmitted: _search,
+              onSubmitted: _submitNativeSearch,
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.search_rounded),
                 hintText: '搜尋公車路線或站牌名稱',
-                suffixIcon: _controller.text.isEmpty
-                    ? null
-                    : IconButton(
-                        onPressed: () {
-                          _controller.clear();
-                          _onQueryChanged('');
-                        },
-                        icon: const Icon(Icons.close_rounded),
-                      ),
+                suffixIcon: _buildSearchSuffix(),
               ),
             ),
             const SizedBox(height: 16),
@@ -1145,6 +1235,17 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
           ],
         ),
+        bottomNavigationBar:
+            _supportsRouteKeypad &&
+                _isRouteKeypadVisible &&
+                !_isUsingNativeKeyboard
+            ? RouteSearchKeypad(
+                controller: _controller,
+                onChanged: _onQueryChanged,
+                onRequestTextInput: _requestNativeKeyboard,
+                onCollapse: _collapseRouteKeypad,
+              )
+            : null,
       ),
     );
   }

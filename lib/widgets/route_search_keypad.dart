@@ -64,7 +64,7 @@ class RouteSearchKeypad extends StatelessWidget {
     onChanged(value.text);
   }
 
-  void _insert(String value) {
+  void _insertAtSelection(String value) {
     unawaited(AppHaptics.selectionClick());
     final currentValue = controller.value;
     final currentText = currentValue.text;
@@ -79,6 +79,56 @@ class RouteSearchKeypad extends StatelessWidget {
         composing: TextRange.empty,
       ),
     );
+  }
+
+  void _selectPrefix(String value) {
+    unawaited(AppHaptics.selectionClick());
+    final currentValue = controller.value;
+    final currentText = currentValue.text;
+    final selection = _normalizedSelection(currentText);
+    final oldPrefixLength = _leadingPrefixLength(currentText);
+    final nextText = value + currentText.substring(oldPrefixLength);
+
+    int remapOffset(int offset) {
+      if (oldPrefixLength == 0) {
+        return offset + value.length;
+      }
+      if (offset <= oldPrefixLength) {
+        return value.length;
+      }
+      return offset - oldPrefixLength + value.length;
+    }
+
+    _commitEditingValue(
+      currentValue.copyWith(
+        text: nextText,
+        selection: TextSelection(
+          baseOffset: remapOffset(selection.baseOffset),
+          extentOffset: remapOffset(selection.extentOffset),
+          affinity: selection.affinity,
+          isDirectional: selection.isDirectional,
+        ),
+        composing: TextRange.empty,
+      ),
+    );
+  }
+
+  int _leadingPrefixLength(String text) {
+    var offset = 0;
+    while (offset < text.length) {
+      String? matchedPrefix;
+      for (final key in _prefixKeys) {
+        if (text.startsWith(key.label, offset)) {
+          matchedPrefix = key.label;
+          break;
+        }
+      }
+      if (matchedPrefix == null) {
+        break;
+      }
+      offset += matchedPrefix.length;
+    }
+    return offset;
   }
 
   void _backspace() {
@@ -170,11 +220,11 @@ class RouteSearchKeypad extends StatelessWidget {
                       constraints.maxWidth >= 520;
                   final prefixGrid = _PrefixGrid(
                     keys: _prefixKeys,
-                    onPressed: _insert,
+                    onPressed: _selectPrefix,
                   );
                   final numberGrid = _NumberGrid(
                     digits: _digitKeys,
-                    onDigitPressed: _insert,
+                    onDigitPressed: _insertAtSelection,
                     onTextInputPressed: _requestTextInput,
                     onBackspacePressed: _backspace,
                   );

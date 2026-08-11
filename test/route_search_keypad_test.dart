@@ -42,7 +42,7 @@ void main() {
     expect(collapseRequests, 1);
   });
 
-  testWidgets('inserts at the caret and replaces selected text', (
+  testWidgets('digits insert at the caret and replace selected text', (
     tester,
   ) async {
     final controller = TextEditingController();
@@ -64,11 +64,43 @@ void main() {
       text: '紅312',
       selection: TextSelection(baseOffset: 1, extentOffset: 3),
     );
-    await tester.tap(find.byKey(const ValueKey('route-keypad-prefix-綠')));
+    await tester.tap(find.byKey(const ValueKey('route-keypad-digit-4')));
 
-    expect(controller.text, '紅綠2');
+    expect(controller.text, '紅42');
     expect(controller.selection, const TextSelection.collapsed(offset: 2));
-    expect(changes, ['紅312', '紅綠2']);
+    expect(changes, ['紅312', '紅42']);
+  });
+
+  testWidgets('route prefixes replace the existing leading prefix', (
+    tester,
+  ) async {
+    final controller = TextEditingController(text: '12');
+    addTearDown(controller.dispose);
+    controller.selection = const TextSelection.collapsed(offset: 2);
+    final changes = <String>[];
+
+    await _pumpKeypad(tester, controller: controller, onChanged: changes.add);
+
+    await tester.tap(find.byKey(const ValueKey('route-keypad-prefix-綠')));
+    expect(controller.text, '綠12');
+    expect(controller.selection, const TextSelection.collapsed(offset: 3));
+
+    await tester.tap(find.byKey(const ValueKey('route-keypad-prefix-棕')));
+    expect(controller.text, '棕12');
+
+    await tester.tap(find.byKey(const ValueKey('route-keypad-prefix-幹線')));
+    expect(controller.text, '幹線12');
+    expect(controller.selection, const TextSelection.collapsed(offset: 4));
+
+    controller.value = const TextEditingValue(
+      text: '綠棕12',
+      selection: TextSelection.collapsed(offset: 4),
+    );
+    await tester.tap(find.byKey(const ValueKey('route-keypad-prefix-紅')));
+
+    expect(controller.text, '紅12');
+    expect(controller.selection, const TextSelection.collapsed(offset: 3));
+    expect(changes, ['綠12', '棕12', '幹線12', '紅12']);
   });
 
   testWidgets('backspace removes selections and one grapheme at a time', (

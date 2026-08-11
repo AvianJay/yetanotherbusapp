@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../widgets/announcement_content.dart';
+import '../widgets/announcement_reaction_bar.dart';
 
 class AnnouncementDetailPage extends StatefulWidget {
   const AnnouncementDetailPage({required this.announcementId, super.key});
@@ -103,6 +104,10 @@ class _AnnouncementDetailPageState extends State<AnnouncementDetailPage> {
                                           const SizedBox(height: 16),
                                         ],
                                         AnnouncementContent(
+                                          announcement: announcement,
+                                        ),
+                                        const Divider(height: 24),
+                                        AnnouncementReactionBar(
                                           announcement: announcement,
                                         ),
                                       ],

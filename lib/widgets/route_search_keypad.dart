@@ -24,14 +24,26 @@ class RouteSearchKeypad extends StatelessWidget {
   final VoidCallback onRequestTextInput;
   final VoidCallback onCollapse;
 
-  static const List<_RoutePrefixKey> _prefixKeys = <_RoutePrefixKey>[
-    _RoutePrefixKey('紅', Color(0xFFD84A4A)),
-    _RoutePrefixKey('藍', Color(0xFF3975C6)),
-    _RoutePrefixKey('綠', Color(0xFF3D8B57)),
-    _RoutePrefixKey('棕', Color(0xFF8D6E63)),
-    _RoutePrefixKey('橘', Color(0xFFE2762D)),
-    _RoutePrefixKey('黃', Color(0xFFC69216)),
-    _RoutePrefixKey('幹線', Color(0xFF7357B5)),
+  static const List<_RouteShortcutKey> _shortcutKeys = <_RouteShortcutKey>[
+    _RouteShortcutKey.prefix('紅', Color(0xFFD84A4A)),
+    _RouteShortcutKey.prefix('藍', Color(0xFF3975C6)),
+    _RouteShortcutKey.prefix('綠', Color(0xFF3D8B57)),
+    _RouteShortcutKey.prefix('棕', Color(0xFF8D6E63)),
+    _RouteShortcutKey.prefix('橘', Color(0xFFE2762D)),
+    _RouteShortcutKey.prefix('黃', Color(0xFFC69216)),
+    _RouteShortcutKey.keyword('幹線', Color(0xFF7357B5)),
+    _RouteShortcutKey.keyword('先導', Color(0xFF7357B5)),
+    _RouteShortcutKey.prefix('市民', Color(0xFF3975C6)),
+    _RouteShortcutKey.keyword('跳蛙', Color(0xFF3D8B57)),
+    _RouteShortcutKey.prefix('F', Color(0xFF3975C6)),
+    _RouteShortcutKey.prefix('內科', Color(0xFF3975C6)),
+    _RouteShortcutKey.prefix('南軟', Color(0xFF3975C6)),
+    _RouteShortcutKey.suffix('夜間', '夜', Color(0xFF4F5B93)),
+    _RouteShortcutKey.prefix('R', Color(0xFFD84A4A)),
+    _RouteShortcutKey.prefix('貓空', Color(0xFF8D6E63)),
+    _RouteShortcutKey.prefix('小', Color(0xFFE2762D)),
+    _RouteShortcutKey.category('其他', '特', Color(0xFF6F7178)),
+    _RouteShortcutKey.prefix('T', Color(0xFF3975C6)),
   ];
 
   static const List<String> _digitKeys = <String>[
@@ -113,13 +125,54 @@ class RouteSearchKeypad extends StatelessWidget {
     );
   }
 
+  void _selectSuffix(String value) {
+    unawaited(AppHaptics.selectionClick());
+    final currentValue = controller.value;
+    if (currentValue.text.endsWith(value)) {
+      return;
+    }
+    final nextText = '${currentValue.text}$value';
+    _commitEditingValue(
+      currentValue.copyWith(
+        text: nextText,
+        selection: TextSelection.collapsed(offset: nextText.length),
+        composing: TextRange.empty,
+      ),
+    );
+  }
+
+  void _replaceQuery(String value) {
+    unawaited(AppHaptics.selectionClick());
+    final currentValue = controller.value;
+    _commitEditingValue(
+      currentValue.copyWith(
+        text: value,
+        selection: TextSelection.collapsed(offset: value.length),
+        composing: TextRange.empty,
+      ),
+    );
+  }
+
+  void _selectShortcut(_RouteShortcutKey key) {
+    switch (key.action) {
+      case _RouteShortcutAction.prefix:
+        _selectPrefix(key.data);
+      case _RouteShortcutAction.suffix:
+        _selectSuffix(key.data);
+      case _RouteShortcutAction.keyword:
+      case _RouteShortcutAction.category:
+        _replaceQuery(key.data);
+    }
+  }
+
   int _leadingPrefixLength(String text) {
     var offset = 0;
     while (offset < text.length) {
       String? matchedPrefix;
-      for (final key in _prefixKeys) {
-        if (text.startsWith(key.label, offset)) {
-          matchedPrefix = key.label;
+      for (final key in _shortcutKeys) {
+        if (key.action == _RouteShortcutAction.prefix &&
+            text.startsWith(key.data, offset)) {
+          matchedPrefix = key.data;
           break;
         }
       }
@@ -219,8 +272,8 @@ class RouteSearchKeypad extends StatelessWidget {
                           Orientation.landscape &&
                       constraints.maxWidth >= 520;
                   final prefixRail = _PrefixRail(
-                    keys: _prefixKeys,
-                    onPressed: _selectPrefix,
+                    keys: _shortcutKeys,
+                    onPressed: _selectShortcut,
                   );
                   final numberGrid = _NumberGrid(
                     digits: _digitKeys,
@@ -260,8 +313,8 @@ class RouteSearchKeypad extends StatelessWidget {
 class _PrefixRail extends StatelessWidget {
   const _PrefixRail({required this.keys, required this.onPressed});
 
-  final List<_RoutePrefixKey> keys;
-  final ValueChanged<String> onPressed;
+  final List<_RouteShortcutKey> keys;
+  final ValueChanged<_RouteShortcutKey> onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -275,7 +328,7 @@ class _PrefixRail extends StatelessWidget {
             if (index > 0) const SizedBox(width: 8),
             FilledButton.tonal(
               key: ValueKey<String>('route-keypad-prefix-${keys[index].label}'),
-              onPressed: () => onPressed(keys[index].label),
+              onPressed: () => onPressed(keys[index]),
               style: FilledButton.styleFrom(
                 minimumSize: const Size(48, 48),
                 padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -383,9 +436,25 @@ class _NumberGrid extends StatelessWidget {
   }
 }
 
-class _RoutePrefixKey {
-  const _RoutePrefixKey(this.label, this.color);
+enum _RouteShortcutAction { prefix, suffix, keyword, category }
+
+class _RouteShortcutKey {
+  const _RouteShortcutKey.prefix(this.label, this.color)
+    : data = label,
+      action = _RouteShortcutAction.prefix;
+
+  const _RouteShortcutKey.suffix(this.label, this.data, this.color)
+    : action = _RouteShortcutAction.suffix;
+
+  const _RouteShortcutKey.keyword(this.label, this.color)
+    : data = label,
+      action = _RouteShortcutAction.keyword;
+
+  const _RouteShortcutKey.category(this.label, this.data, this.color)
+    : action = _RouteShortcutAction.category;
 
   final String label;
+  final String data;
   final Color color;
+  final _RouteShortcutAction action;
 }

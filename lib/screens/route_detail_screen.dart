@@ -23,6 +23,7 @@ import '../core/desktop_discord_presence_service.dart';
 import '../core/live_activity_service.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
+import '../core/samsung_live_notification_prompt_service.dart';
 import '../core/trip_monitor_notifications.dart';
 import '../core/twbusforum.dart';
 import '../widgets/background_image_wrapper.dart';
@@ -90,6 +91,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool? _wakelockEnabled;
   bool _backgroundTripMonitorReady = false;
   bool _backgroundTripMonitorPromptInProgress = false;
+  bool _samsungLiveNotificationPromptInProgress = false;
   bool _backgroundTripMonitorPaused = false;
   bool _backgroundDataRefreshInFlight = false;
   bool _awaitingBackgroundLocationPermission = false;
@@ -329,6 +331,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       await _maybeAutoSelectDestinationForBackgroundMonitor();
       unawaited(_ensureLocationTracking());
       unawaited(_maybePromptForBackgroundTripMonitor());
+      unawaited(_maybePromptForSamsungLiveNotifications());
       unawaited(_configureBackgroundTripMonitorIfNeeded());
     } catch (error) {
       if (!mounted || requestId != _refreshRequestId) {
@@ -1473,10 +1476,89 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             },
           );
         }
+        await _maybePromptForSamsungLiveNotifications(
+          allowWhileBackgroundPrompt: true,
+        );
         await _maybePromptForDestinationSelection();
       }
     } finally {
       _backgroundTripMonitorPromptInProgress = false;
+    }
+  }
+
+  Future<void> _maybePromptForSamsungLiveNotifications({
+    bool allowWhileBackgroundPrompt = false,
+  }) async {
+    if (_samsungLiveNotificationPromptInProgress ||
+        (!allowWhileBackgroundPrompt &&
+            _backgroundTripMonitorPromptInProgress) ||
+        !mounted) {
+      return;
+    }
+
+    _samsungLiveNotificationPromptInProgress = true;
+    try {
+      final shouldShow = await SamsungLiveNotificationPromptService.shouldShow(
+        backgroundTripMonitorEnabled: AppControllerScope.read(
+          context,
+        ).settings.enableRouteBackgroundMonitor,
+      );
+      if (!shouldShow || !mounted) {
+        return;
+      }
+
+      final openSettings = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Samsung Now Bar 顯示設定'),
+            content: const SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('如果背景乘車資訊沒有出現在 Now Bar，請啟用 Samsung 的即時通知測試選項。'),
+                  SizedBox(height: 12),
+                  Text(
+                    '尚未啟用開發人員選項：\n'
+                    '設定 → 關於手機 → 軟體資訊 → 連點「版本號碼」7 次',
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    '接著前往：\n'
+                    '設定 → 開發人員選項 → 捲到最底部 → '
+                    'More settings → Live notifications for all apps',
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('知道了'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('前往設定'),
+              ),
+            ],
+          );
+        },
+      );
+      await SamsungLiveNotificationPromptService.markShown();
+      if (openSettings != true || !mounted) {
+        return;
+      }
+
+      final didOpen =
+          await AndroidTripMonitor.openSamsungLiveNotificationSettings();
+      if (!didOpen && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('無法開啟系統設定，請依照提示中的路徑手動前往。')),
+        );
+      }
+    } finally {
+      _samsungLiveNotificationPromptInProgress = false;
     }
   }
 

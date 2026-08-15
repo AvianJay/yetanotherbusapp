@@ -13,11 +13,13 @@ class AndroidDeviceInfo {
     required this.manufacturer,
     required this.brand,
     required this.sdkVersion,
+    this.samsungPlatformVersion,
   });
 
   final String manufacturer;
   final String brand;
   final int sdkVersion;
+  final int? samsungPlatformVersion;
 }
 
 class TripMonitorStop {
@@ -204,6 +206,7 @@ class AndroidTripMonitor {
       manufacturer: result['manufacturer'] as String? ?? '',
       brand: result['brand'] as String? ?? '',
       sdkVersion: result['sdkVersion'] as int? ?? 0,
+      samsungPlatformVersion: result['samsungPlatformVersion'] as int?,
     );
   }
 
@@ -212,5 +215,19 @@ class AndroidTripMonitor {
       return;
     }
     await _channel.invokeMethod<void>('openNotificationChannelSettings');
+  }
+
+  static Future<bool> openSamsungLiveNotificationSettings() async {
+    if (!_isAndroid) {
+      return false;
+    }
+    try {
+      return await _channel.invokeMethod<bool>(
+            'openSamsungLiveNotificationSettings',
+          ) ??
+          false;
+    } catch (_) {
+      return false;
+    }
   }
 }

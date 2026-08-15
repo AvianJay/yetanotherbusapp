@@ -194,6 +194,10 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                "openSamsungLiveNotificationSettings" -> {
+                    result.success(openSamsungLiveNotificationSettings())
+                }
+
                 else -> result.notImplemented()
             }
         }
@@ -391,7 +395,16 @@ class MainActivity : FlutterActivity() {
             "manufacturer" to Build.MANUFACTURER,
             "brand" to Build.BRAND,
             "sdkVersion" to Build.VERSION.SDK_INT,
+            "samsungPlatformVersion" to samsungPlatformVersion(),
         )
+    }
+
+    private fun samsungPlatformVersion(): Int? {
+        return runCatching {
+            Build.VERSION::class.java
+                .getField("SEM_PLATFORM_INT")
+                .getInt(null)
+        }.getOrNull()
     }
 
     private fun openNotificationChannelSettings() {
@@ -401,6 +414,35 @@ class MainActivity : FlutterActivity() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         startActivity(intent)
+    }
+
+    private fun openSamsungLiveNotificationSettings(): Boolean {
+        val developerOptionsEnabled = runCatching {
+            Settings.Global.getInt(
+                contentResolver,
+                Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,
+                0,
+            ) == 1
+        }.getOrDefault(false)
+        val primaryAction = if (developerOptionsEnabled) {
+            Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS
+        } else {
+            Settings.ACTION_DEVICE_INFO_SETTINGS
+        }
+
+        return tryOpenSettingsAction(primaryAction) ||
+            tryOpenSettingsAction(Settings.ACTION_SETTINGS)
+    }
+
+    private fun tryOpenSettingsAction(action: String): Boolean {
+        return runCatching {
+            startActivity(
+                Intent(action).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+            )
+            true
+        }.getOrDefault(false)
     }
 
     companion object {

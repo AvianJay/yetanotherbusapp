@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.graphics.Color
 import android.os.Build
+import android.util.Log
 import androidx.core.graphics.drawable.IconCompat
 import com.nowbar.api.FeatureDetector
 import com.nowbar.api.cards.CustomCard
@@ -21,6 +22,7 @@ import io.github.d4viddf.hyperisland_kit.models.TextInfo
 import io.github.d4viddf.hyperisland_kit.models.TimerInfo
 
 object TripMonitorEnhancedSurfaceSupport {
+    private const val TAG = "TripMonitorSurface"
     private const val HYPER_PICTURE_BUS = "trip_monitor_bus"
     private const val HYPER_PICTURE_FLAG = "trip_monitor_flag"
     private const val HYPER_PROGRESS_TRACK_COLOR = "#335A6B7A"
@@ -68,7 +70,7 @@ object TripMonitorEnhancedSurfaceSupport {
                 snapshot = snapshot,
                 contentIntent = contentIntent,
             )
-        }
+        }.onFailure { Log.w(TAG, "Samsung Now Bar extras skipped", it) }
         if (includeHyperIsland) {
             runCatching {
                 applyHyperIsland(
@@ -81,7 +83,7 @@ object TripMonitorEnhancedSurfaceSupport {
                     markBoardedIntent = markBoardedIntent,
                     notBoardedIntent = notBoardedIntent,
                 )
-            }
+            }.onFailure { Log.w(TAG, "HyperIsland extras skipped", it) }
         }
         return notification
     }
@@ -94,6 +96,14 @@ object TripMonitorEnhancedSurfaceSupport {
         contentIntent: PendingIntent,
     ) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+
+        // One UI 8.5 acts on android.ongoingActivityNoti.* extras and routes the
+        // notification into Samsung's proprietary renderer, which only draws for
+        // apps Samsung has allow-listed. Leaving the extras off keeps Android 16's
+        // standard Live Update rendering, which works unmodified.
+        if (FeatureDetector.isAndroid16LiveUpdatesSupported()) {
             return
         }
         if (!FeatureDetector.isSamsungNowBarSupported(context)) {

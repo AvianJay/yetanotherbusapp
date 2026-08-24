@@ -73,7 +73,7 @@ class HomeScreen extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(24, 32, 12, 32),
       children: [
         SizedBox(
-          height: 212,
+          height: 196,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -84,7 +84,7 @@ class HomeScreen extends StatelessWidget {
                   compactMode: compactMode,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 16),
               Expanded(
                 child: _buildFavoritesFeatureCard(
                   context,
@@ -92,7 +92,7 @@ class HomeScreen extends StatelessWidget {
                   compactMode: compactMode,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 16),
               Expanded(
                 child: _buildNearbyFeatureCard(
                   context,
@@ -108,6 +108,7 @@ class HomeScreen extends StatelessWidget {
           _SmartRecommendationCard(
             controller: controller,
             compactMode: compactMode,
+            maxSuggestions: 3,
           ),
         ],
         const SizedBox(height: 16),
@@ -202,11 +203,6 @@ class HomeScreen extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                // const SizedBox(height: 6),
-                // Text(
-                //   '左邊保留主要操作，右邊集中顯示推薦、設定與狀態摘要。',
-                //   style: theme.textTheme.bodyMedium,
-                // ),
                 const SizedBox(height: 16),
                 Wrap(
                   spacing: 8,
@@ -230,6 +226,8 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ],
                 ),
+                const SizedBox(height: 20),
+                Divider(height: 1, color: theme.colorScheme.outlineVariant),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
@@ -467,10 +465,12 @@ class _SmartRecommendationCard extends StatefulWidget {
   const _SmartRecommendationCard({
     required this.controller,
     required this.compactMode,
+    this.maxSuggestions = 1,
   });
 
   final AppController controller;
   final bool compactMode;
+  final int maxSuggestions;
 
   @override
   State<_SmartRecommendationCard> createState() =>
@@ -478,12 +478,12 @@ class _SmartRecommendationCard extends StatefulWidget {
 }
 
 class _SmartCardData {
-  const _SmartCardData.recommended(this.suggestion) : nearby = null;
+  const _SmartCardData.recommended(this.suggestions) : nearbyList = const [];
 
-  const _SmartCardData.nearby(this.nearby) : suggestion = null;
+  const _SmartCardData.nearby(this.nearbyList) : suggestions = const [];
 
-  final SmartRouteSuggestion? suggestion;
-  final _NearbyFallbackData? nearby;
+  final List<SmartRouteSuggestion> suggestions;
+  final List<_NearbyFallbackData> nearbyList;
 }
 
 class _NearbyFallbackData {
@@ -577,11 +577,12 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     // On web (or when DB not ready), skip to nearby fallback if location is available.
     if (controller.databaseReady && controller.routeUsageProfiles.isNotEmpty) {
       final position = await _resolvePosition();
-      final suggestion = await controller.getSmartRouteSuggestion(
+      final suggestions = await controller.getSmartRouteSuggestions(
         position: position,
+        limit: widget.maxSuggestions,
       );
-      if (suggestion != null) {
-        return _SmartCardData.recommended(suggestion);
+      if (suggestions.isNotEmpty) {
+        return _SmartCardData.recommended(suggestions);
       }
     }
 
@@ -595,26 +596,32 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       final nearbyStops = await controller.getNearbyStops(
         latitude: position.latitude,
         longitude: position.longitude,
+        limit: widget.maxSuggestions,
       );
       if (nearbyStops.isEmpty) {
         return null;
       }
 
-      final nearest = nearbyStops.first;
-      final routeProvider = busProviderFromString(nearest.route.sourceProvider);
-      final detail = await controller.getRouteDetail(
-        nearest.route.routeKey,
-        provider: routeProvider,
-      );
-      final liveStop = _findStopInDetail(
-        detail,
-        pathId: nearest.stop.pathId,
-        stopId: nearest.stop.stopId,
-      );
-      final path = _findPath(detail, nearest.stop.pathId);
-      return _SmartCardData.nearby(
-        _NearbyFallbackData(result: nearest, liveStop: liveStop, path: path),
-      );
+      final nearbyList = <_NearbyFallbackData>[];
+      for (final nearest in nearbyStops.take(widget.maxSuggestions)) {
+        final routeProvider = busProviderFromString(
+          nearest.route.sourceProvider,
+        );
+        final detail = await controller.getRouteDetail(
+          nearest.route.routeKey,
+          provider: routeProvider,
+        );
+        final liveStop = _findStopInDetail(
+          detail,
+          pathId: nearest.stop.pathId,
+          stopId: nearest.stop.stopId,
+        );
+        final path = _findPath(detail, nearest.stop.pathId);
+        nearbyList.add(
+          _NearbyFallbackData(result: nearest, liveStop: liveStop, path: path),
+        );
+      }
+      return _SmartCardData.nearby(nearbyList);
     } catch (_) {
       return null;
     }
@@ -803,19 +810,204 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         borderRadius: BorderRadius.circular(22),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 14, 16),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
           child: child,
         ),
       ),
     );
   }
 
-  Widget _buildSuggestionState(
-    BuildContext context,
-    SmartRouteSuggestion suggestion,
-  ) {
-    final controller = widget.controller;
+  /// A wide row that fills the card's width in three balanced zones instead
+  /// of one big left text block floating next to a lone badge on the right:
+  /// leading icon | title + stop name | metadata | ETA badge + chevron.
+  Widget _buildSmartTileRow({
+    required BuildContext context,
+    required IconData leadingIcon,
+    required String title,
+    String? stopName,
+    List<String> metadata = const [],
+    required Widget etaBadge,
+  }) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          width: 56,
+          height: 56,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Icon(leadingIcon, color: colorScheme.onPrimaryContainer),
+        ),
+        const SizedBox(width: 14),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 220),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (stopName != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  stopName,
+                  style: theme.textTheme.bodyMedium,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (metadata.isNotEmpty) ...[
+          const SizedBox(width: 14),
+          SizedBox(
+            height: 56,
+            child: VerticalDivider(
+              width: 1,
+              color: colorScheme.outlineVariant,
+            ),
+          ),
+          const SizedBox(width: 14),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 140),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (final line in metadata)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Text(
+                      line,
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(width: 16),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            etaBadge,
+            const SizedBox(height: 10),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// A compact, vertically-stacked card for when several recommendations sit
+  /// side by side: icon + ETA badge on top, then title/stop/metadata, then a
+  /// chevron pinned to the bottom-right corner.
+  Widget _buildSmartTileCard({
+    required BuildContext context,
+    required IconData leadingIcon,
+    required String title,
+    String? stopName,
+    List<String> metadata = const [],
+    required Widget etaBadge,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                leadingIcon,
+                size: 20,
+                color: colorScheme.onPrimaryContainer,
+              ),
+            ),
+            const Spacer(),
+            etaBadge,
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          title,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (stopName != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            stopName,
+            style: theme.textTheme.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+        if (metadata.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            metadata.first,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            const Spacer(),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSuggestionTile(
+    BuildContext context,
+    SmartRouteSuggestion suggestion, {
+    bool compact = false,
+  }) {
+    final controller = widget.controller;
     final recommendedStop = suggestion.recommendedStop;
     final favorite = suggestion.favorite;
     final destinationLabel =
@@ -826,140 +1018,130 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         : '目的地站牌 ${favorite!.destinationStopId}';
     final showDistance =
         suggestion.favoriteStop == null && suggestion.distanceMeters != null;
-    // ignore: unused_local_variable
-    final preferredHourLabel = suggestion.profile.preferredHour
-        .toString()
-        .padLeft(2, '0');
+    final leadingIcon = favorite == null
+        ? Icons.gps_fixed_rounded
+        : Icons.favorite_rounded;
+    final metadata = [
+      if (destinationLabel != null) '目的地：$destinationLabel',
+      if (showDistance) '距離你約 ${formatDistance(suggestion.distanceMeters!)}',
+    ];
+    final badgeSize = compact ? 44.0 : 64.0;
+    final etaBadge = recommendedStop != null
+        ? EtaBadge(
+            stop: recommendedStop,
+            alwaysShowSeconds: controller.settings.alwaysShowSeconds,
+            size: badgeSize,
+          )
+        : SizedBox(width: badgeSize, height: badgeSize);
+
+    return _buildRouteTile(
+      context: context,
+      onTap: () => _openSuggestion(suggestion),
+      child: compact
+          ? _buildSmartTileCard(
+              context: context,
+              leadingIcon: leadingIcon,
+              title: suggestion.profile.routeName,
+              stopName: recommendedStop?.stopName,
+              metadata: metadata,
+              etaBadge: etaBadge,
+            )
+          : _buildSmartTileRow(
+              context: context,
+              leadingIcon: leadingIcon,
+              title: suggestion.profile.routeName,
+              stopName: recommendedStop?.stopName,
+              metadata: metadata,
+              etaBadge: etaBadge,
+            ),
+    );
+  }
+
+  Widget _buildSuggestionListState(
+    BuildContext context,
+    List<SmartRouteSuggestion> suggestions,
+  ) {
+    final horizontal = suggestions.length > 1;
+    final subtitle = horizontal
+        ? '根據你的使用習慣，整理出你現在最可能要查的路線。'
+        : suggestions.first.reason;
 
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: suggestion.reason,
+      subtitle: subtitle,
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
         icon: const Icon(Icons.refresh_rounded),
       ),
-      child: _buildRouteTile(
-        context: context,
-        onTap: () => _openSuggestion(suggestion),
-        child: Row(
-          crossAxisAlignment: widget.compactMode
-              ? CrossAxisAlignment.center
-              : CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      child: horizontal
+          ? IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    suggestion.profile.routeName,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
+                  for (var i = 0; i < suggestions.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildSuggestionTile(
+                        context,
+                        suggestions[i],
+                        compact: true,
+                      ),
                     ),
-                  ),
-                  // const SizedBox(height: 6),
-                  // // Text(
-                  // //   '你最常在 $preferredHourLabel:00 左右點開這條路線，累計 ${suggestion.profile.totalInteractions} 次。',
-                  // //   style: theme.textTheme.bodyMedium,
-                  // // ),
-                  // Text(
-                  //   '根據使用習慣。',
-                  //   style: theme.textTheme.bodyMedium,
-                  // ),
-                  // if (suggestion.nearestPath != null) ...[
-                  //   const SizedBox(height: 8),
-                  //   Text(
-                  //     '方向：${suggestion.nearestPath!.name}',
-                  //     style: theme.textTheme.bodySmall,
-                  //   ),
-                  // ],
-                  if (recommendedStop != null) ...[
-                    const SizedBox(height: 10),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          favorite == null
-                              ? Icons.gps_fixed_rounded
-                              : Icons.favorite_rounded,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                recommendedStop.stopName,
-                                style: theme.textTheme.titleMedium,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              if (destinationLabel != null) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  '目的地：$destinationLabel',
-                                  style: theme.textTheme.bodySmall,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                              if (showDistance) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  '距離你約 ${formatDistance(suggestion.distanceMeters!)}。',
-                                  style: theme.textTheme.bodySmall,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ] else if (destinationLabel != null)
-                    Text(
-                      '目的地：$destinationLabel',
-                      style: theme.textTheme.bodySmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    )
-                  else
-                    const SizedBox.shrink(),
+                  ],
                 ],
               ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (recommendedStop != null)
-                  EtaBadge(
-                    stop: recommendedStop,
-                    alwaysShowSeconds: controller.settings.alwaysShowSeconds,
-                    size: 64,
-                  ),
-                const SizedBox(height: 12),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+            )
+          : _buildSuggestionTile(context, suggestions.first),
     );
   }
 
-  Widget _buildNearbyFallbackState(
+  Widget _buildNearbyFallbackTile(
     BuildContext context,
-    _NearbyFallbackData nearby,
-  ) {
+    _NearbyFallbackData nearby, {
+    bool compact = false,
+  }) {
     final controller = widget.controller;
-    final theme = Theme.of(context);
     final stop = nearby.liveStop ?? nearby.result.stop;
+    final metadata = [
+      '距離你約 ${formatDistance(nearby.result.distanceMeters)}',
+      if (nearby.path != null) '方向：${nearby.path!.name}',
+    ];
+    final badgeSize = compact ? 44.0 : 64.0;
+    final etaBadge = EtaBadge(
+      stop: stop,
+      alwaysShowSeconds: controller.settings.alwaysShowSeconds,
+      size: badgeSize,
+    );
+
+    return _buildRouteTile(
+      context: context,
+      onTap: () => _openNearbyFallback(nearby),
+      child: compact
+          ? _buildSmartTileCard(
+              context: context,
+              leadingIcon: Icons.directions_bus_filled_rounded,
+              title: nearby.result.route.routeName,
+              stopName: nearby.result.stop.stopName,
+              metadata: metadata,
+              etaBadge: etaBadge,
+            )
+          : _buildSmartTileRow(
+              context: context,
+              leadingIcon: Icons.directions_bus_filled_rounded,
+              title: nearby.result.route.routeName,
+              stopName: nearby.result.stop.stopName,
+              metadata: metadata,
+              etaBadge: etaBadge,
+            ),
+    );
+  }
+
+  Widget _buildNearbyFallbackListState(
+    BuildContext context,
+    List<_NearbyFallbackData> nearbyList,
+  ) {
+    final horizontal = nearbyList.length > 1;
 
     return _SmartRecommendationShell(
       title: '智慧推薦',
@@ -969,67 +1151,25 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         onPressed: _refresh,
         icon: const Icon(Icons.refresh_rounded),
       ),
-      child: _buildRouteTile(
-        context: context,
-        onTap: () => _openNearbyFallback(nearby),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      child: horizontal
+          ? IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    nearby.result.route.routeName,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    nearby.result.stop.stopName,
-                    style: theme.textTheme.titleMedium,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '距離你約 ${formatDistance(nearby.result.distanceMeters)}。',
-                    style: theme.textTheme.bodyMedium,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (nearby.path != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      '方向：${nearby.path!.name}',
-                      style: theme.textTheme.bodySmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  for (var i = 0; i < nearbyList.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildNearbyFallbackTile(
+                        context,
+                        nearbyList[i],
+                        compact: true,
+                      ),
                     ),
                   ],
                 ],
               ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                EtaBadge(
-                  stop: stop,
-                  alwaysShowSeconds: controller.settings.alwaysShowSeconds,
-                  size: 64,
-                ),
-                const SizedBox(height: 12),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+            )
+          : _buildNearbyFallbackTile(context, nearbyList.first),
     );
   }
 
@@ -1074,11 +1214,11 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
           // return _buildEmptyState(context);
           return const SizedBox.shrink();
         }
-        if (cardData.suggestion case final suggestion?) {
-          return _buildSuggestionState(context, suggestion);
+        if (cardData.suggestions.isNotEmpty) {
+          return _buildSuggestionListState(context, cardData.suggestions);
         }
-        if (cardData.nearby case final nearby?) {
-          return _buildNearbyFallbackState(context, nearby);
+        if (cardData.nearbyList.isNotEmpty) {
+          return _buildNearbyFallbackListState(context, cardData.nearbyList);
         }
         // return _buildEmptyState(context);
         return const SizedBox.shrink();
@@ -1580,9 +1720,14 @@ class _FeatureCard extends StatelessWidget {
                       ),
                     ] else
                       const Spacer(),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: colorScheme.onSurfaceVariant,
+                    Row(
+                      children: [
+                        const Spacer(),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ],
                     ),
                   ],
                 )

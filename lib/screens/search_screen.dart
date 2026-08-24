@@ -1095,145 +1095,152 @@ class _SearchScreenState extends State<SearchScreen> {
       child: Scaffold(
         backgroundColor: hasSearchBackgroundImage ? Colors.transparent : null,
         appBar: AppBar(title: const Text('搜尋路線或站牌')),
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          children: [
-            TextField(
-              controller: _controller,
-              focusNode: _searchFocusNode,
-              onChanged: _onQueryChanged,
-              onTap: _onSearchFieldTap,
-              readOnly: _supportsRouteKeypad && !_isUsingNativeKeyboard,
-              showCursor: true,
-              textInputAction: TextInputAction.search,
-              onSubmitted: _submitNativeSearch,
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search_rounded),
-                hintText: '搜尋公車路線或站牌名稱',
-                suffixIcon: _buildSearchSuffix(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            if (_isResolvingStopDistances) ...[
-              const LinearProgressIndicator(),
-              const SizedBox(height: 12),
-            ],
-            if (_controller.text.trim().isEmpty)
-              _HistorySection(
-                history: busController.history,
-                onClear: busController.clearHistory,
-                onSelect: (entry) {
-                  unawaited(
-                    _openRoute(
-                      provider: entry.provider,
-                      routeKey: entry.routeKey,
-                      routeName: entry.routeName,
-                      routeIdHint: entry.routeId,
-                      source: 'search_history',
-                    ),
-                  );
-                },
-              )
-            else if (_isLoading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_error != null)
-              CatStateCard(
-                mood: CatStateMood.cry,
-                title: '搜尋撞到貓貓了',
-                message: _error,
-              )
-            else if (_isResolvingStopDistances && _results.isEmpty)
-              const CatStateCard(
-                mood: CatStateMood.laugh,
-                title: '貓貓正在翻站牌',
-                message: '正在搜尋附近可搭的站牌...',
-              )
-            else if (_results.isEmpty)
-              CatStateCard(
-                mood: CatStateMood.sad,
-                title: '沒有找到這台貓公車',
-                message: missingProviders.isEmpty
-                    ? '試試看少打一點，或換成站牌名稱搜尋。'
-                    : '部分站牌搜尋需要本機資料庫，先更新資料庫後再試一次。',
-              )
-            else
-              ..._results.map(
-                (item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Card(
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              item.route.routeName.trim().isEmpty
-                                  ? '?'
-                                  : item.route.routeName.characters
-                                        .take(4)
-                                        .toString(),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              children: [
+                TextField(
+                  controller: _controller,
+                  focusNode: _searchFocusNode,
+                  onChanged: _onQueryChanged,
+                  onTap: _onSearchFieldTap,
+                  readOnly: _supportsRouteKeypad && !_isUsingNativeKeyboard,
+                  showCursor: true,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: _submitNativeSearch,
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    hintText: '搜尋公車路線或站牌名稱',
+                    suffixIcon: _buildSearchSuffix(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_isResolvingStopDistances) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 12),
+                ],
+                if (_controller.text.trim().isEmpty)
+                  _HistorySection(
+                    history: busController.history,
+                    onClear: busController.clearHistory,
+                    onSelect: (entry) {
+                      unawaited(
+                        _openRoute(
+                          provider: entry.provider,
+                          routeKey: entry.routeKey,
+                          routeName: entry.routeName,
+                          routeIdHint: entry.routeId,
+                          source: 'search_history',
+                        ),
+                      );
+                    },
+                  )
+                else if (_isLoading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (_error != null)
+                  CatStateCard(
+                    mood: CatStateMood.cry,
+                    title: '搜尋撞到貓貓了',
+                    message: _error,
+                  )
+                else if (_isResolvingStopDistances && _results.isEmpty)
+                  const CatStateCard(
+                    mood: CatStateMood.laugh,
+                    title: '貓貓正在翻站牌',
+                    message: '正在搜尋附近可搭的站牌...',
+                  )
+                else if (_results.isEmpty)
+                  CatStateCard(
+                    mood: CatStateMood.sad,
+                    title: '沒有找到這台貓公車',
+                    message: missingProviders.isEmpty
+                        ? '試試看少打一點，或換成站牌名稱搜尋。'
+                        : '部分站牌搜尋需要本機資料庫，先更新資料庫後再試一次。',
+                  )
+                else
+                  ..._results.map(
+                    (item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Card(
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  item.route.routeName.trim().isEmpty
+                                      ? '?'
+                                      : item.route.routeName.characters
+                                            .take(4)
+                                            .toString(),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
+                          title: item.stopSearch?.matchedStop.stopName != null
+                              ? Text(
+                                  "${item.stopSearch!.matchedStop.stopName} (${item.route.routeName})",
+                                )
+                              : Text(item.route.routeName),
+                          subtitle: Text(
+                            _subtitleForResult(item),
+                            maxLines: item.isStopSearchResult ? 3 : 1,
+                          ),
+                          onTap: () async {
+                            final route = item.route;
+                            final stopSearch = item.stopSearch;
+                            final routeProvider = busProviderFromString(
+                              route.sourceProvider,
+                            );
+                            final resolvedStopSearchLaunch = stopSearch == null
+                                ? null
+                                : await _resolveStopSearchLaunch(
+                                    stopSearch,
+                                    busController,
+                                  );
+                            await _openRoute(
+                              provider: routeProvider,
+                              routeKey: route.routeKey,
+                              routeName: route.routeName,
+                              routeIdHint: route.routeId,
+                              initialPathId:
+                                  resolvedStopSearchLaunch?.pathId ??
+                                  stopSearch?.matchedStop.pathId ??
+                                  route.rtrip,
+                              initialStopId: resolvedStopSearchLaunch?.stopId,
+                              initialDestinationPathId:
+                                  resolvedStopSearchLaunch?.destinationPathId,
+                              initialDestinationStopId:
+                                  resolvedStopSearchLaunch?.destinationStopId,
+                              suppressAutoDestinationSelection:
+                                  resolvedStopSearchLaunch
+                                      ?.suppressAutoDestinationSelection ??
+                                  false,
+                              route: route,
+                              saveHistory: true,
+                              source: stopSearch == null
+                                  ? 'search_result'
+                                  : 'search_stop_result',
+                            );
+                          },
                         ),
                       ),
-                      title: item.stopSearch?.matchedStop.stopName != null
-                          ? Text(
-                              "${item.stopSearch!.matchedStop.stopName} (${item.route.routeName})",
-                            )
-                          : Text(item.route.routeName),
-                      subtitle: Text(
-                        _subtitleForResult(item),
-                        maxLines: item.isStopSearchResult ? 3 : 1,
-                      ),
-                      onTap: () async {
-                        final route = item.route;
-                        final stopSearch = item.stopSearch;
-                        final routeProvider = busProviderFromString(
-                          route.sourceProvider,
-                        );
-                        final resolvedStopSearchLaunch = stopSearch == null
-                            ? null
-                            : await _resolveStopSearchLaunch(
-                                stopSearch,
-                                busController,
-                              );
-                        await _openRoute(
-                          provider: routeProvider,
-                          routeKey: route.routeKey,
-                          routeName: route.routeName,
-                          routeIdHint: route.routeId,
-                          initialPathId:
-                              resolvedStopSearchLaunch?.pathId ??
-                              stopSearch?.matchedStop.pathId ??
-                              route.rtrip,
-                          initialStopId: resolvedStopSearchLaunch?.stopId,
-                          initialDestinationPathId:
-                              resolvedStopSearchLaunch?.destinationPathId,
-                          initialDestinationStopId:
-                              resolvedStopSearchLaunch?.destinationStopId,
-                          suppressAutoDestinationSelection:
-                              resolvedStopSearchLaunch
-                                  ?.suppressAutoDestinationSelection ??
-                              false,
-                          route: route,
-                          saveHistory: true,
-                          source: stopSearch == null
-                              ? 'search_result'
-                              : 'search_stop_result',
-                        );
-                      },
                     ),
                   ),
-                ),
-              ),
-          ],
+              ],
+            ),
+          ),
         ),
         bottomNavigationBar:
             _supportsRouteKeypad &&

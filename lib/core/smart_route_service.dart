@@ -30,6 +30,25 @@ class SmartRouteService {
     return bestProfile;
   }
 
+  static List<RouteUsageProfile> chooseTopProfilesForTime(
+    Iterable<RouteUsageProfile> profiles,
+    DateTime now, {
+    int limit = 3,
+  }) {
+    final scored = <MapEntry<RouteUsageProfile, double>>[];
+    for (final profile in profiles) {
+      if (!hasEnoughHistoryForRecommendation(profile, now)) {
+        continue;
+      }
+      final score = scoreProfileForTime(profile, now);
+      if (score > 0) {
+        scored.add(MapEntry(profile, score));
+      }
+    }
+    scored.sort((a, b) => b.value.compareTo(a.value));
+    return scored.take(limit).map((entry) => entry.key).toList();
+  }
+
   static bool hasEnoughHistoryForRecommendation(
     RouteUsageProfile profile,
     DateTime now,
@@ -309,6 +328,43 @@ class SmartRouteService {
       favorite: favorite,
       position: position,
     );
+  }
+
+  static Future<List<SmartRouteSuggestion>> loadSuggestions({
+    required BusRepository repository,
+    required Iterable<RouteUsageProfile> profiles,
+    Iterable<FavoriteUsageProfile> favoriteProfiles =
+        const <FavoriteUsageProfile>[],
+    Iterable<FavoriteStop> favorites = const <FavoriteStop>[],
+    required DateTime now,
+    Position? position,
+    int limit = 3,
+  }) async {
+    final topProfiles = chooseTopProfilesForTime(profiles, now, limit: limit);
+    final suggestions = <SmartRouteSuggestion>[];
+    for (final profile in topProfiles) {
+      final detail = await repository.getCompleteBusInfo(
+        profile.routeKey,
+        provider: profile.provider,
+      );
+      final favorite = chooseFavoriteForRoute(
+        routeProfile: profile,
+        favoriteProfiles: favoriteProfiles,
+        favorites: favorites,
+        now: now,
+      );
+      suggestions.add(
+        buildSuggestion(
+          profile: profile,
+          score: scoreProfileForTime(profile, now),
+          reason: buildReason(profile, now),
+          detail: detail,
+          favorite: favorite,
+          position: position,
+        ),
+      );
+    }
+    return suggestions;
   }
 
   static StopInfo? _findStopInDetail(

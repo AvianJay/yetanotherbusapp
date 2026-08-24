@@ -2605,6 +2605,34 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  Future<List<SmartRouteSuggestion>> getSmartRouteSuggestions({
+    DateTime? now,
+    Position? position,
+    int limit = 3,
+  }) async {
+    if (!_settings.enableSmartRecommendations ||
+        !isDatabaseReady(_settings.provider) ||
+        _routeUsageProfiles.isEmpty) {
+      return const [];
+    }
+
+    return SmartRouteService.loadSuggestions(
+      repository: repository,
+      profiles: _routeUsageProfiles.where(
+        (entry) => entry.provider == _settings.provider,
+      ),
+      favoriteProfiles: _favoriteUsageProfiles.where(
+        (entry) => entry.provider == _settings.provider,
+      ),
+      favorites: _favoriteGroups.values
+          .expand((group) => group)
+          .where((favorite) => favorite.provider == _settings.provider),
+      now: now ?? DateTime.now(),
+      position: position,
+      limit: limit,
+    );
+  }
+
   Future<void> addFavoriteGroup(String name) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty || _favoriteGroups.containsKey(trimmed)) {

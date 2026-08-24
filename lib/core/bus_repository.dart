@@ -1985,7 +1985,19 @@ class BusRepository {
   ///
   /// Each returned [StopRouteSearchResult] has its live ETA embedded in
   /// [StopRouteSearchResult.matchedStop]; no follow-up realtime call is needed.
-  Future<List<StopRouteSearchResult>> getStopPassby(String stopId) async {
+  ///
+  /// TDX stop IDs are only unique within one authority (Taichung's "39" is a
+  /// different physical stop from Matsu's "39"), so [provider] scopes the
+  /// server-side lookup to the tapped route's authority. [expectedStopName],
+  /// when given, guards against servers that ignore the scope parameter: a
+  /// response whose stop name doesn't match the tapped stop is discarded so
+  /// callers fall back to the local lookup instead of showing another city's
+  /// routes.
+  Future<List<StopRouteSearchResult>> getStopPassby(
+    String stopId, {
+    required BusProvider provider,
+    String? expectedStopName,
+  }) async {
     final trimmed = stopId.trim();
     if (trimmed.isEmpty) {
       return const <StopRouteSearchResult>[];
@@ -1993,7 +2005,8 @@ class BusRepository {
 
     final response = await _client.get(
       Uri.parse(
-        '$_apiBaseUrl/api/v1/stops/${Uri.encodeComponent(trimmed)}/passby',
+        '$_apiBaseUrl/api/v1/stops/${Uri.encodeComponent(trimmed)}/passby'
+        '?city=${Uri.encodeComponent(provider.prefix)}',
       ),
       headers: _apiJsonHeaders,
     );
@@ -2009,6 +2022,19 @@ class BusRepository {
 
     final decoded =
         jsonDecode(apiResponseText(response)) as Map<String, dynamic>;
+
+    final normalizedExpectedName = _normalizeStopNameForComparison(
+      expectedStopName,
+    );
+    if (normalizedExpectedName != null) {
+      final responseName = _normalizeStopNameForComparison(
+        decoded['stop_name']?.toString(),
+      );
+      if (responseName != normalizedExpectedName) {
+        return const <StopRouteSearchResult>[];
+      }
+    }
+
     final rawRoutes = decoded['routes'] as List<dynamic>? ?? const [];
 
     final results = <StopRouteSearchResult>[];
@@ -3501,6 +3527,16 @@ class BusRepository {
   String? _rawStopIdString(Object? raw) {
     final text = raw?.toString().trim() ?? '';
     return text.isEmpty ? null : text;
+  }
+
+  /// Stop name folded for equality checks (case and all whitespace ignored),
+  /// or null when there is nothing to compare against.
+  String? _normalizeStopNameForComparison(String? value) {
+    final normalized = value
+        ?.trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), '');
+    return (normalized == null || normalized.isEmpty) ? null : normalized;
   }
 
   int _parseStopId(Object? raw) {

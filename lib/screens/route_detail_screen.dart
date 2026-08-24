@@ -3615,11 +3615,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     // Prefer the server-side passby endpoint keyed on the original TDX stop ID.
     // It resolves the passing routes and returns only this stop's ETA per
     // route, so the client avoids requesting a large batch of full realtime
-    // snapshots (one per route, each carrying every stop).
+    // snapshots (one per route, each carrying every stop). The provider scopes
+    // the lookup to this route's authority — TDX stop IDs collide across
+    // cities — and the stop name lets the repository reject a mis-scoped
+    // response from servers that don't understand the scope parameter yet.
     final rawStopId = stop.rawStopId;
     if (rawStopId != null) {
       try {
-        final passby = await controller.repository.getStopPassby(rawStopId);
+        final passby = await controller.repository.getStopPassby(
+          rawStopId,
+          provider: widget.provider,
+          expectedStopName: stop.stopName,
+        );
         if (passby.isNotEmpty) {
           _relatedStopRoutesFromPassby = true;
           return passby;

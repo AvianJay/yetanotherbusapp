@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/app_controller.dart';
+import '../core/app_routes.dart';
 import '../core/haptic_feedback_service.dart';
 import '../core/app_route_observer.dart';
 import '../core/bus_repository.dart';
@@ -31,6 +33,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
   late final AnimationController _countdownProgressController;
   ModalRoute<dynamic>? _route;
   List<FavoriteResolvedItem> _items = const [];
+  Map<String, StationPassbyData> _stationDataByKey = const {};
   bool _isLoading = false;
   bool _isRouteVisible = true;
   String? _error;
@@ -89,6 +92,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
         ..stop()
         ..value = 0;
       _items = const [];
+      _stationDataByKey = const {};
       _isLoading = false;
       _error = null;
       _statusMessage = null;
@@ -141,18 +145,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     return groups[index];
   }
 
-  String _favoritesSignature(List<FavoriteStop> favorites) {
-    return favorites
-        .map(
-          (favorite) =>
-              '${favorite.provider.name}:'
-              '${favorite.routeKey}:'
-              '${favorite.pathId}:'
-              '${favorite.stopId}:'
-              '${favorite.destinationPathId ?? 0}:'
-              '${favorite.destinationStopId ?? 0}',
-        )
-        .join('|');
+  String _favoritesSignature(List<FavoriteItem> favorites) {
+    return favorites.map((favorite) => jsonEncode(favorite.toJson())).join('|');
   }
 
   String _favoriteItemKey(FavoriteStop favorite) {
@@ -294,6 +288,22 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       final baseItems = shouldResolveStatic
           ? await controller.resolveFavoriteGroup(groupName)
           : _items;
+      final stationEntries = await Future.wait(
+        references.whereType<FavoriteStation>().map((favorite) async {
+          try {
+            final station = await controller.repository.getStationPassby(
+              favorite.stationId,
+              provider: favorite.provider,
+            );
+            return MapEntry(favorite.stableKey, station);
+          } catch (_) {
+            return MapEntry<String, StationPassbyData?>(
+              favorite.stableKey,
+              null,
+            );
+          }
+        }),
+      );
 
       if (!mounted || requestId != _refreshRequestId) {
         return;
@@ -410,21 +420,38 @@ class _FavoritesScreenState extends State<FavoritesScreen>
         return item;
       }).toList();
 
-      final allRoutesFailed =
-          uniqueRoutes.isNotEmpty && failedRouteCount == uniqueRoutes.length;
-      final hasAnyLiveData = liveRouteCount > 0;
-      final nextStatusMessage = allRoutesFailed
+      final resolvedStationData = {
+        for (final entry in stationEntries)
+          if (entry.value != null)
+            entry.key: entry.value!
+          else if (_stationDataByKey[entry.key] != null)
+            entry.key: _stationDataByKey[entry.key]!,
+      };
+      final failedStationCount =
+          stationEntries.length - resolvedStationData.length;
+      final hasStationLiveData = resolvedStationData.values.any(
+        (station) => station.nextArrival != null,
+      );
+      final refreshRequestCount = uniqueRoutes.length + stationEntries.length;
+      final failedRequestCount = failedRouteCount + failedStationCount;
+      final allRequestsFailed =
+          refreshRequestCount > 0 && failedRequestCount == refreshRequestCount;
+      final hasAnyLiveData = liveRouteCount > 0 || hasStationLiveData;
+      final nextStatusMessage = allRequestsFailed
           ? '即時資訊更新失敗'
+          : refreshRequestCount == 0
+          ? null
           : !hasAnyLiveData
           ? '目前沒有可用的即時資訊'
-          : failedRouteCount > 0
-          ? '部分路線更新失敗'
+          : failedRequestCount > 0
+          ? '部分即時資訊更新失敗'
           : null;
 
       setState(() {
         _loadedGroupName = groupName;
         _loadedSignature = signature;
         _items = enrichedItems;
+        _stationDataByKey = resolvedStationData;
         _isLoading = false;
         _error = null;
         _statusMessage = nextStatusMessage;
@@ -500,26 +527,299 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     return null;
   }
 
-  Future<void> _removeFavorite(
+  Future<void> _removeFavoriteItem(
     AppController controller,
     String groupName,
-    FavoriteResolvedItem item,
+    FavoriteItem item,
+    String label,
   ) async {
     setState(() {
-      _items = _items
-          .where((entry) => !entry.reference.sameAs(item.reference))
-          .toList();
+      if (item is FavoriteStop) {
+        _items = _items
+            .where((entry) => !entry.reference.sameAs(item))
+            .toList();
+      } else if (item is FavoriteStation) {
+        _stationDataByKey = Map<String, StationPassbyData>.from(
+          _stationDataByKey,
+        )..remove(item.stableKey);
+      }
     });
 
-    await controller.removeFavoriteStop(groupName, item.reference);
+    await controller.removeFavoriteItem(groupName, item);
     if (!mounted) {
       return;
     }
     unawaited(AppHaptics.lightImpact());
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已從 $groupName 移除 ${item.stop.stopName}')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已從 $groupName 移除 $label')));
     _scheduleRefresh(forceResolveStatic: true);
+  }
+
+  Widget _buildDismissibleFavorite({
+    required BuildContext context,
+    required FavoriteItem favorite,
+    required VoidCallback onDismissed,
+    required Widget child,
+  }) {
+    return Dismissible(
+      key: ValueKey('favorite-${favorite.stableKey}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.errorContainer,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Icon(
+          Icons.delete_outline_rounded,
+          color: Theme.of(context).colorScheme.onErrorContainer,
+        ),
+      ),
+      onDismissed: (_) => onDismissed(),
+      child: child,
+    );
+  }
+
+  Widget _buildFavoriteTypeBadge(BuildContext context, FavoriteItemType type) {
+    final label = switch (type) {
+      FavoriteItemType.route => '路線',
+      FavoriteItemType.station => '站牌',
+      FavoriteItemType.boarding => '乘車點',
+    };
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: colorScheme.onSecondaryContainer,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRouteFavoriteCard(
+    BuildContext context,
+    AppController controller,
+    String groupName,
+    FavoriteRoute favorite,
+  ) {
+    final showTypeBadge =
+        controller.favoriteGroupKind(groupName) == FavoriteGroupKind.mixed;
+    final description = favorite.routeDescription?.trim();
+    return _buildDismissibleFavorite(
+      context: context,
+      favorite: favorite,
+      onDismissed: () => unawaited(
+        _removeFavoriteItem(
+          controller,
+          groupName,
+          favorite,
+          favorite.routeName,
+        ),
+      ),
+      child: Card(
+        child: ListTile(
+          contentPadding: const EdgeInsets.all(14),
+          leading: CircleAvatar(
+            child: Text(
+              favorite.routeName.characters.take(2).toString(),
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          title: Text(
+            favorite.routeName,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (showTypeBadge) ...[
+                  _buildFavoriteTypeBadge(context, FavoriteItemType.route),
+                  const SizedBox(height: 5),
+                ],
+                Text(
+                  '${favorite.provider.label}${description?.isNotEmpty == true ? " · $description" : ""}',
+                ),
+              ],
+            ),
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () async {
+            unawaited(AppHaptics.selectionClick());
+            await controller.recordRouteSelection(
+              provider: favorite.provider,
+              routeKey: favorite.routeKey,
+              routeName: favorite.routeName,
+              source: 'favorite_route',
+            );
+            if (!context.mounted) return;
+            await openRouteDetailPage(
+              context,
+              routeKey: favorite.routeKey,
+              provider: favorite.provider,
+              routeIdHint: favorite.routeId,
+              routeNameHint: favorite.routeName,
+              suppressAutoDestinationSelection: true,
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStationFavoriteCard(
+    BuildContext context,
+    AppController controller,
+    String groupName,
+    FavoriteStation favorite,
+  ) {
+    final station = _stationDataByKey[favorite.stableKey];
+    final nextArrival = station?.nextArrival;
+    final route = nextArrival?.result.route;
+    final stop = nextArrival?.result.matchedStop;
+    final showTypeBadge =
+        controller.favoriteGroupKind(groupName) == FavoriteGroupKind.mixed;
+    final statusText = nextArrival == null
+        ? '${favorite.provider.label} · 目前沒有即將抵達班次'
+        : '${favorite.provider.label} · ${route!.routeName} · ${nextArrival.sideLabel} 側';
+    return _buildDismissibleFavorite(
+      context: context,
+      favorite: favorite,
+      onDismissed: () => unawaited(
+        _removeFavoriteItem(
+          controller,
+          groupName,
+          favorite,
+          favorite.stationName,
+        ),
+      ),
+      child: Card(
+        child: ListTile(
+          contentPadding: const EdgeInsets.all(14),
+          leading: stop == null
+              ? const SizedBox(
+                  width: 52,
+                  height: 52,
+                  child: Icon(Icons.directions_bus_filled_rounded, size: 30),
+                )
+              : EtaBadge(
+                  stop: stop,
+                  alwaysShowSeconds: controller.settings.alwaysShowSeconds,
+                  size: 52,
+                ),
+          title: Text(favorite.stationName),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (showTypeBadge) ...[
+                  _buildFavoriteTypeBadge(context, FavoriteItemType.station),
+                  const SizedBox(height: 5),
+                ],
+                Text(statusText),
+              ],
+            ),
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () {
+            unawaited(AppHaptics.selectionClick());
+            Navigator.of(context).pushNamed(
+              AppRoutes.stationDetailPath(
+                provider: favorite.provider,
+                stationId: favorite.stationId,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUnresolvedBoardingCard(
+    BuildContext context,
+    AppController controller,
+    String groupName,
+    FavoriteStop favorite,
+  ) {
+    final routeName = favorite.routeName?.trim().isNotEmpty == true
+        ? favorite.routeName!.trim()
+        : '路線 ${favorite.routeKey}';
+    final stopName = favorite.stopName?.trim().isNotEmpty == true
+        ? favorite.stopName!.trim()
+        : '站牌 ${favorite.stopId}';
+    final showTypeBadge =
+        controller.favoriteGroupKind(groupName) == FavoriteGroupKind.mixed;
+    return _buildDismissibleFavorite(
+      context: context,
+      favorite: favorite,
+      onDismissed: () => unawaited(
+        _removeFavoriteItem(controller, groupName, favorite, stopName),
+      ),
+      child: Card(
+        child: ListTile(
+          contentPadding: const EdgeInsets.all(14),
+          leading: const SizedBox(
+            width: 52,
+            height: 52,
+            child: Icon(Icons.schedule_rounded, size: 30),
+          ),
+          title: RichText(
+            text: TextSpan(
+              style: Theme.of(context).textTheme.titleMedium,
+              children: [
+                TextSpan(
+                  text: '$routeName ',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                TextSpan(text: stopName),
+              ],
+            ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (showTypeBadge) ...[
+                  _buildFavoriteTypeBadge(context, FavoriteItemType.boarding),
+                  const SizedBox(height: 5),
+                ],
+                Text('${favorite.provider.label} · 正在取得即時資訊'),
+              ],
+            ),
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => openRouteDetailPage(
+            context,
+            routeKey: favorite.routeKey,
+            provider: favorite.provider,
+            routeIdHint: favorite.routeId,
+            routeNameHint: favorite.routeName,
+            initialPathId: favorite.pathId,
+            initialStopId: favorite.stopId,
+            initialDestinationPathId: favorite.destinationPathId,
+            initialDestinationStopId: favorite.destinationStopId,
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _handleFavoriteDestinationAction(
@@ -629,6 +929,9 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     final displayItems = currentGroupName == _loadedGroupName
         ? _items
         : const <FavoriteResolvedItem>[];
+    final references = currentGroupName == null
+        ? const <FavoriteItem>[]
+        : controller.favoritesInGroup(currentGroupName);
     final hasFavoritesBackgroundImage = hasBackgroundImageForPage(
       controller.settings,
       pageKey: 'favorites',
@@ -699,6 +1002,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                 context,
                 controller,
                 currentGroupName: currentGroupName!,
+                references: references,
                 items: displayItems,
               ),
       ),
@@ -709,9 +1013,10 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     BuildContext context,
     AppController controller, {
     required String currentGroupName,
+    required List<FavoriteItem> references,
     required List<FavoriteResolvedItem> items,
   }) {
-    if (_error != null && items.isEmpty) {
+    if (_error != null && references.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -726,20 +1031,52 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       );
     }
 
-    if (_isLoading && items.isEmpty) {
+    if (_isLoading && references.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (items.isEmpty) {
-      return const _EmptyFavoritesState(message: '這個群組目前沒有站牌。');
+    if (references.isEmpty) {
+      return const _EmptyFavoritesState(message: '這個群組目前沒有收藏。');
     }
+
+    final resolvedByKey = {
+      for (final item in items) item.reference.stableKey: item,
+    };
 
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      itemCount: items.length,
+      itemCount: references.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
-        final item = items[index];
+        final reference = references[index];
+        if (reference is FavoriteRoute) {
+          return _buildRouteFavoriteCard(
+            context,
+            controller,
+            currentGroupName,
+            reference,
+          );
+        }
+        if (reference is FavoriteStation) {
+          return _buildStationFavoriteCard(
+            context,
+            controller,
+            currentGroupName,
+            reference,
+          );
+        }
+        if (reference is! FavoriteStop) {
+          return const SizedBox.shrink();
+        }
+        final item = resolvedByKey[reference.stableKey];
+        if (item == null) {
+          return _buildUnresolvedBoardingCard(
+            context,
+            controller,
+            currentGroupName,
+            reference,
+          );
+        }
         final destinationSummary =
             item.reference.destinationStopName?.trim().isNotEmpty == true
             ? item.reference.destinationStopName!.trim()
@@ -761,8 +1098,14 @@ class _FavoritesScreenState extends State<FavoritesScreen>
               color: Theme.of(context).colorScheme.onErrorContainer,
             ),
           ),
-          onDismissed: (_) =>
-              unawaited(_removeFavorite(controller, currentGroupName, item)),
+          onDismissed: (_) => unawaited(
+            _removeFavoriteItem(
+              controller,
+              currentGroupName,
+              item.reference,
+              item.stop.stopName,
+            ),
+          ),
           child: Card(
             child: ListTile(
               contentPadding: const EdgeInsets.all(14),
@@ -788,10 +1131,23 @@ class _FavoritesScreenState extends State<FavoritesScreen>
               ),
               subtitle: Padding(
                 padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '${item.reference.provider.label} · '
-                  '${item.route.description.isEmpty ? "routeKey ${item.route.routeKey}" : item.route.description}'
-                  '${destinationSummary == null ? "" : "\n目的地：$destinationSummary"}',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (controller.favoriteGroupKind(currentGroupName) ==
+                        FavoriteGroupKind.mixed) ...[
+                      _buildFavoriteTypeBadge(
+                        context,
+                        FavoriteItemType.boarding,
+                      ),
+                      const SizedBox(height: 5),
+                    ],
+                    Text(
+                      '${item.reference.provider.label} · '
+                      '${item.route.description.isEmpty ? "routeKey ${item.route.routeKey}" : item.route.description}'
+                      '${destinationSummary == null ? "" : "\n目的地：$destinationSummary"}',
+                    ),
+                  ],
                 ),
               ),
               trailing: controller.settings.enableRouteBackgroundMonitor

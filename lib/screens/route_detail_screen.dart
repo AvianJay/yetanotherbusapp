@@ -31,6 +31,7 @@ import '../widgets/cat_state_card.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/route_bus_map_sheet.dart';
 import '../widgets/ad_banner_widget.dart';
+import 'favorite_groups_screen.dart';
 
 class RouteDetailScreen extends StatefulWidget {
   const RouteDetailScreen({
@@ -3347,8 +3348,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           title: Text(stop.stopName),
           children: [
             SimpleDialogOption(
-              onPressed: () => Navigator.of(context).pop(_StopAction.favorite),
-              child: const Text('加入最愛'),
+              onPressed: () =>
+                  Navigator.of(context).pop(_StopAction.favoriteStation),
+              child: const Text('收藏此站牌'),
+            ),
+            SimpleDialogOption(
+              onPressed: () =>
+                  Navigator.of(context).pop(_StopAction.favoriteBoarding),
+              child: const Text('收藏此乘車點'),
             ),
             SimpleDialogOption(
               onPressed: () => Navigator.of(context).pop(),
@@ -3362,29 +3369,150 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
 
-    if (action == _StopAction.favorite) {
+    if (action == _StopAction.favoriteStation) {
+      await _handleStationFavorite(stop);
+    } else if (action == _StopAction.favoriteBoarding) {
       await _handleFavorite(stop);
     }
   }
 
+  Future<String?> _selectFavoriteGroup(FavoriteItemType itemType) async {
+    final controller = AppControllerScope.read(context);
+    final compatible = controller.compatibleFavoriteGroupNames(itemType);
+    String? selected;
+    if (compatible.isEmpty) {
+      selected = '__new__';
+    } else if (compatible.length == 1) {
+      selected = compatible.single;
+    } else {
+      selected = await _showGroupPicker(compatible);
+    }
+    if (!mounted || selected == null) {
+      return null;
+    }
+    if (selected != '__new__') {
+      return selected;
+    }
+
+    final draft = await showFavoriteGroupDialog(
+      context,
+      initialKind: switch (itemType) {
+        FavoriteItemType.route => FavoriteGroupKind.route,
+        FavoriteItemType.station => FavoriteGroupKind.station,
+        FavoriteItemType.boarding => FavoriteGroupKind.boarding,
+      },
+      compatibleItemType: itemType,
+    );
+    if (!mounted || draft == null) {
+      return null;
+    }
+    if (controller.favoriteGroups.containsKey(draft.name)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已有相同名稱的收藏群組。')));
+      return null;
+    }
+    await controller.addFavoriteGroup(draft.name, kind: draft.kind);
+    return draft.name;
+  }
+
+  Future<void> _handleRouteFavorite() async {
+    final route = _detail?.route;
+    if (route == null || route.routeId.trim().isEmpty) {
+      return;
+    }
+    final groupName = await _selectFavoriteGroup(FavoriteItemType.route);
+    if (!mounted || groupName == null) {
+      return;
+    }
+    try {
+      await AppControllerScope.read(context).addFavoriteItem(
+        FavoriteRoute(
+          provider: widget.provider,
+          routeKey: widget.routeKey,
+          routeId: route.routeId,
+          routeName: route.routeName,
+          routeDescription: route.description.trim().isEmpty
+              ? null
+              : route.description.trim(),
+        ),
+        groupName: groupName,
+      );
+    } on FavoriteGroupFullException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('我的最愛已達上限 ${error.maxStops} 項，無法再加入')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    _playSuccessHaptic();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已將路線加入 $groupName')));
+  }
+
+  Future<void> _handleStationFavorite(StopInfo stop) async {
+    final rawStopId = stop.rawStopId?.trim() ?? '';
+    if (rawStopId.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('這個站牌缺少可解析的站牌識別碼。')));
+      return;
+    }
+    final controller = AppControllerScope.read(context);
+    StationPassbyData? station;
+    try {
+      station = await controller.repository.resolveStation(
+        rawStopId,
+        provider: widget.provider,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
+      return;
+    }
+    if (!mounted) return;
+    if (station == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('後端目前找不到這個整站資料。')));
+      return;
+    }
+    final groupName = await _selectFavoriteGroup(FavoriteItemType.station);
+    if (!mounted || groupName == null) {
+      return;
+    }
+    try {
+      await controller.addFavoriteItem(
+        FavoriteStation(
+          provider: widget.provider,
+          stationId: station.stationId,
+          stationName: station.stationName,
+        ),
+        groupName: groupName,
+      );
+    } on FavoriteGroupFullException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('我的最愛已達上限 ${error.maxStops} 項，無法再加入')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    _playSuccessHaptic();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已將${station.stationName}加入 $groupName')),
+    );
+  }
+
   Future<void> _handleFavorite(StopInfo stop) async {
     final controller = AppControllerScope.read(context);
-    String? groupName;
-
-    if (controller.favoriteGroupNames.length > 1) {
-      groupName = await _showGroupPicker(controller.favoriteGroupNames);
-      if (!mounted || groupName == null) {
-        return;
-      }
-      if (groupName == '__new__') {
-        groupName = await _showAddGroupDialog();
-        if (!mounted || groupName == null || groupName.trim().isEmpty) {
-          return;
-        }
-        await controller.addFavoriteGroup(groupName);
-      }
-    } else if (controller.favoriteGroupNames.length == 1) {
-      groupName = controller.favoriteGroupNames.first;
+    final groupName = await _selectFavoriteGroup(FavoriteItemType.boarding);
+    if (!mounted || groupName == null) {
+      return;
     }
 
     final favorite = FavoriteStop(
@@ -3395,6 +3523,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       routeId: _detail?.route.routeId,
       routeName: _detail?.route.routeName,
       stopName: stop.stopName,
+      rawStopId: stop.rawStopId,
     );
     String selectedGroup;
     try {
@@ -3537,6 +3666,26 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(didPin ? '已送出主畫面捷徑要求。' : '這台裝置不支援主畫面捷徑。')),
+    );
+  }
+
+  Future<void> _handlePinnedRouteShortcut() async {
+    final route = _detail?.route;
+    if (route == null || route.routeId.trim().isEmpty) return;
+    final didPin = await AndroidHomeIntegration.pinFavoriteShortcut(
+      favorite: FavoriteRoute(
+        provider: widget.provider,
+        routeKey: widget.routeKey,
+        routeId: route.routeId,
+        routeName: route.routeName,
+        routeDescription: route.description.trim().isEmpty
+            ? null
+            : route.description.trim(),
+      ),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(didPin ? '已送出路線捷徑要求。' : '這台裝置不支援主畫面捷徑。')),
     );
   }
 
@@ -3925,8 +4074,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           title: Text(stop.stopName),
           children: [
             SimpleDialogOption(
-              onPressed: () => Navigator.of(context).pop(_StopAction.favorite),
-              child: const Text('加入最愛'),
+              onPressed: () =>
+                  Navigator.of(context).pop(_StopAction.favoriteStation),
+              child: const Text('收藏此站牌'),
+            ),
+            SimpleDialogOption(
+              onPressed: () =>
+                  Navigator.of(context).pop(_StopAction.favoriteBoarding),
+              child: const Text('收藏此乘車點'),
             ),
             if (showDestinationAction)
               SimpleDialogOption(
@@ -3968,7 +4123,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
 
-    if (action == _StopAction.favorite) {
+    if (action == _StopAction.favoriteStation) {
+      await _handleStationFavorite(stop);
+    } else if (action == _StopAction.favoriteBoarding) {
       await _handleFavorite(stop);
     } else if (action == _StopAction.destination) {
       await _handleDestinationAction(stop);
@@ -4151,36 +4308,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         );
       },
     );
-  }
-
-  Future<String?> _showAddGroupDialog() async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('新增最愛群組'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: '輸入群組名稱'),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(controller.text.trim()),
-              child: const Text('新增'),
-            ),
-          ],
-        );
-      },
-    );
-    controller.dispose();
-    return result;
   }
 
   Future<void> _openVehicleForum(String vehicleId) async {
@@ -5272,6 +5399,21 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         appBar: AppBar(
           title: Text(detail?.route.routeName ?? '公車資訊'),
           actions: [
+            IconButton(
+              onPressed: detail == null
+                  ? null
+                  : () => unawaited(_handleRouteFavorite()),
+              tooltip: '收藏路線',
+              icon: const Icon(Icons.favorite_border_rounded),
+            ),
+            if (_isAndroid)
+              IconButton(
+                onPressed: detail == null
+                    ? null
+                    : () => unawaited(_handlePinnedRouteShortcut()),
+                tooltip: '將路線新增到主畫面',
+                icon: const Icon(Icons.add_to_home_screen_rounded),
+              ),
             if (detail != null && currentPathId != null)
               IconButton(
                 onPressed: () {
@@ -6666,7 +6808,8 @@ class _RelatedStopRoutesSheetState extends State<_RelatedStopRoutesSheet> {
 }
 
 enum _StopAction {
-  favorite,
+  favoriteStation,
+  favoriteBoarding,
   destination,
   schedule,
   relatedRoutes,

@@ -59,6 +59,7 @@ String? _internalLocationForUri(Uri uri) {
     case AppRouteKind.announcements:
     case AppRouteKind.announcementDetail:
     case AppRouteKind.routeDetail:
+    case AppRouteKind.stationDetail:
       return intent.location;
     case AppRouteKind.stopDetail:
     case AppRouteKind.unknown:

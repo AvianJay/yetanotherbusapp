@@ -1,23 +1,63 @@
 import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
+import '../core/models.dart';
 
-class FavoriteGroupsScreen extends StatelessWidget {
-  const FavoriteGroupsScreen({super.key});
+class FavoriteGroupDraft {
+  const FavoriteGroupDraft({required this.name, required this.kind});
 
-  Future<void> _showAddGroupDialog(BuildContext context) async {
-    final controller = AppControllerScope.read(context);
-    final textController = TextEditingController();
+  final String name;
+  final FavoriteGroupKind kind;
+}
 
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) {
+Future<FavoriteGroupDraft?> showFavoriteGroupDialog(
+  BuildContext context, {
+  FavoriteGroupKind initialKind = FavoriteGroupKind.boarding,
+  FavoriteItemType? compatibleItemType,
+}) async {
+  final textController = TextEditingController();
+  var selectedKind = initialKind;
+  final selectableKinds = compatibleItemType == null
+      ? FavoriteGroupKind.values
+      : FavoriteGroupKind.values
+            .where((kind) => kind.acceptsType(compatibleItemType))
+            .toList(growable: false);
+  final result = await showDialog<FavoriteGroupDraft>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) {
         return AlertDialog(
           title: const Text('新增群組'),
-          content: TextField(
-            controller: textController,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: '例如：回家'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: textController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: '群組名稱',
+                  hintText: '例如：回家',
+                ),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<FavoriteGroupKind>(
+                initialValue: selectedKind,
+                decoration: const InputDecoration(labelText: '收藏類別'),
+                items: selectableKinds
+                    .map(
+                      (kind) => DropdownMenuItem(
+                        value: kind,
+                        child: Text(kind.label),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: (kind) {
+                  if (kind != null) {
+                    setState(() => selectedKind = kind);
+                  }
+                },
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -25,20 +65,44 @@ class FavoriteGroupsScreen extends StatelessWidget {
               child: const Text('取消'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(context).pop(textController.text),
+              onPressed: () {
+                final name = textController.text.trim();
+                if (name.isEmpty) {
+                  return;
+                }
+                Navigator.of(
+                  context,
+                ).pop(FavoriteGroupDraft(name: name, kind: selectedKind));
+              },
               child: const Text('新增'),
             ),
           ],
         );
       },
-    );
+    ),
+  );
+  textController.dispose();
+  return result;
+}
 
-    textController.dispose();
-    if (name == null || name.trim().isEmpty) {
+class FavoriteGroupsScreen extends StatelessWidget {
+  const FavoriteGroupsScreen({super.key});
+
+  Future<void> _showAddGroupDialog(BuildContext context) async {
+    final controller = AppControllerScope.read(context);
+    final draft = await showFavoriteGroupDialog(context);
+    if (draft == null) {
       return;
     }
-
-    await controller.addFavoriteGroup(name);
+    if (controller.favoriteGroups.containsKey(draft.name)) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已有相同名稱的收藏群組。')));
+      }
+      return;
+    }
+    await controller.addFavoriteGroup(draft.name, kind: draft.kind);
   }
 
   @override
@@ -65,6 +129,7 @@ class FavoriteGroupsScreen extends StatelessWidget {
               itemBuilder: (context, index) {
                 final group = groups[index];
                 final count = controller.favoriteGroups[group]?.length ?? 0;
+                final kind = controller.favoriteGroupKind(group);
                 return Dismissible(
                   key: ValueKey(group),
                   direction: DismissDirection.endToStart,
@@ -108,7 +173,7 @@ class FavoriteGroupsScreen extends StatelessWidget {
                   child: Card(
                     child: ListTile(
                       title: Text(group),
-                      subtitle: Text('$count 個站牌'),
+                      subtitle: Text('${kind.label} · $count 個收藏'),
                     ),
                   ),
                 );

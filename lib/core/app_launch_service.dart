@@ -9,6 +9,7 @@ import 'web_auth_callback_stub.dart'
 
 enum AppLaunchTarget {
   routeDetail,
+  stationDetail,
   favoritesGroup,
   internalLocation,
   authCallback,
@@ -25,6 +26,7 @@ class AppLaunchAction {
     this.destinationPathId,
     this.destinationStopId,
     this.groupName,
+    this.stationId,
     this.location,
     this.authToken,
     this.authAccountId,
@@ -62,9 +64,11 @@ class AppLaunchAction {
     }
 
     return AppLaunchAction(
-      target: targetName == 'favorites_group'
-          ? AppLaunchTarget.favoritesGroup
-          : AppLaunchTarget.routeDetail,
+      target: switch (targetName) {
+        'favorites_group' => AppLaunchTarget.favoritesGroup,
+        'station_detail' => AppLaunchTarget.stationDetail,
+        _ => AppLaunchTarget.routeDetail,
+      },
       provider: map['provider'] == null
           ? null
           : busProviderFromString(map['provider'] as String),
@@ -75,6 +79,7 @@ class AppLaunchAction {
       destinationPathId: (map['destinationPathId'] as num?)?.toInt(),
       destinationStopId: (map['destinationStopId'] as num?)?.toInt(),
       groupName: map['groupName'] as String?,
+      stationId: map['stationId']?.toString(),
     );
   }
 
@@ -87,6 +92,7 @@ class AppLaunchAction {
   final int? destinationPathId;
   final int? destinationStopId;
   final String? groupName;
+  final String? stationId;
   final String? location;
   final String? authToken;
   final String? authAccountId;

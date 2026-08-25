@@ -140,11 +140,7 @@ void main() {
           source: 'backfill_buses',
           estimated: true,
         ),
-        StopEta(
-          sec: 60,
-          vehicleId: 'AAA-0001',
-          source: 'tdx',
-        ),
+        StopEta(sec: 60, vehicleId: 'AAA-0001', source: 'tdx'),
       ],
     );
 
@@ -246,6 +242,73 @@ void main() {
     expect(updated.totalSelectionsAt(now: now), 2);
     expect(updated.selectionCountAtHour(18, now: now), 2);
   });
+
+  test('legacy favorite json migrates to a boarding item', () {
+    final favorite = FavoriteItem.fromJson(const {
+      'provider': 'tpe',
+      'routeKey': 12,
+      'pathId': 1,
+      'stopId': 1001,
+      'routeName': '12',
+      'stopName': '臺北車站',
+    });
+
+    expect(favorite, isA<FavoriteStop>());
+    expect(favorite.type, FavoriteItemType.boarding);
+    expect(favorite.stableKey, 'tpe:12:1:1001');
+    expect(favorite.toJson()['type'], 'boarding');
+  });
+
+  test('favorite identities are explicit and type aware', () {
+    const route = FavoriteRoute(
+      provider: BusProvider.tpe,
+      routeKey: 12,
+      routeId: 'TPE12',
+      routeName: '12',
+    );
+    const station = FavoriteStation(
+      provider: BusProvider.tpe,
+      stationId: 'TPE-STATION-12',
+      stationName: '臺北車站',
+    );
+    const boarding = FavoriteStop(
+      provider: BusProvider.tpe,
+      routeKey: 12,
+      pathId: 1,
+      stopId: 1001,
+      rawStopId: 'TPE1001',
+    );
+
+    expect(route.stableKey, 'route:tpe:TPE12');
+    expect(station.stableKey, 'station:tpe:TPE-STATION-12');
+    expect(boarding.stableKey, 'tpe:12:1:1001');
+    expect(route.sameAs(station), isFalse);
+    expect(station.sameAs(boarding), isFalse);
+    expect(boarding.toJson()['rawStopId'], 'TPE1001');
+  });
+
+  test(
+    'typed favorite groups reject other item types while mixed accepts all',
+    () {
+      const route = FavoriteRoute(
+        provider: BusProvider.tpe,
+        routeKey: 12,
+        routeId: 'TPE12',
+        routeName: '12',
+      );
+      const station = FavoriteStation(
+        provider: BusProvider.tpe,
+        stationId: 'TPE-STATION-12',
+        stationName: '臺北車站',
+      );
+
+      expect(FavoriteGroupKind.route.accepts(route), isTrue);
+      expect(FavoriteGroupKind.route.accepts(station), isFalse);
+      expect(FavoriteGroupKind.mixed.accepts(route), isTrue);
+      expect(FavoriteGroupKind.mixed.accepts(station), isTrue);
+      expect(FavoriteGroupKind.fromJson(null), FavoriteGroupKind.boarding);
+    },
+  );
 
   test('account sync local state preserves namespace metadata', () {
     final state = AccountSyncLocalState.empty()

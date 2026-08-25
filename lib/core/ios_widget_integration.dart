@@ -20,7 +20,7 @@ class IOSWidgetIntegration {
       !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   static Future<void> syncFavoriteGroups(
-    Map<String, List<FavoriteStop>> favoriteGroups, {
+    Map<String, List<FavoriteItem>> favoriteGroups, {
     bool waitForBridge = false,
   }) async {
     if (!_isIOS) {

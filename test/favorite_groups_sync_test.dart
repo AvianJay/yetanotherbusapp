@@ -74,13 +74,93 @@ void main() {
     await controller.syncAllAccountData();
 
     expect(syncService.favoritePayload, {
+      'groupKinds': {'New group': 'boarding'},
       'groups': {'New group': <dynamic>[]},
     });
+    expect(syncService.favoriteSchemaVersion, 2);
     expect(syncService.favoriteRestoreCount, 0);
     expect(controller.favoriteGroupNames, ['Old group', 'New group']);
     expect(controller.favoritesInGroup('Old group'), hasLength(1));
     expect(controller.favoritesInGroup('New group'), isEmpty);
   });
+
+  test(
+    'typed favorite groups enforce type, duplicate, and total limits',
+    () async {
+      final storage = StorageService();
+      final controller = AppController(
+        repository: BusRepository(),
+        storage: storage,
+        analytics: await AppAnalytics.initialize(),
+        buildInfo: AppBuildInfo(
+          version: '1.0.0',
+          buildNumber: '1',
+          gitSha: 'test',
+          defaultUpdateChannel: AppUpdateChannel.release,
+        ),
+        appUpdateService: AppUpdateService(
+          buildInfo: AppBuildInfo(
+            version: '1.0.0',
+            buildNumber: '1',
+            gitSha: 'test',
+            defaultUpdateChannel: AppUpdateChannel.release,
+          ),
+        ),
+        appUpdateInstaller: createAppUpdateInstaller(),
+        authService: _FakeAuthService(),
+        accountSyncService: _FakeAccountSyncService(),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.addFavoriteGroup(
+        'Routes',
+        kind: FavoriteGroupKind.route,
+      );
+      await controller.addFavoriteGroup('Mixed', kind: FavoriteGroupKind.mixed);
+
+      const station = FavoriteStation(
+        provider: BusProvider.tpe,
+        stationId: 'TPE-STATION',
+        stationName: '臺北車站',
+      );
+      expect(
+        controller.addFavoriteItem(station, groupName: 'Routes'),
+        throwsA(isA<FavoriteGroupTypeMismatchException>()),
+      );
+
+      for (var index = 0; index < 25; index += 1) {
+        await controller.addFavoriteItem(
+          FavoriteRoute(
+            provider: BusProvider.tpe,
+            routeKey: index,
+            routeId: 'TPE-$index',
+            routeName: '$index',
+          ),
+          groupName: 'Routes',
+        );
+      }
+      await controller.addFavoriteItem(
+        const FavoriteRoute(
+          provider: BusProvider.tpe,
+          routeKey: 0,
+          routeId: 'TPE-0',
+          routeName: 'updated',
+        ),
+        groupName: 'Routes',
+      );
+
+      expect(controller.favoritesInGroup('Routes'), hasLength(25));
+      expect(
+        (controller.favoritesInGroup('Routes').first as FavoriteRoute)
+            .routeName,
+        'updated',
+      );
+      expect(
+        controller.addFavoriteItem(station, groupName: 'Mixed'),
+        throwsA(isA<FavoriteGroupFullException>()),
+      );
+    },
+  );
 }
 
 class _FakeAuthService extends AuthService {
@@ -129,6 +209,7 @@ class _FakeAccountSyncService extends AccountSyncService {
   };
 
   Map<String, dynamic>? favoritePayload;
+  int? favoriteSchemaVersion;
   int favoriteRestoreCount = 0;
 
   @override
@@ -174,9 +255,16 @@ class _FakeAccountSyncService extends AccountSyncService {
   }) async {
     if (namespace == AccountSyncNamespace.favorites) {
       favoritePayload = payload;
+      favoriteSchemaVersion = schemaVersion;
     }
     final documentPayload = namespace == AccountSyncNamespace.favorites
         ? {
+            'groupKinds': {
+              'Old group': 'boarding',
+              ...((payload['groupKinds'] as Map).map(
+                (key, value) => MapEntry(key.toString(), value),
+              )),
+            },
             'groups': {
               'Old group': [_oldFavorite],
               ...((payload['groups'] as Map).map(
@@ -200,7 +288,7 @@ class _FakeAccountSyncService extends AccountSyncService {
     return AccountSyncDocument(
       namespace: namespace,
       hasData: true,
-      schemaVersion: 1,
+      schemaVersion: namespace == AccountSyncNamespace.favorites ? 2 : 1,
       revision: 1,
       etag: 'test-etag',
       updatedAt: timestamp,

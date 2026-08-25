@@ -761,7 +761,146 @@ class SearchHistoryEntry {
   }
 }
 
-class FavoriteStop {
+enum FavoriteItemType { route, station, boarding }
+
+enum FavoriteGroupKind {
+  route,
+  station,
+  boarding,
+  mixed;
+
+  factory FavoriteGroupKind.fromJson(Object? value) {
+    return FavoriteGroupKind.values.firstWhere(
+      (kind) => kind.name == value?.toString(),
+      orElse: () => FavoriteGroupKind.boarding,
+    );
+  }
+
+  bool accepts(FavoriteItem item) => acceptsType(item.type);
+
+  bool acceptsType(FavoriteItemType itemType) =>
+      this == FavoriteGroupKind.mixed || name == itemType.name;
+
+  String get label => switch (this) {
+    FavoriteGroupKind.route => '路線',
+    FavoriteGroupKind.station => '站牌',
+    FavoriteGroupKind.boarding => '乘車點',
+    FavoriteGroupKind.mixed => '綜合',
+  };
+}
+
+abstract class FavoriteItem {
+  const FavoriteItem();
+
+  factory FavoriteItem.fromJson(Map<String, dynamic> json) {
+    return switch (json['type']?.toString()) {
+      'route' => FavoriteRoute.fromJson(json),
+      'station' => FavoriteStation.fromJson(json),
+      _ => FavoriteStop.fromJson(json),
+    };
+  }
+
+  FavoriteItemType get type;
+  BusProvider get provider;
+  String get stableKey;
+  Map<String, dynamic> toJson();
+  bool sameAs(FavoriteItem other);
+}
+
+class FavoriteRoute extends FavoriteItem {
+  const FavoriteRoute({
+    required this.provider,
+    required this.routeKey,
+    required this.routeId,
+    required this.routeName,
+    this.routeDescription,
+  });
+
+  factory FavoriteRoute.fromJson(Map<String, dynamic> json) {
+    return FavoriteRoute(
+      provider: busProviderFromString(json['provider'] as String? ?? 'tpe'),
+      routeKey: (json['routeKey'] as num?)?.toInt() ?? 0,
+      routeId: (json['routeId'] as String? ?? '').trim(),
+      routeName: (json['routeName'] as String? ?? '').trim(),
+      routeDescription:
+          (json['routeDescription'] as String?)?.trim().isNotEmpty == true
+          ? (json['routeDescription'] as String).trim()
+          : null,
+    );
+  }
+
+  @override
+  final BusProvider provider;
+  final int routeKey;
+  final String routeId;
+  final String routeName;
+  final String? routeDescription;
+
+  @override
+  FavoriteItemType get type => FavoriteItemType.route;
+
+  @override
+  String get stableKey => 'route:${provider.name}:$routeId';
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': type.name,
+    'provider': provider.name,
+    'routeKey': routeKey,
+    'routeId': routeId,
+    'routeName': routeName,
+    if (routeDescription != null) 'routeDescription': routeDescription,
+  };
+
+  @override
+  bool sameAs(FavoriteItem other) =>
+      other is FavoriteRoute &&
+      provider == other.provider &&
+      routeId == other.routeId;
+}
+
+class FavoriteStation extends FavoriteItem {
+  const FavoriteStation({
+    required this.provider,
+    required this.stationId,
+    required this.stationName,
+  });
+
+  factory FavoriteStation.fromJson(Map<String, dynamic> json) {
+    return FavoriteStation(
+      provider: busProviderFromString(json['provider'] as String? ?? 'tpe'),
+      stationId: (json['stationId'] as String? ?? '').trim(),
+      stationName: (json['stationName'] as String? ?? '').trim(),
+    );
+  }
+
+  @override
+  final BusProvider provider;
+  final String stationId;
+  final String stationName;
+
+  @override
+  FavoriteItemType get type => FavoriteItemType.station;
+
+  @override
+  String get stableKey => 'station:${provider.name}:$stationId';
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': type.name,
+    'provider': provider.name,
+    'stationId': stationId,
+    'stationName': stationName,
+  };
+
+  @override
+  bool sameAs(FavoriteItem other) =>
+      other is FavoriteStation &&
+      provider == other.provider &&
+      stationId == other.stationId;
+}
+
+class FavoriteStop extends FavoriteItem {
   const FavoriteStop({
     required this.provider,
     required this.routeKey,
@@ -770,6 +909,7 @@ class FavoriteStop {
     this.routeId,
     this.routeName,
     this.stopName,
+    this.rawStopId,
     this.destinationPathId,
     this.destinationStopId,
     this.destinationStopName,
@@ -786,6 +926,9 @@ class FavoriteStop {
           : null,
       routeName: json['routeName'] as String?,
       stopName: json['stopName'] as String?,
+      rawStopId: (json['rawStopId'] as String?)?.trim().isNotEmpty == true
+          ? (json['rawStopId'] as String).trim()
+          : null,
       destinationPathId: (json['destinationPathId'] as num?)?.toInt(),
       destinationStopId: (json['destinationStopId'] as num?)?.toInt(),
       destinationStopName:
@@ -795,6 +938,7 @@ class FavoriteStop {
     );
   }
 
+  @override
   final BusProvider provider;
   final int routeKey;
   final int pathId;
@@ -802,14 +946,21 @@ class FavoriteStop {
   final String? routeId;
   final String? routeName;
   final String? stopName;
+  final String? rawStopId;
   final int? destinationPathId;
   final int? destinationStopId;
   final String? destinationStopName;
 
+  @override
+  FavoriteItemType get type => FavoriteItemType.boarding;
+
+  @override
   String get stableKey => '${provider.name}:$routeKey:$pathId:$stopId';
 
+  @override
   Map<String, dynamic> toJson() {
     return {
+      'type': type.name,
       'provider': provider.name,
       'routeKey': routeKey,
       'pathId': pathId,
@@ -817,6 +968,7 @@ class FavoriteStop {
       if (routeId != null) 'routeId': routeId,
       if (routeName != null) 'routeName': routeName,
       if (stopName != null) 'stopName': stopName,
+      if (rawStopId != null) 'rawStopId': rawStopId,
       if (destinationPathId != null) 'destinationPathId': destinationPathId,
       if (destinationStopId != null) 'destinationStopId': destinationStopId,
       if (destinationStopName != null)
@@ -824,8 +976,10 @@ class FavoriteStop {
     };
   }
 
-  bool sameAs(FavoriteStop other) {
-    return provider == other.provider &&
+  @override
+  bool sameAs(FavoriteItem other) {
+    return other is FavoriteStop &&
+        provider == other.provider &&
         routeKey == other.routeKey &&
         pathId == other.pathId &&
         stopId == other.stopId;
@@ -1475,8 +1629,7 @@ class StopInfo {
   /// The original TDX stop ID string (e.g. "306232"), when available. Unlike
   /// [stopId] — which is a hashed int used for compositing/deduplication — this
   /// preserves the value the backend needs for the stop passby endpoint. Null
-  /// for stops loaded from sources that don't carry it (e.g. persisted
-  /// favorites).
+  /// for sources that do not carry it, including legacy persisted favorites.
   final String? rawStopId;
 
   final int? sec;
@@ -1554,6 +1707,73 @@ class StopRouteSearchResult {
           : (nearestDistanceMeters ?? this.nearestDistanceMeters),
     );
   }
+}
+
+class StationPassbyData {
+  const StationPassbyData({
+    required this.provider,
+    required this.stationId,
+    required this.stationName,
+    required this.lat,
+    required this.lon,
+    required this.sides,
+    this.stationNameEn,
+  });
+
+  final BusProvider provider;
+  final String stationId;
+  final String stationName;
+  final String? stationNameEn;
+  final double lat;
+  final double lon;
+  final List<StationSideData> sides;
+
+  Iterable<StationRouteArrival> get routes =>
+      sides.expand((side) => side.routes);
+
+  StationRouteArrival? get nextArrival {
+    StationRouteArrival? best;
+    for (final arrival in routes) {
+      final seconds = arrival.result.matchedStop.sec;
+      if (seconds == null || seconds < 0) {
+        continue;
+      }
+      final bestSeconds = best?.result.matchedStop.sec;
+      if (bestSeconds == null || seconds < bestSeconds) {
+        best = arrival;
+      }
+    }
+    return best;
+  }
+}
+
+class StationSideData {
+  const StationSideData({
+    required this.sideId,
+    required this.label,
+    required this.stopUid,
+    required this.rawStopId,
+    required this.lat,
+    required this.lon,
+    required this.routes,
+    this.direction,
+  });
+
+  final String sideId;
+  final String label;
+  final String? direction;
+  final String stopUid;
+  final String rawStopId;
+  final double lat;
+  final double lon;
+  final List<StationRouteArrival> routes;
+}
+
+class StationRouteArrival {
+  const StationRouteArrival({required this.sideLabel, required this.result});
+
+  final String sideLabel;
+  final StopRouteSearchResult result;
 }
 
 class NearbyStopResult {

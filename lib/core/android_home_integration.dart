@@ -13,21 +13,22 @@ class AndroidHomeIntegration {
   static bool get _isAndroid =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
-  static Future<bool> pinStopShortcut({required FavoriteStop favorite}) async {
+  static Future<bool> pinFavoriteShortcut({
+    required FavoriteItem favorite,
+  }) async {
     if (!_isAndroid) {
       return false;
     }
 
-    final result = await _channel.invokeMethod<bool>('pinStopShortcut', {
-      'provider': favorite.provider.name,
-      'routeKey': favorite.routeKey,
-      'pathId': favorite.pathId,
-      'stopId': favorite.stopId,
-      'routeName': favorite.routeName ?? '',
-      'stopName': favorite.stopName ?? '',
-    });
+    final result = await _channel.invokeMethod<bool>(
+      'pinFavoriteShortcut',
+      favorite.toJson(),
+    );
     return result ?? false;
   }
+
+  static Future<bool> pinStopShortcut({required FavoriteStop favorite}) =>
+      pinFavoriteShortcut(favorite: favorite);
 
   static Future<void> refreshFavoriteWidgets() async {
     if (!_isAndroid) {

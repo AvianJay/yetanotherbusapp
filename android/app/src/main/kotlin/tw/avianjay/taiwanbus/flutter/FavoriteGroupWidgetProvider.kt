@@ -261,23 +261,35 @@ object FavoriteGroupWidgetSupport {
         val views = buildBaseRemoteViews(context, appWidgetId, groupName)
         if (items.isEmpty()) {
             views.setViewVisibility(R.id.favorite_widget_empty, View.VISIBLE)
-            views.setTextViewText(R.id.favorite_widget_empty, "這個群組目前還沒有儲存站牌。")
+            views.setTextViewText(R.id.favorite_widget_empty, "這個群組目前還沒有收藏。")
             return WidgetRenderResult(views, updateTimestamp = true)
         }
 
+        val boardingItems = items.filter { it.type == "boarding" }
         val liveStopsByRoute = linkedMapOf<String, Map<String, WidgetLiveStop>>()
-        var successfulRouteFetches = 0
-        items.associateBy(::routeRequestKey).forEach { (requestKey, item) ->
+        var successfulFetches = 0
+        boardingItems.associateBy(::routeRequestKey).forEach { (requestKey, item) ->
             val fetchResult = fetchLiveStopMap(context, item)
             if (fetchResult.success) {
-                successfulRouteFetches += 1
+                successfulFetches += 1
             }
             liveStopsByRoute[requestKey] = fetchResult.liveStops
+        }
+        val stationArrivals = linkedMapOf<String, WidgetStationArrival?>()
+        items.filter { it.type == "station" }.forEach { item ->
+            val fetchResult = fetchStationArrival(item)
+            if (fetchResult.success) successfulFetches += 1
+            stationArrivals[stationRequestKey(item)] = fetchResult.arrival
         }
 
         views.removeAllViews(R.id.favorite_widget_items_container)
         items.take(MAX_WIDGET_ITEMS).forEach { item ->
-            val liveStop = liveStopsByRoute[routeRequestKey(item)]?.get("${item.pathId}:${item.stopId}")
+            val liveStop = if (item.type == "boarding") {
+                liveStopsByRoute[routeRequestKey(item)]?.get("${item.pathId}:${item.stopId}")
+            } else {
+                stationArrivals[stationRequestKey(item)]?.stop
+            }
+            val stationArrival = stationArrivals[stationRequestKey(item)]
             val itemViews = RemoteViews(context.packageName, R.layout.favorite_group_widget_item)
             itemViews.setTextViewText(
                 R.id.favorite_widget_item_eta,
@@ -285,26 +297,39 @@ object FavoriteGroupWidgetSupport {
             )
             itemViews.setTextViewText(
                 R.id.favorite_widget_item_route,
-                item.routeName.ifBlank { "路線 ${item.routeKey}" },
+                when (item.type) {
+                    "route" -> item.routeName.ifBlank { item.routeId ?: "路線" }
+                    "station" -> item.stationName.ifBlank { item.stationId }
+                    else -> item.routeName.ifBlank { "路線 ${item.routeKey}" }
+                },
             )
             itemViews.setTextViewText(
                 R.id.favorite_widget_item_stop,
-                item.stopName.ifBlank { "站牌 ${item.stopId}" },
+                when (item.type) {
+                    "route" -> item.routeDescription.orEmpty().ifBlank { item.provider.uppercase() }
+                    "station" -> stationArrival?.let { "${it.routeName} · ${it.sideLabel} 側" }
+                        ?: "目前沒有即將抵達班次"
+                    else -> item.stopName.ifBlank { "站牌 ${item.stopId}" }
+                },
             )
             itemViews.setTextViewText(
                 R.id.favorite_widget_item_note,
-                liveStop?.vehicleId ?: "",
+                when (item.type) {
+                    "route" -> "路線收藏"
+                    "station" -> liveStop?.vehicleId ?: "整站"
+                    else -> liveStop?.vehicleId ?: ""
+                },
             )
             itemViews.setOnClickPendingIntent(
                 R.id.favorite_widget_item_root,
-                createRoutePendingIntent(context, item),
+                createItemPendingIntent(context, item),
             )
             views.addView(R.id.favorite_widget_items_container, itemViews)
         }
 
         return WidgetRenderResult(
             views = views,
-            updateTimestamp = successfulRouteFetches > 0,
+            updateTimestamp = successfulFetches > 0,
         )
     }
 
@@ -365,28 +390,33 @@ object FavoriteGroupWidgetSupport {
         )
     }
 
-    private fun createRoutePendingIntent(
+    private fun createItemPendingIntent(
         context: Context,
         item: FavoriteWidgetItem,
     ): PendingIntent {
-        val requestCode = (item.routeKey * 31) + item.stopId
-        val intent = AppLaunchConstants.createRouteDetailIntent(
-            context = context,
-            provider = item.provider,
-            routeKey = item.routeKey,
-            pathId = item.pathId,
-            stopId = item.stopId,
-            destinationPathId = item.destinationPathId,
-            destinationStopId = item.destinationStopId,
-        ).apply {
-            data = Uri.parse(
-                "yabus://route/${item.provider}/${item.routeKey}/${item.pathId}/${item.stopId}",
-            ).buildUpon()
-                .apply {
-                    item.destinationPathId?.let { appendQueryParameter("destinationPathId", it.toString()) }
-                    item.destinationStopId?.let { appendQueryParameter("destinationStopId", it.toString()) }
-                }
-                .build()
+        val requestCode = item.identity.hashCode()
+        val intent = when (item.type) {
+            "station" -> AppLaunchConstants.createStationDetailIntent(
+                context = context,
+                provider = item.provider,
+                stationId = item.stationId,
+            ).apply {
+                data = Uri.parse("yabus://station/${item.provider}/${Uri.encode(item.stationId)}")
+            }
+            else -> AppLaunchConstants.createRouteDetailIntent(
+                context = context,
+                provider = item.provider,
+                routeKey = item.routeKey,
+                routeId = item.routeId,
+                pathId = item.pathId.takeIf { item.type == "boarding" },
+                stopId = item.stopId.takeIf { item.type == "boarding" },
+                destinationPathId = item.destinationPathId,
+                destinationStopId = item.destinationStopId,
+            ).apply {
+                data = Uri.parse(
+                    "yabus://route/${item.provider}/${item.routeKey}/${Uri.encode(item.routeId.orEmpty())}",
+                )
+            }
         }
         return PendingIntent.getActivity(
             context,
@@ -417,9 +447,18 @@ object FavoriteGroupWidgetSupport {
             val groupArray = root.optJSONArray(groupName) ?: JSONArray()
             for (index in 0 until groupArray.length()) {
                 val item = groupArray.optJSONObject(index) ?: continue
+                val type = item.optString("type", "boarding").trim().ifEmpty { "boarding" }
                 val routeKey = item.optInt("routeKey", 0)
                 val stopId = item.optInt("stopId", 0)
-                if (routeKey <= 0 || stopId <= 0) {
+                val routeId = item.optString("routeId", "").trim().takeIf { it.isNotEmpty() }
+                val stationId = item.optString("stationId", "").trim()
+                val valid = when (type) {
+                    "route" -> routeKey > 0 && routeId != null
+                    "station" -> stationId.isNotEmpty()
+                    "boarding" -> routeKey > 0 && stopId > 0
+                    else -> false
+                }
+                if (!valid) {
                     continue
                 }
                 val destinationStopId = item.optInt("destinationStopId", 0)
@@ -430,15 +469,19 @@ object FavoriteGroupWidgetSupport {
                     item.optInt("destinationPathId", item.optInt("pathId", 0))
                 }
                 groupItems += FavoriteWidgetItem(
+                    type = type,
                     provider = item.optString("provider", "twn"),
                     routeKey = routeKey,
                     pathId = item.optInt("pathId", 0),
                     stopId = stopId,
-                    routeId = item.optString("routeId", "")
+                    routeId = routeId,
+                    routeName = item.optString("routeName", ""),
+                    routeDescription = item.optString("routeDescription", "")
                         .trim()
                         .takeIf { it.isNotEmpty() },
-                    routeName = item.optString("routeName", ""),
                     stopName = item.optString("stopName", ""),
+                    stationId = stationId,
+                    stationName = item.optString("stationName", ""),
                     destinationPathId = destinationPathId,
                     destinationStopId = destinationStopId,
                     destinationStopName = item.optString("destinationStopName", "")
@@ -449,6 +492,65 @@ object FavoriteGroupWidgetSupport {
             result[groupName] = groupItems
         }
         return result
+    }
+
+    private fun fetchStationArrival(item: FavoriteWidgetItem): WidgetStationFetchResult {
+        if (item.stationId.isBlank() || item.provider.isBlank()) {
+            return WidgetStationFetchResult(success = false, arrival = null)
+        }
+        var connection: HttpURLConnection? = null
+        return try {
+            val encodedStationId = URLEncoder.encode(item.stationId, Charsets.UTF_8.name())
+            val encodedCity = URLEncoder.encode(item.provider.uppercase(), Charsets.UTF_8.name())
+            connection = URL(
+                "$API_BASE_URL/api/v1/stations/$encodedStationId/passby?city=$encodedCity",
+            ).openConnection() as HttpURLConnection
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 10_000
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("User-Agent", NativeApiUserAgent.value())
+            connection.doInput = true
+            connection.useCaches = false
+            if (connection.responseCode !in 200..299) {
+                return WidgetStationFetchResult(success = false, arrival = null)
+            }
+            val root = JSONObject(
+                connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() },
+            )
+            val sides = root.optJSONArray("sides") ?: JSONArray()
+            var bestEta: Int? = null
+            var best: WidgetStationArrival? = null
+            for (sideIndex in 0 until sides.length()) {
+                val side = sides.optJSONObject(sideIndex) ?: continue
+                val sideLabel = side.optString("label", "?").trim().ifEmpty { "?" }
+                val routes = side.optJSONArray("routes") ?: continue
+                for (routeIndex in 0 until routes.length()) {
+                    val route = routes.optJSONObject(routeIndex) ?: continue
+                    val eta = toIntOrNull(route.opt("eta")) ?: continue
+                    if (eta < 0 || (bestEta != null && eta >= bestEta)) continue
+                    val message = route.optString("message", "")
+                        .trim()
+                        .takeIf { it.isNotEmpty() }
+                    bestEta = eta
+                    best = WidgetStationArrival(
+                        routeName = route.optString("route_name", "路線").trim()
+                            .ifEmpty { "路線" },
+                        sideLabel = sideLabel,
+                        stop = WidgetLiveStop(
+                            sec = eta,
+                            msg = message,
+                            vehicleId = firstVehicleId(route.optJSONArray("buses")),
+                        ),
+                    )
+                }
+            }
+            WidgetStationFetchResult(success = true, arrival = best)
+        } catch (_: Exception) {
+            WidgetStationFetchResult(success = false, arrival = null)
+        } finally {
+            connection?.disconnect()
+        }
     }
 
     private fun fetchLiveStopMap(
@@ -664,8 +766,12 @@ object FavoriteGroupWidgetSupport {
     }
 
     private fun routeRequestKey(item: FavoriteWidgetItem): String {
-        return item.routeId?.takeIf { it.isNotBlank() }
+        return item.routeId?.takeIf { it.isNotBlank() }?.let { "${item.provider}:$it" }
             ?: "${item.provider}:${item.routeKey}"
+    }
+
+    private fun stationRequestKey(item: FavoriteWidgetItem): String {
+        return "${item.provider}:${item.stationId}"
     }
 
     private fun saveLastUpdated(context: Context, appWidgetId: Int, timestamp: Long) {
@@ -697,16 +803,38 @@ object FavoriteGroupWidgetSupport {
 }
 
 data class FavoriteWidgetItem(
+    val type: String,
     val provider: String,
     val routeKey: Int,
     val pathId: Int,
     val stopId: Int,
     val routeId: String?,
     val routeName: String,
+    val routeDescription: String?,
     val stopName: String,
+    val stationId: String,
+    val stationName: String,
     val destinationPathId: Int?,
     val destinationStopId: Int?,
     val destinationStopName: String?,
+) {
+    val identity: String
+        get() = when (type) {
+            "route" -> "route:$provider:${routeId.orEmpty()}"
+            "station" -> "station:$provider:$stationId"
+            else -> "boarding:$provider:$routeKey:$pathId:$stopId"
+        }
+}
+
+data class WidgetStationArrival(
+    val routeName: String,
+    val sideLabel: String,
+    val stop: WidgetLiveStop,
+)
+
+data class WidgetStationFetchResult(
+    val success: Boolean,
+    val arrival: WidgetStationArrival?,
 )
 
 data class WidgetLiveStop(

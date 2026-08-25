@@ -78,6 +78,10 @@ final class AppLaunchBridge {
     return handle(url: url)
   }
 
+  func payloadForTesting(url: URL) -> [String: Any]? {
+    payload(for: url)
+  }
+
   private func payload(for url: URL) -> [String: Any]? {
     guard let scheme = url.scheme?.lowercased() else {
       return nil
@@ -118,6 +122,14 @@ final class AppLaunchBridge {
       return routePayload(from: components, pathSegments: pathSegments)
     }
 
+    if host == "station" {
+      return stationPayload(
+        provider: queryValue("provider", from: components) ?? pathSegments.first,
+        stationId: queryValue("stationId", from: components)
+          ?? stringValue(at: 1, in: pathSegments)
+      )
+    }
+
     if host == "auth-callback" {
       return authPayload(from: components)
     }
@@ -139,6 +151,12 @@ final class AppLaunchBridge {
         stopId: queryInt("stopId", from: components) ?? intValue(at: 4, in: pathSegments),
         destinationPathId: queryInt("destinationPathId", from: components),
         destinationStopId: queryInt("destinationStopId", from: components)
+      )
+    }
+    if pathSegments.count >= 3 && pathSegments.first == "station" {
+      return stationPayload(
+        provider: pathSegments[1],
+        stationId: pathSegments[2]
       )
     }
 
@@ -229,6 +247,25 @@ final class AppLaunchBridge {
     return payload
   }
 
+  private func stationPayload(
+    provider: String?,
+    stationId: String?
+  ) -> [String: Any]? {
+    guard
+      let provider = provider?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !provider.isEmpty,
+      let stationId = stationId?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !stationId.isEmpty
+    else {
+      return nil
+    }
+    return [
+      "target": "station_detail",
+      "provider": provider,
+      "stationId": stationId,
+    ]
+  }
+
   private func internalLocationPayload(
     from components: URLComponents?,
     path: String
@@ -286,5 +323,11 @@ final class AppLaunchBridge {
       return nil
     }
     return Int(values[index])
+  }
+
+  private func stringValue(at index: Int, in values: [String]) -> String? {
+    guard values.indices.contains(index) else { return nil }
+    let value = values[index].trimmingCharacters(in: .whitespacesAndNewlines)
+    return value.isEmpty ? nil : value
   }
 }

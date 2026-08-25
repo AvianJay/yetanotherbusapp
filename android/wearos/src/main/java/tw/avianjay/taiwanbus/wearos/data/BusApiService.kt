@@ -39,8 +39,13 @@ object BusApiService {
     ): List<BusArrival> =
         withContext(Dispatchers.IO) {
             ensureSecurityProvider(context)
-            val routableFavorites = favorites.filter { it.realtimeRouteId != null }
-            if (routableFavorites.isEmpty()) {
+            val routableFavorites = favorites.filter {
+                it.type == "boarding" && it.realtimeRouteId != null
+            }
+            val stationFavorites = favorites.filter {
+                it.type == "station" && !it.stationId.isNullOrBlank()
+            }
+            if (routableFavorites.isEmpty() && stationFavorites.isEmpty()) {
                 return@withContext emptyList()
             }
 
@@ -62,7 +67,7 @@ object BusApiService {
                 }
             }
 
-            return@withContext routableFavorites.map { favorite ->
+            val boardingArrivals = routableFavorites.map { favorite ->
                 val route = favorite.realtimeRouteId?.let(routes::get)
                 val stop = route
                     ?.paths()
@@ -85,7 +90,61 @@ object BusApiService {
                     updatedAtMs = requestedAtMs,
                 )
             }
+            val stationArrivals = stationFavorites.map { favorite ->
+                runCatching {
+                    fetchStationArrival(favorite, requestedAtMs)
+                }.getOrElse {
+                    BusArrival(
+                        favoriteId = favorite.id,
+                        etaText = "No data",
+                        statusText = "Realtime unavailable",
+                        updatedAtMs = requestedAtMs,
+                    )
+                }
+            }
+            return@withContext boardingArrivals + stationArrivals
         }
+
+    private fun fetchStationArrival(
+        favorite: FavoriteStop,
+        requestedAtMs: Long,
+    ): BusArrival {
+        val stationId = favorite.stationId?.trim().orEmpty()
+        val payload = requestJson(
+            "${BuildConfig.WEAR_API_BASE_URL}/api/v1/stations/${encodePathSegment(stationId)}/passby" +
+                "?city=${encodeQueryValue(favorite.provider.uppercase())}",
+        ).jsonObject
+        var bestRoute: JsonObject? = null
+        var bestSideLabel = "?"
+        var bestEta: Int? = null
+        val sides = (payload["sides"] as? JsonArray).orEmpty()
+        for (sideElement in sides) {
+            val side = sideElement as? JsonObject ?: continue
+            val sideLabel = side.string("label").ifBlank { "?" }
+            val sideRoutes = (side["routes"] as? JsonArray).orEmpty()
+            for (routeElement in sideRoutes) {
+                val route = routeElement as? JsonObject ?: continue
+                val eta = route.int("eta") ?: continue
+                if (eta < 0 || (bestEta != null && eta >= bestEta)) continue
+                bestEta = eta
+                bestRoute = route
+                bestSideLabel = sideLabel
+            }
+        }
+        val route = bestRoute ?: return BusArrival(
+            favoriteId = favorite.id,
+            etaText = "--",
+            statusText = "目前沒有即將抵達班次",
+            updatedAtMs = requestedAtMs,
+        )
+        return route.toArrival(
+            favoriteId = favorite.id,
+            requestedAtMs = requestedAtMs,
+            fallbackStatus = favorite.provider,
+        ).copy(
+            statusText = "${route.string("route_name").ifBlank { "路線" }} · $bestSideLabel 側",
+        )
+    }
 
     suspend fun searchRoutes(
         context: Context?,
@@ -229,6 +288,54 @@ object BusApiService {
             routeName = routeName,
             provider = provider,
             paths = paths,
+        )
+    }
+
+    suspend fun fetchStationDetail(
+        context: Context?,
+        stationId: String,
+        provider: String,
+    ): WearStationDetail = withContext(Dispatchers.IO) {
+        ensureSecurityProvider(context)
+        val payload = requestJson(
+            "${BuildConfig.WEAR_API_BASE_URL}/api/v1/stations/${encodePathSegment(stationId)}/passby" +
+                "?city=${encodeQueryValue(provider.uppercase())}",
+        ).jsonObject
+        val sides = (payload["sides"] as? JsonArray).orEmpty().mapNotNull sideLoop@ { sideElement ->
+            val side = sideElement as? JsonObject ?: return@sideLoop null
+            val routes = (side["routes"] as? JsonArray).orEmpty().mapNotNull routeLoop@ { routeElement ->
+                val route = routeElement as? JsonObject ?: return@routeLoop null
+                val routeId = route.string("routeid")
+                if (routeId.isBlank()) return@routeLoop null
+                val etaSeconds = route.int("eta")
+                val message = route.string("message")
+                WearStationRoute(
+                    routeId = routeId,
+                    routeName = route.string("route_name").ifBlank { routeId },
+                    pathId = route.int("pathid") ?: 0,
+                    etaText = when {
+                        message.isNotBlank() -> message
+                        etaSeconds == null -> "--"
+                        etaSeconds <= 0 -> "即將到站"
+                        etaSeconds < 60 -> "${etaSeconds}秒"
+                        else -> "${etaSeconds / 60}分"
+                    },
+                    etaSeconds = etaSeconds,
+                    statusText = route.string("path_name"),
+                )
+            }
+            WearStationSide(
+                sideId = side.string("side_id"),
+                label = side.string("label").ifBlank { "?" },
+                direction = side.string("direction"),
+                routes = routes,
+            )
+        }
+        WearStationDetail(
+            stationId = payload.string("station_id").ifBlank { stationId },
+            stationName = payload.string("station_name").ifBlank { stationId },
+            provider = provider,
+            sides = sides,
         )
     }
 

@@ -969,6 +969,7 @@ private enum FavoriteWidgetDeepLink {
   }
 }
 
+@available(iOS 18.0, *)
 private struct OpenFavoriteWidgetItemIntent: AppIntent {
   static var title: LocalizedStringResource = "開啟收藏項目"
   static var description = IntentDescription("在 YABus 開啟路線、站牌或乘車點。")
@@ -1066,10 +1067,16 @@ private struct FavoriteGroupWidgetView: View {
         VStack(alignment: .leading, spacing: 8) {
           ForEach(Array(entry.items.prefix(maxVisibleItems))) { item in
             if let routeURL = item.routeURL {
-              Button(intent: OpenFavoriteWidgetItemIntent(url: routeURL)) {
-                rowView(for: item)
+              if #available(iOS 18.0, *) {
+                Button(intent: OpenFavoriteWidgetItemIntent(url: routeURL)) {
+                  rowView(for: item)
+                }
+                .buttonStyle(.plain)
+              } else {
+                Link(destination: routeURL) {
+                  rowView(for: item)
+                }
               }
-              .buttonStyle(.plain)
             } else {
               rowView(for: item)
             }

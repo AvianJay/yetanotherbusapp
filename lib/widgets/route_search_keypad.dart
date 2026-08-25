@@ -184,8 +184,7 @@ class RouteSearchKeypad extends StatelessWidget {
     return offset;
   }
 
-  void _backspace() {
-    unawaited(AppHaptics.selectionClick());
+  bool _backspace() {
     final currentValue = controller.value;
     final currentText = currentValue.text;
     final selection = _normalizedSelection(currentText);
@@ -193,6 +192,7 @@ class RouteSearchKeypad extends StatelessWidget {
     final end = selection.end;
 
     if (start != end) {
+      unawaited(AppHaptics.selectionClick());
       _commitEditingValue(
         currentValue.copyWith(
           text: currentText.replaceRange(start, end, ''),
@@ -200,14 +200,15 @@ class RouteSearchKeypad extends StatelessWidget {
           composing: TextRange.empty,
         ),
       );
-      return;
+      return true;
     }
     if (start == 0) {
-      return;
+      return false;
     }
 
     final previousCharacter = currentText.substring(0, start).characters.last;
     final deleteStart = start - previousCharacter.length;
+    unawaited(AppHaptics.selectionClick());
     _commitEditingValue(
       currentValue.copyWith(
         text: currentText.replaceRange(deleteStart, start, ''),
@@ -215,6 +216,7 @@ class RouteSearchKeypad extends StatelessWidget {
         composing: TextRange.empty,
       ),
     );
+    return true;
   }
 
   void _requestTextInput() {
@@ -376,7 +378,7 @@ class _NumberGrid extends StatelessWidget {
   final List<String> digits;
   final ValueChanged<String> onDigitPressed;
   final VoidCallback onTextInputPressed;
-  final VoidCallback onBackspacePressed;
+  final bool Function() onBackspacePressed;
 
   @override
   Widget build(BuildContext context) {
@@ -412,15 +414,7 @@ class _NumberGrid extends StatelessWidget {
         style: keyStyle,
         child: const Text('0'),
       ),
-      Tooltip(
-        message: '退格',
-        child: FilledButton.tonal(
-          key: const ValueKey<String>('route-keypad-backspace'),
-          onPressed: onBackspacePressed,
-          style: keyStyle,
-          child: const Icon(Icons.backspace_outlined),
-        ),
-      ),
+      _RepeatingBackspaceButton(onPressed: onBackspacePressed, style: keyStyle),
     ];
 
     return GridView.count(
@@ -432,6 +426,68 @@ class _NumberGrid extends StatelessWidget {
       crossAxisSpacing: 8,
       mainAxisExtent: 48,
       children: children,
+    );
+  }
+}
+
+class _RepeatingBackspaceButton extends StatefulWidget {
+  const _RepeatingBackspaceButton({
+    required this.onPressed,
+    required this.style,
+  });
+
+  final bool Function() onPressed;
+  final ButtonStyle style;
+
+  @override
+  State<_RepeatingBackspaceButton> createState() =>
+      _RepeatingBackspaceButtonState();
+}
+
+class _RepeatingBackspaceButtonState extends State<_RepeatingBackspaceButton> {
+  static const _repeatInterval = Duration(milliseconds: 80);
+
+  Timer? _repeatTimer;
+
+  void _startRepeating() {
+    _stopRepeating();
+    if (!widget.onPressed()) {
+      return;
+    }
+    _repeatTimer = Timer.periodic(_repeatInterval, (_) {
+      if (!widget.onPressed()) {
+        _stopRepeating();
+      }
+    });
+  }
+
+  void _stopRepeating() {
+    _repeatTimer?.cancel();
+    _repeatTimer = null;
+  }
+
+  @override
+  void dispose() {
+    _stopRepeating();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '退格',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPressStart: (_) => _startRepeating(),
+        onLongPressEnd: (_) => _stopRepeating(),
+        onLongPressCancel: _stopRepeating,
+        child: FilledButton.tonal(
+          key: const ValueKey<String>('route-keypad-backspace'),
+          onPressed: widget.onPressed,
+          style: widget.style,
+          child: const Icon(Icons.backspace_outlined),
+        ),
+      ),
     );
   }
 }

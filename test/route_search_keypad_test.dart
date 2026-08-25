@@ -245,6 +245,37 @@ void main() {
     expect(changes, ['A', '紅3']);
   });
 
+  testWidgets('holding backspace keeps deleting until it is released', (
+    tester,
+  ) async {
+    final controller = TextEditingController(text: '123456');
+    addTearDown(controller.dispose);
+    controller.selection = const TextSelection.collapsed(offset: 6);
+    final changes = <String>[];
+
+    await _pumpKeypad(tester, controller: controller, onChanged: changes.add);
+
+    final backspace = find.byKey(
+      const ValueKey<String>('route-keypad-backspace'),
+    );
+    final gesture = await tester.startGesture(tester.getCenter(backspace));
+    await tester.pump(const Duration(milliseconds: 600));
+
+    expect(controller.text.length, lessThan(6));
+    final lengthAfterLongPress = controller.text.length;
+
+    await tester.pump(const Duration(milliseconds: 240));
+    expect(controller.text.length, lessThan(lengthAfterLongPress));
+    expect(changes.length, greaterThan(1));
+
+    await gesture.up();
+    await tester.pump();
+    final textAfterRelease = controller.text;
+    await tester.pump(const Duration(milliseconds: 240));
+
+    expect(controller.text, textAfterRelease);
+  });
+
   testWidgets('all route shortcuts stay in one horizontally scrollable row', (
     tester,
   ) async {

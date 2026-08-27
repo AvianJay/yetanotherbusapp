@@ -817,26 +817,23 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     );
   }
 
-  /// Keep the route, stop and ETA visible in the first row. Secondary details
-  /// live below instead of competing for horizontal space on narrow phones.
+  /// ETA is the leading element when available. Route, stop and secondary
+  /// details stay in one vertical text block so narrow phones do not overflow.
   Widget _buildSmartTileRow({
     required BuildContext context,
     required IconData leadingIcon,
     required String title,
     String? stopName,
     List<String> metadata = const [],
-    required Widget etaBadge,
+    Widget? etaBadge,
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
+        etaBadge ??
             Container(
               width: 56,
               height: 56,
@@ -847,77 +844,55 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
               ),
               child: Icon(leadingIcon, color: colorScheme.onPrimaryContainer),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (stopName != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      stopName,
-                      style: theme.textTheme.bodyMedium,
-                      maxLines: 1,
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (stopName != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  stopName,
+                  style: theme.textTheme.bodyMedium,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+              if (metadata.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                for (final line in metadata)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Text(
+                      line,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            etaBadge,
-          ],
-        ),
-        if (metadata.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final line in metadata)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 3),
-                        child: Text(
-                          line,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: colorScheme.onSurfaceVariant,
-              ),
+                  ),
+              ],
             ],
           ),
-        ] else ...[
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Icon(
-              Icons.chevron_right_rounded,
-              color: colorScheme.onSurfaceVariant,
-            ),
+        ),
+        const SizedBox(width: 8),
+        Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: Icon(
+            Icons.chevron_right_rounded,
+            color: colorScheme.onSurfaceVariant,
           ),
-        ],
+        ),
       ],
     );
   }
@@ -944,14 +919,13 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       if (destinationLabel != null) '目的地：$destinationLabel',
       if (showDistance) '距離你約 ${formatDistance(suggestion.distanceMeters!)}',
     ];
-    const badgeSize = 64.0;
     final etaBadge = recommendedStop != null
         ? EtaBadge(
             stop: recommendedStop,
             alwaysShowSeconds: controller.settings.alwaysShowSeconds,
-            size: badgeSize,
+            size: 64,
           )
-        : SizedBox(width: badgeSize, height: badgeSize);
+        : null;
 
     return _buildRouteTile(
       context: context,

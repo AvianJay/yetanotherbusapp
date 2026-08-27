@@ -817,114 +817,9 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     );
   }
 
-  /// A wide row that fills the card's width in three balanced zones instead
-  /// of one big left text block floating next to a lone badge on the right:
-  /// leading icon | title + stop name | metadata | ETA badge + chevron.
+  /// Keep the route, stop and ETA visible in the first row. Secondary details
+  /// live below instead of competing for horizontal space on narrow phones.
   Widget _buildSmartTileRow({
-    required BuildContext context,
-    required IconData leadingIcon,
-    required String title,
-    String? stopName,
-    List<String> metadata = const [],
-    required Widget etaBadge,
-  }) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Container(
-          width: 56,
-          height: 56,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Icon(leadingIcon, color: colorScheme.onPrimaryContainer),
-        ),
-        const SizedBox(width: 14),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 220),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              if (stopName != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  stopName,
-                  style: theme.textTheme.bodyMedium,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ],
-          ),
-        ),
-        if (metadata.isNotEmpty) ...[
-          const SizedBox(width: 14),
-          SizedBox(
-            height: 56,
-            child: VerticalDivider(
-              width: 1,
-              color: colorScheme.outlineVariant,
-            ),
-          ),
-          const SizedBox(width: 14),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 140),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                for (final line in metadata)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 3),
-                    child: Text(
-                      line,
-                      textAlign: TextAlign.right,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-        const SizedBox(width: 16),
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            etaBadge,
-            const SizedBox(height: 10),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  /// A compact, vertically-stacked card for when several recommendations sit
-  /// side by side: icon + ETA badge on top, then title/stop/metadata, then a
-  /// chevron pinned to the bottom-right corner.
-  Widget _buildSmartTileCard({
     required BuildContext context,
     required IconData leadingIcon,
     required String title,
@@ -940,73 +835,97 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: 56,
+              height: 56,
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(18),
               ),
-              child: Icon(
-                leadingIcon,
-                size: 20,
-                color: colorScheme.onPrimaryContainer,
+              child: Icon(leadingIcon, color: colorScheme.onPrimaryContainer),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (stopName != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      stopName,
+                      style: theme.textTheme.bodyMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
               ),
             ),
-            const Spacer(),
+            const SizedBox(width: 12),
             etaBadge,
           ],
         ),
-        const SizedBox(height: 12),
-        Text(
-          title,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        if (stopName != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            stopName,
-            style: theme.textTheme.bodySmall,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
         if (metadata.isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Text(
-            metadata.first,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final line in metadata)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: Text(
+                          line,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ],
           ),
-        ],
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            const Spacer(),
-            Icon(
+        ] else ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Icon(
               Icons.chevron_right_rounded,
               color: colorScheme.onSurfaceVariant,
             ),
-          ],
-        ),
+          ),
+        ],
       ],
     );
   }
 
   Widget _buildSuggestionTile(
     BuildContext context,
-    SmartRouteSuggestion suggestion, {
-    bool compact = false,
-  }) {
+    SmartRouteSuggestion suggestion,
+  ) {
     final controller = widget.controller;
     final recommendedStop = suggestion.recommendedStop;
     final favorite = suggestion.favorite;
@@ -1025,7 +944,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       if (destinationLabel != null) '目的地：$destinationLabel',
       if (showDistance) '距離你約 ${formatDistance(suggestion.distanceMeters!)}',
     ];
-    final badgeSize = compact ? 44.0 : 64.0;
+    const badgeSize = 64.0;
     final etaBadge = recommendedStop != null
         ? EtaBadge(
             stop: recommendedStop,
@@ -1037,23 +956,51 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return _buildRouteTile(
       context: context,
       onTap: () => _openSuggestion(suggestion),
-      child: compact
-          ? _buildSmartTileCard(
-              context: context,
-              leadingIcon: leadingIcon,
-              title: suggestion.profile.routeName,
-              stopName: recommendedStop?.stopName,
-              metadata: metadata,
-              etaBadge: etaBadge,
-            )
-          : _buildSmartTileRow(
-              context: context,
-              leadingIcon: leadingIcon,
-              title: suggestion.profile.routeName,
-              stopName: recommendedStop?.stopName,
-              metadata: metadata,
-              etaBadge: etaBadge,
+      child: _buildSmartTileRow(
+        context: context,
+        leadingIcon: leadingIcon,
+        title: suggestion.profile.routeName,
+        stopName: recommendedStop?.stopName,
+        metadata: metadata,
+        etaBadge: etaBadge,
+      ),
+    );
+  }
+
+  Widget _buildResponsiveTileList(List<Widget> tiles) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 12.0;
+        const minimumTileWidth = 320.0;
+        final horizontal =
+            tiles.length > 1 &&
+            constraints.maxWidth >=
+                (tiles.length * minimumTileWidth) +
+                    ((tiles.length - 1) * spacing);
+
+        if (horizontal) {
+          return IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < tiles.length; i++) ...[
+                  if (i > 0) const SizedBox(width: spacing),
+                  Expanded(child: tiles[i]),
+                ],
+              ],
             ),
+          );
+        }
+
+        return Column(
+          children: [
+            for (var i = 0; i < tiles.length; i++) ...[
+              if (i > 0) const SizedBox(height: spacing),
+              tiles[i],
+            ],
+          ],
+        );
+      },
     );
   }
 
@@ -1061,8 +1008,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     BuildContext context,
     List<SmartRouteSuggestion> suggestions,
   ) {
-    final horizontal = suggestions.length > 1;
-    final subtitle = horizontal
+    final subtitle = suggestions.length > 1
         ? '根據你的使用習慣，整理出你現在最可能要查的路線。'
         : suggestions.first.reason;
 
@@ -1074,40 +1020,24 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         onPressed: _refresh,
         icon: const Icon(Icons.refresh_rounded),
       ),
-      child: horizontal
-          ? IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (var i = 0; i < suggestions.length; i++) ...[
-                    if (i > 0) const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildSuggestionTile(
-                        context,
-                        suggestions[i],
-                        compact: true,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            )
-          : _buildSuggestionTile(context, suggestions.first),
+      child: _buildResponsiveTileList([
+        for (final suggestion in suggestions)
+          _buildSuggestionTile(context, suggestion),
+      ]),
     );
   }
 
   Widget _buildNearbyFallbackTile(
     BuildContext context,
-    _NearbyFallbackData nearby, {
-    bool compact = false,
-  }) {
+    _NearbyFallbackData nearby,
+  ) {
     final controller = widget.controller;
     final stop = nearby.liveStop ?? nearby.result.stop;
     final metadata = [
       '距離你約 ${formatDistance(nearby.result.distanceMeters)}',
       if (nearby.path != null) '方向：${nearby.path!.name}',
     ];
-    final badgeSize = compact ? 44.0 : 64.0;
+    const badgeSize = 64.0;
     final etaBadge = EtaBadge(
       stop: stop,
       alwaysShowSeconds: controller.settings.alwaysShowSeconds,
@@ -1117,23 +1047,14 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     return _buildRouteTile(
       context: context,
       onTap: () => _openNearbyFallback(nearby),
-      child: compact
-          ? _buildSmartTileCard(
-              context: context,
-              leadingIcon: Icons.directions_bus_filled_rounded,
-              title: nearby.result.route.routeName,
-              stopName: nearby.result.stop.stopName,
-              metadata: metadata,
-              etaBadge: etaBadge,
-            )
-          : _buildSmartTileRow(
-              context: context,
-              leadingIcon: Icons.directions_bus_filled_rounded,
-              title: nearby.result.route.routeName,
-              stopName: nearby.result.stop.stopName,
-              metadata: metadata,
-              etaBadge: etaBadge,
-            ),
+      child: _buildSmartTileRow(
+        context: context,
+        leadingIcon: Icons.directions_bus_filled_rounded,
+        title: nearby.result.route.routeName,
+        stopName: nearby.result.stop.stopName,
+        metadata: metadata,
+        etaBadge: etaBadge,
+      ),
     );
   }
 
@@ -1141,8 +1062,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     BuildContext context,
     List<_NearbyFallbackData> nearbyList,
   ) {
-    final horizontal = nearbyList.length > 1;
-
     return _SmartRecommendationShell(
       title: '智慧推薦',
       subtitle: '最近的站點。',
@@ -1151,25 +1070,10 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         onPressed: _refresh,
         icon: const Icon(Icons.refresh_rounded),
       ),
-      child: horizontal
-          ? IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (var i = 0; i < nearbyList.length; i++) ...[
-                    if (i > 0) const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildNearbyFallbackTile(
-                        context,
-                        nearbyList[i],
-                        compact: true,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            )
-          : _buildNearbyFallbackTile(context, nearbyList.first),
+      child: _buildResponsiveTileList([
+        for (final nearby in nearbyList)
+          _buildNearbyFallbackTile(context, nearby),
+      ]),
     );
   }
 

@@ -422,6 +422,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           repository: AppControllerScope.read(context).repository,
           provider: widget.provider,
           routeKey: widget.routeKey,
+          onFavoriteRoute: _handleRouteFavorite,
+          onPinRoute: _isAndroid ? _handlePinnedRouteShortcut : null,
         );
       },
     );
@@ -5397,23 +5399,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             ? _buildBackgroundTripMonitorDrawer(context)
             : null,
         appBar: AppBar(
-          title: Text(detail?.route.routeName ?? '公車資訊'),
+          title: Text(
+            detail?.route.routeName ?? '公車資訊',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
           actions: [
-            IconButton(
-              onPressed: detail == null
-                  ? null
-                  : () => unawaited(_handleRouteFavorite()),
-              tooltip: '收藏路線',
-              icon: const Icon(Icons.favorite_border_rounded),
-            ),
-            if (_isAndroid)
-              IconButton(
-                onPressed: detail == null
-                    ? null
-                    : () => unawaited(_handlePinnedRouteShortcut()),
-                tooltip: '將路線新增到主畫面',
-                icon: const Icon(Icons.add_to_home_screen_rounded),
-              ),
             if (detail != null && currentPathId != null)
               IconButton(
                 onPressed: () {
@@ -5712,6 +5703,8 @@ class _RouteInfoDialog extends StatefulWidget {
     required this.repository,
     required this.provider,
     required this.routeKey,
+    required this.onFavoriteRoute,
+    this.onPinRoute,
   });
 
   final RouteDetailData detail;
@@ -5719,6 +5712,8 @@ class _RouteInfoDialog extends StatefulWidget {
   final BusRepository repository;
   final BusProvider provider;
   final int routeKey;
+  final Future<void> Function() onFavoriteRoute;
+  final Future<void> Function()? onPinRoute;
 
   @override
   State<_RouteInfoDialog> createState() => _RouteInfoDialogState();
@@ -5795,6 +5790,29 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
               Text(route.description, style: theme.textTheme.bodyMedium),
               const SizedBox(height: 12),
             ],
+            Text('路線動作', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _runRouteAction(widget.onFavoriteRoute),
+                  icon: const Icon(Icons.favorite_border_rounded, size: 18),
+                  label: const Text('收藏路線'),
+                ),
+                if (widget.onPinRoute case final onPinRoute?)
+                  OutlinedButton.icon(
+                    onPressed: () => _runRouteAction(onPinRoute),
+                    icon: const Icon(
+                      Icons.add_to_home_screen_rounded,
+                      size: 18,
+                    ),
+                    label: const Text('新增到主畫面'),
+                  ),
+              ],
+            ),
+            const Divider(height: 24),
             if (widget.alerts.isNotEmpty) ...[
               Row(
                 children: [
@@ -5874,6 +5892,11 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
         ),
       ],
     );
+  }
+
+  void _runRouteAction(Future<void> Function() action) {
+    Navigator.of(context).pop();
+    unawaited(action());
   }
 
   static const String _appBaseUrl = 'https://busapp.avianjay.sbs';

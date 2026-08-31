@@ -24,6 +24,7 @@ import '../core/live_activity_service.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
 import '../core/samsung_live_notification_prompt_service.dart';
+import '../core/stop_route_merge.dart';
 import '../core/trip_monitor_notifications.dart';
 import '../core/twbusforum.dart';
 import '../widgets/background_image_wrapper.dart';
@@ -3351,13 +3352,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           children: [
             SimpleDialogOption(
               onPressed: () =>
-                  Navigator.of(context).pop(_StopAction.favoriteStation),
-              child: const Text('收藏此站牌'),
+                  Navigator.of(context).pop(_StopAction.favoriteBoarding),
+              child: const Text('收藏此乘車點'),
             ),
             SimpleDialogOption(
               onPressed: () =>
-                  Navigator.of(context).pop(_StopAction.favoriteBoarding),
-              child: const Text('收藏此乘車點'),
+                  Navigator.of(context).pop(_StopAction.favoriteStation),
+              child: const Text('收藏此站牌'),
             ),
             SimpleDialogOption(
               onPressed: () => Navigator.of(context).pop(),
@@ -3478,9 +3479,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     if (!mounted) return;
     if (station == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('後端目前找不到這個整站資料。')));
+      // Not an error: the server answered, it just has no whole-station record
+      // for this stop yet (the station tables are filled by the static sync).
+      // Offer the boarding-point favorite, which never depends on that data.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('伺服器還沒同步這一站的整站資料。'),
+          action: SnackBarAction(
+            label: '收藏此乘車點',
+            onPressed: () => unawaited(_handleFavorite(stop)),
+          ),
+        ),
+      );
       return;
     }
     final groupName = await _selectFavoriteGroup(FavoriteItemType.station);
@@ -3746,12 +3756,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
   }
 
-  // Whether the routes currently shown in the related-stop-routes sheet came
-  // from the server passby endpoint (ETA already embedded) rather than the
-  // local name-based lookup. Read by [_fetchRelatedStopLiveMaps] to decide
-  // whether a follow-up realtime fetch is needed. Only one sheet is open at a
-  // time, so a single flag is sufficient.
-  bool _relatedStopRoutesFromPassby = false;
+  // Keys ([stopRouteMergeKey]) of the entries in the related-stop-routes sheet
+  // whose ETA arrived embedded in the passby response. Read by
+  // [_fetchRelatedStopLiveMaps] to skip them when requesting realtime data, and
+  // by [_applyLiveMapsToRelatedStopRoutes] to leave their values alone. Only
+  // one sheet is open at a time, so a single set is sufficient.
+  Set<String> _relatedStopPassbyRouteKeys = const <String>{};
 
   Future<List<StopRouteSearchResult>> _loadRelatedStopRoutes(
     StopInfo stop,
@@ -3761,48 +3771,73 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     final controller = AppControllerScope.read(context);
-    _relatedStopRoutesFromPassby = false;
+    _relatedStopPassbyRouteKeys = const <String>{};
 
-    // Prefer the server-side passby endpoint keyed on the original TDX stop ID.
-    // It resolves the passing routes and returns only this stop's ETA per
-    // route, so the client avoids requesting a large batch of full realtime
-    // snapshots (one per route, each carrying every stop). The provider scopes
-    // the lookup to this route's authority — TDX stop IDs collide across
-    // cities — and the stop name lets the repository reject a mis-scoped
-    // response from servers that don't understand the scope parameter yet.
+    // Two sources, and both are needed.
+    //
+    // The server passby endpoint is keyed on one TDX stop ID and returns that
+    // stop's ETA per route, so it is cheap and authoritative — the client
+    // avoids requesting a batch of full realtime snapshots (one per route, each
+    // carrying every stop). But TDX publishes a *different* stop ID per route
+    // and direction at the same physical stop (捷運南屯站(文心路) is 21746 for
+    // 綠3, 21884 for 73, 24080 for 302), so passby only covers the routes
+    // sharing this stop's ID — often just the route already on screen. The
+    // local name-based lookup finds the sibling IDs but has no realtime data.
+    // Merging keeps the ETA and the complete route list.
+    //
+    // The provider scopes passby to this route's authority — TDX stop IDs
+    // collide across cities — and the stop name lets the repository reject a
+    // mis-scoped response from servers that don't understand the scope
+    // parameter yet.
+    final passby = <StopRouteSearchResult>[];
     final rawStopId = stop.rawStopId;
     if (rawStopId != null) {
       try {
-        final passby = await controller.repository.getStopPassby(
-          rawStopId,
-          provider: widget.provider,
-          expectedStopName: stop.stopName,
+        passby.addAll(
+          await controller.repository.getStopPassby(
+            rawStopId,
+            provider: widget.provider,
+            expectedStopName: stop.stopName,
+          ),
         );
-        if (passby.isNotEmpty) {
-          _relatedStopRoutesFromPassby = true;
-          return passby;
-        }
-        // An empty result can mean the stop isn't present in the server's
-        // database (e.g. data drift); fall through to the local lookup.
       } catch (error) {
         debugPrint('Stop passby load error: $error');
-        // Fall back to the local name-based lookup below.
+        // Silent: the local lookup below still produces a usable list.
       }
     }
 
     final normalizedStopName = _normalizeStopRouteLookupName(stop.stopName);
-    final results = await controller.searchRoutesByStop(
-      stop.stopName,
-      provider: widget.provider,
-    );
+    var local = const <StopRouteSearchResult>[];
+    Object? localError;
+    StackTrace? localStackTrace;
+    try {
+      final results = await controller.searchRoutesByStop(
+        stop.stopName,
+        provider: widget.provider,
+      );
+      local = results
+          .where(
+            (result) =>
+                _normalizeStopRouteLookupName(result.matchedStop.stopName) ==
+                normalizedStopName,
+          )
+          .toList(growable: false);
+    } catch (error, stackTrace) {
+      debugPrint('Related stop route local lookup error: $error');
+      localError = error;
+      localStackTrace = stackTrace;
+    }
 
-    return results
-        .where(
-          (result) =>
-              _normalizeStopRouteLookupName(result.matchedStop.stopName) ==
-              normalizedStopName,
-        )
-        .toList(growable: false);
+    // Preserve the previous failure surface: a local lookup that throws with
+    // nothing from passby must still reach the sheet's error state. When passby
+    // did return something, don't let the local failure discard it.
+    if (passby.isEmpty && localError != null) {
+      Error.throwWithStackTrace(localError, localStackTrace!);
+    }
+
+    final merged = mergeStopRouteResults(passby: passby, local: local);
+    _relatedStopPassbyRouteKeys = merged.passbyKeys;
+    return merged.results;
   }
 
   List<_RelatedStopRouteEta> _buildInitialRelatedStopRouteEtas(
@@ -3823,10 +3858,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   Future<BatchLiveStopMap> _fetchRelatedStopLiveMaps(
     List<StopRouteSearchResult> routes,
   ) async {
-    // Passby results already carry each route's ETA in matchedStop, so there
-    // is nothing more to fetch — applyLiveMaps falls back to matchedStop when
-    // the map has no entry for a route.
-    if (_relatedStopRoutesFromPassby) {
+    // Passby entries already carry this stop's ETA in matchedStop. Only the
+    // entries that came from the local name lookup — the sibling stop IDs
+    // passby could not see — still need a realtime fetch. Filtering per entry
+    // rather than per route matters: one route can be passby-covered on path 1
+    // and locally sourced on path 0, and it must still reach the batch fetch.
+    final pending = routes
+        .where(
+          (result) =>
+              !_relatedStopPassbyRouteKeys.contains(stopRouteMergeKey(result)),
+        )
+        .toList(growable: false);
+    if (pending.isEmpty) {
       return const <String, LiveStopMap>{};
     }
 
@@ -3834,13 +3877,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     BatchLiveStopMap liveMaps = const <String, LiveStopMap>{};
     try {
       liveMaps = await controller.repository.getBatchLiveStopMaps(
-        routes.map((result) => result.route.routeId).toList(growable: false),
+        pending.map((result) => result.route.routeId).toList(growable: false),
       );
     } catch (error) {
       debugPrint('Related stop route ETA load error: $error');
     }
 
-    final missingRouteIds = routes
+    final missingRouteIds = pending
         .map((result) => result.route.routeId.trim())
         .where((id) => !liveMaps.containsKey(id))
         .toSet();
@@ -3872,6 +3915,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     BatchLiveStopMap liveMaps,
   ) {
     final items = routes.map((result) {
+      // A passby entry's matchedStop already holds this stop's ETA. Don't let a
+      // live-map hit keyed on the *requested* stop ID overwrite it: copyWith
+      // replaces sec/msg/t/buses but not etas, which would leave the two out of
+      // sync.
+      if (_relatedStopPassbyRouteKeys.contains(stopRouteMergeKey(result))) {
+        return _RelatedStopRouteEta(
+          result: result,
+          liveStop: result.matchedStop,
+        );
+      }
       final liveMap = liveMaps[result.route.routeId.trim()];
       final livePayload = liveMap?[_relatedStopRealtimeKey(result.matchedStop)];
       final liveStop = livePayload == null
@@ -4077,13 +4130,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           children: [
             SimpleDialogOption(
               onPressed: () =>
-                  Navigator.of(context).pop(_StopAction.favoriteStation),
-              child: const Text('收藏此站牌'),
+                  Navigator.of(context).pop(_StopAction.favoriteBoarding),
+              child: const Text('收藏此乘車點'),
             ),
             SimpleDialogOption(
               onPressed: () =>
-                  Navigator.of(context).pop(_StopAction.favoriteBoarding),
-              child: const Text('收藏此乘車點'),
+                  Navigator.of(context).pop(_StopAction.favoriteStation),
+              child: const Text('收藏此站牌'),
             ),
             if (showDestinationAction)
               SimpleDialogOption(

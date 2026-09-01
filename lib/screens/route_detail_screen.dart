@@ -3353,12 +3353,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             SimpleDialogOption(
               onPressed: () =>
                   Navigator.of(context).pop(_StopAction.favoriteBoarding),
-              child: const Text('收藏此乘車點'),
+              child: const Text('收藏此站牌'),
             ),
             SimpleDialogOption(
               onPressed: () =>
                   Navigator.of(context).pop(_StopAction.favoriteStation),
-              child: const Text('收藏此站牌'),
+              child: const Text('收藏整站'),
             ),
             SimpleDialogOption(
               onPressed: () => Navigator.of(context).pop(),
@@ -3460,7 +3460,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (rawStopId.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('這個站牌缺少可解析的站牌識別碼。')));
+      ).showSnackBar(const SnackBar(content: Text('這個站牌缺少可解析的識別碼，無法對應到整站。')));
       return;
     }
     final controller = AppControllerScope.read(context);
@@ -3486,7 +3486,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         SnackBar(
           content: const Text('伺服器還沒同步這一站的整站資料。'),
           action: SnackBarAction(
-            label: '收藏此乘車點',
+            label: '收藏此站牌',
             onPressed: () => unawaited(_handleFavorite(stop)),
           ),
         ),
@@ -4131,12 +4131,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             SimpleDialogOption(
               onPressed: () =>
                   Navigator.of(context).pop(_StopAction.favoriteBoarding),
-              child: const Text('收藏此乘車點'),
+              child: const Text('收藏此站牌'),
             ),
             SimpleDialogOption(
               onPressed: () =>
                   Navigator.of(context).pop(_StopAction.favoriteStation),
-              child: const Text('收藏此站牌'),
+              child: const Text('收藏整站'),
             ),
             if (showDestinationAction)
               SimpleDialogOption(

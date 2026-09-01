@@ -782,9 +782,12 @@ enum FavoriteGroupKind {
       this == FavoriteGroupKind.mixed || name == itemType.name;
 
   String get label => switch (this) {
+    // Display text only. The enum *names* are persisted and synced to the
+    // server (see _FAVORITE_GROUP_KINDS server-side), so they must not follow
+    // any relabelling here.
     FavoriteGroupKind.route => '路線',
-    FavoriteGroupKind.station => '站牌',
-    FavoriteGroupKind.boarding => '乘車點',
+    FavoriteGroupKind.station => '整站',
+    FavoriteGroupKind.boarding => '站牌',
     FavoriteGroupKind.mixed => '綜合',
   };
 }

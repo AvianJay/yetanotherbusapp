@@ -585,8 +585,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
   Widget _buildFavoriteTypeBadge(BuildContext context, FavoriteItemType type) {
     final label = switch (type) {
       FavoriteItemType.route => '路線',
-      FavoriteItemType.station => '站牌',
-      FavoriteItemType.boarding => '乘車點',
+      FavoriteItemType.station => '整站',
+      FavoriteItemType.boarding => '站牌',
     };
     final colorScheme = Theme.of(context).colorScheme;
     return Container(

@@ -40,12 +40,12 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
       favorite: FavoriteStation(
         provider: widget.provider,
         stationId: widget.stationId,
-        stationName: station?.stationName ?? widget.stationName ?? '站牌',
+        stationName: station?.stationName ?? widget.stationName ?? '整站',
       ),
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(didPin ? '已送出站牌捷徑要求。' : '這台裝置不支援主畫面捷徑。')),
+      SnackBar(content: Text(didPin ? '已送出整站捷徑要求。' : '這台裝置不支援主畫面捷徑。')),
     );
   }
 
@@ -68,7 +68,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
       if (!mounted) return;
       setState(() {
         _station = station;
-        _error = station == null ? '找不到這個站牌。' : null;
+        _error = station == null ? '找不到這一站的整站資料。' : null;
       });
     } catch (error) {
       if (!mounted) return;
@@ -85,12 +85,12 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
     final station = _station;
     return Scaffold(
       appBar: AppBar(
-        title: Text(station?.stationName ?? widget.stationName ?? '站牌'),
+        title: Text(station?.stationName ?? widget.stationName ?? '整站'),
         actions: [
           if (_isAndroid)
             IconButton(
               onPressed: () => unawaited(_pinStationShortcut()),
-              tooltip: '將站牌新增到主畫面',
+              tooltip: '將整站新增到主畫面',
               icon: const Icon(Icons.add_to_home_screen_rounded),
             ),
           IconButton(
@@ -126,7 +126,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
   Widget _buildStation(StationPassbyData station) {
     final sides = station.sides;
     if (sides.isEmpty) {
-      return const Center(child: Text('這個站牌目前沒有可顯示的側別。'));
+      return const Center(child: Text('這一站目前沒有可顯示的站牌。'));
     }
     return DefaultTabController(
       length: sides.length,
@@ -141,7 +141,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                   Tab(
                     text: side.direction?.isNotEmpty == true
                         ? '${side.label} · ${side.direction}'
-                        : '${side.label} 側',
+                        : '站牌 ${side.label}',
                   ),
               ],
             ),
@@ -159,7 +159,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
 
   Widget _buildSide(StationSideData side) {
     if (side.routes.isEmpty) {
-      return Center(child: Text('${side.label} 側目前沒有經過路線。'));
+      return Center(child: Text('站牌 ${side.label} 目前沒有經過路線。'));
     }
     return RefreshIndicator(
       onRefresh: _load,
@@ -183,7 +183,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
               subtitle: Text(
                 route.description.trim().isNotEmpty
                     ? route.description
-                    : (side.direction ?? '${side.label} 側'),
+                    : (side.direction ?? '站牌 ${side.label}'),
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Navigator.of(context).pushNamed(

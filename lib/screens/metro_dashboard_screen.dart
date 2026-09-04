@@ -425,46 +425,54 @@ class _MetroScreenState extends State<MetroScreen> {
       body: Column(
         children: [
           Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _pageError != null && _systems.isEmpty
-                ? _ErrorState(message: _pageError!, onRetry: _loadSystems)
-                : RefreshIndicator(
-                    onRefresh: _selectedSystem == null
-                        ? _loadSystems
-                        : () => _loadSystemData(system: _selectedSystem!),
-                    child: ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        _buildSystemSelector(theme),
-                        const SizedBox(height: 16),
-                        _buildLineSelector(theme),
-                        const SizedBox(height: 16),
-                        if (_lineError != null) ...[
-                          Text(
-                            _lineError!,
-                            style: TextStyle(color: theme.colorScheme.error),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
-                        _buildSourceBanner(theme),
-                        const SizedBox(height: 16),
-                        _MetroPanelButtons(
-                          current: _panel,
-                          onChanged: (panel) => setState(() => _panel = panel),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 960),
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _pageError != null && _systems.isEmpty
+                    ? _ErrorState(message: _pageError!, onRetry: _loadSystems)
+                    : RefreshIndicator(
+                        onRefresh: _selectedSystem == null
+                            ? _loadSystems
+                            : () => _loadSystemData(system: _selectedSystem!),
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(16),
+                          children: [
+                            _buildSystemSelector(theme),
+                            const SizedBox(height: 16),
+                            _buildLineSelector(theme),
+                            const SizedBox(height: 16),
+                            if (_lineError != null) ...[
+                              Text(
+                                _lineError!,
+                                style: TextStyle(
+                                  color: theme.colorScheme.error,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                            _buildSourceBanner(theme),
+                            const SizedBox(height: 16),
+                            _MetroPanelButtons(
+                              current: _panel,
+                              onChanged: (panel) =>
+                                  setState(() => _panel = panel),
+                            ),
+                            const SizedBox(height: 16),
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 220),
+                              child: switch (_panel) {
+                                _MetroPanel.live => _buildLivePanel(theme),
+                                _MetroPanel.map => _buildMapPanel(theme),
+                              },
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
-                          child: switch (_panel) {
-                            _MetroPanel.live => _buildLivePanel(theme),
-                            _MetroPanel.map => _buildMapPanel(theme),
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
+                      ),
+              ),
+            ),
           ),
           const AdBannerWidget(),
         ],

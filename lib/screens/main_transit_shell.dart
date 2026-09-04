@@ -33,6 +33,15 @@ class _MainTransitShellState extends State<MainTransitShell> {
     TransitMode.tra,
     TransitMode.youbike,
   ];
+  static const _railDestinations = [
+    (TransitMode.bus, Icons.directions_bus_rounded, '公車'),
+    (TransitMode.metro, Icons.subway_rounded, '捷運'),
+    (TransitMode.thsr, Icons.train_rounded, '高鐵'),
+    (TransitMode.tra, Icons.tram_rounded, '台鐵'),
+    (TransitMode.youbike, Icons.pedal_bike_rounded, 'YouBike'),
+  ];
+  static const _desktopRailBreakpoint = 1100.0;
+  static const _desktopRailExtendedBreakpoint = 1280.0;
   static const _switchDuration = Duration(milliseconds: 220);
   static const _hiddenOffset = Offset(0.035, 0);
 
@@ -95,7 +104,7 @@ class _MainTransitShellState extends State<MainTransitShell> {
       ...screens.where((screen) => screen.mode == _currentMode),
     ];
 
-    return Stack(
+    final modeStack = Stack(
       fit: StackFit.expand,
       children: [
         for (final screen in orderedScreens)
@@ -103,6 +112,45 @@ class _MainTransitShellState extends State<MainTransitShell> {
             key: ValueKey(screen.mode),
             child: _buildModeLayer(mode: screen.mode, child: screen.child),
           ),
+      ],
+    );
+
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    if (screenWidth < _desktopRailBreakpoint) {
+      return modeStack;
+    }
+
+    final colorScheme = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        NavigationRail(
+          extended: screenWidth >= _desktopRailExtendedBreakpoint,
+          backgroundColor: colorScheme.surfaceContainerLow,
+          selectedIndex: _visibleModes.indexOf(_currentMode),
+          onDestinationSelected: (index) {
+            if (index >= 0 && index < _visibleModes.length) {
+              _setMode(_visibleModes[index]);
+            }
+          },
+          labelType: screenWidth >= _desktopRailExtendedBreakpoint
+              ? null
+              : NavigationRailLabelType.all,
+          destinations: [
+            for (final (_, icon, label) in _railDestinations)
+              NavigationRailDestination(
+                icon: Icon(icon),
+                selectedIcon: Icon(icon),
+                label: Text(label),
+              ),
+          ],
+        ),
+        VerticalDivider(
+          width: 1,
+          thickness: 1,
+          color: colorScheme.outlineVariant,
+        ),
+        Expanded(child: modeStack),
       ],
     );
   }

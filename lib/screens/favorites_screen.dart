@@ -657,10 +657,18 @@ class _FavoritesScreenState extends State<FavoritesScreen>
           ],
           bottom: groups.isEmpty
               ? null
-              : TabBar(
-                  controller: _tabController,
-                  isScrollable: true,
-                  tabs: groups.map((group) => Tab(text: group)).toList(),
+              : PreferredSize(
+                  preferredSize: const Size.fromHeight(kTextTabBarHeight),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 920),
+                      child: TabBar(
+                        controller: _tabController,
+                        isScrollable: true,
+                        tabs: groups.map((group) => Tab(text: group)).toList(),
+                      ),
+                    ),
+                  ),
                 ),
         ),
         bottomNavigationBar: groups.isEmpty
@@ -669,27 +677,32 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                 color:
                     Theme.of(context).bottomAppBarTheme.color ??
                     Theme.of(context).colorScheme.surface,
-                child: SafeArea(
-                  top: false,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildBottomProgressIndicator(),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            _statusMessage ??
-                                (_remainingSeconds > 0
-                                    ? '$_remainingSeconds 秒後更新'
-                                    : '正在更新'),
-                            style: Theme.of(context).textTheme.bodySmall,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 920),
+                    child: SafeArea(
+                      top: false,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildBottomProgressIndicator(),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                _statusMessage ??
+                                    (_remainingSeconds > 0
+                                        ? '$_remainingSeconds 秒後更新'
+                                        : '正在更新'),
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -734,134 +747,143 @@ class _FavoritesScreenState extends State<FavoritesScreen>
       return const _EmptyFavoritesState(message: '這個群組目前沒有站牌。');
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      itemCount: items.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        final item = items[index];
-        final destinationSummary =
-            item.reference.destinationStopName?.trim().isNotEmpty == true
-            ? item.reference.destinationStopName!.trim()
-            : (item.reference.destinationStopId == null
-                  ? null
-                  : '站牌 ${item.reference.destinationStopId}');
-        return Dismissible(
-          key: ValueKey(_favoriteItemKey(item.reference)),
-          direction: DismissDirection.endToStart,
-          background: Container(
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.errorContainer,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Icon(
-              Icons.delete_outline_rounded,
-              color: Theme.of(context).colorScheme.onErrorContainer,
-            ),
-          ),
-          onDismissed: (_) =>
-              unawaited(_removeFavorite(controller, currentGroupName, item)),
-          child: Card(
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(14),
-              leading: EtaBadge(
-                stop: item.stop,
-                alwaysShowSeconds: controller.settings.alwaysShowSeconds,
-                size: 52,
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 920),
+        child: ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          itemCount: items.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            final destinationSummary =
+                item.reference.destinationStopName?.trim().isNotEmpty == true
+                ? item.reference.destinationStopName!.trim()
+                : (item.reference.destinationStopId == null
+                      ? null
+                      : '站牌 ${item.reference.destinationStopId}');
+            return Dismissible(
+              key: ValueKey(_favoriteItemKey(item.reference)),
+              direction: DismissDirection.endToStart,
+              background: Container(
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: 20),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Icon(
+                  Icons.delete_outline_rounded,
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
               ),
-              title: RichText(
-                text: TextSpan(
-                  style: Theme.of(context).textTheme.titleMedium,
-                  children: [
-                    TextSpan(
-                      text: '${item.route.routeName} ',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
+              onDismissed: (_) => unawaited(
+                _removeFavorite(controller, currentGroupName, item),
+              ),
+              child: Card(
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(14),
+                  leading: EtaBadge(
+                    stop: item.stop,
+                    alwaysShowSeconds: controller.settings.alwaysShowSeconds,
+                    size: 52,
+                  ),
+                  title: RichText(
+                    text: TextSpan(
+                      style: Theme.of(context).textTheme.titleMedium,
+                      children: [
+                        TextSpan(
+                          text: '${item.route.routeName} ',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        TextSpan(text: item.stop.stopName),
+                      ],
                     ),
-                    TextSpan(text: item.stop.stopName),
-                  ],
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      '${item.reference.provider.label} · '
+                      '${item.route.description.isEmpty ? "routeKey ${item.route.routeKey}" : item.route.description}'
+                      '${destinationSummary == null ? "" : "\n目的地：$destinationSummary"}',
+                    ),
+                  ),
+                  trailing: controller.settings.enableRouteBackgroundMonitor
+                      ? PopupMenuButton<_FavoriteDestinationAction>(
+                          tooltip: '目的地設定',
+                          icon: Icon(
+                            item.reference.destinationStopId == null
+                                ? Icons.flag_outlined
+                                : Icons.flag_rounded,
+                          ),
+                          onSelected: (action) {
+                            unawaited(
+                              _handleFavoriteDestinationAction(
+                                controller,
+                                currentGroupName,
+                                item,
+                                action,
+                              ),
+                            );
+                          },
+                          itemBuilder: (context) {
+                            return [
+                              const PopupMenuItem(
+                                value:
+                                    _FavoriteDestinationAction.setDestination,
+                                child: Text('設定目的地'),
+                              ),
+                              if (item.reference.destinationStopId != null)
+                                const PopupMenuItem(
+                                  value: _FavoriteDestinationAction
+                                      .clearDestination,
+                                  child: Text('清除目的地'),
+                                ),
+                            ];
+                          },
+                        )
+                      : null,
+                  onTap: () async {
+                    unawaited(AppHaptics.selectionClick());
+                    final autoFavorited = await controller.recordRouteSelection(
+                      provider: item.reference.provider,
+                      routeKey: item.reference.routeKey,
+                      routeName: item.route.routeName,
+                      favorite: item.reference,
+                      source: 'favorite',
+                      pathId: item.reference.pathId,
+                      stopId: item.reference.stopId,
+                      stopName: item.reference.stopName ?? item.stop.stopName,
+                    );
+                    if (!context.mounted) {
+                      return;
+                    }
+                    if (autoFavorited != null) {
+                      showAutoFavoritedSnackBar(context, autoFavorited);
+                    }
+                    await openRouteDetailPage(
+                      context,
+                      routeKey: item.reference.routeKey,
+                      provider: item.reference.provider,
+                      routeIdHint: item.reference.routeId ?? item.route.routeId,
+                      routeNameHint: item.route.routeName,
+                      initialPathId: item.reference.pathId,
+                      initialStopId: item.reference.stopId,
+                      initialDestinationPathId:
+                          item.reference.destinationPathId,
+                      initialDestinationStopId:
+                          item.reference.destinationStopId,
+                    );
+                  },
                 ),
               ),
-              subtitle: Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '${item.reference.provider.label} · '
-                  '${item.route.description.isEmpty ? "routeKey ${item.route.routeKey}" : item.route.description}'
-                  '${destinationSummary == null ? "" : "\n目的地：$destinationSummary"}',
-                ),
-              ),
-              trailing: controller.settings.enableRouteBackgroundMonitor
-                  ? PopupMenuButton<_FavoriteDestinationAction>(
-                      tooltip: '目的地設定',
-                      icon: Icon(
-                        item.reference.destinationStopId == null
-                            ? Icons.flag_outlined
-                            : Icons.flag_rounded,
-                      ),
-                      onSelected: (action) {
-                        unawaited(
-                          _handleFavoriteDestinationAction(
-                            controller,
-                            currentGroupName,
-                            item,
-                            action,
-                          ),
-                        );
-                      },
-                      itemBuilder: (context) {
-                        return [
-                          const PopupMenuItem(
-                            value: _FavoriteDestinationAction.setDestination,
-                            child: Text('設定目的地'),
-                          ),
-                          if (item.reference.destinationStopId != null)
-                            const PopupMenuItem(
-                              value:
-                                  _FavoriteDestinationAction.clearDestination,
-                              child: Text('清除目的地'),
-                            ),
-                        ];
-                      },
-                    )
-                  : null,
-              onTap: () async {
-                unawaited(AppHaptics.selectionClick());
-                final autoFavorited = await controller.recordRouteSelection(
-                  provider: item.reference.provider,
-                  routeKey: item.reference.routeKey,
-                  routeName: item.route.routeName,
-                  favorite: item.reference,
-                  source: 'favorite',
-                  pathId: item.reference.pathId,
-                  stopId: item.reference.stopId,
-                  stopName: item.reference.stopName ?? item.stop.stopName,
-                );
-                if (!context.mounted) {
-                  return;
-                }
-                if (autoFavorited != null) {
-                  showAutoFavoritedSnackBar(context, autoFavorited);
-                }
-                await openRouteDetailPage(
-                  context,
-                  routeKey: item.reference.routeKey,
-                  provider: item.reference.provider,
-                  routeIdHint: item.reference.routeId ?? item.route.routeId,
-                  routeNameHint: item.route.routeName,
-                  initialPathId: item.reference.pathId,
-                  initialStopId: item.reference.stopId,
-                  initialDestinationPathId: item.reference.destinationPathId,
-                  initialDestinationStopId: item.reference.destinationStopId,
-                );
-              },
-            ),
-          ),
-        );
-      },
+            );
+          },
+        ),
+      ),
     );
   }
 }

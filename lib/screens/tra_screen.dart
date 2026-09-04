@@ -247,36 +247,45 @@ class _TraScreenState extends State<TraScreen> {
       body: Column(
         children: [
           Expanded(
-            child: _loadingStations
-                ? const Center(child: CircularProgressIndicator())
-                : _pageError != null && _stations.isEmpty
-                ? _ErrorState(message: _pageError!, onRetry: _loadInitialData)
-                : RefreshIndicator(
-                    onRefresh: _loadInitialData,
-                    child: ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        if (_alerts.isNotEmpty) ...[
-                          _RailAlertCard(alerts: _alerts),
-                          const SizedBox(height: 16),
-                        ],
-                        _buildLiveOverview(theme),
-                        const SizedBox(height: 16),
-                        _TraPanelButtons(
-                          current: _panel,
-                          onChanged: (panel) => setState(() => _panel = panel),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 960),
+                child: _loadingStations
+                    ? const Center(child: CircularProgressIndicator())
+                    : _pageError != null && _stations.isEmpty
+                    ? _ErrorState(
+                        message: _pageError!,
+                        onRetry: _loadInitialData,
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _loadInitialData,
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(16),
+                          children: [
+                            if (_alerts.isNotEmpty) ...[
+                              _RailAlertCard(alerts: _alerts),
+                              const SizedBox(height: 16),
+                            ],
+                            _buildLiveOverview(theme),
+                            const SizedBox(height: 16),
+                            _TraPanelButtons(
+                              current: _panel,
+                              onChanged: (panel) =>
+                                  setState(() => _panel = panel),
+                            ),
+                            const SizedBox(height: 16),
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 220),
+                              child: _panel == _TraPanel.query
+                                  ? _buildQueryPanel(theme)
+                                  : _buildMapPanel(theme),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
-                          child: _panel == _TraPanel.query
-                              ? _buildQueryPanel(theme)
-                              : _buildMapPanel(theme),
-                        ),
-                      ],
-                    ),
-                  ),
+                      ),
+              ),
+            ),
           ),
           const AdBannerWidget(),
         ],

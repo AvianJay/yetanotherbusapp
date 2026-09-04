@@ -5403,7 +5403,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     detail,
                   );
                   if (!showWideMap) {
-                    return stopsPane;
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 960),
+                        child: stopsPane,
+                      ),
+                    );
                   }
 
                   final maxMapPaneWidth = math.max(

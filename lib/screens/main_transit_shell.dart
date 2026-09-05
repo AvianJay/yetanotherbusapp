@@ -40,7 +40,6 @@ class _MainTransitShellState extends State<MainTransitShell> {
     (TransitMode.tra, Icons.tram_rounded, '台鐵'),
     (TransitMode.youbike, Icons.pedal_bike_rounded, 'YouBike'),
   ];
-  static const _desktopRailBreakpoint = 1100.0;
   static const _desktopRailExtendedBreakpoint = 1280.0;
   static const _switchDuration = Duration(milliseconds: 220);
   static const _hiddenOffset = Offset(0.035, 0);
@@ -116,7 +115,7 @@ class _MainTransitShellState extends State<MainTransitShell> {
     );
 
     final screenWidth = MediaQuery.sizeOf(context).width;
-    if (screenWidth < _desktopRailBreakpoint) {
+    if (screenWidth < kDesktopNavigationRailBreakpoint) {
       return modeStack;
     }
 

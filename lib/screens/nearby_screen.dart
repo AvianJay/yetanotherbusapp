@@ -333,98 +333,105 @@ class _NearbyScreenState extends State<NearbyScreen> {
               )
             : groups.isEmpty
             ? const Center(child: Text('附近沒有找到站牌。'))
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                itemCount: groups.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final group = groups[index];
-                  return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+            : Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    itemCount: groups.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final group = groups[index];
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                width: 52,
-                                height: 52,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: Text(
-                                  formatDistance(group.distanceMeters),
-                                  textAlign: TextAlign.center,
-                                  style: theme.textTheme.labelMedium,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Text(
-                                  group.stopName,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w700,
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 52,
+                                    height: 52,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: theme.colorScheme.primaryContainer,
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Text(
+                                      formatDistance(group.distanceMeters),
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.labelMedium,
+                                    ),
                                   ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Text(
+                                      group.stopName,
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
                               ),
+                              if (_loadingEtas) ...[
+                                const SizedBox(height: 10),
+                                const LinearProgressIndicator(minHeight: 2),
+                              ],
+                              const SizedBox(height: 8),
+                              for (final item in group.routes) ...[
+                                if (item != group.routes.first)
+                                  const Divider(height: 1),
+                                Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(14),
+                                    onTap: () => _openRoute(item),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          EtaBadge(
+                                            stop: _liveStop(item),
+                                            alwaysShowSeconds: controller
+                                                .settings
+                                                .alwaysShowSeconds,
+                                            size: 44,
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              '${busProviderFromString(item.route.sourceProvider).label} · ${item.route.routeName}',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          Icon(
+                                            Icons.chevron_right_rounded,
+                                            size: 20,
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
-                          if (_loadingEtas) ...[
-                            const SizedBox(height: 10),
-                            const LinearProgressIndicator(minHeight: 2),
-                          ],
-                          const SizedBox(height: 8),
-                          for (final item in group.routes) ...[
-                            if (item != group.routes.first)
-                              const Divider(height: 1),
-                            Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(14),
-                                onTap: () => _openRoute(item),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 10,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      EtaBadge(
-                                        stop: _liveStop(item),
-                                        alwaysShowSeconds: controller
-                                            .settings
-                                            .alwaysShowSeconds,
-                                        size: 44,
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          '${busProviderFromString(item.route.sourceProvider).label} · ${item.route.routeName}',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      Icon(
-                                        Icons.chevron_right_rounded,
-                                        size: 20,
-                                        color:
-                                            theme.colorScheme.onSurfaceVariant,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  );
-                },
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
       ),
     );

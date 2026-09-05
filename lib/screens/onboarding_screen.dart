@@ -164,75 +164,80 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     return Scaffold(
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-          child: Column(
-            children: [
-              Row(
-                children: List.generate(_effectiveStepCount, (index) {
-                  final active = index <= _stepIndex;
-                  return Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        right: index == _effectiveStepCount - 1 ? 0 : 8,
-                      ),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: active
-                              ? colorScheme.primary
-                              : colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(999),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: Column(
+                children: [
+                  Row(
+                    children: List.generate(_effectiveStepCount, (index) {
+                      final active = index <= _stepIndex;
+                      return Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            right: index == _effectiveStepCount - 1 ? 0 : 8,
+                          ),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 220),
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: active
+                                  ? colorScheme.primary
+                                  : colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
                         ),
-                      ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 18),
+                  Expanded(
+                    child: PageView(
+                      controller: _pageController,
+                      physics: const NeverScrollableScrollPhysics(),
+                      onPageChanged: (index) {
+                        setState(() {
+                          _stepIndex = index;
+                        });
+                      },
+                      children: [
+                        _IntroStep(onNext: _nextStep),
+                        _PermissionStep(
+                          requestingPermission: _requestingPermission,
+                          resolvingLocation: _resolvingLocation,
+                          permissionMessage: _permissionMessage,
+                          onRequestPermission:
+                              _requestLocationPermissionAndContinue,
+                          onSkip: _nextStep,
+                          onBack: () => _goToStep(_stepIndex - 1),
+                        ),
+                        if (_hasDatabaseStep)
+                          _DatabaseStep(
+                            controller: controller,
+                            suggestedProvider: _suggestedProvider,
+                            onProviderToggled: (provider, selected) async {
+                              _manualProviderSelection = true;
+                              if (selected) {
+                                await controller.updateProvider(provider);
+                              } else {
+                                await controller.toggleSelectedProvider(
+                                  provider,
+                                  false,
+                                );
+                              }
+                            },
+                            onBack: () => _goToStep(_stepIndex - 1),
+                            onFinish: _nextStep,
+                          ),
+                      ],
                     ),
-                  );
-                }),
+                  ),
+                ],
               ),
-              const SizedBox(height: 18),
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  physics: const NeverScrollableScrollPhysics(),
-                  onPageChanged: (index) {
-                    setState(() {
-                      _stepIndex = index;
-                    });
-                  },
-                  children: [
-                    _IntroStep(onNext: _nextStep),
-                    _PermissionStep(
-                      requestingPermission: _requestingPermission,
-                      resolvingLocation: _resolvingLocation,
-                      permissionMessage: _permissionMessage,
-                      onRequestPermission:
-                          _requestLocationPermissionAndContinue,
-                      onSkip: _nextStep,
-                      onBack: () => _goToStep(_stepIndex - 1),
-                    ),
-                    if (_hasDatabaseStep)
-                      _DatabaseStep(
-                        controller: controller,
-                        suggestedProvider: _suggestedProvider,
-                        onProviderToggled: (provider, selected) async {
-                          _manualProviderSelection = true;
-                          if (selected) {
-                            await controller.updateProvider(provider);
-                          } else {
-                            await controller.toggleSelectedProvider(
-                              provider,
-                              false,
-                            );
-                          }
-                        },
-                        onBack: () => _goToStep(_stepIndex - 1),
-                        onFinish: _nextStep,
-                      ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

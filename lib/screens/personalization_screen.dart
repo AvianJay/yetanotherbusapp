@@ -94,253 +94,279 @@ class PersonalizationScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('個人化')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        children: [
-          // ── 背景圖片預覽滑動 ────────────────────────────
-          if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
-            _BackgroundPreviewCarousel(
-              paths: settings.pageBackgroundImagePaths,
-              opacities: settings.pageBackgroundImageOpacities,
-            ),
-            const SizedBox(height: 12),
-          ],
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 860),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            children: [
+              // ── 背景圖片預覽滑動 ────────────────────────────
+              if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
+                _BackgroundPreviewCarousel(
+                  paths: settings.pageBackgroundImagePaths,
+                  opacities: settings.pageBackgroundImageOpacities,
+                ),
+                const SizedBox(height: 12),
+              ],
 
-          // ── 配色 ──────────────────────────────────────
-          Card(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(24),
-              onTap: () {
-                _showColorSettingsDialog(context);
-              },
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.palette_outlined,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '配色',
-                            style: Theme.of(context).textTheme.titleMedium,
+              // ── 配色 ──────────────────────────────────────
+              Card(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: () {
+                    _showColorSettingsDialog(context);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.palette_outlined,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '配色',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _colorSubtitle(settings),
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _colorSubtitle(settings),
-                            style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        if (settings.seedColor != null) ...[
+                          Container(
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: settings.seedColor,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.outlineVariant,
+                              ),
+                            ),
                           ),
+                          const SizedBox(width: 12),
                         ],
-                      ),
+                        const Icon(Icons.chevron_right),
+                      ],
                     ),
-                    if (settings.seedColor != null) ...[
-                      Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: settings.seedColor,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // ── 深色模式 ─────────────────────────────────
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '深色模式',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        secondary: const Icon(Icons.dark_mode_outlined),
+                        title: const Text('純黑 (AMOLED) 深色主題'),
+                        subtitle: const Text('深色模式下使用純黑背景，可省電並提升對比'),
+                        value: settings.useAmoledDark,
+                        onChanged: settings.themeMode == ThemeMode.light
+                            ? null
+                            : (value) {
+                                controller.updateUseAmoledDark(value);
+                              },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // ── 主頁漸層 ──────────────────────────────────
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '主頁漸層',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '調整主頁漸層背景的透明度',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 12),
+                      _OpacitySlider(
+                        label: '漸層透明度',
+                        value: settings.homeBackgroundOpacity,
+                        onChanged: isAmoled
+                            ? null
+                            : (v) {
+                                controller.updateHomeBackgroundOpacity(v);
+                              },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // ── 背景圖片 ────────────────────────────────
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '背景圖片',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '設定各頁面的背景圖片，首頁背景會同時套用於公車、捷運、高鐵、台鐵、YouBike 等首頁分頁。',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 12),
+                      Opacity(
+                        opacity: isAmoled ? 0.4 : 1.0,
+                        child: IgnorePointer(
+                          ignoring: isAmoled,
+                          child: Column(
+                            children: [
+                              // Global: pick + clear
+                              Row(
+                                children: [
+                                  FilledButton.tonalIcon(
+                                    onPressed: () async {
+                                      final picker = ImagePicker();
+                                      final imagePath =
+                                          await _pickBackgroundImageValue(
+                                            picker,
+                                          );
+                                      if (imagePath != null) {
+                                        controller
+                                            .applyBackgroundImageToAllPages(
+                                              imagePath,
+                                              backgroundOpacity,
+                                            );
+                                      }
+                                    },
+                                    icon: const Icon(
+                                      Icons.add_photo_alternate_outlined,
+                                      size: 18,
+                                    ),
+                                    label: const Text('選擇圖片'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  if (settings
+                                      .pageBackgroundImagePaths
+                                      .isNotEmpty)
+                                    OutlinedButton.icon(
+                                      onPressed: () {
+                                        controller.clearAllBackgroundImages();
+                                      },
+                                      icon: const Icon(
+                                        Icons.clear_all,
+                                        size: 18,
+                                      ),
+                                      label: const Text('清除'),
+                                    ),
+                                ],
+                              ),
+                              if (settings
+                                  .pageBackgroundImagePaths
+                                  .isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                _OpacitySlider(
+                                  label: '背景透明度',
+                                  value: backgroundOpacity,
+                                  onChanged: isAmoled
+                                      ? null
+                                      : (value) {
+                                          controller
+                                              .updateAllPageBackgroundImageOpacity(
+                                                value,
+                                              );
+                                        },
+                                ),
+                              ],
+                              const SizedBox(height: 12),
+                              // Navigate to per-page settings
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.tune_outlined),
+                                title: const Text('各頁面設定'),
+                                subtitle: const Text('分別設定每個頁面的背景圖片'),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) =>
+                                          const _PerPageBackgroundScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
                     ],
-                    const Icon(Icons.chevron_right),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 12),
+              const SizedBox(height: 12),
 
-          // ── 深色模式 ─────────────────────────────────
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('深色模式', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    secondary: const Icon(Icons.dark_mode_outlined),
-                    title: const Text('純黑 (AMOLED) 深色主題'),
-                    subtitle: const Text('深色模式下使用純黑背景，可省電並提升對比'),
-                    value: settings.useAmoledDark,
-                    onChanged: settings.themeMode == ThemeMode.light
-                        ? null
-                        : (value) {
-                            controller.updateUseAmoledDark(value);
-                          },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // ── 主頁漸層 ──────────────────────────────────
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('主頁漸層', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 4),
-                  Text(
-                    '調整主頁漸層背景的透明度',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 12),
-                  _OpacitySlider(
-                    label: '漸層透明度',
-                    value: settings.homeBackgroundOpacity,
-                    onChanged: isAmoled
-                        ? null
-                        : (v) {
-                            controller.updateHomeBackgroundOpacity(v);
-                          },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // ── 背景圖片 ────────────────────────────────
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('背景圖片', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 4),
-                  Text(
-                    '設定各頁面的背景圖片，首頁背景會同時套用於公車、捷運、高鐵、台鐵、YouBike 等首頁分頁。',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 12),
-                  Opacity(
-                    opacity: isAmoled ? 0.4 : 1.0,
-                    child: IgnorePointer(
-                      ignoring: isAmoled,
-                      child: Column(
-                        children: [
-                          // Global: pick + clear
-                          Row(
-                            children: [
-                              FilledButton.tonalIcon(
-                                onPressed: () async {
-                                  final picker = ImagePicker();
-                                  final imagePath =
-                                      await _pickBackgroundImageValue(picker);
-                                  if (imagePath != null) {
-                                    controller.applyBackgroundImageToAllPages(
-                                      imagePath,
-                                      backgroundOpacity,
-                                    );
-                                  }
-                                },
-                                icon: const Icon(
-                                  Icons.add_photo_alternate_outlined,
-                                  size: 18,
-                                ),
-                                label: const Text('選擇圖片'),
-                              ),
-                              const SizedBox(width: 8),
-                              if (settings.pageBackgroundImagePaths.isNotEmpty)
-                                OutlinedButton.icon(
-                                  onPressed: () {
-                                    controller.clearAllBackgroundImages();
-                                  },
-                                  icon: const Icon(Icons.clear_all, size: 18),
-                                  label: const Text('清除'),
-                                ),
-                            ],
-                          ),
-                          if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            _OpacitySlider(
-                              label: '背景透明度',
-                              value: backgroundOpacity,
-                              onChanged: isAmoled
-                                  ? null
-                                  : (value) {
-                                      controller
-                                          .updateAllPageBackgroundImageOpacity(
-                                            value,
-                                          );
-                                    },
-                            ),
-                          ],
-                          const SizedBox(height: 12),
-                          // Navigate to per-page settings
-                          ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.tune_outlined),
-                            title: const Text('各頁面設定'),
-                            subtitle: const Text('分別設定每個頁面的背景圖片'),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      const _PerPageBackgroundScreen(),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
+              // ── 覆蓋層透明度 ──────────────────────────────
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '覆蓋層透明度',
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
-                    ),
+                      const SizedBox(height: 4),
+                      // Text(
+                      //   '背景圖片啟用時，卡片、AppBar 等元件的透明度，數值越高越不透明',
+                      //   style: Theme.of(context).textTheme.bodySmall,
+                      // ),
+                      const SizedBox(height: 12),
+                      _OpacitySlider(
+                        label: '覆蓋層',
+                        value: settings.overlayOpacity,
+                        onChanged: isAmoled
+                            ? null
+                            : (v) {
+                                controller.updateOverlayOpacity(v);
+                              },
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 12),
-
-          // ── 覆蓋層透明度 ──────────────────────────────
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '覆蓋層透明度',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  // Text(
-                  //   '背景圖片啟用時，卡片、AppBar 等元件的透明度，數值越高越不透明',
-                  //   style: Theme.of(context).textTheme.bodySmall,
-                  // ),
-                  const SizedBox(height: 12),
-                  _OpacitySlider(
-                    label: '覆蓋層',
-                    value: settings.overlayOpacity,
-                    onChanged: isAmoled
-                        ? null
-                        : (v) {
-                            controller.updateOverlayOpacity(v);
-                          },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -673,60 +699,71 @@ class _PerPageBackgroundScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('各頁面背景設定')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        children: [
-          // ── Preview carousel ─────────────────────────
-          if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
-            _BackgroundPreviewCarousel(
-              paths: settings.pageBackgroundImagePaths,
-              opacities: settings.pageBackgroundImageOpacities,
-            ),
-            const SizedBox(height: 12),
-          ],
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 860),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            children: [
+              // ── Preview carousel ─────────────────────────
+              if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
+                _BackgroundPreviewCarousel(
+                  paths: settings.pageBackgroundImagePaths,
+                  opacities: settings.pageBackgroundImageOpacities,
+                ),
+                const SizedBox(height: 12),
+              ],
 
-          // ── Per-page rows ────────────────────────────
-          Opacity(
-            opacity: isAmoled ? 0.4 : 1.0,
-            child: IgnorePointer(
-              ignoring: isAmoled,
-              child: Column(
-                children: [
-                  for (final pageKey in _pageLabels.keys)
-                    _PageBackgroundRow(
-                      pageKey: pageKey,
-                      label: _pageLabels[pageKey]!,
-                      subtitle: _pageSubtitles[pageKey],
-                      icon: _pageIcons[pageKey]!,
-                      imagePath: settings.pageBackgroundImagePaths[pageKey],
-                      imageOpacity:
-                          settings.pageBackgroundImageOpacities[pageKey] ??
-                          0.25,
-                      onPick: () async {
-                        final picker = ImagePicker();
-                        final imagePath = await _pickBackgroundImageValue(
-                          picker,
-                        );
-                        if (imagePath != null) {
-                          controller.updatePageBackgroundImagePath(
-                            pageKey,
-                            imagePath,
-                          );
-                        }
-                      },
-                      onClear: () {
-                        controller.updatePageBackgroundImagePath(pageKey, null);
-                      },
-                      onOpacityChanged: (v) {
-                        controller.updatePageBackgroundImageOpacity(pageKey, v);
-                      },
-                      colorScheme: Theme.of(context).colorScheme,
-                    ),
-                ],
+              // ── Per-page rows ────────────────────────────
+              Opacity(
+                opacity: isAmoled ? 0.4 : 1.0,
+                child: IgnorePointer(
+                  ignoring: isAmoled,
+                  child: Column(
+                    children: [
+                      for (final pageKey in _pageLabels.keys)
+                        _PageBackgroundRow(
+                          pageKey: pageKey,
+                          label: _pageLabels[pageKey]!,
+                          subtitle: _pageSubtitles[pageKey],
+                          icon: _pageIcons[pageKey]!,
+                          imagePath: settings.pageBackgroundImagePaths[pageKey],
+                          imageOpacity:
+                              settings.pageBackgroundImageOpacities[pageKey] ??
+                              0.25,
+                          onPick: () async {
+                            final picker = ImagePicker();
+                            final imagePath = await _pickBackgroundImageValue(
+                              picker,
+                            );
+                            if (imagePath != null) {
+                              controller.updatePageBackgroundImagePath(
+                                pageKey,
+                                imagePath,
+                              );
+                            }
+                          },
+                          onClear: () {
+                            controller.updatePageBackgroundImagePath(
+                              pageKey,
+                              null,
+                            );
+                          },
+                          onOpacityChanged: (v) {
+                            controller.updatePageBackgroundImageOpacity(
+                              pageKey,
+                              v,
+                            );
+                          },
+                          colorScheme: Theme.of(context).colorScheme,
+                        ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

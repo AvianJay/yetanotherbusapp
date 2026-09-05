@@ -276,12 +276,15 @@ class HomeScreen extends StatelessWidget {
       backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YABus'),
-        leading: Builder(
-          builder: (ctx) => IconButton(
-            icon: const Icon(Icons.menu_rounded),
-            onPressed: () => Scaffold.of(ctx).openDrawer(),
-          ),
-        ),
+        leading:
+            MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
+            ? null
+            : Builder(
+                builder: (ctx) => IconButton(
+                  icon: const Icon(Icons.menu_rounded),
+                  onPressed: () => Scaffold.of(ctx).openDrawer(),
+                ),
+              ),
         actions: [
           if (kIsWeb) const _WebPwaInstallButton(),
           if (!kIsWeb)

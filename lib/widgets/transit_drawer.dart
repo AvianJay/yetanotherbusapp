@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 /// Which top-level transit mode is active.
 enum TransitMode { bus, metro, thsr, tra, youbike }
 
+/// Minimum screen width to show the persistent desktop navigation rail.
+/// Below this width, transit screens fall back to the hamburger drawer.
+const double kDesktopNavigationRailBreakpoint = 1100;
+
 /// Shared drawer used across all top-level transit screens.
 ///
 /// Uses [onModeChanged] callback for in-place switching without navigation.

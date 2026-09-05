@@ -1101,12 +1101,15 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YABike'),
-        leading: Builder(
-          builder: (ctx) => IconButton(
-            icon: const Icon(Icons.menu_rounded),
-            onPressed: () => Scaffold.of(ctx).openDrawer(),
-          ),
-        ),
+        leading:
+            MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
+            ? null
+            : Builder(
+                builder: (ctx) => IconButton(
+                  icon: const Icon(Icons.menu_rounded),
+                  onPressed: () => Scaffold.of(ctx).openDrawer(),
+                ),
+              ),
         actions: [
           if (!useSplitLayout)
             IconButton(

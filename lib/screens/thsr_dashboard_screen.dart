@@ -221,12 +221,15 @@ class _ThsrScreenState extends State<ThsrScreen> {
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YAHSR'),
-        leading: Builder(
-          builder: (ctx) => IconButton(
-            icon: const Icon(Icons.menu_rounded),
-            onPressed: () => Scaffold.of(ctx).openDrawer(),
-          ),
-        ),
+        leading:
+            MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
+            ? null
+            : Builder(
+                builder: (ctx) => IconButton(
+                  icon: const Icon(Icons.menu_rounded),
+                  onPressed: () => Scaffold.of(ctx).openDrawer(),
+                ),
+              ),
         actions: [
           IconButton(
             tooltip: '重新整理',
@@ -242,38 +245,49 @@ class _ThsrScreenState extends State<ThsrScreen> {
       body: Column(
         children: [
           Expanded(
-            child: _loadingStations
-                ? const Center(child: CircularProgressIndicator())
-                : _pageError != null && _stations.isEmpty
-                ? _ErrorState(message: _pageError!, onRetry: _loadInitialData)
-                : RefreshIndicator(
-                    onRefresh: _loadInitialData,
-                    child: ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        if (_alerts.isNotEmpty) ...[
-                          _RailAlertCard(alerts: _alerts),
-                          const SizedBox(height: 16),
-                        ],
-                        _buildSeatOverview(theme),
-                        const SizedBox(height: 16),
-                        _ThsrPanelButtons(
-                          current: _panel,
-                          onChanged: (panel) => setState(() => _panel = panel),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 960),
+                child: _loadingStations
+                    ? const Center(child: CircularProgressIndicator())
+                    : _pageError != null && _stations.isEmpty
+                    ? _ErrorState(
+                        message: _pageError!,
+                        onRetry: _loadInitialData,
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _loadInitialData,
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(16),
+                          children: [
+                            if (_alerts.isNotEmpty) ...[
+                              _RailAlertCard(alerts: _alerts),
+                              const SizedBox(height: 16),
+                            ],
+                            _buildSeatOverview(theme),
+                            const SizedBox(height: 16),
+                            _ThsrPanelButtons(
+                              current: _panel,
+                              onChanged: (panel) =>
+                                  setState(() => _panel = panel),
+                            ),
+                            const SizedBox(height: 16),
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 220),
+                              child: switch (_panel) {
+                                _ThsrPanel.timetable => _buildTimetablePanel(
+                                  theme,
+                                ),
+                                _ThsrPanel.seats => _buildSeatPanel(theme),
+                                _ThsrPanel.map => _buildMapPanel(theme),
+                              },
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
-                          child: switch (_panel) {
-                            _ThsrPanel.timetable => _buildTimetablePanel(theme),
-                            _ThsrPanel.seats => _buildSeatPanel(theme),
-                            _ThsrPanel.map => _buildMapPanel(theme),
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
+                      ),
+              ),
+            ),
           ),
           const AdBannerWidget(),
         ],

@@ -1,8 +1,14 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../app/bus_app.dart';
 import '../core/ad_service.dart';
+
+/// Maximum banner width on wide (desktop) screens so the ad does not stretch
+/// across the whole window.
+const double _maxBannerWidth = 920;
 
 /// A self-contained banner ad widget.
 ///
@@ -48,9 +54,12 @@ class _AdBannerWidgetState extends State<AdBannerWidget> {
       return;
     }
 
-    final adSize = await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
-      MediaQuery.sizeOf(context).width.truncate(),
-    );
+    final adSize =
+        await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
+          math
+              .min(MediaQuery.sizeOf(context).width, _maxBannerWidth)
+              .truncate(),
+        );
     if (adSize == null || !mounted) {
       return;
     }
@@ -104,11 +113,16 @@ class _AdBannerWidgetState extends State<AdBannerWidget> {
       return const SizedBox.shrink();
     }
 
-    return Container(
-      alignment: Alignment.center,
-      width: ad.size.width.toDouble(),
-      height: ad.size.height.toDouble(),
-      child: AdWidget(ad: ad),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _maxBannerWidth),
+        child: Container(
+          alignment: Alignment.center,
+          width: ad.size.width.toDouble(),
+          height: ad.size.height.toDouble(),
+          child: AdWidget(ad: ad),
+        ),
+      ),
     );
   }
 }

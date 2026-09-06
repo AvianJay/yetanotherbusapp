@@ -2889,6 +2889,35 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Moves the favorite at [oldIndex] so that it ends up at [newIndex].
+  ///
+  /// Both indices refer to the group's list *after* the move, so callers
+  /// driving this from [ReorderableListView.onReorder] must apply the usual
+  /// `if (newIndex > oldIndex) newIndex -= 1` adjustment first.
+  Future<void> reorderFavoriteItem(
+    String groupName,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    final current = _favoriteGroups[groupName];
+    if (current == null || oldIndex < 0 || oldIndex >= current.length) {
+      return;
+    }
+    final targetIndex = newIndex.clamp(0, current.length - 1);
+    if (targetIndex == oldIndex) {
+      return;
+    }
+
+    final updatedGroup = List<FavoriteItem>.from(current);
+    updatedGroup.insert(targetIndex, updatedGroup.removeAt(oldIndex));
+    _favoriteGroups = {..._favoriteGroups, groupName: updatedGroup};
+    await _persistFavoriteGroups();
+    await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
+    await AndroidHomeIntegration.refreshFavoriteWidgets();
+    await _syncWearOsSnapshot(requestRefresh: false);
+    notifyListeners();
+  }
+
   List<FavoriteItem> favoritesInGroup(String groupName) {
     return List.unmodifiable(_favoriteGroups[groupName] ?? const []);
   }

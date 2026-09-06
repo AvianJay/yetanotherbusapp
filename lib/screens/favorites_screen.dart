@@ -44,6 +44,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
   String _refreshingSignature = '';
   bool _refreshScheduled = false;
   bool _forceResolveStaticOnResume = false;
+  bool _sortMode = false;
   int _refreshRequestId = 0;
   int _remainingSeconds = 0;
 
@@ -145,8 +146,13 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     return groups[index];
   }
 
+  /// Signature of a group's *contents*, deliberately insensitive to order so
+  /// that reordering favorites does not trigger a full re-resolve.
   String _favoritesSignature(List<FavoriteItem> favorites) {
-    return favorites.map((favorite) => jsonEncode(favorite.toJson())).join('|');
+    final encoded =
+        favorites.map((favorite) => jsonEncode(favorite.toJson())).toList()
+          ..sort();
+    return encoded.join('|');
   }
 
   String _favoriteItemKey(FavoriteStop favorite) {
@@ -946,6 +952,14 @@ class _FavoritesScreenState extends State<FavoritesScreen>
         appBar: AppBar(
           title: const Text('我的最愛'),
           actions: [
+            if (references.length >= 2)
+              IconButton(
+                tooltip: _sortMode ? '完成排序' : '調整排序',
+                onPressed: () => setState(() => _sortMode = !_sortMode),
+                icon: Icon(
+                  _sortMode ? Icons.check_rounded : Icons.swap_vert_rounded,
+                ),
+              ),
             IconButton(
               onPressed: () {
                 Navigator.of(context).push(
@@ -981,6 +995,10 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                     Theme.of(context).bottomAppBarTheme.color ??
                     Theme.of(context).colorScheme.surface,
                 child: Center(
+                  // Without a heightFactor this Center expands to the full
+                  // height the Scaffold offers the bottom bar, leaving the
+                  // favorites list with no room at all.
+                  heightFactor: 1,
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 920),
                     child: SafeArea(
@@ -1059,182 +1077,247 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 920),
-        child: ListView.separated(
+        child: ReorderableListView.builder(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           itemCount: references.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          buildDefaultDragHandles: false,
+          proxyDecorator: _buildDragProxy,
+          onReorder: (oldIndex, newIndex) =>
+              _handleReorder(controller, currentGroupName, oldIndex, newIndex),
           itemBuilder: (context, index) {
             final reference = references[index];
-            if (reference is FavoriteRoute) {
-              return _buildRouteFavoriteCard(
-                context,
-                controller,
-                currentGroupName,
-                reference,
-              );
-            }
-            if (reference is FavoriteStation) {
-              return _buildStationFavoriteCard(
-                context,
-                controller,
-                currentGroupName,
-                reference,
-              );
-            }
-            if (reference is! FavoriteStop) {
-              return const SizedBox.shrink();
-            }
-            final item = resolvedByKey[reference.stableKey];
-            if (item == null) {
-              return _buildUnresolvedBoardingCard(
-                context,
-                controller,
-                currentGroupName,
-                reference,
-              );
-            }
-            final destinationSummary =
-                item.reference.destinationStopName?.trim().isNotEmpty == true
-                ? item.reference.destinationStopName!.trim()
-                : (item.reference.destinationStopId == null
-                      ? null
-                      : '站牌 ${item.reference.destinationStopId}');
-            return Dismissible(
-              key: ValueKey(_favoriteItemKey(item.reference)),
-              direction: DismissDirection.endToStart,
-              background: Container(
-                alignment: Alignment.centerRight,
-                padding: const EdgeInsets.only(right: 20),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Icon(
-                  Icons.delete_outline_rounded,
-                  color: Theme.of(context).colorScheme.onErrorContainer,
-                ),
+            return Padding(
+              key: ValueKey('favorite-item-${reference.stableKey}'),
+              padding: EdgeInsets.only(
+                bottom: index == references.length - 1 ? 0 : 10,
               ),
-              onDismissed: (_) => unawaited(
-                _removeFavoriteItem(
+              child: _buildReorderableRow(
+                index: index,
+                child: _buildFavoriteCard(
+                  context,
                   controller,
                   currentGroupName,
-                  item.reference,
-                  item.stop.stopName,
+                  reference,
+                  resolvedByKey,
                 ),
               ),
-              child: Card(
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(14),
-                  leading: EtaBadge(
-                    stop: item.stop,
-                    alwaysShowSeconds: controller.settings.alwaysShowSeconds,
-                    size: 52,
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Wraps a favorite card so it can be dragged: a long press anywhere starts
+  /// a drag on every platform, and sort mode adds an explicit handle.
+  Widget _buildReorderableRow({required int index, required Widget child}) {
+    return Row(
+      children: [
+        if (_sortMode)
+          ReorderableDragStartListener(
+            index: index,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Icon(
+                Icons.drag_handle_rounded,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        Expanded(
+          child: ReorderableDelayedDragStartListener(
+            index: index,
+            child: child,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Lifts the dragged card without painting the default square shadow behind
+  /// its rounded corners.
+  Widget _buildDragProxy(Widget child, int index, Animation<double> animation) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, proxyChild) {
+        final value = Curves.easeInOut.transform(animation.value);
+        return Transform.scale(
+          scale: 1 + (0.03 * value),
+          child: Material(type: MaterialType.transparency, child: proxyChild),
+        );
+      },
+      child: child,
+    );
+  }
+
+  void _handleReorder(
+    AppController controller,
+    String groupName,
+    int oldIndex,
+    int newIndex,
+  ) {
+    final targetIndex = newIndex > oldIndex ? newIndex - 1 : newIndex;
+    if (targetIndex == oldIndex) {
+      return;
+    }
+    unawaited(AppHaptics.lightImpact());
+    unawaited(controller.reorderFavoriteItem(groupName, oldIndex, targetIndex));
+  }
+
+  Widget _buildFavoriteCard(
+    BuildContext context,
+    AppController controller,
+    String currentGroupName,
+    FavoriteItem reference,
+    Map<String, FavoriteResolvedItem> resolvedByKey,
+  ) {
+    if (reference is FavoriteRoute) {
+      return _buildRouteFavoriteCard(
+        context,
+        controller,
+        currentGroupName,
+        reference,
+      );
+    }
+    if (reference is FavoriteStation) {
+      return _buildStationFavoriteCard(
+        context,
+        controller,
+        currentGroupName,
+        reference,
+      );
+    }
+    if (reference is! FavoriteStop) {
+      return const SizedBox.shrink();
+    }
+    final item = resolvedByKey[reference.stableKey];
+    if (item == null) {
+      return _buildUnresolvedBoardingCard(
+        context,
+        controller,
+        currentGroupName,
+        reference,
+      );
+    }
+    final destinationSummary =
+        item.reference.destinationStopName?.trim().isNotEmpty == true
+        ? item.reference.destinationStopName!.trim()
+        : (item.reference.destinationStopId == null
+              ? null
+              : '站牌 ${item.reference.destinationStopId}');
+    return _buildDismissibleFavorite(
+      context: context,
+      favorite: item.reference,
+      onDismissed: () => unawaited(
+        _removeFavoriteItem(
+          controller,
+          currentGroupName,
+          item.reference,
+          item.stop.stopName,
+        ),
+      ),
+      child: Card(
+        child: ListTile(
+          contentPadding: const EdgeInsets.all(14),
+          leading: EtaBadge(
+            stop: item.stop,
+            alwaysShowSeconds: controller.settings.alwaysShowSeconds,
+            size: 52,
+          ),
+          title: RichText(
+            text: TextSpan(
+              style: Theme.of(context).textTheme.titleMedium,
+              children: [
+                TextSpan(
+                  text: '${item.route.routeName} ',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w700,
                   ),
-                  title: RichText(
-                    text: TextSpan(
-                      style: Theme.of(context).textTheme.titleMedium,
-                      children: [
-                        TextSpan(
-                          text: '${item.route.routeName} ',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        TextSpan(text: item.stop.stopName),
-                      ],
-                    ),
+                ),
+                TextSpan(text: item.stop.stopName),
+              ],
+            ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (controller.favoriteGroupKind(currentGroupName) ==
+                    FavoriteGroupKind.mixed) ...[
+                  _buildFavoriteTypeBadge(context, FavoriteItemType.boarding),
+                  const SizedBox(height: 5),
+                ],
+                Text(
+                  '${item.reference.provider.label} · '
+                  '${item.route.description.isEmpty ? "routeKey ${item.route.routeKey}" : item.route.description}'
+                  '${destinationSummary == null ? "" : "\n目的地：$destinationSummary"}',
+                ),
+              ],
+            ),
+          ),
+          trailing: controller.settings.enableRouteBackgroundMonitor
+              ? PopupMenuButton<_FavoriteDestinationAction>(
+                  tooltip: '目的地設定',
+                  icon: Icon(
+                    item.reference.destinationStopId == null
+                        ? Icons.flag_outlined
+                        : Icons.flag_rounded,
                   ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (controller.favoriteGroupKind(currentGroupName) ==
-                            FavoriteGroupKind.mixed) ...[
-                          _buildFavoriteTypeBadge(
-                            context,
-                            FavoriteItemType.boarding,
-                          ),
-                          const SizedBox(height: 5),
-                        ],
-                        Text(
-                          '${item.reference.provider.label} · '
-                          '${item.route.description.isEmpty ? "routeKey ${item.route.routeKey}" : item.route.description}'
-                          '${destinationSummary == null ? "" : "\n目的地：$destinationSummary"}',
-                        ),
-                      ],
-                    ),
-                  ),
-                  trailing: controller.settings.enableRouteBackgroundMonitor
-                      ? PopupMenuButton<_FavoriteDestinationAction>(
-                          tooltip: '目的地設定',
-                          icon: Icon(
-                            item.reference.destinationStopId == null
-                                ? Icons.flag_outlined
-                                : Icons.flag_rounded,
-                          ),
-                          onSelected: (action) {
-                            unawaited(
-                              _handleFavoriteDestinationAction(
-                                controller,
-                                currentGroupName,
-                                item,
-                                action,
-                              ),
-                            );
-                          },
-                          itemBuilder: (context) {
-                            return [
-                              const PopupMenuItem(
-                                value:
-                                    _FavoriteDestinationAction.setDestination,
-                                child: Text('設定目的地'),
-                              ),
-                              if (item.reference.destinationStopId != null)
-                                const PopupMenuItem(
-                                  value: _FavoriteDestinationAction
-                                      .clearDestination,
-                                  child: Text('清除目的地'),
-                                ),
-                            ];
-                          },
-                        )
-                      : null,
-                  onTap: () async {
-                    unawaited(AppHaptics.selectionClick());
-                    final autoFavorited = await controller.recordRouteSelection(
-                      provider: item.reference.provider,
-                      routeKey: item.reference.routeKey,
-                      routeName: item.route.routeName,
-                      favorite: item.reference,
-                      source: 'favorite',
-                      pathId: item.reference.pathId,
-                      stopId: item.reference.stopId,
-                      stopName: item.reference.stopName ?? item.stop.stopName,
-                    );
-                    if (!context.mounted) {
-                      return;
-                    }
-                    if (autoFavorited != null) {
-                      showAutoFavoritedSnackBar(context, autoFavorited);
-                    }
-                    await openRouteDetailPage(
-                      context,
-                      routeKey: item.reference.routeKey,
-                      provider: item.reference.provider,
-                      routeIdHint: item.reference.routeId ?? item.route.routeId,
-                      routeNameHint: item.route.routeName,
-                      initialPathId: item.reference.pathId,
-                      initialStopId: item.reference.stopId,
-                      initialDestinationPathId:
-                          item.reference.destinationPathId,
-                      initialDestinationStopId:
-                          item.reference.destinationStopId,
+                  onSelected: (action) {
+                    unawaited(
+                      _handleFavoriteDestinationAction(
+                        controller,
+                        currentGroupName,
+                        item,
+                        action,
+                      ),
                     );
                   },
-                ),
-              ),
+                  itemBuilder: (context) {
+                    return [
+                      const PopupMenuItem(
+                        value: _FavoriteDestinationAction.setDestination,
+                        child: Text('設定目的地'),
+                      ),
+                      if (item.reference.destinationStopId != null)
+                        const PopupMenuItem(
+                          value: _FavoriteDestinationAction.clearDestination,
+                          child: Text('清除目的地'),
+                        ),
+                    ];
+                  },
+                )
+              : null,
+          onTap: () async {
+            unawaited(AppHaptics.selectionClick());
+            final autoFavorited = await controller.recordRouteSelection(
+              provider: item.reference.provider,
+              routeKey: item.reference.routeKey,
+              routeName: item.route.routeName,
+              favorite: item.reference,
+              source: 'favorite',
+              pathId: item.reference.pathId,
+              stopId: item.reference.stopId,
+              stopName: item.reference.stopName ?? item.stop.stopName,
+            );
+            if (!context.mounted) {
+              return;
+            }
+            if (autoFavorited != null) {
+              showAutoFavoritedSnackBar(context, autoFavorited);
+            }
+            await openRouteDetailPage(
+              context,
+              routeKey: item.reference.routeKey,
+              provider: item.reference.provider,
+              routeIdHint: item.reference.routeId ?? item.route.routeId,
+              routeNameHint: item.route.routeName,
+              initialPathId: item.reference.pathId,
+              initialStopId: item.reference.stopId,
+              initialDestinationPathId: item.reference.destinationPathId,
+              initialDestinationStopId: item.reference.destinationStopId,
             );
           },
         ),

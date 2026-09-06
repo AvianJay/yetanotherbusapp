@@ -10,6 +10,7 @@ import '../core/app_controller.dart';
 import '../core/friendly_error.dart';
 import '../core/models.dart';
 import '../core/pwa_install_service.dart';
+import '../core/route_direction_label.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/transit_station_map.dart';
 import '../widgets/transit_drawer.dart';
@@ -1010,9 +1011,22 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   ) {
     final controller = widget.controller;
     final stop = nearby.liveStop ?? nearby.result.stop;
+    final route = nearby.result.route;
+    // Prefer the PathInfo when it carries a real destination, but fall back to
+    // route.description — both nearby fetch paths populate it, so the direction
+    // no longer vanishes when getRouteDetail could not match the pathId.
+    final pathName =
+        isMeaningfulPathName(nearby.path?.name, routeName: route.routeName)
+        ? nearby.path!.name
+        : route.description;
+    final direction = routeDirectionLabel(
+      pathName: pathName,
+      pathId: nearby.result.stop.pathId,
+      routeName: route.routeName,
+    );
     final metadata = [
       '距離你約 ${formatDistance(nearby.result.distanceMeters)}',
-      if (nearby.path != null) '方向：${nearby.path!.name}',
+      if (direction.isNotEmpty) '方向：$direction',
     ];
     const badgeSize = 64.0;
     final etaBadge = EtaBadge(
@@ -1027,7 +1041,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       child: _buildSmartTileRow(
         context: context,
         leadingIcon: Icons.directions_bus_filled_rounded,
-        title: nearby.result.route.routeName,
+        title: route.routeName,
         stopName: nearby.result.stop.stopName,
         metadata: metadata,
         etaBadge: etaBadge,
@@ -1156,10 +1170,19 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
   List<TransitMapPoint> get _mapPoints => _results
       .map((result) {
         final provider = busProviderFromString(result.route.sourceProvider);
+        final direction = routeDirectionLabel(
+          pathName: result.route.description,
+          pathId: result.stop.pathId,
+          routeName: result.route.routeName,
+        );
         return TransitMapPoint(
           id: _pointIdForResult(result),
           label: result.stop.stopName,
-          subtitle: '${provider.label} · ${result.route.routeName}',
+          subtitle: <String>[
+            provider.label,
+            result.route.routeName,
+            if (direction.isNotEmpty) direction,
+          ].join(' · '),
           badge: formatDistance(result.distanceMeters),
           latitude: result.stop.lat,
           longitude: result.stop.lon,
@@ -1280,6 +1303,13 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final selected = _selectedResult;
+    final selectedDirection = selected == null
+        ? ''
+        : routeDirectionLabel(
+            pathName: selected.route.description,
+            pathId: selected.stop.pathId,
+            routeName: selected.route.routeName,
+          );
     final compactMode = _useCompactHomeMode(
       context,
       widget.controller.settings,
@@ -1390,6 +1420,21 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
+                                // Own line, own ellipsis budget: two stops of
+                                // the same name sit across the street from each
+                                // other and the direction is all that tells the
+                                // selected one apart.
+                                if (selectedDirection.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    selectedDirection,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
                               ],
                             ),
                           ),

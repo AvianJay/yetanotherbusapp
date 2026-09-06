@@ -7,6 +7,7 @@ import '../app/bus_app.dart';
 import '../core/bus_repository.dart';
 import '../core/friendly_error.dart';
 import '../core/models.dart';
+import '../core/route_direction_label.dart';
 import 'adaptive_settings_presenter.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/eta_badge.dart';
@@ -28,7 +29,7 @@ class _NearbyStopGroup {
 
   final String stopName;
   final double distanceMeters;
-  final List<NearbyStopResult> routes;
+  final List<NearbyRouteRow> routes;
 }
 
 class _NearbyScreenState extends State<NearbyScreen> {
@@ -242,9 +243,82 @@ class _NearbyScreenState extends State<NearbyScreen> {
         _NearbyStopGroup(
           stopName: name,
           distanceMeters: groupDistances[name]!,
-          routes: groupRoutes[name]!..sort(_compareByEta),
+          // Sort first: the labeller only appends a direction ordinal when two
+          // rows would otherwise read alike, so it has to see the final order.
+          routes: labelNearbyRouteDirections(
+            groupRoutes[name]!..sort(_compareByEta),
+          ),
         ),
     ];
+  }
+
+  /// One route row inside a stop-name card.
+  ///
+  /// Two lines rather than one: the group merges both directions of a stop, so
+  /// the direction is the only thing telling two rows apart and must not be the
+  /// first casualty of `TextOverflow.ellipsis` on a narrow screen. The row
+  /// height is still set by the 44px [EtaBadge], so nothing grows.
+  Widget _buildRouteRow(
+    ThemeData theme,
+    NearbyRouteRow row, {
+    required bool alwaysShowSeconds,
+  }) {
+    final item = row.result;
+    final subtitle = <String>[
+      busProviderFromString(item.route.sourceProvider).label,
+      if (row.directionLabel.isNotEmpty) row.directionLabel,
+    ].join(' · ');
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _openRoute(item),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            children: [
+              EtaBadge(
+                stop: _liveStop(item),
+                alwaysShowSeconds: alwaysShowSeconds,
+                size: 44,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.route.routeName,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 20,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _openRoute(NearbyStopResult item) async {
@@ -383,46 +457,17 @@ class _NearbyScreenState extends State<NearbyScreen> {
                                 const LinearProgressIndicator(minHeight: 2),
                               ],
                               const SizedBox(height: 8),
-                              for (final item in group.routes) ...[
-                                if (item != group.routes.first)
-                                  const Divider(height: 1),
-                                Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(14),
-                                    onTap: () => _openRoute(item),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 10,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          EtaBadge(
-                                            stop: _liveStop(item),
-                                            alwaysShowSeconds: controller
-                                                .settings
-                                                .alwaysShowSeconds,
-                                            size: 44,
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Text(
-                                              '${busProviderFromString(item.route.sourceProvider).label} · ${item.route.routeName}',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                          Icon(
-                                            Icons.chevron_right_rounded,
-                                            size: 20,
-                                            color: theme
-                                                .colorScheme
-                                                .onSurfaceVariant,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
+                              for (
+                                var index = 0;
+                                index < group.routes.length;
+                                index++
+                              ) ...[
+                                if (index > 0) const Divider(height: 1),
+                                _buildRouteRow(
+                                  theme,
+                                  group.routes[index],
+                                  alwaysShowSeconds:
+                                      controller.settings.alwaysShowSeconds,
                                 ),
                               ],
                             ],

@@ -23,6 +23,7 @@ import '../core/desktop_discord_presence_service.dart';
 import '../core/live_activity_service.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
+import '../core/route_direction_label.dart';
 import '../core/samsung_live_notification_prompt_service.dart';
 import '../core/stop_route_merge.dart';
 import '../core/trip_monitor_notifications.dart';
@@ -3946,12 +3947,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return '${stop.pathId}:${stop.stopId}';
   }
 
-  String _relatedRouteDirectionText(RouteSummary route) {
-    final description = route.description.trim();
-    if (description.isEmpty) {
-      return '';
-    }
-    return description.startsWith('往') ? description : '往 $description';
+  /// The sheet lists every route passing this stop, both directions included,
+  /// so it has the same ambiguity the nearby list had — hence the pathId, which
+  /// gives 去程/返程 to fall back on when the path name is missing.
+  String _relatedRouteDirectionText(StopRouteSearchResult result) {
+    return routeDirectionLabel(
+      pathName: result.route.description,
+      pathId: result.matchedStop.pathId,
+      routeName: result.route.routeName,
+    );
   }
 
   int _compareRelatedStopRouteEtas(
@@ -6743,7 +6747,7 @@ class _RelatedStopRoutesSheet extends StatefulWidget {
   )
   applyLiveMaps;
   final String Function(StopInfo stop, {bool isLoadingEta}) statusText;
-  final String Function(RouteSummary route) directionText;
+  final String Function(StopRouteSearchResult result) directionText;
 
   @override
   State<_RelatedStopRoutesSheet> createState() =>
@@ -6831,7 +6835,7 @@ class _RelatedStopRoutesSheetState extends State<_RelatedStopRoutesSheet> {
           final item = _items[index];
           final result = item.result;
           final route = result.route;
-          final direction = widget.directionText(route);
+          final direction = widget.directionText(result);
           final subtitleParts = <String>[
             widget.statusText(item.liveStop, isLoadingEta: _loadingEtas),
             if (direction.isNotEmpty) direction,

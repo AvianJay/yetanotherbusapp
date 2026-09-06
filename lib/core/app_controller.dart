@@ -33,7 +33,7 @@ import 'smart_route_service.dart';
 import 'storage_service.dart';
 import 'wear_os_integration.dart';
 
-/// Thrown when the total number of favorite stops across all groups
+/// Thrown when the total number of favorite items across all groups
 /// has reached the maximum allowed limit.
 class FavoriteGroupFullException implements Exception {
   final String groupName;
@@ -42,7 +42,17 @@ class FavoriteGroupFullException implements Exception {
 
   @override
   String toString() =>
-      'FavoriteGroupFullException: already have $maxStops favorite stops total';
+      'FavoriteGroupFullException: already have $maxStops favorite items total';
+}
+
+class FavoriteGroupTypeMismatchException implements Exception {
+  const FavoriteGroupTypeMismatchException(this.groupName, this.itemType);
+
+  final String groupName;
+  final FavoriteItemType itemType;
+
+  @override
+  String toString() => '群組「$groupName」不接受 ${itemType.name} 收藏。';
 }
 
 class AppController extends ChangeNotifier {
@@ -88,7 +98,8 @@ class AppController extends ChangeNotifier {
       AnnouncementLocalState.empty();
   List<AppAnnouncement> _announcements = const [];
   List<SearchHistoryEntry> _history = const [];
-  Map<String, List<FavoriteStop>> _favoriteGroups = const {};
+  Map<String, List<FavoriteItem>> _favoriteGroups = const {};
+  Map<String, FavoriteGroupKind> _favoriteGroupKinds = const {};
   List<RouteUsageProfile> _routeUsageProfiles = const [];
   List<FavoriteUsageProfile> _favoriteUsageProfiles = const [];
   List<FavoriteUsageProfile> _stopVisitProfiles = const [];
@@ -124,8 +135,12 @@ class AppController extends ChangeNotifier {
   bool get isAuthenticated => _authSession?.isAuthenticated ?? false;
   List<AppAnnouncement> get announcements => List.unmodifiable(_announcements);
   List<SearchHistoryEntry> get history => List.unmodifiable(_history);
-  Map<String, List<FavoriteStop>> get favoriteGroups =>
+  Map<String, List<FavoriteItem>> get favoriteGroups =>
       Map.unmodifiable(_favoriteGroups);
+  Map<String, FavoriteGroupKind> get favoriteGroupKinds =>
+      Map.unmodifiable(_favoriteGroupKinds);
+  FavoriteGroupKind favoriteGroupKind(String groupName) =>
+      _favoriteGroupKinds[groupName] ?? FavoriteGroupKind.boarding;
   List<String> get favoriteGroupNames => _favoriteGroups.keys.toList();
   List<RouteUsageProfile> get routeUsageProfiles =>
       List.unmodifiable(_routeUsageProfiles);
@@ -157,16 +172,7 @@ class AppController extends ChangeNotifier {
       .followedBy(
         _favoriteGroups.entries.expand(
           (entry) => entry.value.map(
-            (favorite) =>
-                '${entry.key}:'
-                '${favorite.provider.name}:'
-                '${favorite.routeKey}:'
-                '${favorite.pathId}:'
-                '${favorite.stopId}:'
-                '${favorite.stopName ?? ''}:'
-                '${favorite.destinationPathId ?? 0}:'
-                '${favorite.destinationStopId ?? 0}:'
-                '${favorite.destinationStopName ?? ''}',
+            (favorite) => '${entry.key}:${jsonEncode(favorite.toJson())}',
           ),
         ),
       )
@@ -286,6 +292,9 @@ class AppController extends ChangeNotifier {
     _announcementLocalState = await storage.loadAnnouncementLocalState();
     _history = await storage.loadHistory();
     _favoriteGroups = await storage.loadFavoriteGroups();
+    _favoriteGroupKinds = await storage.loadFavoriteGroupKinds(
+      _favoriteGroups.keys,
+    );
     _favoriteGroupsLastModifiedAtMs = await storage
         .loadFavoriteGroupsLastModifiedAtMs();
     _routeUsageProfiles = await storage.loadRouteUsageProfiles();
@@ -460,8 +469,7 @@ class AppController extends ChangeNotifier {
         if (mergeToken.isEmpty) {
           throw Exception('連結回調缺少合併憑證。');
         }
-        final preview =
-            await authService.fetchPendingAccountMerge(mergeToken);
+        final preview = await authService.fetchPendingAccountMerge(mergeToken);
         return AuthLinkCallbackResult(
           outcome: AuthLinkOutcome.mergeRequired,
           provider: provider,
@@ -553,6 +561,7 @@ class AppController extends ChangeNotifier {
       _favoriteGroups,
       modifiedAtMs: effectiveModifiedAtMs,
     );
+    await storage.saveFavoriteGroupKinds(_favoriteGroupKinds);
     _favoriteGroupsLastModifiedAtMs = effectiveModifiedAtMs;
     if (scheduleSync) {
       _scheduleChangeDrivenAccountSync();
@@ -844,6 +853,10 @@ class AppController extends ChangeNotifier {
     switch (namespace) {
       case AccountSyncNamespace.favorites:
         _favoriteGroups = _favoriteGroupsFromSyncPayload(document.payload);
+        _favoriteGroupKinds = _favoriteGroupKindsFromSyncPayload(
+          document.payload,
+          _favoriteGroups.keys,
+        );
         await _persistFavoriteGroups(
           modifiedAtMs: updatedAtMs,
           scheduleSync: false,
@@ -961,6 +974,7 @@ class AppController extends ChangeNotifier {
 
     final needsMetadata = selectedFavorites
         .map((entry) => entry.favorite)
+        .whereType<FavoriteStop>()
         .where(
           (favorite) =>
               favorite.routeId?.trim().isNotEmpty != true ||
@@ -986,6 +1000,17 @@ class AppController extends ChangeNotifier {
     final payload = <Map<String, dynamic>>[];
     for (final selection in selectedFavorites) {
       final favorite = selection.favorite;
+      if (favorite is FavoriteRoute || favorite is FavoriteStation) {
+        payload.add({
+          'id': favorite.stableKey,
+          'groupName': selection.groupName,
+          ...favorite.toJson(),
+        });
+        continue;
+      }
+      if (favorite is! FavoriteStop) {
+        continue;
+      }
       final resolved = resolvedByKey[favorite.stableKey];
       final routeId = favorite.routeId?.trim().isNotEmpty == true
           ? favorite.routeId!.trim()
@@ -1296,7 +1321,10 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  AppAnnouncement _optimisticToggle(AppAnnouncement announcement, String emoji) {
+  AppAnnouncement _optimisticToggle(
+    AppAnnouncement announcement,
+    String emoji,
+  ) {
     final myReactions = Set<String>.from(announcement.myReactions);
     final reactions = List<AnnouncementReaction>.from(announcement.reactions);
     final existingIndex = reactions.indexWhere(
@@ -1327,7 +1355,10 @@ class AppController extends ChangeNotifier {
       }
     }
 
-    return announcement.copyWith(reactions: reactions, myReactions: myReactions);
+    return announcement.copyWith(
+      reactions: reactions,
+      myReactions: myReactions,
+    );
   }
 
   void _replaceAnnouncement(int index, AppAnnouncement announcement) {
@@ -2386,6 +2417,7 @@ class AppController extends ChangeNotifier {
     final alreadyFavorited = _favoriteGroups.values.any(
       (group) => group.any(
         (item) =>
+            item is FavoriteStop &&
             item.provider == provider &&
             item.routeKey == routeKey &&
             item.pathId == pathId &&
@@ -2413,13 +2445,15 @@ class AppController extends ChangeNotifier {
     } on FavoriteGroupFullException {
       return null;
     }
-    return _favoriteGroups[autoFavoriteGroupName]?.firstWhere(
-      (item) =>
-          item.provider == provider &&
-          item.routeKey == routeKey &&
-          item.pathId == pathId &&
-          item.stopId == stopId,
-    );
+    return _favoriteGroups[autoFavoriteGroupName]
+        ?.whereType<FavoriteStop>()
+        .firstWhere(
+          (item) =>
+              item.provider == provider &&
+              item.routeKey == routeKey &&
+              item.pathId == pathId &&
+              item.stopId == stopId,
+        );
   }
 
   Future<void> recordRouteVisit(
@@ -2599,6 +2633,7 @@ class AppController extends ChangeNotifier {
       ),
       favorites: _favoriteGroups.values
           .expand((group) => group)
+          .whereType<FavoriteStop>()
           .where((favorite) => favorite.provider == _settings.provider),
       now: now ?? DateTime.now(),
       position: position,
@@ -2626,6 +2661,7 @@ class AppController extends ChangeNotifier {
       ),
       favorites: _favoriteGroups.values
           .expand((group) => group)
+          .whereType<FavoriteStop>()
           .where((favorite) => favorite.provider == _settings.provider),
       now: now ?? DateTime.now(),
       position: position,
@@ -2633,13 +2669,17 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  Future<void> addFavoriteGroup(String name) async {
+  Future<void> addFavoriteGroup(
+    String name, {
+    FavoriteGroupKind kind = FavoriteGroupKind.boarding,
+  }) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty || _favoriteGroups.containsKey(trimmed)) {
       return;
     }
 
-    _favoriteGroups = {..._favoriteGroups, trimmed: <FavoriteStop>[]};
+    _favoriteGroups = {..._favoriteGroups, trimmed: <FavoriteItem>[]};
+    _favoriteGroupKinds = {..._favoriteGroupKinds, trimmed: kind};
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
@@ -2652,6 +2692,8 @@ class AppController extends ChangeNotifier {
     final next = {..._favoriteGroups};
     next.remove(name);
     _favoriteGroups = next;
+    final nextKinds = {..._favoriteGroupKinds}..remove(name);
+    _favoriteGroupKinds = nextKinds;
     await _persistFavoriteGroups();
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
@@ -2660,17 +2702,45 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<String> addFavoriteStop(
-    FavoriteStop favorite, {
+  Future<String> addFavoriteStop(FavoriteStop favorite, {String? groupName}) =>
+      addFavoriteItem(favorite, groupName: groupName);
+
+  List<String> compatibleFavoriteGroupNames(FavoriteItemType itemType) {
+    return _favoriteGroups.keys
+        .where((name) => favoriteGroupKind(name).acceptsType(itemType))
+        .toList(growable: false);
+  }
+
+  Future<String> addFavoriteItem(
+    FavoriteItem favorite, {
     String? groupName,
   }) async {
-    final targetGroup = groupName?.trim().isNotEmpty == true
-        ? groupName!.trim()
-        : (_favoriteGroups.isEmpty
-              ? defaultFavoriteGroupName
-              : _favoriteGroups.keys.first);
+    var targetGroup = groupName?.trim() ?? '';
+    if (targetGroup.isEmpty) {
+      final compatible = _favoriteGroups.keys.where(
+        (name) => favoriteGroupKind(name).accepts(favorite),
+      );
+      if (compatible.isNotEmpty) {
+        targetGroup = compatible.first;
+      } else if (favorite is FavoriteStop) {
+        targetGroup = defaultFavoriteGroupName;
+      } else {
+        throw StateError('沒有相容的${favorite.type.name}收藏群組。');
+      }
+    }
 
-    // Enforce maximum 25 stops across all groups (matches batch API limit
+    if (!_favoriteGroups.containsKey(targetGroup)) {
+      _favoriteGroups = {..._favoriteGroups, targetGroup: <FavoriteItem>[]};
+      _favoriteGroupKinds = {
+        ..._favoriteGroupKinds,
+        targetGroup: _groupKindForItemType(favorite.type),
+      };
+    }
+    if (!favoriteGroupKind(targetGroup).accepts(favorite)) {
+      throw FavoriteGroupTypeMismatchException(targetGroup, favorite.type);
+    }
+
+    // Enforce maximum 25 items across all groups (matches account sync limit
     // and account-sync server setting).
     const maxFavoritesTotal = 25;
     final currentTotal = _favoriteGroups.values.fold<int>(
@@ -2684,11 +2754,11 @@ class AppController extends ChangeNotifier {
       throw FavoriteGroupFullException(targetGroup, maxFavoritesTotal);
     }
 
-    final next = <String, List<FavoriteStop>>{
+    final next = <String, List<FavoriteItem>>{
       for (final entry in _favoriteGroups.entries)
-        entry.key: List<FavoriteStop>.from(entry.value),
+        entry.key: List<FavoriteItem>.from(entry.value),
     };
-    next.putIfAbsent(targetGroup, () => <FavoriteStop>[]);
+    next.putIfAbsent(targetGroup, () => <FavoriteItem>[]);
     final existingIndex = next[targetGroup]!.indexWhere(
       (item) => item.sameAs(favorite),
     );
@@ -2697,38 +2767,9 @@ class AppController extends ChangeNotifier {
       next[targetGroup]!.add(favorite);
     } else {
       final existing = next[targetGroup]![existingIndex];
-      final routeId = favorite.routeId?.trim().isNotEmpty == true
-          ? favorite.routeId
-          : existing.routeId;
-      final routeName = favorite.routeName?.trim().isNotEmpty == true
-          ? favorite.routeName
-          : existing.routeName;
-      final stopName = favorite.stopName?.trim().isNotEmpty == true
-          ? favorite.stopName
-          : existing.stopName;
-      final destinationStopId = favorite.destinationStopId;
-      final mergedDestinationStopId =
-          destinationStopId ?? existing.destinationStopId;
-      final mergedDestinationPathId = mergedDestinationStopId == null
-          ? null
-          : (destinationStopId == null
-                ? existing.destinationPathId
-                : (favorite.destinationPathId ?? favorite.pathId));
-      final mergedDestinationStopName = destinationStopId == null
-          ? existing.destinationStopName
-          : favorite.destinationStopName;
-
-      next[targetGroup]![existingIndex] = FavoriteStop(
-        provider: favorite.provider,
-        routeKey: favorite.routeKey,
-        pathId: favorite.pathId,
-        stopId: favorite.stopId,
-        routeId: routeId,
-        routeName: routeName,
-        stopName: stopName,
-        destinationPathId: mergedDestinationPathId,
-        destinationStopId: mergedDestinationStopId,
-        destinationStopName: mergedDestinationStopName,
+      next[targetGroup]![existingIndex] = _mergeFavoriteItem(
+        existing,
+        favorite,
       );
     }
 
@@ -2741,12 +2782,14 @@ class AppController extends ChangeNotifier {
       (item) => item.sameAs(favorite),
       orElse: () => favorite,
     );
-    await analytics.logFavoriteStopSaved(
-      provider: favorite.provider,
-      routeKey: favorite.routeKey,
-      replacedExisting: replacedExisting,
-      hasDestination: savedFavorite.destinationStopId != null,
-    );
+    if (favorite is FavoriteStop && savedFavorite is FavoriteStop) {
+      await analytics.logFavoriteStopSaved(
+        provider: favorite.provider,
+        routeKey: favorite.routeKey,
+        replacedExisting: replacedExisting,
+        hasDestination: savedFavorite.destinationStopId != null,
+      );
+    }
     notifyListeners();
     return targetGroup;
   }
@@ -2779,7 +2822,7 @@ class AppController extends ChangeNotifier {
     var found = false;
     var didChange = false;
     final updatedGroup = currentGroup.map((item) {
-      if (!item.sameAs(favorite)) {
+      if (item is! FavoriteStop || !item.sameAs(favorite)) {
         return item;
       }
 
@@ -2799,6 +2842,7 @@ class AppController extends ChangeNotifier {
         routeId: item.routeId,
         routeName: item.routeName,
         stopName: item.stopName,
+        rawStopId: item.rawStopId,
         destinationPathId: normalizedDestinationPathId,
         destinationStopId: normalizedDestinationStopId,
         destinationStopName: normalizedDestinationStopName,
@@ -2818,13 +2862,16 @@ class AppController extends ChangeNotifier {
     return true;
   }
 
-  Future<void> removeFavoriteStop(
+  Future<void> removeFavoriteStop(String groupName, FavoriteStop favorite) =>
+      removeFavoriteItem(groupName, favorite);
+
+  Future<void> removeFavoriteItem(
     String groupName,
-    FavoriteStop favorite,
+    FavoriteItem favorite,
   ) async {
-    final next = <String, List<FavoriteStop>>{
+    final next = <String, List<FavoriteItem>>{
       for (final entry in _favoriteGroups.entries)
-        entry.key: List<FavoriteStop>.from(entry.value),
+        entry.key: List<FavoriteItem>.from(entry.value),
     };
     next[groupName]?.removeWhere((item) => item.sameAs(favorite));
     _favoriteGroups = next;
@@ -2832,15 +2879,17 @@ class AppController extends ChangeNotifier {
     await IOSWidgetIntegration.syncFavoriteGroups(_favoriteGroups);
     await AndroidHomeIntegration.refreshFavoriteWidgets();
     await _syncWearOsSnapshot(requestRefresh: false);
-    await analytics.logFavoriteStopRemoved(
-      provider: favorite.provider,
-      routeKey: favorite.routeKey,
-      hadDestination: favorite.destinationStopId != null,
-    );
+    if (favorite is FavoriteStop) {
+      await analytics.logFavoriteStopRemoved(
+        provider: favorite.provider,
+        routeKey: favorite.routeKey,
+        hadDestination: favorite.destinationStopId != null,
+      );
+    }
     notifyListeners();
   }
 
-  List<FavoriteStop> favoritesInGroup(String groupName) {
+  List<FavoriteItem> favoritesInGroup(String groupName) {
     return List.unmodifiable(_favoriteGroups[groupName] ?? const []);
   }
 
@@ -2848,7 +2897,7 @@ class AppController extends ChangeNotifier {
     String groupName,
   ) async {
     final items = await repository.resolveFavoriteGroup(
-      favoritesInGroup(groupName),
+      favoritesInGroup(groupName).whereType<FavoriteStop>().toList(),
     );
     await _persistFavoriteMetadata(groupName, items);
     return items;
@@ -2874,6 +2923,9 @@ class AppController extends ChangeNotifier {
 
     var didChange = false;
     final updatedGroup = current.map((favorite) {
+      if (favorite is! FavoriteStop) {
+        return favorite;
+      }
       final resolved =
           resolvedByKey['${favorite.provider.name}:'
               '${favorite.routeKey}:'
@@ -2910,6 +2962,7 @@ class AppController extends ChangeNotifier {
         routeId: nextRouteId,
         routeName: nextRouteName,
         stopName: nextStopName,
+        rawStopId: favorite.rawStopId,
         destinationPathId: favorite.destinationPathId,
         destinationStopId: favorite.destinationStopId,
         destinationStopName: favorite.destinationStopName,
@@ -2937,6 +2990,9 @@ class AppController extends ChangeNotifier {
   Map<String, dynamic> _buildSyncPayload(AccountSyncNamespace namespace) {
     return switch (namespace) {
       AccountSyncNamespace.favorites => {
+        'groupKinds': _favoriteGroups.map(
+          (key, _) => MapEntry(key, favoriteGroupKind(key).name),
+        ),
         'groups': _favoriteGroups.map(
           (key, value) => MapEntry(
             key,
@@ -3004,7 +3060,7 @@ class AppController extends ChangeNotifier {
     return AppSettings.fromJson(merged);
   }
 
-  Map<String, List<FavoriteStop>> _favoriteGroupsFromSyncPayload(
+  Map<String, List<FavoriteItem>> _favoriteGroupsFromSyncPayload(
     Map<String, dynamic>? payload,
   ) {
     final rawGroups = _stringMap(payload?['groups']);
@@ -3012,7 +3068,7 @@ class AppController extends ChangeNotifier {
       return {};
     }
 
-    final groups = <String, List<FavoriteStop>>{};
+    final groups = <String, List<FavoriteItem>>{};
     for (final entry in rawGroups.entries) {
       final groupName = entry.key.trim();
       final value = entry.value;
@@ -3022,15 +3078,26 @@ class AppController extends ChangeNotifier {
       final favorites = value
           .whereType<Map>()
           .map(
-            (item) => FavoriteStop.fromJson(
+            (item) => FavoriteItem.fromJson(
               item.map((key, value) => MapEntry(key.toString(), value)),
             ),
           )
-          .where((favorite) => favorite.routeKey > 0 && favorite.stopId > 0)
+          .where(_isValidFavoriteItemForController)
           .toList(growable: false);
       groups[groupName] = favorites;
     }
     return groups;
+  }
+
+  Map<String, FavoriteGroupKind> _favoriteGroupKindsFromSyncPayload(
+    Map<String, dynamic>? payload,
+    Iterable<String> groupNames,
+  ) {
+    final rawKinds = _stringMap(payload?['groupKinds']);
+    return {
+      for (final groupName in groupNames)
+        groupName: FavoriteGroupKind.fromJson(rawKinds?[groupName]),
+    };
   }
 
   Future<DatabaseConnectionKind> _resolveDatabaseConnectionKind() async {
@@ -3069,7 +3136,81 @@ class _WearFavoriteSelection {
   });
 
   final String groupName;
-  final FavoriteStop favorite;
+  final FavoriteItem favorite;
+}
+
+FavoriteGroupKind _groupKindForItemType(FavoriteItemType itemType) =>
+    switch (itemType) {
+      FavoriteItemType.route => FavoriteGroupKind.route,
+      FavoriteItemType.station => FavoriteGroupKind.station,
+      FavoriteItemType.boarding => FavoriteGroupKind.boarding,
+    };
+
+bool _isValidFavoriteItemForController(FavoriteItem item) => switch (item) {
+  FavoriteRoute(:final routeKey, :final routeId, :final routeName) =>
+    routeKey > 0 && routeId.isNotEmpty && routeName.isNotEmpty,
+  FavoriteStation(:final stationId, :final stationName) =>
+    stationId.isNotEmpty && stationName.isNotEmpty,
+  FavoriteStop(:final routeKey, :final stopId) => routeKey > 0 && stopId > 0,
+  _ => false,
+};
+
+FavoriteItem _mergeFavoriteItem(FavoriteItem existing, FavoriteItem incoming) {
+  if (existing is FavoriteStop && incoming is FavoriteStop) {
+    final destinationStopId = incoming.destinationStopId;
+    final mergedDestinationStopId =
+        destinationStopId ?? existing.destinationStopId;
+    return FavoriteStop(
+      provider: incoming.provider,
+      routeKey: incoming.routeKey,
+      pathId: incoming.pathId,
+      stopId: incoming.stopId,
+      routeId: incoming.routeId?.trim().isNotEmpty == true
+          ? incoming.routeId
+          : existing.routeId,
+      routeName: incoming.routeName?.trim().isNotEmpty == true
+          ? incoming.routeName
+          : existing.routeName,
+      stopName: incoming.stopName?.trim().isNotEmpty == true
+          ? incoming.stopName
+          : existing.stopName,
+      rawStopId: incoming.rawStopId?.trim().isNotEmpty == true
+          ? incoming.rawStopId
+          : existing.rawStopId,
+      destinationPathId: mergedDestinationStopId == null
+          ? null
+          : (destinationStopId == null
+                ? existing.destinationPathId
+                : (incoming.destinationPathId ?? incoming.pathId)),
+      destinationStopId: mergedDestinationStopId,
+      destinationStopName: destinationStopId == null
+          ? existing.destinationStopName
+          : incoming.destinationStopName,
+    );
+  }
+  if (existing is FavoriteRoute && incoming is FavoriteRoute) {
+    return FavoriteRoute(
+      provider: incoming.provider,
+      routeKey: incoming.routeKey,
+      routeId: incoming.routeId,
+      routeName: incoming.routeName.isNotEmpty
+          ? incoming.routeName
+          : existing.routeName,
+      routeDescription: incoming.routeDescription?.isNotEmpty == true
+          ? incoming.routeDescription
+          : existing.routeDescription,
+    );
+  }
+  if (existing is FavoriteStation && incoming is FavoriteStation) {
+    return FavoriteStation(
+      provider: incoming.provider,
+      stationId: incoming.stationId,
+      stationName: incoming.stationName.isNotEmpty
+          ? incoming.stationName
+          : existing.stationName,
+    );
+  }
+  return incoming;
 }
 
 Map<String, dynamic> _preferencesSyncPayloadFromSettings(AppSettings settings) {

@@ -12,6 +12,7 @@ class StorageService {
   static const _settingsKey = 'app_settings';
   static const _historyKey = 'search_history';
   static const _favoritesKey = 'favorite_groups';
+  static const _favoriteGroupKindsKey = 'favorite_group_kinds';
   static const _routeUsageProfilesKey = 'route_usage_profiles';
   static const _favoriteUsageProfilesKey = 'favorite_usage_profiles';
   static const _stopVisitProfilesKey = 'stop_visit_profiles';
@@ -92,7 +93,7 @@ class StorageService {
     );
   }
 
-  Future<Map<String, List<FavoriteStop>>> loadFavoriteGroups() async {
+  Future<Map<String, List<FavoriteItem>>> loadFavoriteGroups() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_favoritesKey);
     if (raw == null || raw.isEmpty) {
@@ -107,14 +108,14 @@ class StorageService {
           (value as List<dynamic>)
               .whereType<Map>()
               .map(
-                (item) => FavoriteStop.fromJson(
+                (item) => FavoriteItem.fromJson(
                   item.map(
                     (itemKey, itemValue) =>
                         MapEntry(itemKey.toString(), itemValue),
                   ),
                 ),
               )
-              .where((item) => item.routeKey > 0 && item.stopId > 0)
+              .where(_isValidFavoriteItem)
               .toList(),
         ),
       );
@@ -124,7 +125,7 @@ class StorageService {
   }
 
   Future<void> saveFavoriteGroups(
-    Map<String, List<FavoriteStop>> favoriteGroups, {
+    Map<String, List<FavoriteItem>> favoriteGroups, {
     int? modifiedAtMs,
   }) async {
     final prefs = await SharedPreferences.getInstance();
@@ -136,6 +137,36 @@ class StorageService {
     await prefs.setInt(
       _favoritesLastModifiedAtKey,
       modifiedAtMs ?? DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  Future<Map<String, FavoriteGroupKind>> loadFavoriteGroupKinds(
+    Iterable<String> groupNames,
+  ) async {
+    final names = groupNames.toSet();
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_favoriteGroupKindsKey);
+    Map<String, dynamic> decoded = const {};
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        decoded = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        decoded = const {};
+      }
+    }
+    return {
+      for (final name in names)
+        name: FavoriteGroupKind.fromJson(decoded[name]),
+    };
+  }
+
+  Future<void> saveFavoriteGroupKinds(
+    Map<String, FavoriteGroupKind> groupKinds,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _favoriteGroupKindsKey,
+      jsonEncode(groupKinds.map((key, value) => MapEntry(key, value.name))),
     );
   }
 
@@ -309,3 +340,12 @@ class StorageService {
     return '$_accountSyncStateKeyPrefix:${accountId.trim()}';
   }
 }
+
+bool _isValidFavoriteItem(FavoriteItem item) => switch (item) {
+  FavoriteRoute(:final routeKey, :final routeId, :final routeName) =>
+    routeKey > 0 && routeId.isNotEmpty && routeName.isNotEmpty,
+  FavoriteStation(:final stationId, :final stationName) =>
+    stationId.isNotEmpty && stationName.isNotEmpty,
+  FavoriteStop(:final routeKey, :final stopId) => routeKey > 0 && stopId > 0,
+  _ => false,
+};

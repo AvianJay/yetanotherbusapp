@@ -57,6 +57,8 @@ enum FavoriteWidgetSharedStore {
 
         let provider = (stopMap["provider"] as? String ?? "")
           .trimmingCharacters(in: .whitespacesAndNewlines)
+        let type = (stopMap["type"] as? String ?? "boarding")
+          .trimmingCharacters(in: .whitespacesAndNewlines)
         let routeKey = integerValue(from: stopMap["routeKey"])
         let pathId = integerValue(from: stopMap["pathId"])
         let stopId = integerValue(from: stopMap["stopId"])
@@ -64,18 +66,32 @@ enum FavoriteWidgetSharedStore {
         let destinationPathId = destinationStopId == nil
           ? nil
           : (optionalIntegerValue(from: stopMap["destinationPathId"]) ?? pathId)
-        guard !provider.isEmpty, routeKey > 0, pathId >= 0, stopId >= 0 else {
+        let routeId = (stopMap["routeId"] as? String)?.nilIfBlank
+        let stationId = (stopMap["stationId"] as? String)?.nilIfBlank
+        let hasRequiredFields: Bool
+        switch type {
+        case "route": hasRequiredFields = routeKey > 0 && routeId != nil
+        case "station": hasRequiredFields = stationId != nil
+        case "boarding": hasRequiredFields = routeKey > 0 && pathId >= 0 && stopId >= 0
+        default: hasRequiredFields = false
+        }
+        let isValid = !provider.isEmpty && hasRequiredFields
+        guard isValid else {
           return nil
         }
 
         return FavoriteWidgetStop(
+          type: type,
           provider: provider,
           routeKey: routeKey,
           pathId: pathId,
           stopId: stopId,
-          routeId: (stopMap["routeId"] as? String)?.nilIfBlank,
+          routeId: routeId,
           routeName: (stopMap["routeName"] as? String)?.nilIfBlank,
+          routeDescription: (stopMap["routeDescription"] as? String)?.nilIfBlank,
           stopName: (stopMap["stopName"] as? String)?.nilIfBlank,
+          stationId: stationId,
+          stationName: (stopMap["stationName"] as? String)?.nilIfBlank,
           destinationPathId: destinationPathId,
           destinationStopId: destinationStopId,
           destinationStopName: (stopMap["destinationStopName"] as? String)?.nilIfBlank
@@ -351,13 +367,17 @@ private enum FavoriteWidgetAppGroupResolver {
 }
 
 struct FavoriteWidgetStop: Decodable, Hashable {
+  let type: String
   let provider: String
   let routeKey: Int
   let pathId: Int
   let stopId: Int
   let routeId: String?
   let routeName: String?
+  let routeDescription: String?
   let stopName: String?
+  let stationId: String?
+  let stationName: String?
   let destinationPathId: Int?
   let destinationStopId: Int?
   let destinationStopName: String?
@@ -392,6 +412,12 @@ private struct FavoriteWidgetRouteLiveData: Hashable {
   let fallbackStops: [Int: FavoriteWidgetLiveStop]
 }
 
+private struct FavoriteWidgetStationArrival: Hashable {
+  let routeName: String
+  let sideLabel: String
+  let liveStop: FavoriteWidgetLiveStop
+}
+
 struct FavoriteGroupOptionsProvider: DynamicOptionsProvider {
   func results() async throws -> [String] {
     let names = FavoriteWidgetSharedStore.loadFavoriteGroupNames()
@@ -404,7 +430,7 @@ struct FavoriteGroupConfigurationIntent: WidgetConfigurationIntent {
   static var title: LocalizedStringResource =
     "\u{6211}\u{7684}\u{6700}\u{611b}\u{7fa4}\u{7d44}"
   static var description = IntentDescription(
-    "\u{986f}\u{793a}\u{55ae}\u{4e00}\u{6700}\u{611b}\u{7fa4}\u{7d44}\u{7684}\u{5230}\u{7ad9}\u{6642}\u{9593}\u{3002}"
+    "顯示單一最愛群組的收藏內容與即時資訊。"
   )
 
   @Parameter(
@@ -514,9 +540,12 @@ private enum FavoriteWidgetRouteFetcher {
     for favorites: [FavoriteWidgetStop]
   ) async -> (items: [FavoriteWidgetItem], didFetchLiveData: Bool) {
     var liveDataByRoute = [String: FavoriteWidgetRouteLiveData]()
+    var stationArrivals = [String: FavoriteWidgetStationArrival?]()
     var successfulFetchCount = 0
     // A single realtime payload can cover multiple directions for the same route.
-    let uniqueRoutes = uniqueRouteRequests(from: favorites)
+    let uniqueRoutes = uniqueRouteRequests(
+      from: favorites.filter { $0.type == "boarding" }
+    )
 
     await withTaskGroup(of: (String, FavoriteWidgetRouteLiveData, Bool).self) { group in
       for (requestKey, favorite) in uniqueRoutes {
@@ -534,7 +563,53 @@ private enum FavoriteWidgetRouteFetcher {
       }
     }
 
+    await withTaskGroup(of: (String, FavoriteWidgetStationArrival?, Bool).self) { group in
+      for favorite in favorites where favorite.type == "station" {
+        group.addTask {
+          let result = await fetchStationArrival(favorite: favorite)
+          return (stationRequestKey(for: favorite), result.arrival, result.success)
+        }
+      }
+      for await (requestKey, arrival, success) in group {
+        stationArrivals[requestKey] = arrival
+        if success { successfulFetchCount += 1 }
+      }
+    }
+
     let items = favorites.map { favorite in
+      if favorite.type == "route" {
+        return FavoriteWidgetItem(
+          id: "route:\(favorite.provider):\(favorite.routeId ?? "")",
+          routeName: favorite.routeName?.nilIfBlank ?? favorite.routeId ?? "路線",
+          stopName: favorite.routeDescription?.nilIfBlank ?? favorite.provider.uppercased(),
+          etaText: "路線",
+          noteText: favorite.provider.uppercased(),
+          routeURL: FavoriteWidgetDeepLink.route(
+            provider: favorite.provider,
+            routeKey: favorite.routeKey,
+            routeId: favorite.routeId,
+            pathId: nil,
+            stopId: nil,
+            destinationPathId: nil,
+            destinationStopId: nil
+          )
+        )
+      }
+      if favorite.type == "station" {
+        let arrival = stationArrivals[stationRequestKey(for: favorite)] ?? nil
+        return FavoriteWidgetItem(
+          id: "station:\(favorite.provider):\(favorite.stationId ?? "")",
+          routeName: favorite.stationName?.nilIfBlank ?? favorite.stationId ?? "站牌",
+          stopName: arrival.map { "\($0.routeName) · \($0.sideLabel) 側" }
+            ?? "目前沒有即將抵達班次",
+          etaText: formatETA(arrival?.liveStop),
+          noteText: arrival?.liveStop.vehicleId?.nilIfBlank ?? "整站",
+          routeURL: FavoriteWidgetDeepLink.station(
+            provider: favorite.provider,
+            stationId: favorite.stationId ?? ""
+          )
+        )
+      }
       let liveStop = resolveLiveStop(
         for: favorite,
         in: liveDataByRoute[routeRequestKey(for: favorite)]
@@ -548,6 +623,7 @@ private enum FavoriteWidgetRouteFetcher {
         routeURL: FavoriteWidgetDeepLink.route(
           provider: favorite.provider,
           routeKey: favorite.routeKey,
+          routeId: favorite.routeId,
           pathId: favorite.pathId,
           stopId: favorite.stopId,
           destinationPathId: favorite.destinationPathId,
@@ -556,7 +632,72 @@ private enum FavoriteWidgetRouteFetcher {
       )
     }
 
-    return (items, successfulFetchCount > 0)
+    return (
+      items,
+      successfulFetchCount > 0 || favorites.allSatisfy { $0.type == "route" }
+    )
+  }
+
+  private static func fetchStationArrival(
+    favorite: FavoriteWidgetStop
+  ) async -> (success: Bool, arrival: FavoriteWidgetStationArrival?) {
+    guard
+      let stationId = favorite.stationId?.nilIfBlank,
+      let encodedStationId = stationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+      var components = URLComponents(
+        string: "https://bus.avianjay.sbs/api/v1/stations/\(encodedStationId)/passby"
+      )
+    else {
+      return (false, nil)
+    }
+    components.queryItems = [
+      URLQueryItem(name: "city", value: favorite.provider.uppercased())
+    ]
+    guard let url = components.url else { return (false, nil) }
+    var request = URLRequest(url: url)
+    request.timeoutInterval = 10
+    request.cachePolicy = .reloadIgnoringLocalCacheData
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.setValue(FavoriteWidgetApiUserAgent.current(), forHTTPHeaderField: "User-Agent")
+    do {
+      let (data, response) = try await URLSession.shared.data(for: request)
+      guard
+        let httpResponse = response as? HTTPURLResponse,
+        (200...299).contains(httpResponse.statusCode),
+        let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let sides = root["sides"] as? [Any]
+      else {
+        return (false, nil)
+      }
+      var bestETA: Int?
+      var bestArrival: FavoriteWidgetStationArrival?
+      for rawSide in sides {
+        guard let side = rawSide as? [String: Any] else { continue }
+        let label = (side["label"] as? String)?.nilIfBlank ?? "?"
+        let routes = side["routes"] as? [Any] ?? []
+        for rawRoute in routes {
+          guard
+            let route = rawRoute as? [String: Any],
+            let eta = intValue(from: route["eta"]),
+            eta >= 0,
+            bestETA == nil || eta < bestETA!
+          else { continue }
+          bestETA = eta
+          bestArrival = FavoriteWidgetStationArrival(
+            routeName: (route["route_name"] as? String)?.nilIfBlank ?? "路線",
+            sideLabel: label,
+            liveStop: FavoriteWidgetLiveStop(
+              sec: eta,
+              msg: (route["message"] as? String)?.nilIfBlank,
+              vehicleId: firstVehicleID(from: route["buses"] as? [Any])
+            )
+          )
+        }
+      }
+      return (true, bestArrival)
+    } catch {
+      return (false, nil)
+    }
   }
 
   private static func fetchLiveStops(
@@ -714,6 +855,10 @@ private enum FavoriteWidgetRouteFetcher {
     "\(favorite.provider):\(favorite.routeKey)"
   }
 
+  private static func stationRequestKey(for favorite: FavoriteWidgetStop) -> String {
+    "\(favorite.provider):\(favorite.stationId ?? "")"
+  }
+
   private static func uniqueRouteRequests(
     from favorites: [FavoriteWidgetStop]
   ) -> [String: FavoriteWidgetStop] {
@@ -781,8 +926,9 @@ private enum FavoriteWidgetDeepLink {
   static func route(
     provider: String,
     routeKey: Int,
-    pathId: Int,
-    stopId: Int,
+    routeId: String?,
+    pathId: Int?,
+    stopId: Int?,
     destinationPathId: Int?,
     destinationStopId: Int?
   ) -> URL? {
@@ -792,9 +938,10 @@ private enum FavoriteWidgetDeepLink {
     var queryItems = [
       URLQueryItem(name: "provider", value: provider),
       URLQueryItem(name: "routeKey", value: String(routeKey)),
-      URLQueryItem(name: "pathId", value: String(pathId)),
-      URLQueryItem(name: "stopId", value: String(stopId)),
     ]
+    if let routeId { queryItems.append(URLQueryItem(name: "routeId", value: routeId)) }
+    if let pathId { queryItems.append(URLQueryItem(name: "pathId", value: String(pathId))) }
+    if let stopId { queryItems.append(URLQueryItem(name: "stopId", value: String(stopId))) }
     if let destinationPathId {
       queryItems.append(
         URLQueryItem(name: "destinationPathId", value: String(destinationPathId))
@@ -807,6 +954,41 @@ private enum FavoriteWidgetDeepLink {
     }
     components.queryItems = queryItems
     return components.url
+  }
+
+  static func station(provider: String, stationId: String) -> URL? {
+    guard !provider.isEmpty, !stationId.isEmpty else { return nil }
+    var components = URLComponents()
+    components.scheme = "yabus"
+    components.host = "station"
+    components.queryItems = [
+      URLQueryItem(name: "provider", value: provider),
+      URLQueryItem(name: "stationId", value: stationId),
+    ]
+    return components.url
+  }
+}
+
+@available(iOS 18.0, *)
+private struct OpenFavoriteWidgetItemIntent: AppIntent {
+  static var title: LocalizedStringResource = "開啟收藏項目"
+  static var description = IntentDescription("在 YABus 開啟路線、站牌或乘車點。")
+  static var openAppWhenRun = true
+  static var isDiscoverable = false
+
+  @Parameter(title: "收藏連結")
+  var url: URL
+
+  init() {
+    url = FavoriteWidgetDeepLink.group(named: "收藏")!
+  }
+
+  init(url: URL) {
+    self.url = url
+  }
+
+  func perform() async throws -> some IntentResult & OpensIntent {
+    .result(opensIntent: OpenURLIntent(url))
   }
 }
 
@@ -821,8 +1003,8 @@ struct FavoriteGroupWidget: Widget {
     ) { entry in
       FavoriteGroupWidgetView(entry: entry)
     }
-    .configurationDisplayName("我的最愛站牌")
-    .description("在主畫面或鎖定畫面查看最愛站牌的到站時間。")
+    .configurationDisplayName("我的最愛")
+    .description("在主畫面或鎖定畫面查看最愛路線、站牌與乘車點。")
     .supportedFamilies([
       .systemSmall,
       .systemMedium,
@@ -885,10 +1067,16 @@ private struct FavoriteGroupWidgetView: View {
         VStack(alignment: .leading, spacing: 8) {
           ForEach(Array(entry.items.prefix(maxVisibleItems))) { item in
             if let routeURL = item.routeURL {
-              Link(destination: routeURL) {
-                rowView(for: item)
+              if #available(iOS 18.0, *) {
+                Button(intent: OpenFavoriteWidgetItemIntent(url: routeURL)) {
+                  rowView(for: item)
+                }
+                .buttonStyle(.plain)
+              } else {
+                Link(destination: routeURL) {
+                  rowView(for: item)
+                }
               }
-              .buttonStyle(.plain)
             } else {
               rowView(for: item)
             }

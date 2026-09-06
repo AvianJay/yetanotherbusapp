@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:taiwanbus_flutter/core/bus_repository.dart';
 import 'package:taiwanbus_flutter/core/models.dart';
+import 'package:taiwanbus_flutter/core/stop_route_merge.dart';
 
 http.Response _passbyResponse({
   required String stopId,
@@ -22,6 +23,7 @@ Map<String, Object?> _passbyRoute(
   String routeId, {
   int pathId = 0,
   int? eta,
+  String stopId = '39',
 }) {
   return {
     'routeid': routeId,
@@ -31,7 +33,7 @@ Map<String, Object?> _passbyRoute(
     'path_name': 'Outbound',
     'path_name_en': 'Outbound',
     'seq': 3,
-    'stopid': '39',
+    'stopid': stopId,
     'eta': eta,
     'message': '',
     'updated_at': 1000,
@@ -145,5 +147,46 @@ void main() {
     );
 
     expect(results, isEmpty);
+  });
+
+  test('every passby route carries the requested stop id, not its own', () async {
+    // The server resolves all passing routes from one stop id and stamps that
+    // id on each of them, so two paths of the same route come back sharing a
+    // stop id and differing only by pathid. This is why stopRouteMergeKey uses
+    // routeId+pathId — the local name lookup carries each route's own stop id
+    // (21826 for 綠3's other direction), so stop ids cannot identify an entry
+    // across the two sources.
+    final client = MockClient((request) async {
+      return _passbyResponse(
+        stopId: '21746',
+        stopName: '捷運南屯站(文心路)',
+        routes: [
+          _passbyRoute('TXG4030', pathId: 1, eta: 120, stopId: '21746'),
+          _passbyRoute('TXG4030', pathId: 0, eta: 600, stopId: '21746'),
+        ],
+      );
+    });
+
+    final repository = BusRepository(client: client);
+    final results = await repository.getStopPassby(
+      '21746',
+      provider: BusProvider.txg,
+      expectedStopName: '捷運南屯站(文心路)',
+    );
+
+    expect(results, hasLength(2));
+    expect(
+      results.map((result) => result.matchedStop.stopId).toSet(),
+      hasLength(1),
+      reason: 'both entries are stamped with the requested stop id',
+    );
+    expect(
+      results.map((result) => result.matchedStop.pathId).toList(),
+      <int>[1, 0],
+    );
+    expect(
+      results.map(stopRouteMergeKey).toList(),
+      <String>['TXG4030:1', 'TXG4030:0'],
+    );
   });
 }

@@ -36,6 +36,7 @@ import '../screens/nearby_screen.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/privacy_policy_page.dart';
 import '../screens/route_detail_navigation.dart';
+import '../screens/station_detail_screen.dart';
 import '../screens/search_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/terms_of_service_page.dart';
@@ -310,6 +311,19 @@ Route<dynamic>? _buildAppRoute(
         initialStopId: intent.stopId,
         initialDestinationPathId: intent.destinationPathId,
         initialDestinationStopId: intent.destinationStopId,
+      );
+    case AppRouteKind.stationDetail:
+      final provider = intent.provider;
+      final stationId = intent.stationId;
+      if (provider == null || stationId == null) {
+        return null;
+      }
+      return MaterialPageRoute<void>(
+        settings: RouteSettings(name: intent.location),
+        builder: (_) => StationDetailScreen(
+          provider: provider,
+          stationId: stationId,
+        ),
       );
     case AppRouteKind.stopDetail:
     case AppRouteKind.unknown:
@@ -733,6 +747,19 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
             initialStopId: action.stopId,
             initialDestinationPathId: action.destinationPathId,
             initialDestinationStopId: action.destinationStopId,
+          ),
+        );
+        return;
+      case AppLaunchTarget.stationDetail:
+        final provider = action.provider;
+        final stationId = action.stationId;
+        if (provider == null || stationId == null || stationId.isEmpty) {
+          return;
+        }
+        await navigator.pushNamed(
+          AppRoutes.stationDetailPath(
+            provider: provider,
+            stationId: stationId,
           ),
         );
         return;

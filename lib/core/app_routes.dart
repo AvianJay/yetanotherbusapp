@@ -112,6 +112,15 @@ class AppRoutes {
   static String announcementDetailPath(String announcementId) {
     return Uri(pathSegments: ['announcement', announcementId]).toString();
   }
+
+  static String stationDetailPath({
+    required BusProvider provider,
+    required String stationId,
+  }) {
+    return Uri(
+      pathSegments: ['station', provider.name, stationId.trim()],
+    ).toString();
+  }
 }
 
 enum AppRouteKind {
@@ -128,6 +137,7 @@ enum AppRouteKind {
   announcements,
   announcementDetail,
   routeDetail,
+  stationDetail,
   stopDetail,
   unknown,
 }
@@ -145,6 +155,7 @@ class AppRouteIntent {
     this.destinationStopId,
     this.announcementId,
     this.stopIdentifier,
+    this.stationId,
   });
 
   final AppRouteKind kind;
@@ -158,6 +169,7 @@ class AppRouteIntent {
   final int? destinationStopId;
   final String? announcementId;
   final String? stopIdentifier;
+  final String? stationId;
 }
 
 AppRouteIntent parseAppRoute(String? rawLocation) {
@@ -271,6 +283,19 @@ AppRouteIntent parseAppRoute(String? rawLocation) {
         destinationStopId: _tryParseInt(
           uri.queryParameters['destinationStopId'],
         ),
+      );
+    }
+  }
+
+  if (segments.first == 'station' && segments.length >= 3) {
+    final provider = _providerFromName(segments[1]);
+    final stationId = Uri.decodeComponent(segments[2]).trim();
+    if (provider != null && stationId.isNotEmpty) {
+      return AppRouteIntent(
+        kind: AppRouteKind.stationDetail,
+        location: location,
+        provider: provider,
+        stationId: stationId,
       );
     }
   }

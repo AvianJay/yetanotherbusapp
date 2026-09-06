@@ -24,6 +24,7 @@ import '../core/live_activity_service.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
 import '../core/samsung_live_notification_prompt_service.dart';
+import '../core/stop_route_merge.dart';
 import '../core/trip_monitor_notifications.dart';
 import '../core/twbusforum.dart';
 import '../widgets/background_image_wrapper.dart';
@@ -31,6 +32,7 @@ import '../widgets/cat_state_card.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/route_bus_map_sheet.dart';
 import '../widgets/ad_banner_widget.dart';
+import 'favorite_groups_screen.dart';
 
 class RouteDetailScreen extends StatefulWidget {
   const RouteDetailScreen({
@@ -421,6 +423,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           repository: AppControllerScope.read(context).repository,
           provider: widget.provider,
           routeKey: widget.routeKey,
+          onFavoriteRoute: _handleRouteFavorite,
+          onPinRoute: _isAndroid ? _handlePinnedRouteShortcut : null,
         );
       },
     );
@@ -3347,8 +3351,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           title: Text(stop.stopName),
           children: [
             SimpleDialogOption(
-              onPressed: () => Navigator.of(context).pop(_StopAction.favorite),
-              child: const Text('加入最愛'),
+              onPressed: () =>
+                  Navigator.of(context).pop(_StopAction.favoriteBoarding),
+              child: const Text('收藏此站牌'),
+            ),
+            SimpleDialogOption(
+              onPressed: () =>
+                  Navigator.of(context).pop(_StopAction.favoriteStation),
+              child: const Text('收藏整站'),
             ),
             SimpleDialogOption(
               onPressed: () => Navigator.of(context).pop(),
@@ -3362,29 +3372,159 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
 
-    if (action == _StopAction.favorite) {
+    if (action == _StopAction.favoriteStation) {
+      await _handleStationFavorite(stop);
+    } else if (action == _StopAction.favoriteBoarding) {
       await _handleFavorite(stop);
     }
   }
 
+  Future<String?> _selectFavoriteGroup(FavoriteItemType itemType) async {
+    final controller = AppControllerScope.read(context);
+    final compatible = controller.compatibleFavoriteGroupNames(itemType);
+    String? selected;
+    if (compatible.isEmpty) {
+      selected = '__new__';
+    } else if (compatible.length == 1) {
+      selected = compatible.single;
+    } else {
+      selected = await _showGroupPicker(compatible);
+    }
+    if (!mounted || selected == null) {
+      return null;
+    }
+    if (selected != '__new__') {
+      return selected;
+    }
+
+    final draft = await showFavoriteGroupDialog(
+      context,
+      initialKind: switch (itemType) {
+        FavoriteItemType.route => FavoriteGroupKind.route,
+        FavoriteItemType.station => FavoriteGroupKind.station,
+        FavoriteItemType.boarding => FavoriteGroupKind.boarding,
+      },
+      compatibleItemType: itemType,
+    );
+    if (!mounted || draft == null) {
+      return null;
+    }
+    if (controller.favoriteGroups.containsKey(draft.name)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已有相同名稱的收藏群組。')));
+      return null;
+    }
+    await controller.addFavoriteGroup(draft.name, kind: draft.kind);
+    return draft.name;
+  }
+
+  Future<void> _handleRouteFavorite() async {
+    final route = _detail?.route;
+    if (route == null || route.routeId.trim().isEmpty) {
+      return;
+    }
+    final groupName = await _selectFavoriteGroup(FavoriteItemType.route);
+    if (!mounted || groupName == null) {
+      return;
+    }
+    try {
+      await AppControllerScope.read(context).addFavoriteItem(
+        FavoriteRoute(
+          provider: widget.provider,
+          routeKey: widget.routeKey,
+          routeId: route.routeId,
+          routeName: route.routeName,
+          routeDescription: route.description.trim().isEmpty
+              ? null
+              : route.description.trim(),
+        ),
+        groupName: groupName,
+      );
+    } on FavoriteGroupFullException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('我的最愛已達上限 ${error.maxStops} 項，無法再加入')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    _playSuccessHaptic();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已將路線加入 $groupName')));
+  }
+
+  Future<void> _handleStationFavorite(StopInfo stop) async {
+    final rawStopId = stop.rawStopId?.trim() ?? '';
+    if (rawStopId.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('這個站牌缺少可解析的識別碼，無法對應到整站。')));
+      return;
+    }
+    final controller = AppControllerScope.read(context);
+    StationPassbyData? station;
+    try {
+      station = await controller.repository.resolveStation(
+        rawStopId,
+        provider: widget.provider,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
+      return;
+    }
+    if (!mounted) return;
+    if (station == null) {
+      // Not an error: the server answered, it just has no whole-station record
+      // for this stop yet (the station tables are filled by the static sync).
+      // Offer the boarding-point favorite, which never depends on that data.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('伺服器還沒同步這一站的整站資料。'),
+          action: SnackBarAction(
+            label: '收藏此站牌',
+            onPressed: () => unawaited(_handleFavorite(stop)),
+          ),
+        ),
+      );
+      return;
+    }
+    final groupName = await _selectFavoriteGroup(FavoriteItemType.station);
+    if (!mounted || groupName == null) {
+      return;
+    }
+    try {
+      await controller.addFavoriteItem(
+        FavoriteStation(
+          provider: widget.provider,
+          stationId: station.stationId,
+          stationName: station.stationName,
+        ),
+        groupName: groupName,
+      );
+    } on FavoriteGroupFullException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('我的最愛已達上限 ${error.maxStops} 項，無法再加入')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    _playSuccessHaptic();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已將${station.stationName}加入 $groupName')),
+    );
+  }
+
   Future<void> _handleFavorite(StopInfo stop) async {
     final controller = AppControllerScope.read(context);
-    String? groupName;
-
-    if (controller.favoriteGroupNames.length > 1) {
-      groupName = await _showGroupPicker(controller.favoriteGroupNames);
-      if (!mounted || groupName == null) {
-        return;
-      }
-      if (groupName == '__new__') {
-        groupName = await _showAddGroupDialog();
-        if (!mounted || groupName == null || groupName.trim().isEmpty) {
-          return;
-        }
-        await controller.addFavoriteGroup(groupName);
-      }
-    } else if (controller.favoriteGroupNames.length == 1) {
-      groupName = controller.favoriteGroupNames.first;
+    final groupName = await _selectFavoriteGroup(FavoriteItemType.boarding);
+    if (!mounted || groupName == null) {
+      return;
     }
 
     final favorite = FavoriteStop(
@@ -3395,6 +3535,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       routeId: _detail?.route.routeId,
       routeName: _detail?.route.routeName,
       stopName: stop.stopName,
+      rawStopId: stop.rawStopId,
     );
     String selectedGroup;
     try {
@@ -3540,6 +3681,26 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     );
   }
 
+  Future<void> _handlePinnedRouteShortcut() async {
+    final route = _detail?.route;
+    if (route == null || route.routeId.trim().isEmpty) return;
+    final didPin = await AndroidHomeIntegration.pinFavoriteShortcut(
+      favorite: FavoriteRoute(
+        provider: widget.provider,
+        routeKey: widget.routeKey,
+        routeId: route.routeId,
+        routeName: route.routeName,
+        routeDescription: route.description.trim().isEmpty
+            ? null
+            : route.description.trim(),
+      ),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(didPin ? '已送出路線捷徑要求。' : '這台裝置不支援主畫面捷徑。')),
+    );
+  }
+
   Future<void> _handleDestinationAction(StopInfo stop) async {
     if (_isDestinationStop(stop)) {
       await _clearDestinationStop();
@@ -3595,12 +3756,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
   }
 
-  // Whether the routes currently shown in the related-stop-routes sheet came
-  // from the server passby endpoint (ETA already embedded) rather than the
-  // local name-based lookup. Read by [_fetchRelatedStopLiveMaps] to decide
-  // whether a follow-up realtime fetch is needed. Only one sheet is open at a
-  // time, so a single flag is sufficient.
-  bool _relatedStopRoutesFromPassby = false;
+  // Keys ([stopRouteMergeKey]) of the entries in the related-stop-routes sheet
+  // whose ETA arrived embedded in the passby response. Read by
+  // [_fetchRelatedStopLiveMaps] to skip them when requesting realtime data, and
+  // by [_applyLiveMapsToRelatedStopRoutes] to leave their values alone. Only
+  // one sheet is open at a time, so a single set is sufficient.
+  Set<String> _relatedStopPassbyRouteKeys = const <String>{};
 
   Future<List<StopRouteSearchResult>> _loadRelatedStopRoutes(
     StopInfo stop,
@@ -3610,48 +3771,73 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     final controller = AppControllerScope.read(context);
-    _relatedStopRoutesFromPassby = false;
+    _relatedStopPassbyRouteKeys = const <String>{};
 
-    // Prefer the server-side passby endpoint keyed on the original TDX stop ID.
-    // It resolves the passing routes and returns only this stop's ETA per
-    // route, so the client avoids requesting a large batch of full realtime
-    // snapshots (one per route, each carrying every stop). The provider scopes
-    // the lookup to this route's authority — TDX stop IDs collide across
-    // cities — and the stop name lets the repository reject a mis-scoped
-    // response from servers that don't understand the scope parameter yet.
+    // Two sources, and both are needed.
+    //
+    // The server passby endpoint is keyed on one TDX stop ID and returns that
+    // stop's ETA per route, so it is cheap and authoritative — the client
+    // avoids requesting a batch of full realtime snapshots (one per route, each
+    // carrying every stop). But TDX publishes a *different* stop ID per route
+    // and direction at the same physical stop (捷運南屯站(文心路) is 21746 for
+    // 綠3, 21884 for 73, 24080 for 302), so passby only covers the routes
+    // sharing this stop's ID — often just the route already on screen. The
+    // local name-based lookup finds the sibling IDs but has no realtime data.
+    // Merging keeps the ETA and the complete route list.
+    //
+    // The provider scopes passby to this route's authority — TDX stop IDs
+    // collide across cities — and the stop name lets the repository reject a
+    // mis-scoped response from servers that don't understand the scope
+    // parameter yet.
+    final passby = <StopRouteSearchResult>[];
     final rawStopId = stop.rawStopId;
     if (rawStopId != null) {
       try {
-        final passby = await controller.repository.getStopPassby(
-          rawStopId,
-          provider: widget.provider,
-          expectedStopName: stop.stopName,
+        passby.addAll(
+          await controller.repository.getStopPassby(
+            rawStopId,
+            provider: widget.provider,
+            expectedStopName: stop.stopName,
+          ),
         );
-        if (passby.isNotEmpty) {
-          _relatedStopRoutesFromPassby = true;
-          return passby;
-        }
-        // An empty result can mean the stop isn't present in the server's
-        // database (e.g. data drift); fall through to the local lookup.
       } catch (error) {
         debugPrint('Stop passby load error: $error');
-        // Fall back to the local name-based lookup below.
+        // Silent: the local lookup below still produces a usable list.
       }
     }
 
     final normalizedStopName = _normalizeStopRouteLookupName(stop.stopName);
-    final results = await controller.searchRoutesByStop(
-      stop.stopName,
-      provider: widget.provider,
-    );
+    var local = const <StopRouteSearchResult>[];
+    Object? localError;
+    StackTrace? localStackTrace;
+    try {
+      final results = await controller.searchRoutesByStop(
+        stop.stopName,
+        provider: widget.provider,
+      );
+      local = results
+          .where(
+            (result) =>
+                _normalizeStopRouteLookupName(result.matchedStop.stopName) ==
+                normalizedStopName,
+          )
+          .toList(growable: false);
+    } catch (error, stackTrace) {
+      debugPrint('Related stop route local lookup error: $error');
+      localError = error;
+      localStackTrace = stackTrace;
+    }
 
-    return results
-        .where(
-          (result) =>
-              _normalizeStopRouteLookupName(result.matchedStop.stopName) ==
-              normalizedStopName,
-        )
-        .toList(growable: false);
+    // Preserve the previous failure surface: a local lookup that throws with
+    // nothing from passby must still reach the sheet's error state. When passby
+    // did return something, don't let the local failure discard it.
+    if (passby.isEmpty && localError != null) {
+      Error.throwWithStackTrace(localError, localStackTrace!);
+    }
+
+    final merged = mergeStopRouteResults(passby: passby, local: local);
+    _relatedStopPassbyRouteKeys = merged.passbyKeys;
+    return merged.results;
   }
 
   List<_RelatedStopRouteEta> _buildInitialRelatedStopRouteEtas(
@@ -3672,10 +3858,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   Future<BatchLiveStopMap> _fetchRelatedStopLiveMaps(
     List<StopRouteSearchResult> routes,
   ) async {
-    // Passby results already carry each route's ETA in matchedStop, so there
-    // is nothing more to fetch — applyLiveMaps falls back to matchedStop when
-    // the map has no entry for a route.
-    if (_relatedStopRoutesFromPassby) {
+    // Passby entries already carry this stop's ETA in matchedStop. Only the
+    // entries that came from the local name lookup — the sibling stop IDs
+    // passby could not see — still need a realtime fetch. Filtering per entry
+    // rather than per route matters: one route can be passby-covered on path 1
+    // and locally sourced on path 0, and it must still reach the batch fetch.
+    final pending = routes
+        .where(
+          (result) =>
+              !_relatedStopPassbyRouteKeys.contains(stopRouteMergeKey(result)),
+        )
+        .toList(growable: false);
+    if (pending.isEmpty) {
       return const <String, LiveStopMap>{};
     }
 
@@ -3683,13 +3877,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     BatchLiveStopMap liveMaps = const <String, LiveStopMap>{};
     try {
       liveMaps = await controller.repository.getBatchLiveStopMaps(
-        routes.map((result) => result.route.routeId).toList(growable: false),
+        pending.map((result) => result.route.routeId).toList(growable: false),
       );
     } catch (error) {
       debugPrint('Related stop route ETA load error: $error');
     }
 
-    final missingRouteIds = routes
+    final missingRouteIds = pending
         .map((result) => result.route.routeId.trim())
         .where((id) => !liveMaps.containsKey(id))
         .toSet();
@@ -3721,6 +3915,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     BatchLiveStopMap liveMaps,
   ) {
     final items = routes.map((result) {
+      // A passby entry's matchedStop already holds this stop's ETA. Don't let a
+      // live-map hit keyed on the *requested* stop ID overwrite it: copyWith
+      // replaces sec/msg/t/buses but not etas, which would leave the two out of
+      // sync.
+      if (_relatedStopPassbyRouteKeys.contains(stopRouteMergeKey(result))) {
+        return _RelatedStopRouteEta(
+          result: result,
+          liveStop: result.matchedStop,
+        );
+      }
       final liveMap = liveMaps[result.route.routeId.trim()];
       final livePayload = liveMap?[_relatedStopRealtimeKey(result.matchedStop)];
       final liveStop = livePayload == null
@@ -3925,8 +4129,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           title: Text(stop.stopName),
           children: [
             SimpleDialogOption(
-              onPressed: () => Navigator.of(context).pop(_StopAction.favorite),
-              child: const Text('加入最愛'),
+              onPressed: () =>
+                  Navigator.of(context).pop(_StopAction.favoriteBoarding),
+              child: const Text('收藏此站牌'),
+            ),
+            SimpleDialogOption(
+              onPressed: () =>
+                  Navigator.of(context).pop(_StopAction.favoriteStation),
+              child: const Text('收藏整站'),
             ),
             if (showDestinationAction)
               SimpleDialogOption(
@@ -3968,7 +4178,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
 
-    if (action == _StopAction.favorite) {
+    if (action == _StopAction.favoriteStation) {
+      await _handleStationFavorite(stop);
+    } else if (action == _StopAction.favoriteBoarding) {
       await _handleFavorite(stop);
     } else if (action == _StopAction.destination) {
       await _handleDestinationAction(stop);
@@ -4151,36 +4363,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         );
       },
     );
-  }
-
-  Future<String?> _showAddGroupDialog() async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('新增最愛群組'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: '輸入群組名稱'),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(controller.text.trim()),
-              child: const Text('新增'),
-            ),
-          ],
-        );
-      },
-    );
-    controller.dispose();
-    return result;
   }
 
   Future<void> _openVehicleForum(String vehicleId) async {
@@ -5270,7 +5452,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             ? _buildBackgroundTripMonitorDrawer(context)
             : null,
         appBar: AppBar(
-          title: Text(detail?.route.routeName ?? '公車資訊'),
+          title: Text(
+            detail?.route.routeName ?? '公車資訊',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
           actions: [
             if (detail != null && currentPathId != null)
               IconButton(
@@ -5575,6 +5761,8 @@ class _RouteInfoDialog extends StatefulWidget {
     required this.repository,
     required this.provider,
     required this.routeKey,
+    required this.onFavoriteRoute,
+    this.onPinRoute,
   });
 
   final RouteDetailData detail;
@@ -5582,6 +5770,8 @@ class _RouteInfoDialog extends StatefulWidget {
   final BusRepository repository;
   final BusProvider provider;
   final int routeKey;
+  final Future<void> Function() onFavoriteRoute;
+  final Future<void> Function()? onPinRoute;
 
   @override
   State<_RouteInfoDialog> createState() => _RouteInfoDialogState();
@@ -5658,6 +5848,29 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
               Text(route.description, style: theme.textTheme.bodyMedium),
               const SizedBox(height: 12),
             ],
+            Text('路線動作', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _runRouteAction(widget.onFavoriteRoute),
+                  icon: const Icon(Icons.favorite_border_rounded, size: 18),
+                  label: const Text('收藏路線'),
+                ),
+                if (widget.onPinRoute case final onPinRoute?)
+                  OutlinedButton.icon(
+                    onPressed: () => _runRouteAction(onPinRoute),
+                    icon: const Icon(
+                      Icons.add_to_home_screen_rounded,
+                      size: 18,
+                    ),
+                    label: const Text('新增到主畫面'),
+                  ),
+              ],
+            ),
+            const Divider(height: 24),
             if (widget.alerts.isNotEmpty) ...[
               Row(
                 children: [
@@ -5737,6 +5950,11 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
         ),
       ],
     );
+  }
+
+  void _runRouteAction(Future<void> Function() action) {
+    Navigator.of(context).pop();
+    unawaited(action());
   }
 
   static const String _appBaseUrl = 'https://busapp.avianjay.sbs';
@@ -6671,7 +6889,8 @@ class _RelatedStopRoutesSheetState extends State<_RelatedStopRoutesSheet> {
 }
 
 enum _StopAction {
-  favorite,
+  favoriteStation,
+  favoriteBoarding,
   destination,
   schedule,
   relatedRoutes,

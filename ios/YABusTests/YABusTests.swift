@@ -235,4 +235,26 @@ class YABusTests: XCTestCase {
     let bridge2 = LiveActivityBridge.shared
     XCTAssertTrue(bridge1 === bridge2)
   }
+
+  func testStationWidgetDeepLinkCreatesStationLaunchTarget() throws {
+    let url = try XCTUnwrap(
+      URL(string: "yabus://station?provider=tpe&stationId=TPE-STATION-1")
+    )
+    let payload = try XCTUnwrap(AppLaunchBridge.shared.payloadForTesting(url: url))
+
+    XCTAssertEqual(payload["target"] as? String, "station_detail")
+    XCTAssertEqual(payload["provider"] as? String, "tpe")
+    XCTAssertEqual(payload["stationId"] as? String, "TPE-STATION-1")
+  }
+
+  func testStationUniversalLinkCreatesStationLaunchTarget() throws {
+    let url = try XCTUnwrap(
+      URL(string: "https://busapp.avianjay.sbs/station/tpe/TPE-STATION-1")
+    )
+    let payload = try XCTUnwrap(AppLaunchBridge.shared.payloadForTesting(url: url))
+
+    XCTAssertEqual(payload["target"] as? String, "station_detail")
+    XCTAssertEqual(payload["provider"] as? String, "tpe")
+    XCTAssertEqual(payload["stationId"] as? String, "TPE-STATION-1")
+  }
 }

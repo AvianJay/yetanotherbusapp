@@ -28,6 +28,7 @@ import '../core/web_update_checker_stub.dart'
 import '../screens/account_screen.dart';
 import '../screens/announcement_detail_page.dart';
 import '../screens/announcements_page.dart';
+import '../screens/bus_map_screen.dart';
 import '../screens/database_settings_screen.dart';
 import '../screens/feedback_screen.dart';
 import '../screens/favorites_screen.dart';
@@ -287,6 +288,11 @@ Route<dynamic>? _buildAppRoute(
       return MaterialPageRoute<void>(
         settings: const RouteSettings(name: AppRoutes.announcements),
         builder: (_) => const AnnouncementsPage(),
+      );
+    case AppRouteKind.busMap:
+      return MaterialPageRoute<void>(
+        settings: RouteSettings(name: intent.location),
+        builder: (_) => BusMapScreen(initialProvider: intent.provider),
       );
     case AppRouteKind.announcementDetail:
       final announcementId = intent.announcementId;

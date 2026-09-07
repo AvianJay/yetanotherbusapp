@@ -15,6 +15,7 @@ import '../widgets/eta_badge.dart';
 import '../widgets/transit_station_map.dart';
 import '../widgets/transit_drawer.dart';
 import 'adaptive_settings_presenter.dart';
+import 'bus_map_screen.dart';
 import 'database_settings_screen.dart';
 import 'favorites_screen.dart';
 import 'nearby_screen.dart';
@@ -59,6 +60,8 @@ class HomeScreen extends StatelessWidget {
         _buildFavoritesFeatureCard(context, compactMode: compactMode),
         const SizedBox(height: 12),
         _buildNearbyFeatureCard(context, compactMode: compactMode),
+        const SizedBox(height: 12),
+        _buildBusMapFeatureCard(context, compactMode: compactMode),
         const SizedBox(height: 16),
         const AdBannerWidget(),
       ],
@@ -96,6 +99,14 @@ class HomeScreen extends StatelessWidget {
               const SizedBox(width: 16),
               Expanded(
                 child: _buildNearbyFeatureCard(
+                  context,
+                  bigIcon: true,
+                  compactMode: compactMode,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildBusMapFeatureCard(
                   context,
                   bigIcon: true,
                   compactMode: compactMode,
@@ -178,6 +189,28 @@ class HomeScreen extends StatelessWidget {
           MaterialPageRoute<void>(
             settings: const RouteSettings(name: 'nearby'),
             builder: (_) => const NearbyScreen(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBusMapFeatureCard(
+    BuildContext context, {
+    bool bigIcon = false,
+    bool compactMode = false,
+  }) {
+    return _FeatureCard(
+      icon: Icons.map_outlined,
+      title: '全公車地圖',
+      subtitle: '看整個縣市的公車現在開到哪，點一輛就能看它的路線與站牌。',
+      bigIcon: bigIcon,
+      compact: compactMode,
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: 'bus_map'),
+            builder: (_) => const BusMapScreen(),
           ),
         );
       },

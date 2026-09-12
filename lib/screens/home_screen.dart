@@ -1335,7 +1335,7 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
           );
     final compactMode = _useCompactHomeMode(
       widget.controller.settings,
-      context.size?.width ?? MediaQuery.sizeOf(context).width,
+      HomeScreen._desktopSidebarWidth,
     );
 
     return Card(

@@ -53,15 +53,11 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   List<BikeStation> _stations = [];
   BikeStation? _selectedStation;
   Timer? _refreshTimer;
+  bool _usesSplitLayout = false;
 
   bool get _useGoogleMapsPointProvider => useGoogleMapsProviderFor(
     AppControllerScope.read(context).settings.mobileMapProvider,
   );
-
-  bool get _usesSplitLayout {
-    final renderBox = context.findRenderObject() as RenderBox?;
-    return (renderBox?.size.width ?? 0) >= _splitLayoutBreakpoint;
-  }
 
   @override
   void initState() {
@@ -1128,41 +1124,43 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       pageKey: 'bus',
     );
 
-    return Scaffold(
-      backgroundColor: hasBackgroundImage ? Colors.transparent : null,
-      appBar: AppBar(
-        title: const Text('YABike'),
-        automaticallyImplyLeading: false,
-        leading:
-            MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
-            ? null
-            : Builder(
-                builder: (ctx) => IconButton(
-                  icon: const Icon(Icons.menu_rounded),
-                  onPressed: () => Scaffold.of(ctx).openDrawer(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useSplitLayout = constraints.maxWidth >= _splitLayoutBreakpoint;
+        _usesSplitLayout = useSplitLayout;
+        return Scaffold(
+          backgroundColor: hasBackgroundImage ? Colors.transparent : null,
+          appBar: AppBar(
+            title: const Text('YABike'),
+            automaticallyImplyLeading: false,
+            leading:
+                MediaQuery.sizeOf(context).width >=
+                    kDesktopNavigationRailBreakpoint
+                ? null
+                : Builder(
+                    builder: (ctx) => IconButton(
+                      icon: const Icon(Icons.menu_rounded),
+                      onPressed: () => Scaffold.of(ctx).openDrawer(),
+                    ),
+                  ),
+            actions: [
+              if (!useSplitLayout)
+                IconButton(
+                  tooltip: '附近站點',
+                  onPressed: _showNearbyStationsSheet,
+                  icon: Badge(
+                    isLabelVisible: _stations.isNotEmpty,
+                    label: Text('${_stations.length}'),
+                    child: const Icon(Icons.list_alt_rounded),
+                  ),
                 ),
-              ),
-        actions: [
-          if (!_usesSplitLayout)
-            IconButton(
-              tooltip: '附近站點',
-              onPressed: _showNearbyStationsSheet,
-              icon: Badge(
-                isLabelVisible: _stations.isNotEmpty,
-                label: Text('${_stations.length}'),
-                child: const Icon(Icons.list_alt_rounded),
-              ),
-            ),
-        ],
-      ),
-      drawer: TransitDrawer(
-        currentMode: TransitMode.youbike,
-        onModeChanged: widget.onModeChanged,
-      ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final useSplitLayout = constraints.maxWidth >= _splitLayoutBreakpoint;
-          return Column(
+            ],
+          ),
+          drawer: TransitDrawer(
+            currentMode: TransitMode.youbike,
+            onModeChanged: widget.onModeChanged,
+          ),
+          body: Column(
             children: [
               Expanded(
                 child: _locating
@@ -1194,9 +1192,9 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
               ),
               const AdBannerWidget(),
             ],
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 

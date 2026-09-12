@@ -27,7 +27,8 @@ class AnnouncementService {
     final uri = Uri.parse(
       '${ApiConfig.baseUrl}/api/v1/announcements',
     ).replace(queryParameters: queryParameters);
-    final response = await _client.get(
+    final response = await apiGet(
+      _client,
       uri,
       headers: ApiUserAgent.applyTo(apiJsonHeaders),
     );

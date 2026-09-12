@@ -26,8 +26,8 @@ Future<void> main(List<String> args) async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   usePathUrlStrategy();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
-  await configureDatabaseFactory();
   try {
+    await configureDatabaseFactory();
     await AppLaunchService.instance.initialize(initialArguments: args);
     final analytics = await AppAnalytics.initialize();
     final buildInfo = await AppBuildInfo.load();

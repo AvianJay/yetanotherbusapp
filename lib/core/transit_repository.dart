@@ -52,7 +52,7 @@ class TransitRepository {
 
   Future<List<dynamic>> _getJsonList(String path) async {
     final uri = Uri.parse('$_apiBaseUrl$path');
-    final response = await _client.get(uri, headers: _headers);
+    final response = await apiGet(_client, uri, headers: _headers);
     if (response.statusCode != 200) {
       throw Exception(
         httpErrorMessage(
@@ -68,7 +68,7 @@ class TransitRepository {
   // ignore: unused_element
   Future<Map<String, dynamic>> _getJsonMap(String path) async {
     final uri = Uri.parse('$_apiBaseUrl$path');
-    final response = await _client.get(uri, headers: _headers);
+    final response = await apiGet(_client, uri, headers: _headers);
     if (response.statusCode != 200) {
       throw Exception(
         httpErrorMessage(
@@ -154,7 +154,7 @@ class TransitRepository {
       final uri = Uri.parse(
         '$_apiBaseUrl/api/v1/metro/$system/lines/$lineId/eta',
       );
-      final response = await _client.get(uri, headers: _headers);
+      final response = await apiGet(_client, uri, headers: _headers);
       if (response.statusCode != 200) {
         throw Exception(
           httpErrorMessage(

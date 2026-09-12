@@ -56,9 +56,12 @@ class TransitStationMap extends StatefulWidget {
 }
 
 class _TransitStationMapState extends State<TransitStationMap> {
+  static const _pointZoom = 16.0;
+
   final MapController _mapController = MapController();
   gmaps.GoogleMapController? _googleMapController;
   bool? _lastUseGoogleMapsPointProvider;
+  bool _osmMapReady = false;
 
   List<TransitMapPoint> get _validPoints => widget.points
       .where((point) => point.hasValidLocation)
@@ -116,14 +119,17 @@ class _TransitStationMapState extends State<TransitStationMap> {
   }
 
   void _fitOsmCamera() {
+    if (!_osmMapReady) {
+      return;
+    }
     try {
       final selectedPoint = _selectedPoint;
       if (selectedPoint != null) {
-        _mapController.move(selectedPoint.latLng, 14.5);
+        _mapController.move(selectedPoint.latLng, _pointZoom);
         return;
       }
       if (_validPoints.length == 1) {
-        _mapController.move(_validPoints.first.latLng, 14.5);
+        _mapController.move(_validPoints.first.latLng, _pointZoom);
         return;
       }
       _mapController.fitCamera(
@@ -155,7 +161,7 @@ class _TransitStationMapState extends State<TransitStationMap> {
         controller.animateCamera(
           gmaps.CameraUpdate.newLatLngZoom(
             toGoogleLatLng(selectedPoint.latLng),
-            14.5,
+            _pointZoom,
           ),
         );
         return;
@@ -164,7 +170,7 @@ class _TransitStationMapState extends State<TransitStationMap> {
         controller.animateCamera(
           gmaps.CameraUpdate.newLatLngZoom(
             toGoogleLatLng(_validPoints.first.latLng),
-            14.5,
+            _pointZoom,
           ),
         );
         return;
@@ -241,10 +247,14 @@ class _TransitStationMapState extends State<TransitStationMap> {
             else
               FlutterMap(
                 mapController: _mapController,
-                options: const MapOptions(
-                  initialCenter: LatLng(23.7, 121.0),
+                options: MapOptions(
+                  initialCenter: const LatLng(23.7, 121.0),
                   initialZoom: 7.2,
-                  interactionOptions: InteractionOptions(
+                  onMapReady: () {
+                    _osmMapReady = true;
+                    _fitCamera();
+                  },
+                  interactionOptions: const InteractionOptions(
                     flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                   ),
                 ),

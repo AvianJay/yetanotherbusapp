@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:brotli/brotli.dart' as brotli;
@@ -15,6 +16,53 @@ const apiJsonContentHeaders = <String, String>{
   ...apiJsonHeaders,
   'Content-Type': 'application/json',
 };
+
+const apiRequestTimeout = Duration(seconds: 15);
+const apiDownloadIdleTimeout = Duration(seconds: 30);
+
+Future<http.Response> apiGet(
+  http.Client client,
+  Uri uri, {
+  Map<String, String>? headers,
+}) {
+  return client.get(uri, headers: headers).timeout(apiRequestTimeout);
+}
+
+Future<http.Response> apiPost(
+  http.Client client,
+  Uri uri, {
+  Map<String, String>? headers,
+  Object? body,
+}) {
+  return client
+      .post(uri, headers: headers, body: body)
+      .timeout(apiRequestTimeout);
+}
+
+Future<http.Response> apiPut(
+  http.Client client,
+  Uri uri, {
+  Map<String, String>? headers,
+  Object? body,
+}) {
+  return client
+      .put(uri, headers: headers, body: body)
+      .timeout(apiRequestTimeout);
+}
+
+class TimedHttpClient extends http.BaseClient {
+  TimedHttpClient(this._delegate);
+
+  final http.Client _delegate;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    return _delegate.send(request).timeout(apiRequestTimeout);
+  }
+
+  @override
+  void close() => _delegate.close();
+}
 
 List<int> apiResponseBodyBytes(http.Response response) {
   List<int> bytes = response.bodyBytes;

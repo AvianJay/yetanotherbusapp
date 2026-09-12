@@ -60,38 +60,36 @@ function isStaticAsset(pathname) {
 }
 
 async function appShellUrls() {
-  try {
-    const response = await fetch(APP_SHELL_MANIFEST_URL, { cache: 'reload' });
-    if (!response.ok) {
-      return [];
-    }
-    const urls = await response.json();
-    return Array.isArray(urls)
-      ? urls.filter((url) => typeof url === 'string' && url.startsWith('/'))
-      : [];
-  } catch (error) {
-    console.warn('[YABus SW] app shell manifest unavailable', error);
-    return [];
+  const response = await fetch(APP_SHELL_MANIFEST_URL, { cache: 'reload' });
+  if (!response.ok) {
+    throw new Error(`App shell manifest request failed (${response.status})`);
   }
+  const urls = await response.json();
+  if (!Array.isArray(urls)) {
+    throw new Error('App shell manifest is invalid');
+  }
+  return urls.filter((url) => typeof url === 'string' && url.startsWith('/'));
 }
 
 async function precache(cache) {
   const urls = new Set([...BASE_PRECACHE_URLS, ...(await appShellUrls())]);
-  await Promise.all(
-    [...urls].map((url) =>
-      cache.add(new Request(url, { cache: 'reload' })).catch((error) => {
-        // A missing optional renderer artifact must not strand users on an
-        // older service worker.
-        console.warn('[YABus SW] precache failed for', url, error);
-      }),
-    ),
-  );
+  // `addAll` rejects the installation if any required build asset is missing,
+  // keeping the currently active offline shell intact.
+  await cache.addAll([...urls].map((url) => new Request(url, { cache: 'reload' })));
 }
 
 // ── Install ────────────────────────────────────────────────────
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then(precache));
-  self.skipWaiting();
+  event.waitUntil(
+    caches
+      .open(CACHE_NAME)
+      .then(precache)
+      .then(() => self.skipWaiting())
+      .catch(async (error) => {
+        await caches.delete(CACHE_NAME);
+        throw error;
+      }),
+  );
 });
 
 // ── Activate ───────────────────────────────────────────────────
@@ -103,9 +101,8 @@ self.addEventListener('activate', (event) => {
           .filter((key) => key.startsWith('yabus-') && key !== CACHE_NAME)
           .map((key) => caches.delete(key)),
       ),
-    ),
+    ).then(() => self.clients.claim()),
   );
-  self.clients.claim();
 });
 
 // ── Fetch ──────────────────────────────────────────────────────

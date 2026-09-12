@@ -25,7 +25,8 @@ class DatabaseNotReadyException implements Exception {
 }
 
 class BusRepository {
-  BusRepository({http.Client? client}) : _client = client ?? http.Client();
+  BusRepository({http.Client? client})
+    : _client = TimedHttpClient(client ?? http.Client());
 
   static const _apiBaseUrl = ApiConfig.baseUrl;
   static const _databaseDirectoryName = '.yabus_backend';
@@ -39,8 +40,6 @@ class BusRepository {
   final http.Client _client;
   Map<String, String> get _apiJsonHeaders =>
       ApiUserAgent.applyTo(apiJsonHeaders);
-  Map<String, String> get _downloadHeaders =>
-      ApiUserAgent.applyTo(apiCompressionHeaders);
   static const _routeDetailCacheTtl = Duration(seconds: 2);
   static const _searchApiCacheTtl = Duration(seconds: 2);
   static const _realtimeCacheTtl = Duration(seconds: 2);
@@ -222,8 +221,12 @@ class BusRepository {
     final cityFile = await _cityDatabaseFile(provider);
     final tempMetadataFile = File('${metadataFile.path}.download');
     final tempCityFile = File('${cityFile.path}.download');
+    final previousMetadataFile = File('${metadataFile.path}.previous');
+    final previousCityFile = File('${cityFile.path}.previous');
 
     await metadataFile.parent.create(recursive: true);
+    await _recoverPreviousDatabaseFile(metadataFile, previousMetadataFile);
+    await _recoverPreviousDatabaseFile(cityFile, previousCityFile);
     try {
       await _deleteDatabaseArtifacts(tempMetadataFile);
       await _deleteDatabaseArtifacts(tempCityFile);
@@ -231,16 +234,16 @@ class BusRepository {
       await _ensureDownloadedMetadataDatabaseUsable(tempMetadataFile);
       await _downloadCityDatabase(provider, tempCityFile);
       await _ensureDownloadedCityDatabaseUsable(provider, tempCityFile);
-      await _deleteDatabaseArtifacts(metadataFile);
-      if (await metadataFile.exists()) {
-        await metadataFile.delete();
-      }
-      await tempMetadataFile.rename(metadataFile.path);
-      await _deleteDatabaseArtifacts(cityFile);
-      if (await cityFile.exists()) {
-        await cityFile.delete();
-      }
-      await tempCityFile.rename(cityFile.path);
+      await _replaceDatabaseFiles(
+        metadataFile: metadataFile,
+        cityFile: cityFile,
+        tempMetadataFile: tempMetadataFile,
+        tempCityFile: tempCityFile,
+        previousMetadataFile: previousMetadataFile,
+        previousCityFile: previousCityFile,
+      );
+      await _deleteDatabaseArtifacts(previousMetadataFile);
+      await _deleteDatabaseArtifacts(previousCityFile);
     } finally {
       await _deleteDatabaseArtifacts(tempMetadataFile);
       await _deleteDatabaseArtifacts(tempCityFile);
@@ -1837,9 +1840,9 @@ class BusRepository {
     File targetFile,
   ) async {
     final cityName = _providerDatabaseName(provider);
-    final response = await _client.get(
+    final response = await _streamDatabaseDownload(
       Uri.parse('$_apiBaseUrl/downloads/${Uri.encodeComponent(cityName)}.db'),
-      headers: _downloadHeaders,
+      targetFile,
     );
     if (response.statusCode == 429) {
       throw const HttpException(rateLimitedErrorMessage);
@@ -1849,15 +1852,12 @@ class BusRepository {
         '無法下載 ${provider.label} 資料庫 (${response.statusCode})。',
       );
     }
-
-    await targetFile.parent.create(recursive: true);
-    await targetFile.writeAsBytes(apiResponseBodyBytes(response), flush: true);
   }
 
   Future<void> _downloadRouteMetadataDatabase(File targetFile) async {
-    final response = await _client.get(
+    final response = await _streamDatabaseDownload(
       Uri.parse('$_apiBaseUrl/downloads/bus.db'),
-      headers: _downloadHeaders,
+      targetFile,
     );
     if (response.statusCode == 429) {
       throw const HttpException(rateLimitedErrorMessage);
@@ -1867,9 +1867,6 @@ class BusRepository {
         'Download failed (/downloads/bus.db, ${response.statusCode})',
       );
     }
-
-    await targetFile.parent.create(recursive: true);
-    await targetFile.writeAsBytes(apiResponseBodyBytes(response), flush: true);
   }
 
   // ignore: unused_element
@@ -3529,6 +3526,88 @@ class BusRepository {
         await candidate.delete();
       }
     }
+  }
+
+  Future<http.StreamedResponse> _streamDatabaseDownload(
+    Uri uri,
+    File targetFile,
+  ) async {
+    final request = http.Request('GET', uri)
+      ..headers.addAll(ApiUserAgent.applyTo(const <String, String>{}));
+    final response = await _client.send(request);
+    if (response.statusCode != 200) {
+      return response;
+    }
+
+    await targetFile.parent.create(recursive: true);
+    final output = targetFile.openWrite();
+    try {
+      await response.stream.timeout(apiDownloadIdleTimeout).pipe(output);
+    } catch (_) {
+      await _deleteDatabaseArtifacts(targetFile);
+      rethrow;
+    }
+    return response;
+  }
+
+  Future<void> _replaceDatabaseFiles({
+    required File metadataFile,
+    required File cityFile,
+    required File tempMetadataFile,
+    required File tempCityFile,
+    required File previousMetadataFile,
+    required File previousCityFile,
+  }) async {
+    var metadataBackedUp = false;
+    var cityBackedUp = false;
+    var metadataInstalled = false;
+    var cityInstalled = false;
+
+    try {
+      if (await metadataFile.exists()) {
+        await metadataFile.rename(previousMetadataFile.path);
+        metadataBackedUp = true;
+      }
+      if (await cityFile.exists()) {
+        await cityFile.rename(previousCityFile.path);
+        cityBackedUp = true;
+      }
+      await _deleteDatabaseArtifacts(metadataFile);
+      await _deleteDatabaseArtifacts(cityFile);
+
+      await tempMetadataFile.rename(metadataFile.path);
+      metadataInstalled = true;
+      await tempCityFile.rename(cityFile.path);
+      cityInstalled = true;
+    } catch (_) {
+      if (metadataInstalled) {
+        await _deleteDatabaseArtifacts(metadataFile);
+      }
+      if (cityInstalled) {
+        await _deleteDatabaseArtifacts(cityFile);
+      }
+      if (metadataBackedUp && await previousMetadataFile.exists()) {
+        await previousMetadataFile.rename(metadataFile.path);
+      }
+      if (cityBackedUp && await previousCityFile.exists()) {
+        await previousCityFile.rename(cityFile.path);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _recoverPreviousDatabaseFile(
+    File activeFile,
+    File previousFile,
+  ) async {
+    if (!await previousFile.exists()) {
+      return;
+    }
+    if (await activeFile.exists()) {
+      await _deleteDatabaseArtifacts(previousFile);
+      return;
+    }
+    await previousFile.rename(activeFile.path);
   }
 
   Future<void> _ensureDownloadedMetadataDatabaseUsable(File file) async {

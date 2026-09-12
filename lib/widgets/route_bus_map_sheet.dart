@@ -1199,6 +1199,10 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                       userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
                     ),
                     PolylineLayer(
+                      // There is only one route in this layer. Keeping its
+                      // complete geometry avoids Web dropping segments during
+                      // flutter_map's viewport culling.
+                      cullingMargin: null,
                       polylines: [
                         Polyline(
                           points: geometry.points,

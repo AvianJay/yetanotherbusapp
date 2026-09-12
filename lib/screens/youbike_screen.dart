@@ -402,7 +402,7 @@ class _YouBikeScreenState extends State<YouBikeScreen>
                                 overflow: TextOverflow.ellipsis,
                               ),
                               subtitle: Text(
-                                '可借 ${station.availableRent}  可還 ${station.availableReturn}',
+                                _bikeAvailabilitySummary(station),
                                 style: theme.textTheme.bodySmall,
                               ),
                               trailing: station.distanceMeters != null
@@ -524,8 +524,21 @@ class _YouBikeScreenState extends State<YouBikeScreen>
                 child: _StatItem(
                   icon: Icons.pedal_bike_rounded,
                   color: Colors.green.shade600,
-                  label: '可借',
-                  value: '${station.availableRent}',
+                  label: '一般車',
+                  value: '${station.availableRentGeneral}',
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 40,
+                color: theme.colorScheme.outlineVariant,
+              ),
+              Expanded(
+                child: _StatItem(
+                  icon: Icons.electric_bike_rounded,
+                  color: Colors.orange.shade700,
+                  label: '2.0E 電輔',
+                  value: '${station.availableRentElectric}',
                 ),
               ),
               Container(
@@ -539,19 +552,6 @@ class _YouBikeScreenState extends State<YouBikeScreen>
                   color: Colors.blue.shade600,
                   label: '可還',
                   value: '${station.availableReturn}',
-                ),
-              ),
-              Container(
-                width: 1,
-                height: 40,
-                color: theme.colorScheme.outlineVariant,
-              ),
-              Expanded(
-                child: _StatItem(
-                  icon: Icons.grid_view_rounded,
-                  color: theme.colorScheme.onSurfaceVariant,
-                  label: '當前總計',
-                  value: '${station.availableRent + station.availableReturn}',
                 ),
               ),
             ],
@@ -708,7 +708,7 @@ class _YouBikeScreenState extends State<YouBikeScreen>
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 subtitle: Text(
-                                  '可借 ${station.availableRent}  可還 ${station.availableReturn}',
+                                  _bikeAvailabilitySummary(station),
                                   style: theme.textTheme.bodySmall,
                                 ),
                                 trailing: station.distanceMeters != null
@@ -842,15 +842,28 @@ class _YouBikeScreenState extends State<YouBikeScreen>
                                 ),
                               ],
                             ),
-                            child: Center(
-                              child: Text(
-                                '${station.availableRent}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Center(
+                                  child: Text(
+                                    '${station.availableRent}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                if (station.availableRentElectric > 0)
+                                  Positioned(
+                                    top: -3,
+                                    right: -3,
+                                    child: _ElectricBikeMapBadge(
+                                      size: selected ? 17 : 15,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ),
@@ -938,11 +951,13 @@ class _YouBikeScreenState extends State<YouBikeScreen>
           key: _googleStationIconKey(
             countLabel: _bikeCountLabel(station),
             color: _availabilityColor(station),
+            hasElectric: station.availableRentElectric > 0,
             selected: markerSelected,
             pixelRatio: pixelRatio,
           ),
           countLabel: _bikeCountLabel(station),
           color: _availabilityColor(station),
+          hasElectric: station.availableRentElectric > 0,
           selected: markerSelected,
           pixelRatio: pixelRatio,
         );
@@ -963,12 +978,14 @@ class _YouBikeScreenState extends State<YouBikeScreen>
   String _googleStationIconKey({
     required String countLabel,
     required Color color,
+    required bool hasElectric,
     required bool selected,
     required double pixelRatio,
   }) {
     return [
       countLabel,
       color.toARGB32().toRadixString(16),
+      hasElectric ? 'electric' : 'standard',
       selected ? 'selected' : 'normal',
       pixelRatio.toStringAsFixed(2),
     ].join('|');
@@ -1095,6 +1112,32 @@ class _YouBikeScreenState extends State<YouBikeScreen>
       center - ui.Offset(textPainter.width / 2, textPainter.height / 2),
     );
 
+    if (request.hasElectric) {
+      final badgeCenter = ui.Offset(request.logicalSize - 8, 8);
+      canvas.drawCircle(
+        badgeCenter,
+        7,
+        ui.Paint()..color = const Color(0xFF172033),
+      );
+      canvas.drawCircle(
+        badgeCenter,
+        7,
+        ui.Paint()
+          ..style = ui.PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = Colors.white,
+      );
+      final bolt = ui.Path()
+        ..moveTo(badgeCenter.dx - 1, badgeCenter.dy - 5)
+        ..lineTo(badgeCenter.dx - 5, badgeCenter.dy + 1)
+        ..lineTo(badgeCenter.dx - 1, badgeCenter.dy + 1)
+        ..lineTo(badgeCenter.dx - 3, badgeCenter.dy + 6)
+        ..lineTo(badgeCenter.dx + 5, badgeCenter.dy - 2)
+        ..lineTo(badgeCenter.dx + 1, badgeCenter.dy - 2)
+        ..close();
+      canvas.drawPath(bolt, ui.Paint()..color = const Color(0xFFFFD54F));
+    }
+
     final picture = recorder.endRecording();
     final image = await picture.toImage(pixelSize, pixelSize);
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -1137,6 +1180,7 @@ class _YouBikeScreenState extends State<YouBikeScreen>
       final iconKey = _googleStationIconKey(
         countLabel: _bikeCountLabel(station),
         color: color,
+        hasElectric: station.availableRentElectric > 0,
         selected: selected,
         pixelRatio: MediaQuery.of(
           context,
@@ -1273,6 +1317,12 @@ class _YouBikeScreenState extends State<YouBikeScreen>
     if (meters < 1000) return '${meters.round()}m';
     return '${(meters / 1000).toStringAsFixed(1)}km';
   }
+
+  String _bikeAvailabilitySummary(BikeStation station) {
+    return '一般 ${station.availableRentGeneral} · '
+        '2.0E ${station.availableRentElectric} · '
+        '可還 ${station.availableReturn}';
+  }
 }
 
 class _GoogleYouBikeMarkerRequest {
@@ -1280,6 +1330,7 @@ class _GoogleYouBikeMarkerRequest {
     required this.key,
     required this.countLabel,
     required this.color,
+    required this.hasElectric,
     required this.selected,
     required this.pixelRatio,
   });
@@ -1287,6 +1338,7 @@ class _GoogleYouBikeMarkerRequest {
   final String key;
   final String countLabel;
   final Color color;
+  final bool hasElectric;
   final bool selected;
   final double pixelRatio;
 
@@ -1316,6 +1368,30 @@ class _GoogleYouBikeUserLocationIcon {
   double get outerRadius => 12;
 
   double get innerRadius => 8.6;
+}
+
+class _ElectricBikeMapBadge extends StatelessWidget {
+  const _ElectricBikeMapBadge({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: const Color(0xFF172033),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 1.5),
+      ),
+      child: Icon(
+        Icons.bolt_rounded,
+        size: size - 3,
+        color: const Color(0xFFFFD54F),
+      ),
+    );
+  }
 }
 
 class _StatItem extends StatelessWidget {

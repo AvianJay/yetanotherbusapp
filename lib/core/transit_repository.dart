@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:collection';
 
 import 'package:http/http.dart' as http;
 
@@ -12,17 +13,38 @@ import 'http_error_utils.dart';
 /// Lightweight repository for non-bus transit data (Metro, THSR, TRA, Bike).
 /// All data comes from the API server — no local SQLite database needed.
 class TransitRepository {
-  TransitRepository({http.Client? client}) : _client = client ?? http.Client();
+  TransitRepository({http.Client? client, int cacheCapacity = 64})
+    : assert(cacheCapacity > 0),
+      _client = client ?? http.Client(),
+      _cacheCapacity = cacheCapacity;
+
+  /// Shared by the transit dashboards so static data survives page changes.
+  static final shared = TransitRepository();
 
   static const _apiBaseUrl = ApiConfig.baseUrl;
 
   final http.Client _client;
+  final int _cacheCapacity;
   Map<String, String> get _headers => ApiUserAgent.applyTo(apiJsonHeaders);
 
   // ── In-memory cache ─────────────────────────────────────────────────────
 
-  final Map<String, _TimedValue<Object>> _cache = {};
+  final LinkedHashMap<String, _TimedValue<Object>> _cache = LinkedHashMap();
   final Map<String, Future<Object>> _inFlight = {};
+  final Map<String, int> _cacheVersions = {};
+
+  /// Removes cached entries for one transport system before a user refreshes.
+  void invalidateCache(String prefix) {
+    final affectedKeys = <String>{
+      ..._cache.keys.where((key) => key.startsWith(prefix)),
+      ..._inFlight.keys.where((key) => key.startsWith(prefix)),
+    };
+    _cache.removeWhere((key, _) => key.startsWith(prefix));
+    _inFlight.removeWhere((key, _) => key.startsWith(prefix));
+    for (final key in affectedKeys) {
+      _cacheVersions.update(key, (version) => version + 1, ifAbsent: () => 1);
+    }
+  }
 
   Future<T> _cached<T extends Object>(
     String key,
@@ -39,14 +61,27 @@ class TransitRepository {
       return await _inFlight[key]! as T;
     }
 
+    final version = _cacheVersions[key] ?? 0;
     final future = fetcher();
     _inFlight[key] = future;
     try {
       final result = await future;
-      _cache[key] = _TimedValue(result);
+      if ((_cacheVersions[key] ?? 0) == version) {
+        _cache[key] = _TimedValue(result);
+        _evictCacheEntries();
+      }
       return result;
     } finally {
-      _inFlight.remove(key);
+      if (identical(_inFlight[key], future)) {
+        _inFlight.remove(key);
+      }
+    }
+  }
+
+  void _evictCacheEntries() {
+    _cache.removeWhere((_, value) => value.isExpired(const Duration(hours: 1)));
+    while (_cache.length > _cacheCapacity) {
+      _cache.remove(_cache.keys.first);
     }
   }
 

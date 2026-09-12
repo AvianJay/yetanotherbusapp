@@ -345,20 +345,9 @@ class HomeScreen extends StatelessWidget {
           );
           return Container(
             decoration: BoxDecoration(
-              gradient: _shouldShowGradient(controller)
-                  ? LinearGradient(
-                      colors: [
-                        colorScheme.primaryContainer.withValues(
-                          alpha: controller.settings.homeBackgroundOpacity,
-                        ),
-                        Theme.of(context).scaffoldBackgroundColor,
-                        colorScheme.secondaryContainer.withValues(
-                          alpha:
-                              controller.settings.homeBackgroundOpacity * 0.38,
-                        ),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+              color: _shouldShowHomeBackground(controller)
+                  ? colorScheme.primaryContainer.withValues(
+                      alpha: controller.settings.homeBackgroundOpacity,
                     )
                   : null,
             ),
@@ -390,9 +379,8 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  /// In AMOLED dark mode, skip the gradient so the pure-black background shows.
-  /// Also skip gradient when a background image is set for the bus page.
-  bool _shouldShowGradient(AppController controller) {
+  /// Avoid tinting AMOLED black or a user-selected background image.
+  bool _shouldShowHomeBackground(AppController controller) {
     final settings = controller.settings;
     if (settings.useAmoledDark && settings.themeMode != ThemeMode.light) {
       return false;

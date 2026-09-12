@@ -30,7 +30,7 @@ class YouBikeScreen extends StatefulWidget {
 }
 
 class _YouBikeScreenState extends State<YouBikeScreen> {
-  final TransitRepository _repo = TransitRepository();
+  final TransitRepository _repo = TransitRepository.shared;
   final MapController _mapController = MapController();
   gmaps.GoogleMapController? _googleMapController;
   final Map<String, gmaps.BitmapDescriptor> _googleStationIcons =

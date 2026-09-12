@@ -27,7 +27,7 @@ class TraScreen extends StatefulWidget {
 }
 
 class _TraScreenState extends State<TraScreen> {
-  final TransitRepository _repo = TransitRepository();
+  final TransitRepository _repo = TransitRepository.shared;
 
   bool _loadingStations = true;
   bool _loadingBoard = false;
@@ -79,7 +79,10 @@ class _TraScreenState extends State<TraScreen> {
     }
   }
 
-  Future<void> _loadInitialData() async {
+  Future<void> _loadInitialData({bool refresh = false}) async {
+    if (refresh) {
+      _repo.invalidateCache('tra_');
+    }
     setState(() {
       _loadingStations = true;
       _pageError = null;
@@ -269,7 +272,7 @@ class _TraScreenState extends State<TraScreen> {
         actions: [
           IconButton(
             tooltip: '重新整理',
-            onPressed: _loadInitialData,
+            onPressed: () => _loadInitialData(refresh: true),
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -284,15 +287,15 @@ class _TraScreenState extends State<TraScreen> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 960),
-                child: _loadingStations
+                child: _loadingStations && _stations.isEmpty
                     ? const Center(child: CircularProgressIndicator())
                     : _pageError != null && _stations.isEmpty
                     ? _ErrorState(
                         message: _pageError!,
-                        onRetry: _loadInitialData,
+                        onRetry: () => _loadInitialData(refresh: true),
                       )
                     : RefreshIndicator(
-                        onRefresh: _loadInitialData,
+                        onRefresh: () => _loadInitialData(refresh: true),
                         child: ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.all(16),

@@ -46,6 +46,9 @@ Future<void> main(List<String> args) async {
     await controller.initialize();
     unawaited(AdService.instance.initialize());
     runApp(BusApp(controller: controller, analytics: analytics));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(controller.initializeAfterFirstFrame());
+    });
     if (kIsWeb) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         unawaited(AnnouncementPushService.instance.initialize());

@@ -57,7 +57,7 @@ class BusApp extends StatelessWidget {
       child: DynamicColorBuilder(
         builder: (lightDynamic, darkDynamic) {
           return AnimatedBuilder(
-            animation: controller,
+            animation: controller.themeRevision,
             builder: (context, _) {
               return MaterialApp(
                 title: 'YetAnotherBusApp',

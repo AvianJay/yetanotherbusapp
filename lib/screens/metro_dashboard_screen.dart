@@ -28,7 +28,7 @@ class MetroScreen extends StatefulWidget {
 }
 
 class _MetroScreenState extends State<MetroScreen> {
-  final TransitRepository _repo = TransitRepository();
+  final TransitRepository _repo = TransitRepository.shared;
 
   bool _loading = true;
   bool _loadingSystem = false;
@@ -81,7 +81,10 @@ class _MetroScreenState extends State<MetroScreen> {
     }
   }
 
-  Future<void> _loadSystems() async {
+  Future<void> _loadSystems({bool refresh = false}) async {
+    if (refresh) {
+      _repo.invalidateCache('metro_');
+    }
     setState(() {
       _loading = true;
       _pageError = null;
@@ -113,7 +116,13 @@ class _MetroScreenState extends State<MetroScreen> {
     }
   }
 
-  Future<void> _loadSystemData({required MetroSystem system}) async {
+  Future<void> _loadSystemData({
+    required MetroSystem system,
+    bool refresh = false,
+  }) async {
+    if (refresh) {
+      _repo.invalidateCache('metro_');
+    }
     _refreshTimer?.cancel();
     setState(() {
       _loadingSystem = true;
@@ -443,8 +452,9 @@ class _MetroScreenState extends State<MetroScreen> {
           IconButton(
             tooltip: '重新整理',
             onPressed: _selectedSystem == null
-                ? _loadSystems
-                : () => _loadSystemData(system: _selectedSystem!),
+                ? () => _loadSystems(refresh: true)
+                : () =>
+                      _loadSystemData(system: _selectedSystem!, refresh: true),
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -459,14 +469,20 @@ class _MetroScreenState extends State<MetroScreen> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 960),
-                child: _loading
+                child: _loading && _systems.isEmpty
                     ? const Center(child: CircularProgressIndicator())
                     : _pageError != null && _systems.isEmpty
-                    ? _ErrorState(message: _pageError!, onRetry: _loadSystems)
+                    ? _ErrorState(
+                        message: _pageError!,
+                        onRetry: () => _loadSystems(refresh: true),
+                      )
                     : RefreshIndicator(
                         onRefresh: _selectedSystem == null
-                            ? _loadSystems
-                            : () => _loadSystemData(system: _selectedSystem!),
+                            ? () => _loadSystems(refresh: true)
+                            : () => _loadSystemData(
+                                system: _selectedSystem!,
+                                refresh: true,
+                              ),
                         child: ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.all(16),

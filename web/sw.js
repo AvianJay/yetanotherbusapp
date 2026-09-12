@@ -1,18 +1,20 @@
-/// YABus Service Worker – versioned cache, cache-first for static assets,
-/// network-first for API calls and navigations.
+/// YABus Service Worker – versioned app-shell cache and network-first
+/// navigation.
 ///
 /// BUILD_VERSION is stamped at deploy time by scripts/stamp-web-build.mjs,
 /// so every deployment ships a byte-different sw.js with its own cache name.
 /// Installing the new worker precaches the new build; activating it deletes
-/// every older cache, so clients switch to the new build atomically after
-/// one reload. Without this, cache-first assets (main.dart.js has no content
-/// hash in its name) would be served from cache forever.
+/// only prior YABus caches, so clients switch to the new build atomically after
+/// one reload. The build stamp script generates app-shell.json from the actual
+/// Flutter output, avoiding a stale hand-maintained asset list.
 const BUILD_VERSION = '__YABUS_BUILD_VERSION__';
 const CACHE_NAME = 'yabus-' + (BUILD_VERSION.startsWith('__') ? 'dev' : BUILD_VERSION);
 
-const PRECACHE_URLS = [
+const APP_SHELL_MANIFEST_URL = '/app-shell.json';
+const BASE_PRECACHE_URLS = [
   '/',
   '/index.html',
+  APP_SHELL_MANIFEST_URL,
   '/manifest.json',
   '/favicon.png',
   '/icons/Icon-192.png',
@@ -21,15 +23,27 @@ const PRECACHE_URLS = [
   '/icons/Icon-maskable-512.png',
 ];
 
-const CACHE_FIRST_EXTENSIONS = [
-  '.js', '.dart.js', '.wasm', '.json', '.png', '.jpg', '.jpeg',
-  '.gif', '.webp', '.svg', '.css', '.ttf', '.woff2', '.html',
+const STATIC_ASSET_PATHS = new Set([
+  '/flutter.js',
+  '/flutter_bootstrap.js',
+  '/main.dart.js',
+  '/main.dart.mjs',
+  '/main.dart.wasm',
+  '/manifest.json',
+  '/favicon.png',
+]);
+const STATIC_ASSET_PREFIXES = [
+  '/assets/',
+  '/canvaskit/',
+  '/icons/',
+  '/splash/',
 ];
 
 /// Paths that must always bypass the cache (network-only).
 const NETWORK_ONLY_PATHS = [
   '/sw.js',
   '/firebase-messaging-sw.js',
+  '/flutter_service_worker.js',
 ];
 
 /// Paths that should prefer the network but still fall back to cache when
@@ -38,23 +52,45 @@ const NETWORK_FIRST_PATHS = [
   '/version.json',
 ];
 
-// ── Install ────────────────────────────────────────────────────
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) =>
-      // `reload` bypasses the HTTP cache so the precache really holds the
-      // new deployment. Per-URL error handling keeps one missing file from
-      // blocking the whole install (which would strand users on the old
-      // service worker).
-      Promise.all(
-        PRECACHE_URLS.map((url) =>
-          cache.add(new Request(url, { cache: 'reload' })).catch((err) => {
-            console.warn('[YABus SW] precache failed for', url, err);
-          }),
-        ),
-      ),
+function isStaticAsset(pathname) {
+  return (
+    STATIC_ASSET_PATHS.has(pathname) ||
+    STATIC_ASSET_PREFIXES.some((prefix) => pathname.startsWith(prefix))
+  );
+}
+
+async function appShellUrls() {
+  try {
+    const response = await fetch(APP_SHELL_MANIFEST_URL, { cache: 'reload' });
+    if (!response.ok) {
+      return [];
+    }
+    const urls = await response.json();
+    return Array.isArray(urls)
+      ? urls.filter((url) => typeof url === 'string' && url.startsWith('/'))
+      : [];
+  } catch (error) {
+    console.warn('[YABus SW] app shell manifest unavailable', error);
+    return [];
+  }
+}
+
+async function precache(cache) {
+  const urls = new Set([...BASE_PRECACHE_URLS, ...(await appShellUrls())]);
+  await Promise.all(
+    [...urls].map((url) =>
+      cache.add(new Request(url, { cache: 'reload' })).catch((error) => {
+        // A missing optional renderer artifact must not strand users on an
+        // older service worker.
+        console.warn('[YABus SW] precache failed for', url, error);
+      }),
     ),
   );
+}
+
+// ── Install ────────────────────────────────────────────────────
+self.addEventListener('install', (event) => {
+  event.waitUntil(caches.open(CACHE_NAME).then(precache));
   self.skipWaiting();
 });
 
@@ -63,7 +99,9 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)),
+        keys
+          .filter((key) => key.startsWith('yabus-') && key !== CACHE_NAME)
+          .map((key) => caches.delete(key)),
       ),
     ),
   );
@@ -104,13 +142,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-first for static assets by extension. Navigations are excluded so
-  // page loads always reach the network first and pick up new deployments.
-  const isStaticAsset =
-    event.request.mode !== 'navigate' &&
-    CACHE_FIRST_EXTENSIONS.some((ext) => url.pathname.endsWith(ext));
-
-  if (isStaticAsset) {
+  // Cache-first only for known Flutter build assets. Navigations always reach
+  // the network first so direct links pick up new deployments.
+  if (event.request.mode !== 'navigate' && isStaticAsset(url.pathname)) {
     event.respondWith(
       caches.match(event.request).then((cached) => {
         if (cached) return cached;
@@ -130,16 +164,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first for everything else (API calls, HTML navigation)
+  // Do not cache arbitrary same-origin responses. Offline direct links fall
+  // back to the app shell, which Flutter then resolves with its route parser.
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response && response.status === 200) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return response;
-      })
-      .catch(() => caches.match(event.request)),
+    fetch(event.request).catch(() =>
+      event.request.mode === 'navigate'
+        ? caches.match('/index.html')
+        : caches.match(event.request),
+    ),
   );
 });

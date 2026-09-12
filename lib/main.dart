@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -45,14 +46,17 @@ Future<void> main(List<String> args) async {
     await controller.initialize();
     unawaited(AdService.instance.initialize());
     runApp(BusApp(controller: controller, analytics: analytics));
-    unawaited(AnnouncementPushService.instance.initialize());
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(AnnouncementPushService.instance.initialize());
+      });
+    } else {
+      unawaited(AnnouncementPushService.instance.initialize());
+    }
   } catch (error) {
     runApp(
       _StartupErrorApp(
-        message: friendlyErrorMessage(
-          error,
-          fallback: '啟動時發生未預期的錯誤，請稍後再試。',
-        ),
+        message: friendlyErrorMessage(error, fallback: '啟動時發生未預期的錯誤，請稍後再試。'),
         detail: '$error',
       ),
     );

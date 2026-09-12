@@ -106,12 +106,30 @@ class _MainTransitShellState extends State<MainTransitShell> {
     }
 
     final colorScheme = Theme.of(context).colorScheme;
+    final isExtendedRail = screenWidth >= _desktopRailExtendedBreakpoint;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         NavigationRail(
-          extended: screenWidth >= _desktopRailExtendedBreakpoint,
+          extended: isExtendedRail,
+          minExtendedWidth: 184,
           backgroundColor: colorScheme.surfaceContainerLow,
+          groupAlignment: -0.82,
+          leading: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 20, 12, 8),
+            child: isExtendedRail
+                ? Text(
+                    '交通工具',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  )
+                : Icon(
+                    Icons.directions_transit_rounded,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+          ),
           selectedIndex: kTransitModeDestinations.indexWhere(
             (destination) => destination.mode == _currentMode,
           ),
@@ -120,9 +138,7 @@ class _MainTransitShellState extends State<MainTransitShell> {
               _setMode(kTransitModeDestinations[index].mode);
             }
           },
-          labelType: screenWidth >= _desktopRailExtendedBreakpoint
-              ? null
-              : NavigationRailLabelType.all,
+          labelType: isExtendedRail ? null : NavigationRailLabelType.all,
           destinations: [
             for (final destination in kTransitModeDestinations)
               NavigationRailDestination(

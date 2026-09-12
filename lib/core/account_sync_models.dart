@@ -16,7 +16,10 @@ enum AccountSyncNamespace {
     AccountSyncNamespace.preferences => '設定',
   };
 
-  int get schemaVersion => 1;
+  int get schemaVersion => switch (this) {
+    AccountSyncNamespace.favorites => 2,
+    AccountSyncNamespace.preferences => 1,
+  };
 }
 
 enum AccountSyncConflictPolicy {

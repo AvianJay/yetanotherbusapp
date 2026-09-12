@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:taiwanbus_flutter/core/app_launch_service.dart';
 import 'package:taiwanbus_flutter/core/app_routes.dart';
 import 'package:taiwanbus_flutter/core/models.dart';
 
@@ -55,5 +56,31 @@ void main() {
     expect(location, '/route/tpe/123456?routeId=TPE12345');
     expect(intent.kind, AppRouteKind.routeDetail);
     expect(intent.routeId, 'TPE12345');
+  });
+
+  test('station detail routes preserve provider and station identity', () {
+    final location = AppRoutes.stationDetailPath(
+      provider: BusProvider.tpe,
+      stationId: 'TPE-STATION/01',
+    );
+    final intent = parseAppRoute(location);
+
+    expect(intent.kind, AppRouteKind.stationDetail);
+    expect(intent.provider, BusProvider.tpe);
+    expect(intent.stationId, 'TPE-STATION/01');
+  });
+
+  test('native station launch payload preserves station identity', () {
+    final action = AppLaunchAction.fromMap({
+      'target': 'station_detail',
+      'provider': 'tpe',
+      'stationId': 'TPE-STATION-1',
+    });
+
+    expect(action.target, AppLaunchTarget.stationDetail);
+    expect(action.provider, BusProvider.tpe);
+    expect(action.stationId, 'TPE-STATION-1');
+    expect(action.routeKey, isNull);
+    expect(action.stopId, isNull);
   });
 }

@@ -72,6 +72,8 @@ import tw.avianjay.taiwanbus.wearos.data.WearRefreshScheduler
 import tw.avianjay.taiwanbus.wearos.data.WearRouteDetail
 import tw.avianjay.taiwanbus.wearos.data.WearRoutePath
 import tw.avianjay.taiwanbus.wearos.data.WearRouteStop
+import tw.avianjay.taiwanbus.wearos.data.WearStationDetail
+import tw.avianjay.taiwanbus.wearos.data.WearStationRoute
 import tw.avianjay.taiwanbus.wearos.data.WearSmartSuggestionPayload
 import tw.avianjay.taiwanbus.wearos.presentation.theme.AndroidTheme
 import java.text.SimpleDateFormat
@@ -124,6 +126,7 @@ internal enum class WearScreen {
     Favorites,
     Search,
     RouteDetail,
+    StationDetail,
     Nearby,
 }
 
@@ -132,6 +135,11 @@ internal sealed class DeepLinkTarget {
         val routeId: String,
         val routeName: String,
         val description: String,
+        val provider: String,
+    ) : DeepLinkTarget()
+    data class Station(
+        val stationId: String,
+        val stationName: String,
         val provider: String,
     ) : DeepLinkTarget()
     object Search : DeepLinkTarget()
@@ -148,6 +156,14 @@ internal sealed class DeepLinkTarget {
                     val description = uri.getQueryParameter("description").orEmpty()
                     val provider = uri.getQueryParameter("provider").orEmpty()
                     if (routeId.isEmpty()) null else Route(routeId, routeName, description, provider)
+                }
+
+                "station" -> {
+                    val stationId = uri.lastPathSegment.orEmpty()
+                    val stationName = uri.getQueryParameter("stationName").orEmpty()
+                        .ifBlank { stationId }
+                    val provider = uri.getQueryParameter("provider").orEmpty()
+                    if (stationId.isEmpty()) null else Station(stationId, stationName, provider)
                 }
 
                 "search" -> Search
@@ -178,6 +194,11 @@ private fun WearApp(
     var routeDetailLoading by remember { mutableStateOf(false) }
     var routeDetailError by remember { mutableStateOf<String?>(null) }
     var activePathIndex by remember { mutableStateOf(0) }
+    var selectedStation by remember { mutableStateOf<FavoriteStop?>(null) }
+    var stationDetail by remember { mutableStateOf<WearStationDetail?>(null) }
+    var stationDetailLoading by remember { mutableStateOf(false) }
+    var stationDetailError by remember { mutableStateOf<String?>(null) }
+    var stationDetailRefreshTrigger by remember { mutableStateOf(0) }
 
     var nearbyStops by remember { mutableStateOf<List<WearNearbyStop>>(emptyList()) }
     var nearbyLoading by remember { mutableStateOf(false) }
@@ -235,6 +256,17 @@ private fun WearApp(
                     provider = target.provider,
                 )
                 screen = WearScreen.RouteDetail
+            }
+
+            is DeepLinkTarget.Station -> {
+                selectedStation = FavoriteStop(
+                    id = "station:${target.provider}:${target.stationId}",
+                    type = "station",
+                    provider = target.provider,
+                    stationId = target.stationId,
+                    stationName = target.stationName,
+                )
+                screen = WearScreen.StationDetail
             }
         }
         onConsumeDeepLink()
@@ -317,6 +349,29 @@ private fun WearApp(
         }
     }
 
+    LaunchedEffect(selectedStation, stationDetailRefreshTrigger) {
+        val station = selectedStation
+        val stationId = station?.stationId
+        if (station == null || stationId.isNullOrBlank()) {
+            stationDetail = null
+            stationDetailLoading = false
+            stationDetailError = null
+            return@LaunchedEffect
+        }
+        stationDetailLoading = true
+        stationDetailError = null
+        runCatching {
+            WearDataRepository.fetchStationDetail(context, stationId, station.provider)
+        }.onSuccess { detail ->
+            stationDetail = detail
+            stationDetailLoading = false
+        }.onFailure { error ->
+            stationDetail = null
+            stationDetailLoading = false
+            stationDetailError = error.message ?: "載入站牌資料失敗"
+        }
+    }
+
     AppScaffold {
         val listState = rememberTransformingLazyColumnState()
         val transformationSpec = rememberTransformationSpec()
@@ -325,13 +380,15 @@ private fun WearApp(
         val focusManager = LocalFocusManager.current
 
         // 返回鍵處理：搜尋/附近畫面時返回我的最愛
-        if (screen == WearScreen.Search || screen == WearScreen.Nearby) {
+        if (screen != WearScreen.Favorites) {
             BackHandler {
                 keyboardController?.hide()
                 focusManager.clearFocus()
                 screen = WearScreen.Favorites
                 query = ""
                 searchResults = emptyList()
+                selectedRoute = null
+                selectedStation = null
             }
         }
 
@@ -344,6 +401,10 @@ private fun WearApp(
                             WearScreen.RouteDetail -> {
                                 screen = WearScreen.Search
                                 selectedRoute = null
+                            }
+                            WearScreen.StationDetail -> {
+                                screen = WearScreen.Favorites
+                                selectedStation = null
                             }
                             WearScreen.Search -> {
                                 // 移除焦點並關閉鍵盤後返回
@@ -368,7 +429,10 @@ private fun WearApp(
                 ) {
                     Text(
                         when (screen) {
-                            WearScreen.Search, WearScreen.RouteDetail, WearScreen.Nearby -> "返回"
+                            WearScreen.Search,
+                            WearScreen.RouteDetail,
+                            WearScreen.StationDetail,
+                            WearScreen.Nearby -> "返回"
                             WearScreen.Favorites -> "整理"
                         }
                     )
@@ -395,6 +459,10 @@ private fun WearApp(
                                     WearScreen.Search -> "搜尋公車"
                                     WearScreen.Nearby -> "附近站牌"
                                     WearScreen.RouteDetail -> selectedRoute?.routeName ?: "公車資料"
+                                    WearScreen.StationDetail ->
+                                        stationDetail?.stationName
+                                            ?: selectedStation?.stationName
+                                            ?: "站牌"
                                 },
                             )
                             Text(
@@ -407,6 +475,8 @@ private fun WearApp(
 
                                     WearScreen.RouteDetail ->
                                         selectedRoute?.description ?: ""
+
+                                    WearScreen.StationDetail -> "各側全部路線與即時到站"
 
                                     else -> when {
                                         state.settings.syncEnabled && state.hasSyncedFavorites ->
@@ -438,6 +508,23 @@ private fun WearApp(
                                     provider = suggestion.provider,
                                 )
                                 screen = WearScreen.RouteDetail
+                            },
+                            onSelectFavorite = { favorite ->
+                                if (favorite.type == "station") {
+                                    selectedStation = favorite
+                                    screen = WearScreen.StationDetail
+                                } else {
+                                    val routeId = favorite.routeId.orEmpty()
+                                    if (routeId.isNotBlank()) {
+                                        selectedRoute = RouteSearchResult(
+                                            routeId = routeId,
+                                            routeName = favorite.displayRouteName,
+                                            description = favorite.displayStopName,
+                                            provider = favorite.provider,
+                                        )
+                                        screen = WearScreen.RouteDetail
+                                    }
+                                }
                             },
                         )
                     }
@@ -507,6 +594,24 @@ private fun WearApp(
                             },
                         )
                     }
+
+                    WearScreen.StationDetail -> {
+                        stationDetailContent(
+                            detail = stationDetail,
+                            loading = stationDetailLoading,
+                            error = stationDetailError,
+                            onRefresh = { stationDetailRefreshTrigger++ },
+                            onSelectRoute = { route ->
+                                selectedRoute = RouteSearchResult(
+                                    routeId = route.routeId,
+                                    routeName = route.routeName,
+                                    description = route.statusText,
+                                    provider = selectedStation?.provider.orEmpty(),
+                                )
+                                screen = WearScreen.RouteDetail
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -518,6 +623,7 @@ private fun TransformingLazyColumnScope.favoritesContent(
     onOpenSearch: () -> Unit,
     onOpenNearby: () -> Unit,
     onSelectSuggestion: (WearSmartSuggestionPayload) -> Unit,
+    onSelectFavorite: (FavoriteStop) -> Unit,
 ) {
     state.smartSuggestion?.let { suggestion ->
         item {
@@ -569,6 +675,7 @@ private fun TransformingLazyColumnScope.favoritesContent(
             FavoriteArrivalCard(
                 favorite = favorite,
                 state = state,
+                onClick = { onSelectFavorite(favorite) },
             )
         }
     }
@@ -807,10 +914,11 @@ private fun TransformingLazyColumnScope.nearbyContent(
 private fun FavoriteArrivalCard(
     favorite: FavoriteStop,
     state: WearHomeState,
+    onClick: () -> Unit,
 ) {
     val arrival = state.arrivalFor(favorite.id)
     Card(
-        onClick = {},
+        onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -819,11 +927,61 @@ private fun FavoriteArrivalCard(
     ) {
         Text(favorite.displayRouteName)
         Text(favorite.displayStopName)
-        Text(arrival?.etaText ?: "--")
+        Text(if (favorite.type == "route") "路線" else arrival?.etaText ?: "--")
         arrival?.arrivalEpochMs?.let { arrivalAtMs ->
             Text(formatClockTime(arrivalAtMs))
         }
         Text(arrival?.statusText ?: favorite.groupName.ifBlank { favorite.provider })
+    }
+}
+
+private fun TransformingLazyColumnScope.stationDetailContent(
+    detail: WearStationDetail?,
+    loading: Boolean,
+    error: String?,
+    onRefresh: () -> Unit,
+    onSelectRoute: (WearStationRoute) -> Unit,
+) {
+    if (loading) {
+        item { WearInfoCard(title = "載入中", subtitle = "查詢整站即時路線...") }
+        return
+    }
+    if (error != null) {
+        item { WearInfoCard(title = "載入失敗", subtitle = error) }
+        item {
+            Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
+                Text("重試")
+            }
+        }
+        return
+    }
+    if (detail == null || detail.sides.isEmpty()) {
+        item { WearInfoCard(title = "無資料", subtitle = "這個站牌目前沒有可顯示側別") }
+        return
+    }
+    detail.sides.forEach { side ->
+        item {
+            WearInfoCard(
+                title = "${side.label} 側",
+                subtitle = side.direction.ifBlank { "經過路線" },
+            )
+        }
+        if (side.routes.isEmpty()) {
+            item { WearInfoCard(title = "暫無路線", subtitle = "${side.label} 側目前沒有班次") }
+        } else {
+            side.routes.forEach { route ->
+                item {
+                    Card(
+                        onClick = { onSelectRoute(route) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(route.routeName)
+                        Text(route.etaText, color = MaterialTheme.colorScheme.primary)
+                        if (route.statusText.isNotBlank()) Text(route.statusText)
+                    }
+                }
+            }
+        }
     }
 }
 

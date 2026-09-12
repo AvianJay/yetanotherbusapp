@@ -5,24 +5,28 @@ import android.content.Intent
 
 object AppLaunchConstants {
     const val TARGET_ROUTE_DETAIL = "route_detail"
+    const val TARGET_STATION_DETAIL = "station_detail"
     const val TARGET_FAVORITES_GROUP = "favorites_group"
     const val TARGET_AUTH_CALLBACK = "auth_callback"
 
     private const val EXTRA_TARGET = "launch_target"
     private const val EXTRA_PROVIDER = "provider"
     private const val EXTRA_ROUTE_KEY = "route_key"
+    private const val EXTRA_ROUTE_ID = "route_id"
     private const val EXTRA_PATH_ID = "path_id"
     private const val EXTRA_STOP_ID = "stop_id"
     private const val EXTRA_DESTINATION_PATH_ID = "destination_path_id"
     private const val EXTRA_DESTINATION_STOP_ID = "destination_stop_id"
     private const val EXTRA_GROUP_NAME = "group_name"
+    private const val EXTRA_STATION_ID = "station_id"
 
     fun createRouteDetailIntent(
         context: Context,
         provider: String,
         routeKey: Int,
-        pathId: Int,
-        stopId: Int,
+        routeId: String? = null,
+        pathId: Int? = null,
+        stopId: Int? = null,
         destinationPathId: Int? = null,
         destinationStopId: Int? = null,
     ): Intent {
@@ -30,14 +34,29 @@ object AppLaunchConstants {
             putExtra(EXTRA_TARGET, TARGET_ROUTE_DETAIL)
             putExtra(EXTRA_PROVIDER, provider)
             putExtra(EXTRA_ROUTE_KEY, routeKey)
-            putExtra(EXTRA_PATH_ID, pathId)
-            putExtra(EXTRA_STOP_ID, stopId)
+            routeId?.takeIf { it.isNotBlank() }?.let { putExtra(EXTRA_ROUTE_ID, it) }
+            pathId?.let { putExtra(EXTRA_PATH_ID, it) }
+            stopId?.let { putExtra(EXTRA_STOP_ID, it) }
             if (destinationPathId != null) {
                 putExtra(EXTRA_DESTINATION_PATH_ID, destinationPathId)
             }
             if (destinationStopId != null) {
                 putExtra(EXTRA_DESTINATION_STOP_ID, destinationStopId)
             }
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+    }
+
+    fun createStationDetailIntent(
+        context: Context,
+        provider: String,
+        stationId: String,
+    ): Intent {
+        return Intent(context, MainActivity::class.java).apply {
+            putExtra(EXTRA_TARGET, TARGET_STATION_DETAIL)
+            putExtra(EXTRA_PROVIDER, provider)
+            putExtra(EXTRA_STATION_ID, stationId)
             addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
@@ -75,9 +94,15 @@ object AppLaunchConstants {
                     "target" to TARGET_ROUTE_DETAIL,
                     "provider" to provider,
                     "routeKey" to routeKey,
-                    "pathId" to intent.getIntExtra(EXTRA_PATH_ID, 0),
-                    "stopId" to intent.getIntExtra(EXTRA_STOP_ID, 0),
                 )
+                intent.getStringExtra(EXTRA_ROUTE_ID)?.takeIf { it.isNotBlank() }
+                    ?.let { payload["routeId"] = it }
+                if (intent.hasExtra(EXTRA_PATH_ID)) {
+                    payload["pathId"] = intent.getIntExtra(EXTRA_PATH_ID, 0)
+                }
+                if (intent.hasExtra(EXTRA_STOP_ID)) {
+                    payload["stopId"] = intent.getIntExtra(EXTRA_STOP_ID, 0)
+                }
                 val destinationPathId = intent.getIntExtra(
                     EXTRA_DESTINATION_PATH_ID,
                     Int.MIN_VALUE,
@@ -93,6 +118,19 @@ object AppLaunchConstants {
                     payload["destinationStopId"] = destinationStopId
                 }
                 payload
+            }
+
+            TARGET_STATION_DETAIL -> {
+                val provider = intent.getStringExtra(EXTRA_PROVIDER) ?: return null
+                val stationId = intent.getStringExtra(EXTRA_STATION_ID)
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: return null
+                mapOf(
+                    "target" to TARGET_STATION_DETAIL,
+                    "provider" to provider,
+                    "stationId" to stationId,
+                )
             }
 
             TARGET_FAVORITES_GROUP -> {

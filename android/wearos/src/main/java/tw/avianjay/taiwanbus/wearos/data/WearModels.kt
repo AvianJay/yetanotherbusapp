@@ -12,6 +12,7 @@ data class WearSettings(
 @Serializable
 data class FavoriteStop(
     val id: String,
+    val type: String = "boarding",
     val groupName: String = "",
     val provider: String = "",
     val routeKey: Int = 0,
@@ -19,19 +20,37 @@ data class FavoriteStop(
     val stopId: Int = 0,
     val routeId: String? = null,
     val routeName: String? = null,
+    val routeDescription: String? = null,
     val stopName: String? = null,
+    val stationId: String? = null,
+    val stationName: String? = null,
     val destinationPathId: Int? = null,
     val destinationStopId: Int? = null,
     val destinationStopName: String? = null,
 ) {
     val displayRouteName: String
-        get() = routeName?.takeIf { it.isNotBlank() } ?: routeKey.toString()
+        get() = when (type) {
+            "station" -> stationName?.takeIf { it.isNotBlank() }
+                ?: stationId?.takeIf { it.isNotBlank() }
+                ?: "站牌"
+            else -> routeName?.takeIf { it.isNotBlank() }
+                ?: routeId?.takeIf { it.isNotBlank() }
+                ?: routeKey.toString()
+        }
 
     val displayStopName: String
-        get() = stopName?.takeIf { it.isNotBlank() } ?: "Stop $stopId"
+        get() = when (type) {
+            "route" -> routeDescription?.takeIf { it.isNotBlank() } ?: provider.uppercase()
+            "station" -> "整站所有路線"
+            else -> stopName?.takeIf { it.isNotBlank() } ?: "Stop $stopId"
+        }
 
     val realtimeRouteId: String?
-        get() = routeId?.trim()?.takeIf { it.isNotEmpty() }
+        get() = if (type == "boarding") {
+            routeId?.trim()?.takeIf { it.isNotEmpty() }
+        } else {
+            null
+        }
 }
 
 @Serializable
@@ -98,6 +117,32 @@ data class WearRouteStop(
     val statusText: String,
 )
 
+@Serializable
+data class WearStationDetail(
+    val stationId: String,
+    val stationName: String,
+    val provider: String,
+    val sides: List<WearStationSide> = emptyList(),
+)
+
+@Serializable
+data class WearStationSide(
+    val sideId: String,
+    val label: String,
+    val direction: String = "",
+    val routes: List<WearStationRoute> = emptyList(),
+)
+
+@Serializable
+data class WearStationRoute(
+    val routeId: String,
+    val routeName: String,
+    val pathId: Int = 0,
+    val etaText: String = "--",
+    val etaSeconds: Int? = null,
+    val statusText: String = "",
+)
+
 /**
  * Smart route suggestion pushed from the phone. The watch may also synthesize
  * a fallback suggestion locally when [WearSmartRouteService] is used.
@@ -157,12 +202,14 @@ data class WearTileSnapshot(
 @Serializable
 data class WearArrivalCard(
     val favoriteId: String,
+    val type: String = "boarding",
     val routeName: String,
     val stopName: String,
     val etaText: String,
     val etaSeconds: Int? = null,
     val statusText: String = "",
     val routeId: String = "",
+    val stationId: String = "",
     val provider: String = "",
     val pathId: Int = 0,
     val stopId: Int = 0,

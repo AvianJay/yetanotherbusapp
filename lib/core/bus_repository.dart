@@ -1993,6 +1993,154 @@ class BusRepository {
   /// response whose stop name doesn't match the tapped stop is discarded so
   /// callers fall back to the local lookup instead of showing another city's
   /// routes.
+  Future<StationPassbyData?> resolveStation(
+    String stopId, {
+    required BusProvider provider,
+  }) async {
+    final trimmed = stopId.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    final uri = Uri.parse('$_apiBaseUrl/api/v1/stations/resolve').replace(
+      queryParameters: {'city': provider.prefix, 'stopid': trimmed},
+    );
+    return _loadStationPassby(uri, expectedProvider: provider);
+  }
+
+  Future<StationPassbyData?> getStationPassby(
+    String stationId, {
+    required BusProvider provider,
+  }) async {
+    final trimmed = stationId.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    final uri = Uri.parse(
+      '$_apiBaseUrl/api/v1/stations/${Uri.encodeComponent(trimmed)}/passby',
+    ).replace(queryParameters: {'city': provider.prefix});
+    final station = await _loadStationPassby(uri, expectedProvider: provider);
+    if (station != null && station.stationId != trimmed) {
+      return null;
+    }
+    return station;
+  }
+
+  Future<StationPassbyData?> _loadStationPassby(
+    Uri uri, {
+    required BusProvider expectedProvider,
+  }) async {
+    final response = await _client.get(uri, headers: _apiJsonHeaders);
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
+    if (response.statusCode == 404) {
+      return null;
+    }
+    if (response.statusCode != 200) {
+      throw HttpException('整站路線暫時無法取得 (${response.statusCode})。');
+    }
+    final decoded = jsonDecode(apiResponseText(response));
+    if (decoded is! Map) {
+      throw const FormatException('Invalid station passby response.');
+    }
+    final json = decoded.map(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+    if (json['city']?.toString().toUpperCase() != expectedProvider.prefix) {
+      return null;
+    }
+    final stationId = json['station_id']?.toString().trim() ?? '';
+    final stationName = json['station_name']?.toString().trim() ?? '';
+    if (stationId.isEmpty || stationName.isEmpty) {
+      throw const FormatException('Invalid station identity.');
+    }
+
+    final sides = <StationSideData>[];
+    for (final rawSide in (json['sides'] as List? ?? const []).whereType<Map>()) {
+      final side = rawSide.map(
+        (key, value) => MapEntry(key.toString(), value),
+      );
+      final sideId = side['side_id']?.toString().trim() ?? '';
+      final label = side['label']?.toString().trim() ?? '';
+      final rawStopId = side['stopid']?.toString().trim() ?? '';
+      if (sideId.isEmpty || label.isEmpty || rawStopId.isEmpty) {
+        continue;
+      }
+      final arrivals = <StationRouteArrival>[];
+      for (final rawRoute
+          in (side['routes'] as List? ?? const []).whereType<Map>()) {
+        final routeId = rawRoute['routeid']?.toString().trim() ?? '';
+        if (routeId.isEmpty || !routeId.startsWith(expectedProvider.prefix)) {
+          continue;
+        }
+        final pathId = _toInt(rawRoute['pathid']);
+        final routeProvider = busProviderFromString(routeId.substring(0, 3));
+        final route = _routeSummaryFromPathRow(
+          provider: routeProvider,
+          routeId: routeId,
+          routeName: rawRoute['route_name']?.toString() ?? routeId,
+          routeNameEn: rawRoute['route_name_en']?.toString() ?? '',
+          pathId: pathId,
+          pathName: rawRoute['path_name']?.toString() ?? '',
+        );
+        final matchedStop = StopInfo(
+          routeKey: _routeKeyForRouteId(routeId),
+          pathId: pathId,
+          stopId: _parseStopId(rawStopId),
+          rawStopId: rawStopId,
+          stopName: stationName,
+          sequence: _toInt(rawRoute['seq']),
+          lon: _toDouble(side['lon']),
+          lat: _toDouble(side['lat']),
+          sec: _nullableInt(rawRoute['eta']),
+          msg: rawRoute['message']?.toString(),
+          t: rawRoute['updated_at']?.toString(),
+          buses: (rawRoute['buses'] as List? ?? const [])
+              .whereType<Map>()
+              .map(_parseBusVehicle)
+              .toList(growable: false),
+          etas: _parseStopEtas(rawRoute['etas']),
+        );
+        arrivals.add(
+          StationRouteArrival(
+            sideLabel: label,
+            result: StopRouteSearchResult(
+              route: route,
+              matchedStop: matchedStop,
+            ),
+          ),
+        );
+      }
+      sides.add(
+        StationSideData(
+          sideId: sideId,
+          label: label,
+          direction: side['direction']?.toString().trim().isNotEmpty == true
+              ? side['direction'].toString().trim()
+              : null,
+          stopUid: side['stop_uid']?.toString().trim() ?? '',
+          rawStopId: rawStopId,
+          lat: _toDouble(side['lat']),
+          lon: _toDouble(side['lon']),
+          routes: arrivals,
+        ),
+      );
+    }
+
+    return StationPassbyData(
+      provider: expectedProvider,
+      stationId: stationId,
+      stationName: stationName,
+      stationNameEn:
+          json['station_name_en']?.toString().trim().isNotEmpty == true
+          ? json['station_name_en'].toString().trim()
+          : null,
+      lat: _toDouble(json['lat']),
+      lon: _toDouble(json['lon']),
+      sides: sides,
+    );
+  }
+
   Future<List<StopRouteSearchResult>> getStopPassby(
     String stopId, {
     required BusProvider provider,

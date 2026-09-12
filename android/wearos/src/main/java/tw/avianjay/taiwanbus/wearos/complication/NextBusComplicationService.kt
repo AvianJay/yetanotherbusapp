@@ -39,7 +39,7 @@ class NextBusComplicationService : SuspendingComplicationDataSourceService() {
 
     override suspend fun onComplicationRequest(request: ComplicationRequest): ComplicationData? {
         val snapshot = TileSnapshotBuilder.read(this)
-        val (primary, secondary, longText, minutes, routeId, provider) = pickFromSnapshot(snapshot)
+        val slots = pickFromSnapshot(snapshot)
             ?: return getPreviewData(request.complicationType)
                 ?.let { fallback ->
                     when (fallback) {
@@ -54,13 +54,13 @@ class NextBusComplicationService : SuspendingComplicationDataSourceService() {
                     }
                 }
 
-        val tapIntent = buildTapPendingIntent(routeId, provider)
+        val tapIntent = buildTapPendingIntent(slots.routeId, slots.stationId, slots.provider)
         return buildData(
             type = request.complicationType,
-            primaryText = primary,
-            secondaryText = secondary,
-            longText = longText,
-            rangedValueMinutes = minutes,
+            primaryText = slots.primary,
+            secondaryText = slots.secondary,
+            longText = slots.longText,
+            rangedValueMinutes = slots.minutes,
             tapIntent = tapIntent,
         )
     }
@@ -71,6 +71,7 @@ class NextBusComplicationService : SuspendingComplicationDataSourceService() {
         val longText: String,
         val minutes: Float,
         val routeId: String?,
+        val stationId: String?,
         val provider: String?,
     )
 
@@ -93,6 +94,7 @@ class NextBusComplicationService : SuspendingComplicationDataSourceService() {
             longText = "${routeName.ifBlank { routeId }} · $stop",
             minutes = minutes,
             routeId = routeId.takeIf { it.isNotBlank() },
+            stationId = null,
             provider = provider.takeIf { it.isNotBlank() },
         )
     }
@@ -106,6 +108,7 @@ class NextBusComplicationService : SuspendingComplicationDataSourceService() {
             longText = "$routeName · $stopName",
             minutes = minutes,
             routeId = routeId.takeIf { it.isNotBlank() },
+            stationId = stationId.takeIf { it.isNotBlank() },
             provider = provider.takeIf { it.isNotBlank() },
         )
     }
@@ -162,9 +165,12 @@ class NextBusComplicationService : SuspendingComplicationDataSourceService() {
 
     private fun buildTapPendingIntent(
         routeId: String?,
+        stationId: String?,
         provider: String?,
     ): PendingIntent {
-        val uri = if (routeId.isNullOrBlank()) {
+        val uri = if (!stationId.isNullOrBlank()) {
+            Uri.parse("yabus-wear://station/$stationId?provider=${provider.orEmpty()}")
+        } else if (routeId.isNullOrBlank()) {
             Uri.parse("yabus-wear://search")
         } else {
             Uri.parse("yabus-wear://route/$routeId?provider=${provider.orEmpty()}")

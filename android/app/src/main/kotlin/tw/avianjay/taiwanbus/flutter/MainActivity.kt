@@ -73,8 +73,8 @@ class MainActivity : FlutterActivity() {
             HOME_INTEGRATION_CHANNEL,
         ).setMethodCallHandler { call, result ->
             when (call.method) {
-                "pinStopShortcut" -> {
-                    result.success(requestPinnedStopShortcut(call))
+                "pinFavoriteShortcut", "pinStopShortcut" -> {
+                    result.success(requestPinnedFavoriteShortcut(call))
                 }
 
                 "refreshFavoriteWidgets" -> {
@@ -296,37 +296,75 @@ class MainActivity : FlutterActivity() {
         result.success(null)
     }
 
-    private fun requestPinnedStopShortcut(call: MethodCall): Boolean {
+    private fun requestPinnedFavoriteShortcut(call: MethodCall): Boolean {
+        val type = call.argument<String>("type")?.trim().orEmpty().ifBlank { "boarding" }
         val provider = call.argument<String>("provider")?.trim().orEmpty()
-        val routeKey = call.argument<Int>("routeKey")
-        val pathId = call.argument<Int>("pathId")
-        val stopId = call.argument<Int>("stopId")
-        if (provider.isEmpty() || routeKey == null || pathId == null || stopId == null) {
+        if (provider.isEmpty()) {
             return false
         }
 
+        val routeKey = call.argument<Int>("routeKey")
+        val routeId = call.argument<String>("routeId")?.trim().orEmpty()
+        val pathId = call.argument<Int>("pathId")
+        val stopId = call.argument<Int>("stopId")
         val routeName = call.argument<String>("routeName")?.trim().orEmpty()
         val stopName = call.argument<String>("stopName")?.trim().orEmpty()
-        val shortcutId = "stop_${provider}_${routeKey}_${pathId}_${stopId}"
-        val shortLabel = when {
-            stopName.isNotBlank() -> stopName
-            routeName.isNotBlank() -> routeName
-            else -> "YABus"
-        }
-        val longLabel = buildString {
-            append(if (routeName.isNotBlank()) routeName else "Route $routeKey")
-            if (stopName.isNotBlank()) {
-                append(" - ")
-                append(stopName)
+        val stationId = call.argument<String>("stationId")?.trim().orEmpty()
+        val stationName = call.argument<String>("stationName")?.trim().orEmpty()
+        val shortcutId: String
+        val shortLabel: String
+        val longLabel: String
+        val intent: Intent
+        when (type) {
+            "route" -> {
+                if (routeKey == null || routeId.isEmpty()) return false
+                shortcutId = "route_${provider}_${routeId}"
+                shortLabel = routeName.ifBlank { routeId }
+                longLabel = "${shortLabel} 路線"
+                intent = AppLaunchConstants.createRouteDetailIntent(
+                    context = this,
+                    provider = provider,
+                    routeKey = routeKey,
+                    routeId = routeId,
+                )
+            }
+            "station" -> {
+                if (stationId.isEmpty()) return false
+                shortcutId = "station_${provider}_${stationId}"
+                shortLabel = stationName.ifBlank { stationId }
+                longLabel = "${shortLabel} 站牌"
+                intent = AppLaunchConstants.createStationDetailIntent(
+                    context = this,
+                    provider = provider,
+                    stationId = stationId,
+                )
+            }
+            else -> {
+                if (routeKey == null || pathId == null || stopId == null) return false
+                shortcutId = "boarding_${provider}_${routeKey}_${pathId}_${stopId}"
+                shortLabel = when {
+                    stopName.isNotBlank() -> stopName
+                    routeName.isNotBlank() -> routeName
+                    else -> "YABus"
+                }
+                longLabel = buildString {
+                    append(if (routeName.isNotBlank()) routeName else "Route $routeKey")
+                    if (stopName.isNotBlank()) {
+                        append(" - ")
+                        append(stopName)
+                    }
+                }
+                intent = AppLaunchConstants.createRouteDetailIntent(
+                    context = this,
+                    provider = provider,
+                    routeKey = routeKey,
+                    routeId = routeId.takeIf { it.isNotEmpty() },
+                    pathId = pathId,
+                    stopId = stopId,
+                )
             }
         }
-        val intent = AppLaunchConstants.createRouteDetailIntent(
-            context = this,
-            provider = provider,
-            routeKey = routeKey,
-            pathId = pathId,
-            stopId = stopId,
-        ).apply {
+        intent.apply {
             action = Intent.ACTION_VIEW
         }
         val shortcut = ShortcutInfoCompat.Builder(this, shortcutId)

@@ -299,6 +299,14 @@ object WearDataRepository {
         return BusApiService.fetchRouteDetail(context, routeId, provider)
     }
 
+    suspend fun fetchStationDetail(
+        context: Context,
+        stationId: String,
+        provider: String,
+    ): WearStationDetail {
+        return BusApiService.fetchStationDetail(context, stationId, provider)
+    }
+
     private fun preferences(context: Context) =
         context.applicationContext.getSharedPreferences(
             preferencesName,
@@ -316,10 +324,13 @@ object WearDataRepository {
     }
 
     private fun persistTileSnapshot(context: Context, nextState: WearHomeState) {
-        val cards = nextState.favorites.map { favorite ->
+        val cards = nextState.favorites
+            .filter { favorite -> favorite.type != "route" }
+            .map { favorite ->
             val arrival = nextState.arrivalFor(favorite.id)
             WearArrivalCard(
                 favoriteId = favorite.id,
+                type = favorite.type,
                 routeName = favorite.displayRouteName,
                 stopName = favorite.displayStopName,
                 etaText = arrival?.etaText ?: "--",
@@ -329,6 +340,7 @@ object WearDataRepository {
                 statusText = arrival?.statusText
                     ?: favorite.groupName.ifBlank { favorite.provider },
                 routeId = favorite.realtimeRouteId.orEmpty(),
+                stationId = favorite.stationId.orEmpty(),
                 provider = favorite.provider,
                 pathId = favorite.pathId,
                 stopId = favorite.stopId,

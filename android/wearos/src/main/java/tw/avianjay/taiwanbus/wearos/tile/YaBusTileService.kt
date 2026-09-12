@@ -204,7 +204,14 @@ class YaBusTileService : TileService() {
             .addContent(text(favorite.stopName, 11, color = COLOR_ON_SURFACE_DIM))
             .addContent(text(favorite.etaText, 13, color = COLOR_ACCENT, weight = FONT_WEIGHT_BOLD))
 
-        val clickable = if (favorite.routeId.isNotBlank()) {
+        val clickable = if (favorite.type == "station" && favorite.stationId.isNotBlank()) {
+            openStationAction(
+                context = context,
+                stationId = favorite.stationId,
+                stationName = favorite.routeName,
+                provider = favorite.provider,
+            )
+        } else if (favorite.routeId.isNotBlank()) {
             openRouteAction(
                 context,
                 routeId = favorite.routeId,
@@ -356,6 +363,28 @@ class YaBusTileService : TileService() {
             .build()
         return ModifiersBuilders.Clickable.Builder()
             .setId("route_$routeId")
+            .setOnClick(launchAction)
+            .build()
+    }
+
+    private fun openStationAction(
+        context: Context,
+        stationId: String,
+        stationName: String,
+        provider: String,
+    ): ModifiersBuilders.Clickable {
+        val deeplinkUri =
+            "yabus-wear://station/$stationId?stationName=${Uri.encode(stationName)}&provider=$provider"
+        val androidActivity = ActionBuilders.AndroidActivity.Builder()
+            .setPackageName(context.packageName)
+            .setClassName(MainActivity::class.java.name)
+            .addKeyToExtraMapping("deeplink", ActionBuilders.stringExtra(deeplinkUri))
+            .build()
+        val launchAction = ActionBuilders.LaunchAction.Builder()
+            .setAndroidActivity(androidActivity)
+            .build()
+        return ModifiersBuilders.Clickable.Builder()
+            .setId("station_$stationId")
             .setOnClick(launchAction)
             .build()
     }

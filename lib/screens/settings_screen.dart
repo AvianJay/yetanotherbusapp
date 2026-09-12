@@ -99,7 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!granted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('需要通知權限才能啟用智慧推薦通知。')));
+      ).showSnackBar(const SnackBar(content: Text('需要通知權限才能啓用智慧推薦通知。')));
       return;
     }
     await controller.updateEnableSmartRouteNotifications(true);
@@ -181,7 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    messenger.showSnackBar(const SnackBar(content: Text('無法開啟 Discord 社群連結。')));
+    messenger.showSnackBar(const SnackBar(content: Text('無法開啓 Discord 社群連結。')));
   }
 
   InlineSpan _buildRgbContributorSpan(
@@ -417,7 +417,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               const SizedBox(height: 12),
                               SwitchListTile(
                                 contentPadding: EdgeInsets.zero,
-                                title: const Text('啟用 Wear OS 同步'),
+                                title: const Text('啓用 Wear OS 同步'),
                                 subtitle: const Text('將最愛站牌同步到手錶'),
                                 value: controller.settings.wearSyncEnabled,
                                 onChanged: controller.updateWearSyncEnabled,
@@ -499,7 +499,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '啟動更新：${controller.settings.databaseAutoUpdateMode.label}',
+                            '啓動更新：${controller.settings.databaseAutoUpdateMode.label}',
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                           if (controller.hasPendingDatabaseUpdates) ...[
@@ -523,7 +523,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               );
                             },
                             icon: const Icon(Icons.storage_rounded),
-                            label: const Text('開啟資料庫頁面'),
+                            label: const Text('開啓資料庫頁面'),
                           ),
                         ],
                       ),
@@ -622,7 +622,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('智慧推薦'),
-                          subtitle: const Text('依照你常開啟的時段與路線，在首頁顯示推薦。'),
+                          subtitle: const Text('依照你常開啓的時段與路線，在首頁顯示推薦。'),
                           value: controller.settings.enableSmartRecommendations,
                           onChanged:
                               controller.updateEnableSmartRecommendations,
@@ -777,7 +777,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             initialValue:
                                 controller.settings.appUpdateCheckMode,
                             decoration: const InputDecoration(
-                              labelText: '啟動時檢查',
+                              labelText: '啓動時檢查',
                             ),
                             items: AppUpdateCheckMode.values
                                 .map(

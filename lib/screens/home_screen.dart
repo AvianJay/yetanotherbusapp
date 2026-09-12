@@ -238,7 +238,7 @@ class HomeScreen extends StatelessWidget {
                   child: FilledButton.tonalIcon(
                     onPressed: () => openAdaptiveSettingsScreen(context),
                     icon: const Icon(Icons.tune_rounded),
-                    label: const Text('開啟設定'),
+                    label: const Text('開啓設定'),
                     style: FilledButton.styleFrom(
                       alignment: Alignment.centerLeft,
                     ),
@@ -415,7 +415,7 @@ class _WebPwaInstallButton extends StatelessWidget {
           content: const Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('把 YABus 安裝成應用程式，之後就能像一般應用程式一樣開啟。'),
+              Text('把 YABus 安裝成應用程式，之後就能像一般應用程式一樣開啓。'),
               SizedBox(height: 12),
               Text(
                 '功能會比原版應用程式少就是了',
@@ -750,7 +750,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '這個功能目前已關閉。開啟後，YABus 會學習你在不同時段最常點開的路線，並在首頁直接推薦。',
+            '這個功能目前已關閉。開啓後，YABus 會學習你在不同時段最常點開的路線，並在首頁直接推薦。',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 16),
@@ -787,7 +787,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '再多打開幾次常用路線，尤其是在你平常會查車的時段。至少累積幾次實際開啟後，這裡才會開始穩定推薦；如果有定位資料，也會優先嘗試帶你看最近站點。',
+            '再多打開幾次常用路線，尤其是在你平常會查車的時段。至少累積幾次實際開啓後，這裡才會開始穩定推薦；如果有定位資料，也會優先嘗試帶你看最近站點。',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 14),
@@ -1209,7 +1209,7 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
 
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        throw StateError('定位服務尚未開啟。');
+        throw StateError('定位服務尚未開啓。');
       }
 
       var permission = await Geolocator.checkPermission();

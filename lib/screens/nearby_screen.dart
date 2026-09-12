@@ -58,7 +58,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        throw StateError('定位服務尚未開啟。');
+        throw StateError('定位服務尚未開啓。');
       }
 
       var permission = await Geolocator.checkPermission();

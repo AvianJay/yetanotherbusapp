@@ -47,6 +47,12 @@ class BusRepository {
   static const _routeStopsApiCacheTtl = Duration(minutes: 30);
   static const _routePathGeometryCacheTtl = Duration(minutes: 30);
   static const _routeRealtimeBusesCacheTtl = Duration(seconds: 2);
+  static const _taichungCityBusGraphqlUrl =
+      'https://citybus.taichung.gov.tw/ebus/graphql';
+  static const _taichungCityBusScheduleUrl =
+      'https://citybus.taichung.gov.tw/getschedule.php';
+  static const _taichungRouteIndexCacheTtl = Duration(hours: 1);
+  static const _taichungCancelledDepartureCacheTtl = Duration(minutes: 2);
   final Map<String, _TimedValue<RouteDetailData>> _routeDetailCache =
       <String, _TimedValue<RouteDetailData>>{};
   final Map<String, Future<RouteDetailData>> _routeDetailInFlight =
@@ -75,6 +81,14 @@ class BusRepository {
   _routeRealtimeBusesCache = <String, _TimedValue<List<RouteRealtimeBus>>>{};
   final Map<String, Future<List<RouteRealtimeBus>>>
   _routeRealtimeBusesInFlight = <String, Future<List<RouteRealtimeBus>>>{};
+  _TimedValue<Map<String, List<int>>>? _taichungRouteIndexCache;
+  Future<Map<String, List<int>>>? _taichungRouteIndexInFlight;
+  final Map<String, _TimedValue<List<CancelledDeparture>>>
+  _taichungCancelledDepartureCache =
+      <String, _TimedValue<List<CancelledDeparture>>>{};
+  final Map<String, Future<List<CancelledDeparture>>>
+  _taichungCancelledDepartureInFlight =
+      <String, Future<List<CancelledDeparture>>>{};
   static const _routeAlertsCacheTtl = Duration(minutes: 10);
   final Map<String, _TimedValue<List<RouteAlert>>> _routeAlertsCache =
       <String, _TimedValue<List<RouteAlert>>>{};
@@ -284,7 +298,7 @@ class BusRepository {
           );
         });
       } catch (_) {
-        throw DatabaseNotReadyException('路線資料庫無法開啟，請重新下載。');
+        throw DatabaseNotReadyException('路線資料庫無法開啓，請重新下載。');
       }
     }
 
@@ -358,7 +372,7 @@ class BusRepository {
           );
         });
       } catch (_) {
-        throw DatabaseNotReadyException('${provider.label} 資料庫無法開啟，請重新下載。');
+        throw DatabaseNotReadyException('${provider.label} 資料庫無法開啓，請重新下載。');
       }
     }
 
@@ -1998,9 +2012,9 @@ class BusRepository {
     if (trimmed.isEmpty) {
       return null;
     }
-    final uri = Uri.parse('$_apiBaseUrl/api/v1/stations/resolve').replace(
-      queryParameters: {'city': provider.prefix, 'stopid': trimmed},
-    );
+    final uri = Uri.parse(
+      '$_apiBaseUrl/api/v1/stations/resolve',
+    ).replace(queryParameters: {'city': provider.prefix, 'stopid': trimmed});
     return _loadStationPassby(uri, expectedProvider: provider);
   }
 
@@ -2040,9 +2054,7 @@ class BusRepository {
     if (decoded is! Map) {
       throw const FormatException('Invalid station passby response.');
     }
-    final json = decoded.map(
-      (key, value) => MapEntry(key.toString(), value),
-    );
+    final json = decoded.map((key, value) => MapEntry(key.toString(), value));
     if (json['city']?.toString().toUpperCase() != expectedProvider.prefix) {
       return null;
     }
@@ -2053,10 +2065,9 @@ class BusRepository {
     }
 
     final sides = <StationSideData>[];
-    for (final rawSide in (json['sides'] as List? ?? const []).whereType<Map>()) {
-      final side = rawSide.map(
-        (key, value) => MapEntry(key.toString(), value),
-      );
+    for (final rawSide
+        in (json['sides'] as List? ?? const []).whereType<Map>()) {
+      final side = rawSide.map((key, value) => MapEntry(key.toString(), value));
       final sideId = side['side_id']?.toString().trim() ?? '';
       final label = side['label']?.toString().trim() ?? '';
       final rawStopId = side['stopid']?.toString().trim() ?? '';
@@ -2850,7 +2861,7 @@ class BusRepository {
       return database;
     } catch (_) {
       await _markDatabaseInvalid(provider, file);
-      throw DatabaseNotReadyException('${provider.label} 資料庫無法開啟，請重新下載。');
+      throw DatabaseNotReadyException('${provider.label} 資料庫無法開啓，請重新下載。');
     }
   }
 
@@ -2876,7 +2887,7 @@ class BusRepository {
       return database;
     } catch (_) {
       await _deleteDatabaseArtifacts(file);
-      throw DatabaseNotReadyException('路線資料庫無法開啟，請重新下載。');
+      throw DatabaseNotReadyException('路線資料庫無法開啓，請重新下載。');
     }
   }
 
@@ -3759,10 +3770,10 @@ class BusRepository {
   /// Stop name folded for equality checks (case and all whitespace ignored),
   /// or null when there is nothing to compare against.
   String? _normalizeStopNameForComparison(String? value) {
-    final normalized = value
-        ?.trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), '');
+    final normalized = value?.trim().toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      '',
+    );
     return (normalized == null || normalized.isEmpty) ? null : normalized;
   }
 
@@ -3939,6 +3950,289 @@ class BusRepository {
       debugPrint('fetchStopEstimatedTimes fallback: $e');
       return fetchRouteSchedule(routeId);
     }
+  }
+
+  /// Returns Taichung's provider-reported cancelled departures for [date].
+  ///
+  /// The city-bus site does not expose a cancellation field. Its own UI marks
+  /// a trip as cancelled when it appears in the base timetable but not in that
+  /// date's daily timetable, so this method applies the same comparison.
+  Future<List<CancelledDeparture>> fetchTaichungCancelledDepartures({
+    required String routeId,
+    required String routeName,
+    required DateTime date,
+  }) async {
+    final normalizedName = routeName.trim();
+    if (normalizedName.isEmpty) {
+      throw ArgumentError.value(routeName, 'routeName', 'must not be empty');
+    }
+
+    final xnos = (await _getTaichungRouteIndex())[normalizedName] ?? const [];
+    if (xnos.length != 1) {
+      throw StateError('無法將臺中路線 $routeId 對應至取消發車資料來源。');
+    }
+
+    final dateKey = _formatTaichungDate(date);
+    final cacheKey = '${xnos.single}:$dateKey';
+    final cached = _readFreshCache(
+      _taichungCancelledDepartureCache,
+      cacheKey,
+      _taichungCancelledDepartureCacheTtl,
+    );
+    if (cached != null) {
+      return cached;
+    }
+    final inFlight = _taichungCancelledDepartureInFlight[cacheKey];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _loadTaichungCancelledDepartures(
+      xno: xnos.single,
+      date: date,
+      dateKey: dateKey,
+    );
+    _taichungCancelledDepartureInFlight[cacheKey] = future;
+    try {
+      final departures = await future;
+      _taichungCancelledDepartureCache[cacheKey] =
+          _TimedValue<List<CancelledDeparture>>(departures);
+      return departures;
+    } finally {
+      if (identical(_taichungCancelledDepartureInFlight[cacheKey], future)) {
+        _taichungCancelledDepartureInFlight.remove(cacheKey);
+      }
+    }
+  }
+
+  Future<Map<String, List<int>>> _getTaichungRouteIndex() async {
+    final cached = _taichungRouteIndexCache;
+    if (cached != null &&
+        DateTime.now().difference(cached.createdAt) <
+            _taichungRouteIndexCacheTtl) {
+      return cached.value;
+    }
+    final inFlight = _taichungRouteIndexInFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _loadTaichungRouteIndex();
+    _taichungRouteIndexInFlight = future;
+    try {
+      final index = await future;
+      _taichungRouteIndexCache = _TimedValue<Map<String, List<int>>>(index);
+      return index;
+    } finally {
+      if (identical(_taichungRouteIndexInFlight, future)) {
+        _taichungRouteIndexInFlight = null;
+      }
+    }
+  }
+
+  Future<Map<String, List<int>>> _loadTaichungRouteIndex() async {
+    const query = '''
+      {
+        routes(lang: "zh") {
+          edges {
+            node {
+              id
+              name
+            }
+          }
+        }
+      }
+    ''';
+    final response = await apiPost(
+      _client,
+      Uri.parse(_taichungCityBusGraphqlUrl),
+      headers: const <String, String>{'Content-Type': 'application/json'},
+      body: jsonEncode(<String, String>{'query': query}),
+    );
+    if (response.statusCode != 200) {
+      throw HttpException('取消發車資料暫時無法取得 (${response.statusCode})。');
+    }
+    final decoded = jsonDecode(apiResponseText(response));
+    if (decoded is! Map) {
+      throw const FormatException('Taichung route index is invalid.');
+    }
+    final data = decoded['data'];
+    if (data is! Map) {
+      throw const FormatException('Taichung route index has no data.');
+    }
+    final routes = data['routes'];
+    if (routes is! Map) {
+      throw const FormatException('Taichung route index has no routes.');
+    }
+    final index = <String, List<int>>{};
+    for (final edge in routes['edges'] as List<dynamic>? ?? const []) {
+      if (edge is! Map || edge['node'] is! Map) {
+        continue;
+      }
+      final node = edge['node'] as Map;
+      final name = node['name']?.toString().trim() ?? '';
+      final xno = _nullableInt(node['id']);
+      if (name.isEmpty || xno == null) {
+        continue;
+      }
+      (index[name] ??= <int>[]).add(xno);
+    }
+    return index;
+  }
+
+  Future<List<CancelledDeparture>> _loadTaichungCancelledDepartures({
+    required int xno,
+    required DateTime date,
+    required String dateKey,
+  }) async {
+    final dailyTimesFuture = _fetchTaichungDailyTimes(xno, dateKey);
+    final baseTimesFuture = _isSameLocalDate(date, DateTime.now())
+        ? _fetchTaichungCurrentSchedule(xno)
+        : _fetchTaichungBaseSchedule(xno);
+    final results = await Future.wait<Set<String>>(<Future<Set<String>>>[
+      baseTimesFuture,
+      dailyTimesFuture,
+    ]);
+    final cancelled = results.first.difference(results.last).toList()..sort();
+    return cancelled
+        .map((value) {
+          final parts = value.split('|');
+          return CancelledDeparture(
+            direction: int.tryParse(parts.first) ?? 0,
+            departureTime: parts.last,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Future<Set<String>> _fetchTaichungBaseSchedule(int xno) async {
+    const scheduleFields = '''
+      schedule(xno: XNO) {
+        edges {
+          node {
+            goBack
+            scheduleTime
+            orderNo
+          }
+        }
+      }
+    ''';
+    final data = await _postTaichungGraphql(
+      scheduleFields.replaceFirst('XNO', xno.toString()),
+    );
+    final schedule = data['schedule'];
+    if (schedule is! Map) {
+      throw const FormatException('Taichung base schedule is invalid.');
+    }
+    return _taichungScheduleKeys(schedule['edges'], requireFirstStop: true);
+  }
+
+  Future<Set<String>> _fetchTaichungDailyTimes(int xno, String dateKey) async {
+    final data = await _postTaichungGraphql('''
+      dailyTimeTable(xno: $xno, date: "$dateKey") {
+        edges {
+          node {
+            goBack
+            scheduleTime
+          }
+        }
+      }
+    ''');
+    final timetable = data['dailyTimeTable'];
+    if (timetable is! Map) {
+      throw const FormatException('Taichung daily timetable is invalid.');
+    }
+    return _taichungScheduleKeys(timetable['edges']);
+  }
+
+  Future<Set<String>> _fetchTaichungCurrentSchedule(int xno) async {
+    final response = await apiGet(
+      _client,
+      Uri.parse(_taichungCityBusScheduleUrl).replace(
+        queryParameters: <String, String>{
+          'xno': xno.toString(),
+          'ver': DateTime.now().millisecondsSinceEpoch.toString(),
+        },
+      ),
+      headers: apiJsonHeaders,
+    );
+    if (response.statusCode != 200) {
+      throw HttpException('取消發車資料暫時無法取得 (${response.statusCode})。');
+    }
+    final decoded = jsonDecode(apiResponseText(response));
+    if (decoded is! List) {
+      throw const FormatException('Taichung current schedule is invalid.');
+    }
+    return _taichungScheduleKeys(decoded);
+  }
+
+  Future<Map> _postTaichungGraphql(String body) async {
+    final response = await apiPost(
+      _client,
+      Uri.parse(_taichungCityBusGraphqlUrl),
+      headers: const <String, String>{'Content-Type': 'application/json'},
+      body: jsonEncode(<String, String>{'query': '{$body}'}),
+    );
+    if (response.statusCode != 200) {
+      throw HttpException('取消發車資料暫時無法取得 (${response.statusCode})。');
+    }
+    final decoded = jsonDecode(apiResponseText(response));
+    if (decoded is! Map || decoded['data'] is! Map) {
+      throw const FormatException('Taichung GraphQL response is invalid.');
+    }
+    return decoded['data'] as Map;
+  }
+
+  Set<String> _taichungScheduleKeys(
+    Object? rawEdges, {
+    bool requireFirstStop = false,
+  }) {
+    final keys = <String>{};
+    for (final rawEdge in rawEdges as List<dynamic>? ?? const []) {
+      if (rawEdge is! Map) {
+        continue;
+      }
+      final node = rawEdge['node'] is Map ? rawEdge['node'] as Map : rawEdge;
+      if (requireFirstStop && _nullableInt(node['orderNo']) != 1) {
+        continue;
+      }
+      final direction = _nullableInt(node['goBack']);
+      final time = _normalizeTaichungScheduleTime(node['scheduleTime']);
+      if (direction == null || time == null) {
+        continue;
+      }
+      keys.add('$direction|$time');
+    }
+    return keys;
+  }
+
+  String? _normalizeTaichungScheduleTime(Object? raw) {
+    final value = raw?.toString().trim() ?? '';
+    if (value.isEmpty || value.contains('_')) {
+      return null;
+    }
+    final parts = value.split(':');
+    if (parts.length < 2) {
+      return null;
+    }
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) {
+      return null;
+    }
+    return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatTaichungDate(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
+  }
+
+  bool _isSameLocalDate(DateTime first, DateTime second) {
+    return first.year == second.year &&
+        first.month == second.month &&
+        first.day == second.day;
   }
 
   // ---- Holidays (per-year cache) ----

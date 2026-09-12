@@ -136,7 +136,7 @@ class _SearchScreenState extends State<SearchScreen> {
         if (showKeypad)
           IconButton(
             key: const ValueKey<String>('show-route-keypad'),
-            tooltip: '開啟快捷鍵盤',
+            tooltip: '開啓快捷鍵盤',
             onPressed: _showRouteKeypad,
             icon: const Icon(Icons.dialpad_rounded),
           ),

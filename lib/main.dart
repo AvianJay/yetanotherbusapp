@@ -59,7 +59,7 @@ Future<void> main(List<String> args) async {
   } catch (error) {
     runApp(
       _StartupErrorApp(
-        message: friendlyErrorMessage(error, fallback: '啟動時發生未預期的錯誤，請稍後再試。'),
+        message: friendlyErrorMessage(error, fallback: '啓動時發生未預期的錯誤，請稍後再試。'),
         detail: '$error',
       ),
     );
@@ -87,7 +87,7 @@ class _StartupErrorApp extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    '啟動失敗',
+                    '啓動失敗',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 12),

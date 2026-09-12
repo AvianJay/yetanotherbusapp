@@ -311,7 +311,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 settings: const RouteSettings(
-                                  name: 'personalization',
+                                  name: '/personalization',
                                 ),
                                 builder: (_) => const PersonalizationScreen(),
                               ),
@@ -339,7 +339,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            settings: const RouteSettings(name: 'account'),
+                            settings: const RouteSettings(
+                              name: AppRoutes.account,
+                            ),
                             builder: (_) => const AccountScreen(),
                           ),
                         );
@@ -513,7 +515,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               Navigator.of(context).push(
                                 MaterialPageRoute<void>(
                                   settings: const RouteSettings(
-                                    name: 'database_settings',
+                                    name: AppRoutes.databaseSettings,
                                   ),
                                   builder: (_) =>
                                       const DatabaseSettingsScreen(),

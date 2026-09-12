@@ -14,9 +14,14 @@ import '../widgets/ad_banner_widget.dart';
 enum _MetroPanel { live, map }
 
 class MetroScreen extends StatefulWidget {
-  const MetroScreen({required this.onModeChanged, super.key});
+  const MetroScreen({
+    required this.onModeChanged,
+    required this.isActive,
+    super.key,
+  });
 
   final ValueChanged<TransitMode> onModeChanged;
+  final bool isActive;
 
   @override
   State<MetroScreen> createState() => _MetroScreenState();
@@ -56,6 +61,24 @@ class _MetroScreenState extends State<MetroScreen> {
   void dispose() {
     _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant MetroScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) {
+      return;
+    }
+    if (!widget.isActive) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      return;
+    }
+    if (_selectedLine != null) {
+      unawaited(_loadLineEta());
+    } else if (!_loading) {
+      unawaited(_loadSystems());
+    }
   }
 
   Future<void> _loadSystems() async {
@@ -175,12 +198,16 @@ class _MetroScreenState extends State<MetroScreen> {
         _etaMessage = eta.message;
         _frequency = eta.frequency;
       });
-      if (resetTimer) {
+      if (resetTimer && widget.isActive) {
         _refreshTimer?.cancel();
-        _refreshTimer = Timer.periodic(
-          const Duration(seconds: 10),
-          (_) => _loadLineEta(resetTimer: false),
-        );
+        _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+          if (!mounted || !widget.isActive) {
+            _refreshTimer?.cancel();
+            _refreshTimer = null;
+            return;
+          }
+          unawaited(_loadLineEta(resetTimer: false));
+        });
       }
     } catch (error) {
       if (!mounted) {
@@ -402,6 +429,7 @@ class _MetroScreenState extends State<MetroScreen> {
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YAMetro'),
+        automaticallyImplyLeading: false,
         leading:
             MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
             ? null

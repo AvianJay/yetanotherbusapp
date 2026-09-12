@@ -13,9 +13,14 @@ import '../widgets/ad_banner_widget.dart';
 enum _TraPanel { query, map }
 
 class TraScreen extends StatefulWidget {
-  const TraScreen({required this.onModeChanged, super.key});
+  const TraScreen({
+    required this.onModeChanged,
+    required this.isActive,
+    super.key,
+  });
 
   final ValueChanged<TransitMode> onModeChanged;
+  final bool isActive;
 
   @override
   State<TraScreen> createState() => _TraScreenState();
@@ -54,6 +59,24 @@ class _TraScreenState extends State<TraScreen> {
   void dispose() {
     _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant TraScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) {
+      return;
+    }
+    if (!widget.isActive) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      return;
+    }
+    if (_selectedStation != null) {
+      unawaited(_loadBoard());
+    } else if (!_loadingStations) {
+      unawaited(_loadInitialData());
+    }
   }
 
   Future<void> _loadInitialData() async {
@@ -138,10 +161,17 @@ class _TraScreenState extends State<TraScreen> {
           _selectedTrainNo = null;
         }
       });
-      _refreshTimer?.cancel();
-      _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-        _loadBoard();
-      });
+      if (widget.isActive) {
+        _refreshTimer?.cancel();
+        _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+          if (!mounted || !widget.isActive) {
+            _refreshTimer?.cancel();
+            _refreshTimer = null;
+            return;
+          }
+          unawaited(_loadBoard());
+        });
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -226,6 +256,7 @@ class _TraScreenState extends State<TraScreen> {
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YATrain'),
+        automaticallyImplyLeading: false,
         leading:
             MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
             ? null

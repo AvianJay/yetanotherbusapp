@@ -13,9 +13,14 @@ import '../widgets/ad_banner_widget.dart';
 enum _ThsrPanel { timetable, seats, map }
 
 class ThsrScreen extends StatefulWidget {
-  const ThsrScreen({required this.onModeChanged, super.key});
+  const ThsrScreen({
+    required this.onModeChanged,
+    required this.isActive,
+    super.key,
+  });
 
   final ValueChanged<TransitMode> onModeChanged;
+  final bool isActive;
 
   @override
   State<ThsrScreen> createState() => _ThsrScreenState();
@@ -52,6 +57,24 @@ class _ThsrScreenState extends State<ThsrScreen> {
   void dispose() {
     _seatRefreshTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant ThsrScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) {
+      return;
+    }
+    if (!widget.isActive) {
+      _seatRefreshTimer?.cancel();
+      _seatRefreshTimer = null;
+      return;
+    }
+    if (_selectedStation != null) {
+      unawaited(_loadSeats());
+    } else if (!_loadingStations) {
+      unawaited(_loadInitialData());
+    }
   }
 
   Future<void> _loadInitialData() async {
@@ -135,12 +158,16 @@ class _ThsrScreenState extends State<ThsrScreen> {
         _selectedStation = activeStation;
         _seatInfos = seatInfos;
       });
-      if (resetTimer) {
+      if (resetTimer && widget.isActive) {
         _seatRefreshTimer?.cancel();
-        _seatRefreshTimer = Timer.periodic(
-          const Duration(seconds: 30),
-          (_) => _loadSeats(resetTimer: false),
-        );
+        _seatRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+          if (!mounted || !widget.isActive) {
+            _seatRefreshTimer?.cancel();
+            _seatRefreshTimer = null;
+            return;
+          }
+          unawaited(_loadSeats(resetTimer: false));
+        });
       }
     } catch (error) {
       if (!mounted) {
@@ -221,6 +248,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YAHSR'),
+        automaticallyImplyLeading: false,
         leading:
             MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
             ? null

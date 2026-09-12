@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../core/app_routes.dart';
 import 'settings_screen.dart';
 
 const _settingsDialogBreakpoint = 1100.0;
@@ -13,7 +14,7 @@ Future<void> openAdaptiveSettingsScreen(BuildContext context) {
   if (size.width < _settingsDialogBreakpoint) {
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'settings'),
+        settings: const RouteSettings(name: AppRoutes.settings),
         builder: (_) => const SettingsScreen(),
       ),
     );

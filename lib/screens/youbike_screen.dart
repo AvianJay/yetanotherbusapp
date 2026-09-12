@@ -16,9 +16,14 @@ import '../widgets/platform_map_provider.dart';
 import '../widgets/ad_banner_widget.dart';
 
 class YouBikeScreen extends StatefulWidget {
-  const YouBikeScreen({required this.onModeChanged, super.key});
+  const YouBikeScreen({
+    required this.onModeChanged,
+    required this.isActive,
+    super.key,
+  });
 
   final ValueChanged<TransitMode> onModeChanged;
+  final bool isActive;
 
   @override
   State<YouBikeScreen> createState() => _YouBikeScreenState();
@@ -53,6 +58,11 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     AppControllerScope.read(context).settings.mobileMapProvider,
   );
 
+  bool get _usesSplitLayout {
+    final renderBox = context.findRenderObject() as RenderBox?;
+    return (renderBox?.size.width ?? 0) >= _splitLayoutBreakpoint;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -64,6 +74,22 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     _refreshTimer?.cancel();
     _googleMapController?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant YouBikeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) {
+      return;
+    }
+    if (!widget.isActive) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      return;
+    }
+    if (!_locating) {
+      unawaited(_loadNearby(_center));
+    }
   }
 
   Future<void> _initLocation() async {
@@ -115,10 +141,17 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
         _stations = stations;
         _center = loc;
       });
-      _refreshTimer?.cancel();
-      _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-        _loadNearby(_center);
-      });
+      if (widget.isActive) {
+        _refreshTimer?.cancel();
+        _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+          if (!mounted || !widget.isActive) {
+            _refreshTimer?.cancel();
+            _refreshTimer = null;
+            return;
+          }
+          unawaited(_loadNearby(_center));
+        });
+      }
     } catch (_) {
     } finally {
       if (mounted) setState(() => _loadingStations = false);
@@ -167,7 +200,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     final point = _stationPointIfValid(station);
     setState(() => _selectedStation = station);
     if (point == null) {
-      if (MediaQuery.sizeOf(context).width < _splitLayoutBreakpoint) {
+      if (!_usesSplitLayout) {
         _showStationDetail(station);
       }
       return;
@@ -183,7 +216,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     } else {
       _mapController.move(point, _mapController.camera.zoom);
     }
-    if (MediaQuery.sizeOf(context).width < _splitLayoutBreakpoint) {
+    if (!_usesSplitLayout) {
       _showStationDetail(station);
     }
   }
@@ -1086,8 +1119,6 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final useSplitLayout =
-        MediaQuery.sizeOf(context).width >= _splitLayoutBreakpoint;
     final theme = Theme.of(context);
     final useGoogleMapsPointProvider = useGoogleMapsProviderFor(
       AppControllerScope.of(context).settings.mobileMapProvider,
@@ -1101,6 +1132,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YABike'),
+        automaticallyImplyLeading: false,
         leading:
             MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
             ? null
@@ -1111,7 +1143,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                 ),
               ),
         actions: [
-          if (!useSplitLayout)
+          if (!_usesSplitLayout)
             IconButton(
               tooltip: '附近站點',
               onPressed: _showNearbyStationsSheet,
@@ -1127,38 +1159,43 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
         currentMode: TransitMode.youbike,
         onModeChanged: widget.onModeChanged,
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _locating
-                ? const Center(child: CircularProgressIndicator())
-                : useSplitLayout
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SizedBox(
-                        width: 380,
-                        child: _buildSplitStationSidebar(theme),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final useSplitLayout = constraints.maxWidth >= _splitLayoutBreakpoint;
+          return Column(
+            children: [
+              Expanded(
+                child: _locating
+                    ? const Center(child: CircularProgressIndicator())
+                    : useSplitLayout
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            width: 380,
+                            child: _buildSplitStationSidebar(theme),
+                          ),
+                          VerticalDivider(
+                            width: 1,
+                            thickness: 1,
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                          Expanded(
+                            child: _buildMapContent(
+                              useGoogleMapsPointProvider:
+                                  useGoogleMapsPointProvider,
+                            ),
+                          ),
+                        ],
+                      )
+                    : _buildMapContent(
+                        useGoogleMapsPointProvider: useGoogleMapsPointProvider,
                       ),
-                      VerticalDivider(
-                        width: 1,
-                        thickness: 1,
-                        color: theme.colorScheme.outlineVariant,
-                      ),
-                      Expanded(
-                        child: _buildMapContent(
-                          useGoogleMapsPointProvider:
-                              useGoogleMapsPointProvider,
-                        ),
-                      ),
-                    ],
-                  )
-                : _buildMapContent(
-                    useGoogleMapsPointProvider: useGoogleMapsPointProvider,
-                  ),
-          ),
-          const AdBannerWidget(),
-        ],
+              ),
+              const AdBannerWidget(),
+            ],
+          );
+        },
       ),
     );
   }

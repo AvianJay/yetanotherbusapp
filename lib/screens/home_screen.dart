@@ -36,14 +36,17 @@ class HomeScreen extends StatelessWidget {
   ) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'database_settings'),
+        settings: const RouteSettings(name: AppRoutes.databaseSettings),
         builder: (_) => const DatabaseSettingsScreen(),
       ),
     );
   }
 
-  Widget _buildFeatureList(BuildContext context, AppController controller) {
-    final compactMode = _useCompactHomeMode(context, controller.settings);
+  Widget _buildFeatureList(
+    BuildContext context,
+    AppController controller, {
+    required bool compactMode,
+  }) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
       children: [
@@ -67,9 +70,9 @@ class HomeScreen extends StatelessWidget {
 
   Widget _buildDesktopMainPanel(
     BuildContext context,
-    AppController controller,
-  ) {
-    final compactMode = _useCompactHomeMode(context, controller.settings);
+    AppController controller, {
+    required bool compactMode,
+  }) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 32, 12, 32),
       children: [
@@ -132,7 +135,7 @@ class HomeScreen extends StatelessWidget {
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
-            settings: const RouteSettings(name: 'search'),
+            settings: const RouteSettings(name: AppRoutes.search),
             builder: (_) => const SearchScreen(),
           ),
         );
@@ -154,7 +157,7 @@ class HomeScreen extends StatelessWidget {
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
-            settings: const RouteSettings(name: 'favorites'),
+            settings: const RouteSettings(name: AppRoutes.favorites),
             builder: (_) => const FavoritesScreen(),
           ),
         );
@@ -176,7 +179,7 @@ class HomeScreen extends StatelessWidget {
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
-            settings: const RouteSettings(name: 'nearby'),
+            settings: const RouteSettings(name: AppRoutes.nearby),
             builder: (_) => const NearbyScreen(),
           ),
         );
@@ -270,13 +273,12 @@ class HomeScreen extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final hasBusBackgroundImage = controller.settings.pageBackgroundImagePaths
         .containsKey('bus');
-    final isWideLayout =
-        MediaQuery.sizeOf(context).width >= _desktopSidebarBreakpoint;
-
     return Scaffold(
       backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YABus'),
+        titleSpacing: 24,
+        automaticallyImplyLeading: false,
         leading:
             MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
             ? null
@@ -333,36 +335,57 @@ class HomeScreen extends StatelessWidget {
         currentMode: TransitMode.bus,
         onModeChanged: onModeChanged,
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: _shouldShowGradient(controller)
-              ? LinearGradient(
-                  colors: [
-                    colorScheme.primaryContainer.withValues(
-                      alpha: controller.settings.homeBackgroundOpacity,
-                    ),
-                    Theme.of(context).scaffoldBackgroundColor,
-                    colorScheme.secondaryContainer.withValues(
-                      alpha: controller.settings.homeBackgroundOpacity * 0.38,
-                    ),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : null,
-        ),
-        child: isWideLayout
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: _buildDesktopMainPanel(context, controller)),
-                  SizedBox(
-                    width: _desktopSidebarWidth,
-                    child: _buildDesktopSidebar(context, controller),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWideLayout =
+              constraints.maxWidth >= _desktopSidebarBreakpoint;
+          final compactMode = _useCompactHomeMode(
+            controller.settings,
+            constraints.maxWidth,
+          );
+          return Container(
+            decoration: BoxDecoration(
+              gradient: _shouldShowGradient(controller)
+                  ? LinearGradient(
+                      colors: [
+                        colorScheme.primaryContainer.withValues(
+                          alpha: controller.settings.homeBackgroundOpacity,
+                        ),
+                        Theme.of(context).scaffoldBackgroundColor,
+                        colorScheme.secondaryContainer.withValues(
+                          alpha:
+                              controller.settings.homeBackgroundOpacity * 0.38,
+                        ),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    )
+                  : null,
+            ),
+            child: isWideLayout
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _buildDesktopMainPanel(
+                          context,
+                          controller,
+                          compactMode: compactMode,
+                        ),
+                      ),
+                      SizedBox(
+                        width: _desktopSidebarWidth,
+                        child: _buildDesktopSidebar(context, controller),
+                      ),
+                    ],
+                  )
+                : _buildFeatureList(
+                    context,
+                    controller,
+                    compactMode: compactMode,
                   ),
-                ],
-              )
-            : _buildFeatureList(context, controller),
+          );
+        },
       ),
     );
   }
@@ -381,7 +404,7 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-bool _useCompactHomeMode(BuildContext context, AppSettings settings) {
+bool _useCompactHomeMode(AppSettings settings, double availableWidth) {
   final isDesktopApp =
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.windows ||
@@ -389,7 +412,7 @@ bool _useCompactHomeMode(BuildContext context, AppSettings settings) {
           defaultTargetPlatform == TargetPlatform.macOS);
   return isDesktopApp ||
       settings.enableCompactMode ||
-      MediaQuery.sizeOf(context).width >= HomeScreen._desktopSidebarBreakpoint;
+      availableWidth >= HomeScreen._desktopSidebarBreakpoint;
 }
 
 class _WebPwaInstallButton extends StatelessWidget {
@@ -1293,7 +1316,7 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
   Future<void> _openNearbyScreen() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'nearby'),
+        settings: const RouteSettings(name: AppRoutes.nearby),
         builder: (_) => const NearbyScreen(),
       ),
     );
@@ -1311,8 +1334,8 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
             routeName: selected.route.routeName,
           );
     final compactMode = _useCompactHomeMode(
-      context,
       widget.controller.settings,
+      context.size?.width ?? MediaQuery.sizeOf(context).width,
     );
 
     return Card(

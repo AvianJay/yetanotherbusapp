@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/friendly_error.dart';
+import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/eta_badge.dart';
@@ -50,6 +51,9 @@ class _MetroScreenState extends State<MetroScreen> {
   String? _etaMessage;
   List<MetroFrequencyInfo>? _frequency;
   Timer? _refreshTimer;
+  final _systemsRequest = RequestSequence();
+  final _systemDataRequest = RequestSequence();
+  final _etaRequest = RequestSequence();
 
   @override
   void initState() {
@@ -82,6 +86,7 @@ class _MetroScreenState extends State<MetroScreen> {
   }
 
   Future<void> _loadSystems({bool refresh = false}) async {
+    final request = _systemsRequest.next();
     if (refresh) {
       _repo.invalidateCache('metro_');
     }
@@ -91,7 +96,7 @@ class _MetroScreenState extends State<MetroScreen> {
     });
     try {
       final systems = await _repo.getMetroSystems();
-      if (!mounted) {
+      if (!mounted || !_systemsRequest.isCurrent(request)) {
         return;
       }
       final selectedSystem =
@@ -105,12 +110,12 @@ class _MetroScreenState extends State<MetroScreen> {
         await _loadSystemData(system: selectedSystem);
       }
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || !_systemsRequest.isCurrent(request)) {
         return;
       }
       setState(() => _pageError = friendlyErrorMessage(error));
     } finally {
-      if (mounted) {
+      if (mounted && _systemsRequest.isCurrent(request)) {
         setState(() => _loading = false);
       }
     }
@@ -120,6 +125,8 @@ class _MetroScreenState extends State<MetroScreen> {
     required MetroSystem system,
     bool refresh = false,
   }) async {
+    final request = _systemDataRequest.next();
+    _etaRequest.next();
     if (refresh) {
       _repo.invalidateCache('metro_');
     }
@@ -139,7 +146,7 @@ class _MetroScreenState extends State<MetroScreen> {
         _repo.getMetroStations(system.system),
         _repo.getMetroStationOfLine(system.system),
       ]);
-      if (!mounted) {
+      if (!mounted || !_systemDataRequest.isCurrent(request)) {
         return;
       }
 
@@ -165,12 +172,12 @@ class _MetroScreenState extends State<MetroScreen> {
         await _loadLineEta(line: selectedLine);
       }
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || !_systemDataRequest.isCurrent(request)) {
         return;
       }
       setState(() => _pageError = friendlyErrorMessage(error));
     } finally {
-      if (mounted) {
+      if (mounted && _systemDataRequest.isCurrent(request)) {
         setState(() => _loadingSystem = false);
       }
     }
@@ -182,6 +189,7 @@ class _MetroScreenState extends State<MetroScreen> {
     if (activeSystem == null || activeLine == null) {
       return;
     }
+    final request = _etaRequest.next();
     setState(() {
       _loadingEta = true;
       _lineError = null;
@@ -192,7 +200,7 @@ class _MetroScreenState extends State<MetroScreen> {
         activeSystem.system,
         activeLine.lineId,
       );
-      if (!mounted) {
+      if (!mounted || !_etaRequest.isCurrent(request)) {
         return;
       }
       final selectedStationId =
@@ -219,12 +227,12 @@ class _MetroScreenState extends State<MetroScreen> {
         });
       }
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || !_etaRequest.isCurrent(request)) {
         return;
       }
       setState(() => _lineError = friendlyErrorMessage(error));
     } finally {
-      if (mounted) {
+      if (mounted && _etaRequest.isCurrent(request)) {
         setState(() => _loadingEta = false);
       }
     }

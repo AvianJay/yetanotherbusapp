@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/friendly_error.dart';
+import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
@@ -46,6 +47,8 @@ class _ThsrScreenState extends State<ThsrScreen> {
   List<ThsrOdTrain> _results = [];
   List<ThsrSeatInfo> _seatInfos = [];
   Timer? _seatRefreshTimer;
+  final _initialDataRequest = RequestSequence();
+  final _seatsRequest = RequestSequence();
 
   @override
   void initState() {
@@ -78,6 +81,8 @@ class _ThsrScreenState extends State<ThsrScreen> {
   }
 
   Future<void> _loadInitialData({bool refresh = false}) async {
+    final request = _initialDataRequest.next();
+    _seatsRequest.next();
     if (refresh) {
       _repo.invalidateCache('thsr_');
     }
@@ -90,7 +95,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
         _repo.getThsrStations(),
         _repo.getThsrAlerts(),
       ]);
-      if (!mounted) {
+      if (!mounted || !_initialDataRequest.isCurrent(request)) {
         return;
       }
 
@@ -117,12 +122,12 @@ class _ThsrScreenState extends State<ThsrScreen> {
         await _loadSeats(station: selectedStation);
       }
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || !_initialDataRequest.isCurrent(request)) {
         return;
       }
       setState(() => _pageError = friendlyErrorMessage(error));
     } finally {
-      if (mounted) {
+      if (mounted && _initialDataRequest.isCurrent(request)) {
         setState(() => _loadingStations = false);
       }
     }
@@ -148,13 +153,14 @@ class _ThsrScreenState extends State<ThsrScreen> {
     if (activeStation == null) {
       return;
     }
+    final request = _seatsRequest.next();
     setState(() {
       _loadingSeats = true;
       _seatError = null;
     });
     try {
       final seatInfos = await _repo.getThsrSeats(activeStation.stationId);
-      if (!mounted) {
+      if (!mounted || !_seatsRequest.isCurrent(request)) {
         return;
       }
       setState(() {
@@ -173,16 +179,15 @@ class _ThsrScreenState extends State<ThsrScreen> {
         });
       }
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || !_seatsRequest.isCurrent(request)) {
         return;
       }
       setState(() {
         _selectedStation = activeStation;
-        _seatInfos = const [];
         _seatError = friendlyErrorMessage(error);
       });
     } finally {
-      if (mounted) {
+      if (mounted && _seatsRequest.isCurrent(request)) {
         setState(() => _loadingSeats = false);
       }
     }

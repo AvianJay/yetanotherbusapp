@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/friendly_error.dart';
+import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
@@ -48,6 +49,8 @@ class _TraScreenState extends State<TraScreen> {
   RailStation? _dest;
   DateTime _date = DateTime.now();
   List<TraOdTrain> _results = [];
+  final _initialDataRequest = RequestSequence();
+  final _boardRequest = RequestSequence();
 
   @override
   void initState() {
@@ -80,6 +83,8 @@ class _TraScreenState extends State<TraScreen> {
   }
 
   Future<void> _loadInitialData({bool refresh = false}) async {
+    final request = _initialDataRequest.next();
+    _boardRequest.next();
     if (refresh) {
       _repo.invalidateCache('tra_');
     }
@@ -92,7 +97,7 @@ class _TraScreenState extends State<TraScreen> {
         _repo.getTraStations(),
         _repo.getTraAlerts(),
       ]);
-      if (!mounted) return;
+      if (!mounted || !_initialDataRequest.isCurrent(request)) return;
 
       final stations = futures[0] as List<RailStation>;
       final alerts = futures[1] as List<RailAlert>;
@@ -115,10 +120,10 @@ class _TraScreenState extends State<TraScreen> {
         await _loadBoard(station: selectedStation);
       }
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || !_initialDataRequest.isCurrent(request)) return;
       setState(() => _pageError = friendlyErrorMessage(error));
     } finally {
-      if (mounted) {
+      if (mounted && _initialDataRequest.isCurrent(request)) {
         setState(() => _loadingStations = false);
       }
     }
@@ -139,6 +144,7 @@ class _TraScreenState extends State<TraScreen> {
   Future<void> _loadBoard({RailStation? station}) async {
     final activeStation = station ?? _selectedStation;
     if (activeStation == null) return;
+    final request = _boardRequest.next();
     setState(() => _loadingBoard = true);
     try {
       final boardFuture = _repo.getTraLiveBoard(activeStation.stationId);
@@ -152,7 +158,7 @@ class _TraScreenState extends State<TraScreen> {
       } catch (_) {
         positions = const <TraTrainPosition>[];
       }
-      if (!mounted) return;
+      if (!mounted || !_boardRequest.isCurrent(request)) return;
       setState(() {
         _selectedStation = activeStation;
         _boardEntries = entries;
@@ -176,14 +182,9 @@ class _TraScreenState extends State<TraScreen> {
         });
       }
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _boardEntries = const [];
-        _trainPositions = const [];
-        _selectedTrainNo = null;
-      });
+      if (!mounted || !_boardRequest.isCurrent(request)) return;
     } finally {
-      if (mounted) {
+      if (mounted && _boardRequest.isCurrent(request)) {
         setState(() => _loadingBoard = false);
       }
     }

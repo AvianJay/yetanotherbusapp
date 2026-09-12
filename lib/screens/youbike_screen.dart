@@ -9,6 +9,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 
 import '../app/bus_app.dart';
+import '../core/debouncer.dart';
+import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
@@ -29,9 +31,11 @@ class YouBikeScreen extends StatefulWidget {
   State<YouBikeScreen> createState() => _YouBikeScreenState();
 }
 
-class _YouBikeScreenState extends State<YouBikeScreen> {
+class _YouBikeScreenState extends State<YouBikeScreen>
+    with SingleTickerProviderStateMixin {
   final TransitRepository _repo = TransitRepository.shared;
   final MapController _mapController = MapController();
+  late final AnimationController _osmCameraAnimation;
   gmaps.GoogleMapController? _googleMapController;
   final Map<String, gmaps.BitmapDescriptor> _googleStationIcons =
       <String, gmaps.BitmapDescriptor>{};
@@ -43,6 +47,8 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   static const _defaultZoom = 15.0;
   static const _searchRadius = 1500; // metres
   static const _splitLayoutBreakpoint = 1080.0;
+  static const _mapMoveDebounce = Duration(milliseconds: 300);
+  static const _cameraAnimationDuration = Duration(milliseconds: 320);
 
   LatLng _center = _defaultCenter;
   LatLng _googleCameraCenter = _defaultCenter;
@@ -54,6 +60,12 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   BikeStation? _selectedStation;
   Timer? _refreshTimer;
   bool _usesSplitLayout = false;
+  final _nearbyRequest = RequestSequence();
+  final _mapMoveDebouncer = Debouncer(_mapMoveDebounce);
+  LatLng? _osmCameraStart;
+  LatLng? _osmCameraTarget;
+  double? _osmCameraStartZoom;
+  double? _osmCameraTargetZoom;
 
   bool get _useGoogleMapsPointProvider => useGoogleMapsProviderFor(
     AppControllerScope.read(context).settings.mobileMapProvider,
@@ -62,12 +74,20 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   @override
   void initState() {
     super.initState();
+    _osmCameraAnimation = AnimationController(
+      vsync: this,
+      duration: _cameraAnimationDuration,
+    )..addListener(_animateOsmCamera);
     _initLocation();
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _mapMoveDebouncer.dispose();
+    _osmCameraAnimation
+      ..removeListener(_animateOsmCamera)
+      ..dispose();
     _googleMapController?.dispose();
     super.dispose();
   }
@@ -125,6 +145,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   }
 
   Future<void> _loadNearby(LatLng loc) async {
+    final request = _nearbyRequest.next();
     setState(() => _loadingStations = true);
     try {
       final stations = await _repo.getBikeNearby(
@@ -132,7 +153,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
         lon: loc.longitude,
         radius: _searchRadius,
       );
-      if (!mounted) return;
+      if (!mounted || !_nearbyRequest.isCurrent(request)) return;
       setState(() {
         _stations = stations;
         _center = loc;
@@ -150,7 +171,9 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       }
     } catch (_) {
     } finally {
-      if (mounted) setState(() => _loadingStations = false);
+      if (mounted && _nearbyRequest.isCurrent(request)) {
+        setState(() => _loadingStations = false);
+      }
     }
   }
 
@@ -171,7 +194,21 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
           c.longitude,
         ) >
         800) {
-      _loadNearby(c);
+      _mapMoveDebouncer.schedule(() {
+        if (!mounted) {
+          return;
+        }
+        final center = _mapController.camera.center;
+        if (Geolocator.distanceBetween(
+              _center.latitude,
+              _center.longitude,
+              center.latitude,
+              center.longitude,
+            ) >
+            800) {
+          unawaited(_loadNearby(center));
+        }
+      });
     }
   }
 
@@ -210,7 +247,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
         ),
       );
     } else {
-      _mapController.move(point, _mapController.camera.zoom);
+      _animateOsmCameraTo(point, _mapController.camera.zoom);
     }
     if (!_usesSplitLayout) {
       _showStationDetail(station);
@@ -229,10 +266,44 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
           ),
         );
       } else {
-        _mapController.move(_userLocation!, _defaultZoom);
+        _animateOsmCameraTo(_userLocation!, _defaultZoom);
       }
       _loadNearby(_userLocation!);
     }
+  }
+
+  void _animateOsmCameraTo(LatLng target, double targetZoom) {
+    try {
+      final camera = _mapController.camera;
+      _osmCameraStart = camera.center;
+      _osmCameraTarget = target;
+      _osmCameraStartZoom = camera.zoom;
+      _osmCameraTargetZoom = targetZoom;
+      _osmCameraAnimation.forward(from: 0);
+    } catch (_) {
+      _mapController.move(target, targetZoom);
+    }
+  }
+
+  void _animateOsmCamera() {
+    final start = _osmCameraStart;
+    final target = _osmCameraTarget;
+    final startZoom = _osmCameraStartZoom;
+    final targetZoom = _osmCameraTargetZoom;
+    if (start == null ||
+        target == null ||
+        startZoom == null ||
+        targetZoom == null) {
+      return;
+    }
+    final progress = Curves.easeOutCubic.transform(_osmCameraAnimation.value);
+    _mapController.move(
+      LatLng(
+        ui.lerpDouble(start.latitude, target.latitude, progress)!,
+        ui.lerpDouble(start.longitude, target.longitude, progress)!,
+      ),
+      ui.lerpDouble(startZoom, targetZoom, progress)!,
+    );
   }
 
   void _showNearbyStationsSheet() {

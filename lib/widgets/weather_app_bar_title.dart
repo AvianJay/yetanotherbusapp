@@ -30,43 +30,56 @@ bool weatherChipFits({
   required double chipWidth,
 }) => titleWidth + kWeatherChipGap + chipWidth <= slotWidth;
 
-/// Icon for a WMO weather interpretation code.
+/// Icon for a CWA 天氣現象 description such as `晴時多雲` or `多雲短暫陣雨`.
 ///
-/// Ported from the sibling weather app, which maps ranges rather than exact
-/// codes so intermediate codes (52, 62, 74, ...) still resolve.
-IconData weatherConditionIcon(int? code) {
-  if (code == null) {
+/// Ported from the sibling weather app's `getIconFromDescription`, keeping its
+/// rule order: exact matches win, then precipitation, then cloud cover. CWA
+/// composes these strings freely (`陰時多雲短暫陣雨`), so matching on keywords
+/// is what makes the long ones resolve at all. One deliberate change: fog is
+/// checked before cloud cover, so `陰有霧` reads as fog the way CWA's own code
+/// table treats it.
+IconData weatherConditionIcon(String? condition) {
+  final text = condition?.trim();
+  if (text == null || text.isEmpty) {
     return Icons.cloud_outlined;
   }
-  if (code == 0) {
-    return Icons.wb_sunny;
+
+  // Exact matches first: these are the four states CWA reports most often.
+  switch (text) {
+    case '晴':
+      return Icons.wb_sunny;
+    case '多雲':
+    case '晴時多雲':
+    case '多雲時晴':
+      return Icons.wb_cloudy;
+    case '陰':
+      return Icons.cloud;
   }
-  if (code == 1 || code == 2) {
-    return Icons.wb_cloudy;
+
+  if (text.contains('雪') || text.contains('冰雹')) {
+    return Icons.ac_unit;
   }
-  if (code == 3) {
-    return Icons.cloud;
+  if (text.contains('雷')) {
+    return Icons.flash_on;
   }
-  if (code == 45 || code == 48) {
+  if (text.contains('霧')) {
     return Icons.blur_on;
   }
-  if (code >= 51 && code <= 57) {
+  // 陣雨 and 短暫雨 are showers; anything else with 雨 is steadier rain.
+  if (text.contains('陣雨') || text.contains('短暫雨')) {
     return Icons.grain;
   }
-  if (code >= 61 && code <= 67) {
+  if (text.contains('雨')) {
     return Icons.opacity;
   }
-  if (code >= 71 && code <= 77) {
-    return Icons.ac_unit;
+  if (text.contains('晴') && !text.contains('多雲') && !text.contains('陰')) {
+    return Icons.wb_sunny;
   }
-  if (code >= 80 && code <= 82) {
-    return Icons.grain;
+  if (text.contains('多雲')) {
+    return Icons.wb_cloudy;
   }
-  if (code >= 85 && code <= 86) {
-    return Icons.ac_unit;
-  }
-  if (code >= 95) {
-    return Icons.flash_on;
+  if (text.contains('陰')) {
+    return Icons.cloud;
   }
   return Icons.wb_cloudy;
 }
@@ -271,7 +284,7 @@ class _WeatherChipHostState extends State<_WeatherChipHost>
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            weatherConditionIcon(snapshot.weatherCode),
+            weatherConditionIcon(snapshot.condition),
             size: kWeatherChipIconSize,
           ),
           const SizedBox(width: kWeatherChipIconGap),
@@ -290,12 +303,12 @@ class _WeatherChipHostState extends State<_WeatherChipHost>
 
     final chip = Semantics(
       button: onTap != null,
-      label: '目前天氣 ${weatherConditionLabel(snapshot.weatherCode)}'
+      label: '目前天氣 ${weatherConditionLabel(snapshot.condition)}'
           ' ${snapshot.displayTemperature} 度',
       child: Tooltip(
         message: onTap == null
-            ? weatherConditionLabel(snapshot.weatherCode)
-            : '${weatherConditionLabel(snapshot.weatherCode)} · 查看天氣',
+            ? weatherConditionLabel(snapshot.condition)
+            : '${weatherConditionLabel(snapshot.condition)} · 查看天氣',
         child: onTap == null
             ? chipBody
             : InkWell(

@@ -9,9 +9,10 @@ import '../widgets/weather_app_bar_title.dart';
 
 /// Full weather page: current conditions, 24 hour forecast and a week ahead.
 ///
-/// Data comes from Open-Meteo, the same source as the app bar chip, through
-/// the shared [WeatherService] so opening this page right after the chip
-/// refreshed reuses that reading instead of making another request.
+/// Data comes from the 中央氣象署 open data platform, the same source as the app
+/// bar chip, through the shared [WeatherService] so opening this page right
+/// after the chip refreshed reuses that reading instead of making another
+/// request.
 class WeatherScreen extends StatefulWidget {
   const WeatherScreen({
     this.latitude,
@@ -184,7 +185,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
         child: Column(
           children: [
             Icon(
-              weatherConditionIcon(current.weatherCode),
+              weatherConditionIcon(current.condition),
               size: 72,
               color: colorScheme.primary,
             ),
@@ -197,8 +198,15 @@ class _WeatherScreenState extends State<WeatherScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              weatherConditionLabel(current.weatherCode),
+              weatherConditionLabel(current.condition),
               style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              forecast.locationLabel,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
             ),
             if (today != null) ...[
               const SizedBox(height: 4),
@@ -236,12 +244,12 @@ class _WeatherScreenState extends State<WeatherScreen> {
                     '風速',
                     '${forecast.windSpeedKph!.round()} km/h',
                   ),
-                if (today != null)
+                if (today?.precipitationProbability != null)
                   _metric(
                     context,
                     Icons.umbrella_outlined,
                     '降雨',
-                    '${today.precipitationProbability}%',
+                    '${today!.precipitationProbability}%',
                   ),
               ],
             ),
@@ -301,7 +309,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                 ),
                 const SizedBox(height: 8),
                 Icon(
-                  weatherConditionIcon(hour.weatherCode),
+                  weatherConditionIcon(hour.condition),
                   size: 24,
                   color: theme.colorScheme.primary,
                 ),
@@ -314,7 +322,10 @@ class _WeatherScreenState extends State<WeatherScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${hour.precipitationProbability}%',
+                  // A blank line keeps every cell the same height.
+                  hour.precipitationProbability == null
+                      ? ''
+                      : '${hour.precipitationProbability}%',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.primary,
                   ),
@@ -369,14 +380,16 @@ class _WeatherScreenState extends State<WeatherScreen> {
             ),
           ),
           Icon(
-            weatherConditionIcon(day.weatherCode),
+            weatherConditionIcon(day.condition),
             size: 20,
             color: theme.colorScheme.primary,
           ),
           SizedBox(
             width: 44,
             child: Text(
-              '${day.precipitationProbability}%',
+              day.precipitationProbability == null
+                  ? ''
+                  : '${day.precipitationProbability}%',
               textAlign: TextAlign.end,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.primary,
@@ -485,7 +498,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
   Widget _footer(BuildContext context, WeatherForecast forecast) {
     final theme = Theme.of(context);
     return Text(
-      '資料來源：Open-Meteo · 更新於 ${clockLabel(forecast.fetchedAt)}',
+      '資料來源：中央氣象署 · 更新於 ${clockLabel(forecast.fetchedAt)}',
       textAlign: TextAlign.center,
       style: theme.textTheme.bodySmall?.copyWith(
         color: theme.colorScheme.onSurfaceVariant,

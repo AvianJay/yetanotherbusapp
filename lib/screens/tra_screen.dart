@@ -4,10 +4,15 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/friendly_error.dart';
+import '../core/rail_line_stations.dart';
+import '../core/rail_time.dart';
 import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
+import '../core/user_location.dart';
 import '../widgets/background_image_wrapper.dart';
+import '../widgets/rail_station_picker.dart';
 import '../widgets/transit_drawer.dart';
+import '../widgets/transit_panels.dart';
 import '../widgets/transit_station_map.dart';
 import '../widgets/ad_banner_widget.dart';
 
@@ -28,29 +33,41 @@ class TraScreen extends StatefulWidget {
 }
 
 class _TraScreenState extends State<TraScreen> {
+  static const _storageSystem = 'tra';
+
   final TransitRepository _repo = TransitRepository.shared;
 
   bool _loadingStations = true;
   bool _loadingBoard = false;
-  bool _searching = false;
+  bool _loadingOd = false;
   String? _pageError;
-  String? _queryError;
+  String? _odError;
   _TraPanel _panel = _TraPanel.query;
 
   List<RailStation> _stations = [];
+  List<RailPickerLine> _pickerGroups = const [];
   List<RailAlert> _alerts = [];
-  RailStation? _selectedStation;
-  List<TraLiveBoardEntry> _boardEntries = [];
-  List<TraTrainPosition> _trainPositions = [];
-  String? _selectedTrainNo;
-  Timer? _refreshTimer;
 
   RailStation? _origin;
   RailStation? _dest;
   DateTime _date = DateTime.now();
-  List<TraOdTrain> _results = [];
+
+  List<TraOdTrain> _odTrains = const [];
+  Map<String, TraLiveBoardEntry> _liveByTrainNo = const {};
+  List<TraTrainPosition> _trainPositions = [];
+  String? _selectedTrainNo;
+  bool _showPastTrains = false;
+
+  /// Wall clock used for every "has this train left?" decision, refreshed by
+  /// [_clockTimer] so rows grey out on their own between network refreshes.
+  DateTime _now = DateTime.now();
+
+  Timer? _liveTimer;
+  Timer? _clockTimer;
+
   final _initialDataRequest = RequestSequence();
   final _boardRequest = RequestSequence();
+  final _odRequest = RequestSequence();
 
   @override
   void initState() {
@@ -60,7 +77,7 @@ class _TraScreenState extends State<TraScreen> {
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
+    _cancelTimers();
     super.dispose();
   }
 
@@ -71,20 +88,27 @@ class _TraScreenState extends State<TraScreen> {
       return;
     }
     if (!widget.isActive) {
-      _refreshTimer?.cancel();
-      _refreshTimer = null;
+      _cancelTimers();
       return;
     }
-    if (_selectedStation != null) {
-      unawaited(_loadBoard());
+    // Coming back to a tab that sat in the background for a while: the clock
+    // has to catch up before anything is drawn, or trains that left 20 minutes
+    // ago would still look catchable.
+    setState(() => _now = DateTime.now());
+    if (_origin != null) {
+      _applyOd();
     } else if (!_loadingStations) {
       unawaited(_loadInitialData());
     }
+    _ensureTimers();
   }
+
+  // ── Loading ───────────────────────────────────────────────────────────────
 
   Future<void> _loadInitialData({bool refresh = false}) async {
     final request = _initialDataRequest.next();
     _boardRequest.next();
+    _odRequest.next();
     if (refresh) {
       _repo.invalidateCache('tra_');
     }
@@ -92,33 +116,41 @@ class _TraScreenState extends State<TraScreen> {
       _loadingStations = true;
       _pageError = null;
     });
+    // Captured before the first await so the context is not used across gaps.
+    final storage = AppControllerScope.read(context).storage;
     try {
-      final futures = await Future.wait([
-        _repo.getTraStations(),
-        _repo.getTraAlerts(),
-      ]);
-      if (!mounted || !_initialDataRequest.isCurrent(request)) return;
+      // All four are independent, so they go out together rather than costing
+      // four serial round trips on a cold start. Only the station list is
+      // fatal: alerts are just a banner, and a missing station-of-line only
+      // costs the picker its line column.
+      final stationsFuture = _repo.getTraStations();
+      final alertsFuture = _repo.getTraAlerts().catchError(
+        (_) => const <RailAlert>[],
+      );
+      final linesFuture = _repo.getTraStationOfLine();
+      final savedFuture = storage.loadRailOdSelection(_storageSystem);
 
-      final stations = futures[0] as List<RailStation>;
-      final alerts = futures[1] as List<RailAlert>;
-      final selectedStation =
-          _pickStation(stations, _selectedStation?.stationId) ??
-          (stations.isNotEmpty ? stations.first : null);
+      final stations = await stationsFuture;
+      final alerts = await alertsFuture;
+      final lines = await linesFuture;
+      final saved = await savedFuture;
+      if (!mounted || !_initialDataRequest.isCurrent(request)) return;
 
       setState(() {
         _stations = stations;
         _alerts = alerts;
-        _selectedStation = selectedStation;
+        _pickerGroups = buildRailPickerGroups(
+          stations: stations,
+          lines: lines,
+        );
         _origin =
             _pickStation(stations, _origin?.stationId) ??
-            (stations.isNotEmpty ? stations.first : null);
+            _pickStation(stations, saved.origin);
         _dest =
             _pickStation(stations, _dest?.stationId) ??
-            (stations.length > 1 ? stations.last : _origin);
+            _pickStation(stations, saved.dest);
       });
-      if (selectedStation != null) {
-        await _loadBoard(station: selectedStation);
-      }
+      _applyOd();
     } catch (error) {
       if (!mounted || !_initialDataRequest.isCurrent(request)) return;
       setState(() => _pageError = friendlyErrorMessage(error));
@@ -141,16 +173,97 @@ class _TraScreenState extends State<TraScreen> {
     return null;
   }
 
-  Future<void> _loadBoard({RailStation? station}) async {
-    final activeStation = station ?? _selectedStation;
-    if (activeStation == null) return;
+  /// Single funnel for every change of origin / destination / date.
+  ///
+  /// The timetable and the live board are fetched **concurrently and
+  /// independently**: they are different endpoints, so a live-board outage must
+  /// not blank the timetable. The OD list renders first and delay chips fill in
+  /// when the board lands.
+  void _applyOd() {
+    if (_origin == null || _dest == null) {
+      setState(() {
+        _odTrains = const [];
+        _liveByTrainNo = const {};
+        _trainPositions = const [];
+        _odError = null;
+      });
+      _cancelTimers();
+      return;
+    }
+    unawaited(_loadOd());
+    unawaited(_loadBoard());
+    _ensureTimers();
+  }
+
+  Future<void> _loadOd() async {
+    final origin = _origin;
+    final dest = _dest;
+    if (origin == null || dest == null) return;
+    if (origin.stationId == dest.stationId) {
+      setState(() {
+        _odTrains = const [];
+        _odError = '出發站和到達站不能一樣。';
+      });
+      return;
+    }
+    final request = _odRequest.next();
+    setState(() {
+      _loadingOd = true;
+      _odError = null;
+    });
+    try {
+      final dateStr =
+          '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
+      final results = await _repo.getTraOdTimetable(
+        origin: origin.stationId,
+        dest: dest.stationId,
+        date: dateStr,
+      );
+      if (!mounted || !_odRequest.isCurrent(request)) return;
+      // TDX ordering is not contractual, and the collapsed past section relies
+      // on past rows being contiguous.
+      final sorted = [...results]
+        ..sort((a, b) {
+          final left = parseRailClockTime(a.originDeparture, _date);
+          final right = parseRailClockTime(b.originDeparture, _date);
+          if (left == null || right == null) {
+            return 0;
+          }
+          return left.compareTo(right);
+        });
+      setState(() {
+        _odTrains = sorted;
+        // Only today has trains worth hiding. On any other date every row is
+        // either all-past or all-future, so collapsing would leave the user
+        // staring at a disclosure header above an empty list.
+        _showPastTrains = !_isSameDay(_date, DateTime.now());
+      });
+    } catch (error) {
+      if (!mounted || !_odRequest.isCurrent(request)) return;
+      setState(() => _odError = friendlyErrorMessage(error));
+    } finally {
+      if (mounted && _odRequest.isCurrent(request)) {
+        setState(() => _loadingOd = false);
+      }
+    }
+  }
+
+  Future<void> _loadBoard() async {
+    final origin = _origin;
+    if (origin == null) return;
+    // Delays and estimated positions only exist for today's services.
+    if (!_isSameDay(_date, DateTime.now())) {
+      setState(() {
+        _liveByTrainNo = const {};
+        _trainPositions = const [];
+      });
+      return;
+    }
     final request = _boardRequest.next();
     setState(() => _loadingBoard = true);
     try {
-      final boardFuture = _repo.getTraLiveBoard(activeStation.stationId);
-      final positionsFuture = _repo.getTraTrainPositions(
-        activeStation.stationId,
-      );
+      final boardFuture = _repo.getTraLiveBoard(origin.stationId);
+      final positionsFuture = _repo.getTraTrainPositions(origin.stationId);
       final entries = await boardFuture;
       List<TraTrainPosition> positions;
       try {
@@ -160,8 +273,10 @@ class _TraScreenState extends State<TraScreen> {
       }
       if (!mounted || !_boardRequest.isCurrent(request)) return;
       setState(() {
-        _selectedStation = activeStation;
-        _boardEntries = entries;
+        _liveByTrainNo = {
+          for (final entry in entries)
+            if (entry.trainNo.isNotEmpty) entry.trainNo: entry,
+        };
         _trainPositions = positions;
         if (_selectedTrainNo != null &&
             !positions.any(
@@ -170,17 +285,6 @@ class _TraScreenState extends State<TraScreen> {
           _selectedTrainNo = null;
         }
       });
-      if (widget.isActive) {
-        _refreshTimer?.cancel();
-        _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-          if (!mounted || !widget.isActive) {
-            _refreshTimer?.cancel();
-            _refreshTimer = null;
-            return;
-          }
-          unawaited(_loadBoard());
-        });
-      }
     } catch (_) {
       if (!mounted || !_boardRequest.isCurrent(request)) return;
     } finally {
@@ -189,6 +293,169 @@ class _TraScreenState extends State<TraScreen> {
       }
     }
   }
+
+  // ── Timers ────────────────────────────────────────────────────────────────
+
+  /// Creates both timers once. The live timer used to be re-armed inside
+  /// `_loadBoard`'s success path, which meant a single failed fetch stopped the
+  /// board refreshing for good.
+  void _ensureTimers() {
+    if (!widget.isActive || _origin == null) {
+      return;
+    }
+    _liveTimer ??= Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!mounted || !widget.isActive) {
+        _cancelTimers();
+        return;
+      }
+      unawaited(_loadBoard());
+    });
+    // Pure repaint tick: whether a train has left changes with the clock, not
+    // with the data, so this must not depend on the network succeeding.
+    _clockTimer ??= Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted || !widget.isActive) {
+        _cancelTimers();
+        return;
+      }
+      setState(() => _now = DateTime.now());
+    });
+  }
+
+  void _cancelTimers() {
+    _liveTimer?.cancel();
+    _liveTimer = null;
+    _clockTimer?.cancel();
+    _clockTimer = null;
+  }
+
+  static bool _isSameDay(DateTime left, DateTime right) =>
+      left.year == right.year &&
+      left.month == right.month &&
+      left.day == right.day;
+
+  // ── Selection ─────────────────────────────────────────────────────────────
+
+  Future<NearestRailStation?> _locateNearestStation() async {
+    final position = await resolveUserPosition();
+    return nearestRailStation(
+      _stations,
+      latitude: position.latitude,
+      longitude: position.longitude,
+    );
+  }
+
+  Future<void> _chooseOrigin() async {
+    final picked = await showRailStationPicker(
+      context: context,
+      title: '選擇出發站',
+      groups: _pickerGroups,
+      initial: _origin,
+      excluded: _dest,
+      onLocate: _locateNearestStation,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _origin = picked);
+    _persistSelection();
+    _applyOd();
+  }
+
+  Future<void> _chooseDest() async {
+    final picked = await showRailStationPicker(
+      context: context,
+      title: '選擇到達站',
+      groups: _pickerGroups,
+      initial: _dest,
+      excluded: _origin,
+      onLocate: _locateNearestStation,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _dest = picked);
+    _persistSelection();
+    _applyOd();
+  }
+
+  void _persistSelection() {
+    unawaited(
+      AppControllerScope.read(context).storage.saveRailOdSelection(
+        _storageSystem,
+        origin: _origin?.stationId,
+        dest: _dest?.stationId,
+      ),
+    );
+  }
+
+  void _swapStations() {
+    setState(() {
+      final temp = _origin;
+      _origin = _dest;
+      _dest = temp;
+    });
+    _persistSelection();
+    _applyOd();
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 14)),
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _date = picked;
+        _showPastTrains = !_isSameDay(picked, DateTime.now());
+      });
+      _applyOd();
+    }
+  }
+
+  Future<void> _assignFromMap(RailStation station) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(
+                station.name,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: station.nameEn.isEmpty ? null : Text(station.nameEn),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.trip_origin_rounded),
+              title: const Text('設為出發站'),
+              onTap: () => Navigator.of(sheetContext).pop('origin'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.place_rounded),
+              title: const Text('設為到達站'),
+              onTap: () => Navigator.of(sheetContext).pop('dest'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    setState(() {
+      if (choice == 'origin') {
+        if (_dest?.stationId == station.stationId) _dest = null;
+        _origin = station;
+      } else {
+        if (_origin?.stationId == station.stationId) _origin = null;
+        _dest = station;
+      }
+      _selectedTrainNo = null;
+      _panel = _TraPanel.query;
+    });
+    _persistSelection();
+    _applyOd();
+  }
+
+  // ── Derived data ──────────────────────────────────────────────────────────
 
   TraTrainPosition? get _selectedTrainPosition {
     final selectedTrainNo = _selectedTrainNo;
@@ -203,55 +470,61 @@ class _TraScreenState extends State<TraScreen> {
     return null;
   }
 
-  Future<void> _search() async {
-    if (_origin == null || _dest == null) return;
-    setState(() {
-      _searching = true;
-      _queryError = null;
-    });
-    try {
-      final dateStr =
-          '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
-      final results = await _repo.getTraOdTimetable(
-        origin: _origin!.stationId,
-        dest: _dest!.stationId,
-        date: dateStr,
+  /// Live entry for a timetable row, or `null` when the board has not heard of
+  /// this train.
+  ///
+  /// A board entry whose scheduled departure disagrees with the timetable is
+  /// dropped: that means a different service day slipped through the 10s cache.
+  TraLiveBoardEntry? _liveFor(TraOdTrain train) {
+    final live = _liveByTrainNo[train.trainNo];
+    if (live == null) {
+      return null;
+    }
+    if (live.scheduledDeparture.isEmpty || train.originDeparture.isEmpty) {
+      return live;
+    }
+    final boardMinutes = parseRailClockTime(live.scheduledDeparture, _date);
+    final odMinutes = parseRailClockTime(train.originDeparture, _date);
+    if (boardMinutes == null || odMinutes == null) {
+      return live;
+    }
+    return boardMinutes == odMinutes ? live : null;
+  }
+
+  List<_TraOdRow> _buildRows() {
+    return _odTrains.map((train) {
+      final live = _liveFor(train);
+      final delay = live?.delayMinutes ?? 0;
+      return _TraOdRow(
+        train: train,
+        live: live,
+        isPast: isRailDeparturePast(
+          scheduledDeparture: train.originDeparture,
+          serviceDate: _date,
+          delayMinutes: delay,
+          now: _now,
+        ),
+        minutesUntilDeparture: minutesUntilRailDeparture(
+          scheduledDeparture: train.originDeparture,
+          serviceDate: _date,
+          delayMinutes: delay,
+          now: _now,
+        ),
+        effectiveDeparture: resolveRailDeparture(
+          scheduledDeparture: train.originDeparture,
+          serviceDate: _date,
+          delayMinutes: delay,
+        ),
       );
-      if (!mounted) return;
-      setState(() => _results = results);
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _queryError = friendlyErrorMessage(error));
-    } finally {
-      if (mounted) {
-        setState(() => _searching = false);
-      }
-    }
+    }).toList(growable: false);
   }
 
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _date,
-      firstDate: DateTime.now().subtract(const Duration(days: 1)),
-      lastDate: DateTime.now().add(const Duration(days: 14)),
-    );
-    if (picked != null && mounted) {
-      setState(() => _date = picked);
-    }
-  }
-
-  void _swapStations() {
-    setState(() {
-      final temp = _origin;
-      _origin = _dest;
-      _dest = temp;
-    });
-  }
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final rows = _buildRows();
     final hasBackgroundImage = hasBackgroundImageForPage(
       AppControllerScope.of(context).settings,
       pageKey: 'bus',
@@ -291,7 +564,7 @@ class _TraScreenState extends State<TraScreen> {
                 child: _loadingStations && _stations.isEmpty
                     ? const Center(child: CircularProgressIndicator())
                     : _pageError != null && _stations.isEmpty
-                    ? _ErrorState(
+                    ? TransitErrorState(
                         message: _pageError!,
                         onRetry: () => _loadInitialData(refresh: true),
                       )
@@ -302,21 +575,17 @@ class _TraScreenState extends State<TraScreen> {
                           padding: const EdgeInsets.all(16),
                           children: [
                             if (_alerts.isNotEmpty) ...[
-                              _RailAlertCard(alerts: _alerts),
+                              RailAlertCard(alerts: _alerts),
                               const SizedBox(height: 16),
                             ],
-                            _buildLiveOverview(theme),
+                            _buildOdCard(theme, rows),
                             const SizedBox(height: 16),
-                            _TraPanelButtons(
-                              current: _panel,
-                              onChanged: (panel) =>
-                                  setState(() => _panel = panel),
-                            ),
+                            _buildPanelButtons(),
                             const SizedBox(height: 16),
                             AnimatedSwitcher(
                               duration: const Duration(milliseconds: 220),
                               child: _panel == _TraPanel.query
-                                  ? _buildQueryPanel(theme)
+                                  ? _buildQueryPanel(theme, rows)
                                   : _buildMapPanel(theme),
                             ),
                           ],
@@ -331,112 +600,90 @@ class _TraScreenState extends State<TraScreen> {
     );
   }
 
-  Widget _buildLiveOverview(ThemeData theme) {
-    final selectedStation = _selectedStation;
-    final previewEntries = _boardEntries.take(3).toList(growable: false);
-    final previewPositions = _trainPositions.take(4).toList(growable: false);
+  Widget _buildPanelButtons() {
+    return Row(
+      children: [
+        Expanded(
+          child: TransitPanelButton(
+            icon: Icons.schedule_rounded,
+            label: '班次',
+            selected: _panel == _TraPanel.query,
+            onPressed: () => setState(() => _panel = _TraPanel.query),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: TransitPanelButton(
+            icon: Icons.map_rounded,
+            label: '車站地圖',
+            selected: _panel == _TraPanel.map,
+            onPressed: () => setState(() => _panel = _TraPanel.map),
+          ),
+        ),
+      ],
+    );
+  }
 
+  Widget _buildOdCard(ThemeData theme, List<_TraOdRow> rows) {
+    final upcoming = rows.where((row) => !row.isPast).length;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _StationField(
+              key: const ValueKey('tra-origin-selector'),
+              label: '出發站',
+              station: _origin,
+              placeholder: '選擇出發站',
+              onTap: _pickerGroups.isEmpty ? null : _chooseOrigin,
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: IconButton(
+                key: const ValueKey('tra-swap'),
+                onPressed: (_origin == null && _dest == null)
+                    ? null
+                    : _swapStations,
+                icon: const Icon(Icons.swap_vert_rounded),
+                tooltip: '對調出發站與到達站',
+              ),
+            ),
+            _StationField(
+              key: const ValueKey('tra-dest-selector'),
+              label: '到達站',
+              station: _dest,
+              placeholder: '選擇到達站',
+              onTap: _pickerGroups.isEmpty ? null : _chooseDest,
+            ),
+            const SizedBox(height: 14),
             Row(
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '列車即時動態',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '目前用當日停靠表加延誤時間推算列車位置，地圖上的列車點位屬估算值。',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+                  child: OutlinedButton.icon(
+                    key: const ValueKey('tra-date'),
+                    onPressed: _pickDate,
+                    icon: const Icon(Icons.calendar_today_rounded),
+                    label: Text(
+                      '${_date.month}/${_date.day}（${_weekdayLabel(_date.weekday)}）',
+                    ),
                   ),
                 ),
-                if (selectedStation != null)
-                  Chip(
-                    avatar: const Icon(Icons.location_on_rounded, size: 18),
-                    label: Text(selectedStation.name),
+                const SizedBox(width: 12),
+                if (_odTrains.isNotEmpty)
+                  Text(
+                    '還有 $upcoming 班可搭',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.primary,
+                    ),
                   ),
               ],
             ),
-            const SizedBox(height: 16),
-            _TraStationAutocomplete(
-              label: '切換觀察車站',
-              stations: _stations,
-              selected: selectedStation,
-              onSelected: (station) => _loadBoard(station: station),
-            ),
-            if (_loadingBoard) ...[
+            if (_loadingOd || _loadingBoard) ...[
               const SizedBox(height: 12),
               const LinearProgressIndicator(),
-            ],
-            const SizedBox(height: 12),
-            if (selectedStation == null)
-              Text(
-                '先選一個車站，再看最近幾班列車。',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              )
-            else if (previewEntries.isEmpty)
-              Text(
-                '目前沒有 ${selectedStation.name} 的即時班次資料。',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              )
-            else
-              Column(
-                children: previewEntries
-                    .map((entry) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _TraBoardTile(entry: entry),
-                      );
-                    })
-                    .toList(growable: false),
-              ),
-            if (previewPositions.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(
-                '估算中的列車位置',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: previewPositions
-                    .map((position) {
-                      return ActionChip(
-                        avatar: const Icon(Icons.train_rounded, size: 18),
-                        label: Text(
-                          '${position.trainNo} ${_positionSummary(position)}',
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _selectedTrainNo = position.trainNo;
-                            _panel = _TraPanel.map;
-                          });
-                        },
-                      );
-                    })
-                    .toList(growable: false),
-              ),
             ],
           ],
         ),
@@ -444,95 +691,96 @@ class _TraScreenState extends State<TraScreen> {
     );
   }
 
-  Widget _buildQueryPanel(ThemeData theme) {
+  Widget _buildQueryPanel(ThemeData theme, List<_TraOdRow> rows) {
+    final past = rows.where((row) => row.isPast).toList(growable: false);
+    final upcoming = rows.where((row) => !row.isPast).toList(growable: false);
+
     return Column(
       key: const ValueKey('query'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              children: [
-                _TraStationAutocomplete(
-                  label: '出發站',
-                  stations: _stations,
-                  selected: _origin,
-                  onSelected: (station) => setState(() => _origin = station),
-                ),
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: IconButton(
-                    onPressed: _swapStations,
-                    icon: const Icon(Icons.swap_vert_rounded),
-                    tooltip: '交換',
+        if (_odError != null) ...[
+          Text(_odError!, style: TextStyle(color: theme.colorScheme.error)),
+          const SizedBox(height: 12),
+        ],
+        if (_origin == null || _dest == null)
+          TransitEmptyPanel(
+            icon: Icons.train_rounded,
+            label: '選好出發站和到達站，就會顯示今天還搭得到的班次。',
+            action: FilledButton.tonalIcon(
+              key: const ValueKey('tra-cold-start-locate'),
+              onPressed: _pickerGroups.isEmpty ? null : _chooseOrigin,
+              icon: const Icon(Icons.my_location_rounded),
+              label: const Text('用目前位置選出發站'),
+            ),
+          )
+        else if (rows.isEmpty)
+          TransitEmptyPanel(
+            icon: Icons.schedule_rounded,
+            label: _loadingOd
+                ? '查詢中…'
+                : '這兩站之間今天沒有直達班次，可能需要轉車。',
+          )
+        else ...[
+          if (past.isNotEmpty) ...[
+            _PastDisclosure(
+              count: past.length,
+              expanded: _showPastTrains,
+              onToggle: () =>
+                  setState(() => _showPastTrains = !_showPastTrains),
+            ),
+            const SizedBox(height: 10),
+            if (_showPastTrains)
+              ...past.map(
+                (row) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _TraOdTile(
+                    row: row,
+                    origin: _origin!,
+                    dest: _dest!,
+                    onTap: () => _showTrainOnMap(row.train.trainNo),
                   ),
                 ),
-                _TraStationAutocomplete(
-                  label: '到達站',
-                  stations: _stations,
-                  selected: _dest,
-                  onSelected: (station) => setState(() => _dest = station),
+              ),
+          ],
+          if (upcoming.isEmpty)
+            TransitEmptyPanel(
+              icon: Icons.nightlight_round,
+              label: '今天從 ${_origin!.name} 到 ${_dest!.name} 的班次都開完了。',
+              action: FilledButton.tonalIcon(
+                onPressed: () {
+                  setState(() {
+                    _date = _date.add(const Duration(days: 1));
+                    _showPastTrains = true;
+                  });
+                  _applyOd();
+                },
+                icon: const Icon(Icons.east_rounded),
+                label: const Text('看明天的班次'),
+              ),
+            )
+          else
+            ...upcoming.map(
+              (row) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _TraOdTile(
+                  row: row,
+                  origin: _origin!,
+                  dest: _dest!,
+                  onTap: () => _showTrainOnMap(row.train.trainNo),
                 ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _pickDate,
-                        icon: const Icon(Icons.calendar_today_rounded),
-                        label: Text(
-                          '${_date.month}/${_date.day}（${_weekdayLabel(_date.weekday)}）',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    FilledButton.icon(
-                      onPressed: _searching ? null : _search,
-                      icon: _searching
-                          ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.search_rounded),
-                      label: const Text('查詢班次'),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
-        if (_queryError != null) ...[
-          const SizedBox(height: 12),
-          Text(_queryError!, style: TextStyle(color: theme.colorScheme.error)),
         ],
-        const SizedBox(height: 16),
-        Text(
-          _results.isEmpty ? '尚未查詢班次' : '共 ${_results.length} 班',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 10),
-        if (_results.isEmpty)
-          const _EmptyPanel(
-            icon: Icons.schedule_rounded,
-            label: '選好出發站與到達站後，就能看班次與行車時間。',
-          )
-        else
-          ..._results.map((train) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _TraScheduleTile(train: train),
-            );
-          }),
       ],
     );
+  }
+
+  void _showTrainOnMap(String trainNo) {
+    setState(() {
+      _selectedTrainNo = trainNo;
+      _panel = _TraPanel.map;
+    });
   }
 
   Widget _buildMapPanel(ThemeData theme) {
@@ -569,7 +817,7 @@ class _TraScreenState extends State<TraScreen> {
     final mapPoints = [...stationPoints, ...trainPoints];
     final selectedPointId = _selectedTrainNo != null
         ? 'train:${_selectedTrainNo!}'
-        : _selectedStation?.stationId;
+        : _origin?.stationId;
 
     return Column(
       key: const ValueKey('map'),
@@ -591,19 +839,18 @@ class _TraScreenState extends State<TraScreen> {
                         ),
                       ),
                     ),
-                    if (_selectedStation != null)
-                      FilledButton.tonalIcon(
-                        onPressed: () {
-                          setState(() => _panel = _TraPanel.query);
-                        },
-                        icon: const Icon(Icons.schedule_rounded),
-                        label: const Text('看班次'),
-                      ),
+                    FilledButton.tonalIcon(
+                      onPressed: () {
+                        setState(() => _panel = _TraPanel.query);
+                      },
+                      icon: const Icon(Icons.schedule_rounded),
+                      label: const Text('看班次'),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '點站牌切換車站，點紅色列車 marker 看估算中的列車位置。',
+                  '點站牌可設為出發站或到達站，點紅色列車 marker 看估算中的列車位置。',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -619,8 +866,7 @@ class _TraScreenState extends State<TraScreen> {
                     }
                     final station = _pickStation(_stations, point.id);
                     if (station != null) {
-                      setState(() => _selectedTrainNo = null);
-                      _loadBoard(station: station);
+                      unawaited(_assignFromMap(station));
                     }
                   },
                   height: 360,
@@ -634,14 +880,6 @@ class _TraScreenState extends State<TraScreen> {
           const SizedBox(height: 12),
           _SelectedTraTrainCard(position: _selectedTrainPosition!),
         ],
-        const SizedBox(height: 12),
-        if (_selectedStation != null)
-          _SelectedRailStationCard(
-            station: _selectedStation!,
-            loading: _loadingBoard,
-            entries: _boardEntries,
-            onRefresh: _loadBoard,
-          ),
       ],
     );
   }
@@ -667,421 +905,338 @@ class _TraScreenState extends State<TraScreen> {
   }
 }
 
-class _TraPanelButtons extends StatelessWidget {
-  const _TraPanelButtons({required this.current, required this.onChanged});
-
-  final _TraPanel current;
-  final ValueChanged<_TraPanel> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _PanelButton(
-            icon: Icons.schedule_rounded,
-            label: '班次查詢',
-            selected: current == _TraPanel.query,
-            onPressed: () => onChanged(_TraPanel.query),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _PanelButton(
-            icon: Icons.map_rounded,
-            label: '車站地圖',
-            selected: current == _TraPanel.map,
-            onPressed: () => onChanged(_TraPanel.map),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PanelButton extends StatelessWidget {
-  const _PanelButton({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onPressed,
+/// One timetable row plus everything derived from the clock and live board.
+class _TraOdRow {
+  const _TraOdRow({
+    required this.train,
+    required this.live,
+    required this.isPast,
+    required this.minutesUntilDeparture,
+    required this.effectiveDeparture,
   });
-
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 48,
-      child: selected
-          ? FilledButton.icon(
-              onPressed: onPressed,
-              icon: Icon(icon),
-              label: Text(label),
-            )
-          : FilledButton.tonalIcon(
-              onPressed: onPressed,
-              icon: Icon(icon),
-              label: Text(label),
-            ),
-    );
-  }
-}
-
-class _TraBoardTile extends StatelessWidget {
-  const _TraBoardTile({required this.entry});
-
-  final TraLiveBoardEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final delayed = entry.delayMinutes > 0;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.45,
-        ),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 62,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              children: [
-                Text(
-                  entry.trainNo,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.onPrimaryContainer,
-                  ),
-                ),
-                Text(
-                  entry.trainType,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onPrimaryContainer,
-                    fontSize: 10,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '往 ${entry.endStation}',
-                  style: theme.textTheme.titleSmall,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '預定 ${entry.scheduledDeparture}',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: delayed ? Colors.red.shade50 : Colors.green.shade50,
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              delayed ? '晚 ${entry.delayMinutes} 分' : '準點',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: delayed ? Colors.red.shade700 : Colors.green.shade700,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TraScheduleTile extends StatelessWidget {
-  const _TraScheduleTile({required this.train});
 
   final TraOdTrain train;
+  final TraLiveBoardEntry? live;
+  final bool isPast;
+  final int? minutesUntilDeparture;
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              width: 70,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    train.trainNo,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: theme.colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                  Text(
-                    train.trainType,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onPrimaryContainer,
-                      fontSize: 10,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${train.originDeparture} → ${train.destArrival}',
-                    style: theme.textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '${train.startStation} → ${train.endStation}',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              _duration(train.originDeparture, train.destArrival),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _duration(String departure, String arrival) {
-    try {
-      final depParts = departure
-          .split(':')
-          .map(int.parse)
-          .toList(growable: false);
-      final arrParts = arrival
-          .split(':')
-          .map(int.parse)
-          .toList(growable: false);
-      final depMinutes = depParts[0] * 60 + depParts[1];
-      final arrMinutes = arrParts[0] * 60 + arrParts[1];
-      final diff = arrMinutes - depMinutes;
-      if (diff <= 0) return '';
-      final hours = diff ~/ 60;
-      final minutes = diff % 60;
-      if (hours > 0) {
-        return '${hours}h${minutes}m';
-      }
-      return '${minutes}m';
-    } catch (_) {
-      return '';
-    }
-  }
+  /// Scheduled departure plus any live delay — the time the train will really
+  /// leave. Null when the scheduled time could not be read.
+  final DateTime? effectiveDeparture;
 }
 
-class _TraStationAutocomplete extends StatelessWidget {
-  const _TraStationAutocomplete({
+/// Tappable field that opens the wheel picker.
+class _StationField extends StatelessWidget {
+  const _StationField({
     required this.label,
-    required this.stations,
-    required this.selected,
-    required this.onSelected,
+    required this.station,
+    required this.placeholder,
+    required this.onTap,
+    super.key,
   });
 
   final String label;
-  final List<RailStation> stations;
-  final RailStation? selected;
-  final ValueChanged<RailStation> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Autocomplete<RailStation>(
-      key: ValueKey('${label}_${selected?.stationId ?? 'none'}'),
-      displayStringForOption: (station) => station.name,
-      initialValue: selected != null
-          ? TextEditingValue(text: selected!.name)
-          : null,
-      optionsBuilder: (textEditingValue) {
-        if (textEditingValue.text.isEmpty) {
-          return stations;
-        }
-        final query = textEditingValue.text.toLowerCase();
-        return stations.where((station) {
-          return station.name.toLowerCase().contains(query) ||
-              station.stationId.toLowerCase().contains(query) ||
-              station.nameEn.toLowerCase().contains(query);
-        });
-      },
-      fieldViewBuilder: (_, controller, focusNode, onSubmitted) {
-        return TextField(
-          controller: controller,
-          focusNode: focusNode,
-          decoration: InputDecoration(
-            labelText: label,
-            prefixIcon: const Icon(Icons.train_rounded),
-            border: const OutlineInputBorder(),
-          ),
-          onSubmitted: (_) => onSubmitted(),
-        );
-      },
-      onSelected: onSelected,
-    );
-  }
-}
-
-class _RailAlertCard extends StatelessWidget {
-  const _RailAlertCard({required this.alerts});
-
-  final List<RailAlert> alerts;
+  final RailStation? station;
+  final String placeholder;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      color: Colors.orange.shade50,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.orange.shade900,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '營運公告',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: Colors.orange.shade900,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ...alerts.take(3).map((alert) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  '• ${alert.title}',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: Colors.orange.shade900,
-                  ),
-                ),
-              );
-            }),
-          ],
+    final selected = station;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: const Icon(Icons.train_rounded),
+          suffixIcon: const Icon(Icons.expand_more_rounded),
+          border: const OutlineInputBorder(),
+        ),
+        child: Text(
+          selected == null ? placeholder : selected.name,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: selected == null
+                ? theme.colorScheme.onSurfaceVariant
+                : theme.colorScheme.onSurface,
+            fontWeight: selected == null ? FontWeight.w400 : FontWeight.w700,
+          ),
         ),
       ),
     );
   }
 }
 
-class _SelectedRailStationCard extends StatelessWidget {
-  const _SelectedRailStationCard({
-    required this.station,
-    required this.loading,
-    required this.entries,
-    required this.onRefresh,
+/// Header that hides the trains the user can no longer catch.
+class _PastDisclosure extends StatelessWidget {
+  const _PastDisclosure({
+    required this.count,
+    required this.expanded,
+    required this.onToggle,
   });
 
-  final RailStation station;
-  final bool loading;
-  final List<TraLiveBoardEntry> entries;
-  final Future<void> Function({RailStation? station}) onRefresh;
+  final int count;
+  final bool expanded;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
+    return InkWell(
+      key: const ValueKey('tra-past-toggle'),
+      onTap: onToggle,
+      borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        station.name,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      if (station.nameEn.isNotEmpty)
-                        Text(
-                          station.nameEn,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: () => onRefresh(station: station),
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('刷新'),
-                ),
-              ],
+            Icon(
+              expanded ? Icons.expand_more_rounded : Icons.chevron_right_rounded,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
-            if (loading) ...[
-              const SizedBox(height: 12),
-              const LinearProgressIndicator(),
-            ],
-            const SizedBox(height: 12),
-            if (entries.isEmpty)
-              Text(
-                '這個車站目前沒有可顯示的即時班次。',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              )
-            else
-              ...entries.take(5).map((entry) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _TraBoardTile(entry: entry),
-                );
-              }),
+            const SizedBox(width: 6),
+            Text(
+              expanded ? '收合已開出的 $count 班' : '顯示已開出的 $count 班',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
+}
+
+class _TraOdTile extends StatelessWidget {
+  const _TraOdTile({
+    required this.row,
+    required this.origin,
+    required this.dest,
+    required this.onTap,
+  });
+
+  final _TraOdRow row;
+  final RailStation origin;
+  final RailStation dest;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final train = row.train;
+    final isPast = row.isPast;
+
+    // Past rows drop one step fainter than a normal row rather than being
+    // wrapped in Opacity: cards are already translucent when a background image
+    // is set (bus_app.dart:161-176), and compositing twice goes muddy.
+    final rowBackground = isPast
+        ? cs.surfaceContainerHighest.withValues(alpha: 0.22)
+        : cs.surfaceContainerHighest.withValues(alpha: 0.45);
+    final chipBackground = isPast
+        ? cs.surfaceContainerHighest
+        : cs.primaryContainer;
+    final chipForeground = isPast ? cs.onSurfaceVariant : cs.onPrimaryContainer;
+
+    final duration = railDurationLabel(train.originDeparture, train.destArrival);
+    final status = _status(cs);
+    final headline =
+        '${origin.name} ${train.originDeparture} → ${dest.name} ${train.destArrival}';
+
+    return Semantics(
+      button: true,
+      label: '${train.trainNo} 次 ${train.trainType}，$headline'
+          '${status == null ? '' : '，${status.text}'}',
+      child: InkWell(
+        key: ValueKey('tra-train-${train.trainNo}'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: rowBackground,
+            borderRadius: BorderRadius.circular(18),
+            border: isPast
+                ? Border.all(color: cs.outlineVariant.withValues(alpha: 0.5))
+                : null,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 62,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: chipBackground,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      train.trainNo,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: chipForeground,
+                      ),
+                    ),
+                    Text(
+                      train.trainType,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: chipForeground,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      headline,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: isPast ? cs.onSurfaceVariant : cs.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      [
+                        '往 ${train.endStation}',
+                        if (duration.isNotEmpty) duration,
+                      ].join(' · '),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: isPast ? cs.outline : cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (status != null) ...[
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: status.background,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(status.icon, size: 13, color: status.foreground),
+                          const SizedBox(width: 4),
+                          Text(
+                            status.text,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: status.foreground,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (status.detail != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        status.detail!,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// One mutually-exclusive status slot.
+  ///
+  /// Returns `null` for a far-future train rather than claiming 準點 for a
+  /// service the live board has never reported on — which is what the old tile
+  /// did for every train with `delayMinutes <= 0`.
+  _TraStatus? _status(ColorScheme cs) {
+    // A delay is meaningless once the train has gone, and a red 晚3分 on an
+    // uncatchable train reads as "hurry", the opposite of the truth.
+    if (row.isPast) {
+      return _TraStatus(
+        text: '已開出',
+        icon: Icons.history_rounded,
+        background: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+        foreground: cs.onSurfaceVariant,
+      );
+    }
+
+    final live = row.live;
+    if (live != null && live.delayMinutes > 0) {
+      final actual = row.effectiveDeparture;
+      return _TraStatus(
+        text: '晚 ${live.delayMinutes} 分',
+        icon: Icons.trending_down_rounded,
+        background: cs.errorContainer,
+        foreground: cs.onErrorContainer,
+        detail: actual == null
+            ? null
+            : '${actual.hour.toString().padLeft(2, '0')}:'
+                  '${actual.minute.toString().padLeft(2, '0')} 發車',
+      );
+    }
+
+    if (live != null) {
+      return _TraStatus(
+        text: '準點',
+        icon: Icons.check_circle_outline_rounded,
+        background: cs.tertiaryContainer,
+        foreground: cs.onTertiaryContainer,
+      );
+    }
+
+    final minutes = row.minutesUntilDeparture;
+    if (minutes != null && minutes <= 30) {
+      return _TraStatus(
+        text: '$minutes 分後',
+        icon: Icons.schedule_rounded,
+        background: cs.secondaryContainer.withValues(alpha: 0.6),
+        foreground: cs.onSecondaryContainer,
+      );
+    }
+
+    return null;
+  }
+}
+
+class _TraStatus {
+  const _TraStatus({
+    required this.text,
+    required this.icon,
+    required this.background,
+    required this.foreground,
+    this.detail,
+  });
+
+  final String text;
+  final IconData icon;
+  final Color background;
+  final Color foreground;
+  final String? detail;
 }
 
 class _SelectedTraTrainCard extends StatelessWidget {
@@ -1107,14 +1262,14 @@ class _SelectedTraTrainCard extends StatelessWidget {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.red.shade50,
+                    color: theme.colorScheme.errorContainer,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     position.trainNo,
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
-                      color: Colors.red.shade700,
+                      color: theme.colorScheme.onErrorContainer,
                     ),
                   ),
                 ),
@@ -1147,15 +1302,17 @@ class _SelectedTraTrainCard extends StatelessWidget {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: delayed ? Colors.red.shade50 : Colors.green.shade50,
+                    color: delayed
+                        ? theme.colorScheme.errorContainer
+                        : theme.colorScheme.tertiaryContainer,
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
                     delayed ? '晚 ${position.delayMinutes} 分' : '準點',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: delayed
-                          ? Colors.red.shade700
-                          : Colors.green.shade700,
+                          ? theme.colorScheme.onErrorContainer
+                          : theme.colorScheme.onTertiaryContainer,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -1193,69 +1350,6 @@ class _SelectedTraTrainCard extends StatelessWidget {
                 ),
               ),
             ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptyPanel extends StatelessWidget {
-  const _EmptyPanel({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.35,
-        ),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 28, color: theme.colorScheme.outline),
-          const SizedBox(height: 10),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.message, required this.onRetry});
-
-  final String message;
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('重試'),
-            ),
           ],
         ),
       ),

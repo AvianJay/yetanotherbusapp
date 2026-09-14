@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -102,5 +103,64 @@ void main() {
     await repository.getMetroSystems();
 
     expect(requests, 3);
+  });
+
+  test('a missing station-of-line endpoint degrades to an empty list', () async {
+    final repository = TransitRepository(
+      client: MockClient((_) async => http.Response('Not Found', 404)),
+    );
+
+    expect(await repository.getTraStationOfLine(), isEmpty);
+  });
+
+  test('a failed station-of-line fetch is not cached', () async {
+    // The try/catch has to sit outside _cached: this endpoint has a one-hour
+    // TTL, so caching a momentary failure would keep the picker's line column
+    // missing for an hour.
+    var requests = 0;
+    final repository = TransitRepository(
+      client: MockClient((_) async {
+        requests++;
+        if (requests == 1) {
+          return http.Response('Not Found', 404);
+        }
+        // Built from UTF-8 bytes like the real server sends: the String
+        // constructor would encode these as latin1 and apiResponseText decodes
+        // as UTF-8.
+        return http.Response.bytes(
+          utf8.encode(
+            '[{"line_id":"WL","line_name":"西部幹線",'
+            '"stations":[{"station_id":"1000","name":"臺北","sequence":0}]}]',
+          ),
+          200,
+        );
+      }),
+    );
+
+    expect(await repository.getTraStationOfLine(), isEmpty);
+    final second = await repository.getTraStationOfLine();
+
+    expect(requests, 2);
+    expect(second.single.lineId, 'WL');
+    expect(second.single.lineName, '西部幹線');
+    expect(second.single.stations.single.stationId, '1000');
+  });
+
+  test('a successful station-of-line fetch is cached', () async {
+    var requests = 0;
+    final repository = TransitRepository(
+      client: MockClient((_) async {
+        requests++;
+        return http.Response.bytes(
+          utf8.encode('[{"line_id":"WL","line_name":"西部幹線","stations":[]}]'),
+          200,
+        );
+      }),
+    );
+
+    await repository.getTraStationOfLine();
+    await repository.getTraStationOfLine();
+
+    expect(requests, 1);
   });
 }

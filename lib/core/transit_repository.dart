@@ -281,6 +281,26 @@ class TransitRepository {
     });
   }
 
+  /// Ordered station list per TRA line, used to group the station picker.
+  ///
+  /// Returns an empty list when the server does not have this endpoint yet —
+  /// the picker falls back to one flat group, so an older server degrades
+  /// instead of breaking. The `try` deliberately wraps `_cached` from the
+  /// *outside*: caching a failure under the one-hour static TTL would keep a
+  /// momentary blip in place for an hour.
+  Future<List<RailStationOfLine>> getTraStationOfLine() async {
+    try {
+      return await _cached('tra_station_of_line', _traStaticTtl, () async {
+        final data = await _getJsonList('/api/v1/tra/station-of-line');
+        return data
+            .map((e) => RailStationOfLine.fromJson(e as Map<String, dynamic>))
+            .toList();
+      });
+    } catch (_) {
+      return const <RailStationOfLine>[];
+    }
+  }
+
   Future<List<TraOdTrain>> getTraOdTimetable({
     required String origin,
     required String dest,
@@ -700,6 +720,54 @@ class RailAlert {
   final String publishTime;
   final String startTime;
   final String endTime;
+}
+
+/// One TRA line with its stations in running order.
+///
+/// A station can legitimately appear on more than one line: 山線 and 海線 both
+/// terminate at 竹南 and 彰化, and every branch line shares its junction
+/// station with the trunk. Callers must key stations by (lineId, stationId),
+/// never by stationId alone.
+class RailStationOfLine {
+  const RailStationOfLine({
+    required this.lineId,
+    required this.lineName,
+    required this.stations,
+  });
+
+  factory RailStationOfLine.fromJson(Map<String, dynamic> json) =>
+      RailStationOfLine(
+        lineId: json['line_id'] as String? ?? '',
+        lineName: json['line_name'] as String? ?? '',
+        stations:
+            (json['stations'] as List<dynamic>? ?? const [])
+                .whereType<Map<String, dynamic>>()
+                .map(RailLineStop.fromJson)
+                .toList(growable: false),
+      );
+
+  final String lineId;
+  final String lineName;
+  final List<RailLineStop> stations;
+}
+
+/// A station's position along one line.
+class RailLineStop {
+  const RailLineStop({
+    required this.stationId,
+    required this.name,
+    required this.sequence,
+  });
+
+  factory RailLineStop.fromJson(Map<String, dynamic> json) => RailLineStop(
+    stationId: json['station_id'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    sequence: (json['sequence'] as num?)?.toInt() ?? 0,
+  );
+
+  final String stationId;
+  final String name;
+  final int sequence;
 }
 
 // ── THSR ──

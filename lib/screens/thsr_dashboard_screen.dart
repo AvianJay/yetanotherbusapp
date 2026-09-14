@@ -4,10 +4,15 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/friendly_error.dart';
+import '../core/rail_line_stations.dart';
+import '../core/rail_time.dart';
 import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
+import '../core/user_location.dart';
 import '../widgets/background_image_wrapper.dart';
+import '../widgets/rail_station_picker.dart';
 import '../widgets/transit_drawer.dart';
+import '../widgets/transit_panels.dart';
 import '../widgets/transit_station_map.dart';
 import '../widgets/ad_banner_widget.dart';
 
@@ -39,6 +44,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
   _ThsrPanel _panel = _ThsrPanel.timetable;
 
   List<RailStation> _stations = [];
+  List<RailPickerLine> _pickerGroups = const [];
   List<RailAlert> _alerts = [];
   RailStation? _selectedStation;
   RailStation? _origin;
@@ -46,7 +52,14 @@ class _ThsrScreenState extends State<ThsrScreen> {
   DateTime _date = DateTime.now();
   List<ThsrOdTrain> _results = [];
   List<ThsrSeatInfo> _seatInfos = [];
+  bool _showPastTrains = false;
+
+  /// Wall clock behind every "has this train left?" decision, ticked by
+  /// [_clockTimer] so rows grey out between the 30s seat refreshes.
+  DateTime _now = DateTime.now();
+
   Timer? _seatRefreshTimer;
+  Timer? _clockTimer;
   final _initialDataRequest = RequestSequence();
   final _seatsRequest = RequestSequence();
 
@@ -59,6 +72,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
   @override
   void dispose() {
     _seatRefreshTimer?.cancel();
+    _clockTimer?.cancel();
     super.dispose();
   }
 
@@ -71,13 +85,36 @@ class _ThsrScreenState extends State<ThsrScreen> {
     if (!widget.isActive) {
       _seatRefreshTimer?.cancel();
       _seatRefreshTimer = null;
+      _clockTimer?.cancel();
+      _clockTimer = null;
       return;
     }
+    // A tab left in the background for a while has a stale clock; catch up
+    // before drawing or departed trains still look catchable.
+    setState(() => _now = DateTime.now());
+    _ensureClockTimer();
     if (_selectedStation != null) {
       unawaited(_loadSeats());
     } else if (!_loadingStations) {
       unawaited(_loadInitialData());
     }
+  }
+
+  /// Pure repaint tick. Separate from the seat refresh on purpose: whether a
+  /// train has left changes with the clock, not with the data, so it must keep
+  /// working when the network does not.
+  void _ensureClockTimer() {
+    if (!widget.isActive) {
+      return;
+    }
+    _clockTimer ??= Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted || !widget.isActive) {
+        _clockTimer?.cancel();
+        _clockTimer = null;
+        return;
+      }
+      setState(() => _now = DateTime.now());
+    });
   }
 
   Future<void> _loadInitialData({bool refresh = false}) async {
@@ -114,10 +151,18 @@ class _ThsrScreenState extends State<ThsrScreen> {
       setState(() {
         _stations = stations;
         _alerts = alerts;
+        // TDX publishes no StationOfLine resource for THSR, so this always
+        // collapses to a single station-id-ordered group -- which for 12
+        // stations on one line is exactly the right shape anyway.
+        _pickerGroups = buildRailPickerGroups(
+          stations: stations,
+          lines: const [],
+        );
         _selectedStation = selectedStation;
         _origin = origin;
         _dest = dest;
       });
+      _ensureClockTimer();
       if (selectedStation != null) {
         await _loadSeats(station: selectedStation);
       }
@@ -193,6 +238,71 @@ class _ThsrScreenState extends State<ThsrScreen> {
     }
   }
 
+  Future<NearestRailStation?> _locateNearestStation() async {
+    final position = await resolveUserPosition();
+    return nearestRailStation(
+      _stations,
+      latitude: position.latitude,
+      longitude: position.longitude,
+    );
+  }
+
+  Future<RailStation?> _pickStationWithWheel({
+    required String title,
+    RailStation? initial,
+    RailStation? excluded,
+  }) {
+    return showRailStationPicker(
+      context: context,
+      title: title,
+      groups: _pickerGroups,
+      initial: initial,
+      excluded: excluded,
+      onLocate: _locateNearestStation,
+    );
+  }
+
+  Future<void> _chooseObservedStation() async {
+    final picked = await _pickStationWithWheel(
+      title: '選擇車站',
+      initial: _selectedStation,
+    );
+    if (picked == null || !mounted) return;
+    unawaited(_loadSeats(station: picked));
+  }
+
+  Future<void> _chooseOrigin() async {
+    final picked = await _pickStationWithWheel(
+      title: '選擇出發站',
+      initial: _origin,
+      excluded: _dest,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _origin = picked);
+  }
+
+  Future<void> _chooseDest() async {
+    final picked = await _pickStationWithWheel(
+      title: '選擇到達站',
+      initial: _dest,
+      excluded: _origin,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _dest = picked);
+  }
+
+  /// True once this timetable row's departure is behind [_now].
+  ///
+  /// THSR publishes no live delay feed (only seat availability), so there is
+  /// no delay to fold in here -- unlike TRA.
+  bool _isTrainPast(String departure, {DateTime? serviceDate}) {
+    return isRailDeparturePast(
+      scheduledDeparture: departure,
+      serviceDate: serviceDate ?? _date,
+      now: _now,
+    );
+  }
+
   Future<void> _search() async {
     if (_origin == null || _dest == null) {
       return;
@@ -212,7 +322,12 @@ class _ThsrScreenState extends State<ThsrScreen> {
       if (!mounted) {
         return;
       }
-      setState(() => _results = results);
+      setState(() {
+        _results = results;
+        // Only today has a mix worth hiding; any other date is all-past or
+        // all-future, and collapsing would leave an empty list under a header.
+        _showPastTrains = !_isSameDay(_date, DateTime.now());
+      });
     } catch (error) {
       if (!mounted) {
         return;
@@ -233,9 +348,17 @@ class _ThsrScreenState extends State<ThsrScreen> {
       lastDate: DateTime.now().add(const Duration(days: 30)),
     );
     if (picked != null && mounted) {
-      setState(() => _date = picked);
+      setState(() {
+        _date = picked;
+        _showPastTrains = !_isSameDay(picked, DateTime.now());
+      });
     }
   }
+
+  static bool _isSameDay(DateTime left, DateTime right) =>
+      left.year == right.year &&
+      left.month == right.month &&
+      left.day == right.day;
 
   void _swapStations() {
     setState(() {
@@ -287,7 +410,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
                 child: _loadingStations && _stations.isEmpty
                     ? const Center(child: CircularProgressIndicator())
                     : _pageError != null && _stations.isEmpty
-                    ? _ErrorState(
+                    ? TransitErrorState(
                         message: _pageError!,
                         onRetry: () => _loadInitialData(refresh: true),
                       )
@@ -298,7 +421,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
                           padding: const EdgeInsets.all(16),
                           children: [
                             if (_alerts.isNotEmpty) ...[
-                              _RailAlertCard(alerts: _alerts),
+                              RailAlertCard(alerts: _alerts),
                               const SizedBox(height: 16),
                             ],
                             _buildSeatOverview(theme),
@@ -371,11 +494,12 @@ class _ThsrScreenState extends State<ThsrScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            _RailStationAutocomplete(
-              label: '切換觀察車站',
-              stations: _stations,
-              selected: selectedStation,
-              onSelected: (station) => _loadSeats(station: station),
+            RailStationField(
+              key: const ValueKey('thsr-observed-selector'),
+              label: '觀察車站',
+              station: selectedStation,
+              placeholder: '選擇車站',
+              onTap: _pickerGroups.isEmpty ? null : _chooseObservedStation,
             ),
             if (_loadingSeats) ...[
               const SizedBox(height: 12),
@@ -412,6 +536,11 @@ class _ThsrScreenState extends State<ThsrScreen> {
                         child: _ThsrSeatTile(
                           info: info,
                           station: selectedStation,
+                          // Seat data is live, so it is always about today.
+                          isPast: _isTrainPast(
+                            info.departureTime,
+                            serviceDate: DateTime.now(),
+                          ),
                         ),
                       );
                     })
@@ -424,6 +553,13 @@ class _ThsrScreenState extends State<ThsrScreen> {
   }
 
   Widget _buildTimetablePanel(ThemeData theme) {
+    final past = _results
+        .where((train) => _isTrainPast(train.originDeparture))
+        .toList(growable: false);
+    final upcoming = _results
+        .where((train) => !_isTrainPast(train.originDeparture))
+        .toList(growable: false);
+
     return Column(
       key: const ValueKey('timetable'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -433,13 +569,13 @@ class _ThsrScreenState extends State<ThsrScreen> {
             padding: const EdgeInsets.all(18),
             child: Column(
               children: [
-                _RailStationAutocomplete(
+                RailStationField(
+                  key: const ValueKey('thsr-origin-selector'),
                   label: '出發站',
-                  stations: _stations,
-                  selected: _origin,
-                  onSelected: (station) => setState(() => _origin = station),
+                  station: _origin,
+                  placeholder: '選擇出發站',
+                  onTap: _pickerGroups.isEmpty ? null : _chooseOrigin,
                 ),
-                const SizedBox(height: 10),
                 Align(
                   alignment: Alignment.centerRight,
                   child: IconButton(
@@ -448,11 +584,12 @@ class _ThsrScreenState extends State<ThsrScreen> {
                     tooltip: '交換',
                   ),
                 ),
-                _RailStationAutocomplete(
+                RailStationField(
+                  key: const ValueKey('thsr-dest-selector'),
                   label: '到達站',
-                  stations: _stations,
-                  selected: _dest,
-                  onSelected: (station) => setState(() => _dest = station),
+                  station: _dest,
+                  placeholder: '選擇到達站',
+                  onTap: _pickerGroups.isEmpty ? null : _chooseDest,
                 ),
                 const SizedBox(height: 14),
                 Row(
@@ -462,7 +599,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
                         onPressed: _pickDate,
                         icon: const Icon(Icons.calendar_today_rounded),
                         label: Text(
-                          '${_date.month}/${_date.day}（${_weekdayLabel(_date.weekday)}）',
+                          '${_date.month}/${_date.day}（${railWeekdayLabel(_date.weekday)}）',
                         ),
                       ),
                     ),
@@ -492,24 +629,50 @@ class _ThsrScreenState extends State<ThsrScreen> {
         ],
         const SizedBox(height: 16),
         Text(
-          _results.isEmpty ? '尚未查詢班次' : '共 ${_results.length} 班',
+          _results.isEmpty
+              ? '尚未查詢班次'
+              : '還有 ${upcoming.length} 班可搭（共 ${_results.length} 班）',
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 10),
         if (_results.isEmpty)
-          const _EmptyPanel(
+          const TransitEmptyPanel(
             icon: Icons.schedule_rounded,
             label: '選好起訖站與日期後，就能看高鐵班次。',
           )
-        else
-          ..._results.map((train) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _ThsrTimetableTile(train: train),
-            );
-          }),
+        else ...[
+          if (past.isNotEmpty) ...[
+            PastTrainsDisclosure(
+              key: const ValueKey('thsr-past-toggle'),
+              count: past.length,
+              expanded: _showPastTrains,
+              onToggle: () =>
+                  setState(() => _showPastTrains = !_showPastTrains),
+            ),
+            const SizedBox(height: 10),
+            if (_showPastTrains)
+              ...past.map(
+                (train) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _ThsrTimetableTile(train: train, isPast: true),
+                ),
+              ),
+          ],
+          if (upcoming.isEmpty)
+            TransitEmptyPanel(
+              icon: Icons.nightlight_round,
+              label: '這一天的班次都開完了。',
+            )
+          else
+            ...upcoming.map(
+              (train) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _ThsrTimetableTile(train: train),
+              ),
+            ),
+        ],
       ],
     );
   }
@@ -552,11 +715,12 @@ class _ThsrScreenState extends State<ThsrScreen> {
                 //   ),
                 // ),
                 const SizedBox(height: 16),
-                _RailStationAutocomplete(
+                RailStationField(
+                  key: const ValueKey('thsr-seat-selector'),
                   label: '查詢站點',
-                  stations: _stations,
-                  selected: _selectedStation,
-                  onSelected: (station) => _loadSeats(station: station),
+                  station: _selectedStation,
+                  placeholder: '選擇車站',
+                  onTap: _pickerGroups.isEmpty ? null : _chooseObservedStation,
                 ),
                 if (_loadingSeats) ...[
                   const SizedBox(height: 12),
@@ -572,12 +736,12 @@ class _ThsrScreenState extends State<ThsrScreen> {
         ],
         const SizedBox(height: 16),
         if (_selectedStation == null)
-          const _EmptyPanel(
+          const TransitEmptyPanel(
             icon: Icons.airline_seat_recline_normal_rounded,
             label: '先選一個站，再看各班次座位餘量。',
           )
         else if (_seatInfos.isEmpty)
-          const _EmptyPanel(
+          const TransitEmptyPanel(
             icon: Icons.airline_seat_recline_normal_rounded,
             label: '目前沒有可顯示的座位資料。',
           )
@@ -585,7 +749,14 @@ class _ThsrScreenState extends State<ThsrScreen> {
           ..._seatInfos.map((info) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _ThsrSeatTile(info: info, station: _selectedStation!),
+              child: _ThsrSeatTile(
+                info: info,
+                station: _selectedStation!,
+                isPast: _isTrainPast(
+                  info.departureTime,
+                  serviceDate: DateTime.now(),
+                ),
+              ),
             );
           }),
       ],
@@ -673,16 +844,6 @@ class _ThsrScreenState extends State<ThsrScreen> {
     );
   }
 
-  String _weekdayLabel(int weekday) => switch (weekday) {
-    1 => '一',
-    2 => '二',
-    3 => '三',
-    4 => '四',
-    5 => '五',
-    6 => '六',
-    7 => '日',
-    _ => '',
-  };
 }
 
 class _ThsrPanelButtons extends StatelessWidget {
@@ -696,7 +857,7 @@ class _ThsrPanelButtons extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: _PanelButton(
+          child: TransitPanelButton(
             icon: Icons.schedule_rounded,
             label: '班次查詢',
             selected: current == _ThsrPanel.timetable,
@@ -705,7 +866,7 @@ class _ThsrPanelButtons extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: _PanelButton(
+          child: TransitPanelButton(
             icon: Icons.airline_seat_recline_normal_rounded,
             label: '座位資訊',
             selected: current == _ThsrPanel.seats,
@@ -714,7 +875,7 @@ class _ThsrPanelButtons extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: _PanelButton(
+          child: TransitPanelButton(
             icon: Icons.map_rounded,
             label: '站點地圖',
             selected: current == _ThsrPanel.map,
@@ -726,47 +887,35 @@ class _ThsrPanelButtons extends StatelessWidget {
   }
 }
 
-class _PanelButton extends StatelessWidget {
-  const _PanelButton({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 48,
-      child: selected
-          ? FilledButton.icon(
-              onPressed: onPressed,
-              icon: Icon(icon),
-              label: Text(label),
-            )
-          : FilledButton.tonalIcon(
-              onPressed: onPressed,
-              icon: Icon(icon),
-              label: Text(label),
-            ),
-    );
-  }
-}
 
 class _ThsrTimetableTile extends StatelessWidget {
-  const _ThsrTimetableTile({required this.train});
+  const _ThsrTimetableTile({required this.train, this.isPast = false});
 
   final ThsrOdTrain train;
+  final bool isPast;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
+    // Past rows drop the high-speed-rail amber for the app's neutral "nothing
+    // useful to say" pair, rather than being wrapped in Opacity — cards are
+    // already translucent when a background image is set.
+    final chipBackground = isPast
+        ? cs.surfaceContainerHighest
+        : (isDark
+              ? Colors.orange.shade900.withValues(alpha: 0.35)
+              : Colors.orange.shade100);
+    final chipForeground = isPast
+        ? cs.onSurfaceVariant
+        : (isDark ? Colors.orange.shade200 : Colors.orange.shade900);
+
     return Card(
+      color: isPast
+          ? cs.surfaceContainerHighest.withValues(alpha: 0.22)
+          : null,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
@@ -775,7 +924,7 @@ class _ThsrTimetableTile extends StatelessWidget {
               width: 72,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.orange.shade100,
+                color: chipBackground,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
@@ -784,13 +933,13 @@ class _ThsrTimetableTile extends StatelessWidget {
                     train.trainNo,
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w700,
-                      color: Colors.orange.shade900,
+                      color: chipForeground,
                     ),
                   ),
                   Text(
                     '高鐵',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.orange.shade900,
+                      color: chipForeground,
                       fontSize: 10,
                     ),
                   ),
@@ -804,69 +953,84 @@ class _ThsrTimetableTile extends StatelessWidget {
                 children: [
                   Text(
                     '${train.originDeparture} → ${train.destArrival}',
-                    style: theme.textTheme.titleSmall,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: isPast ? cs.onSurfaceVariant : cs.onSurface,
+                    ),
                   ),
                   const SizedBox(height: 3),
                   Text(
                     '${train.startStation} → ${train.endStation}',
-                    style: theme.textTheme.bodySmall,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: isPast ? cs.outline : cs.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
             ),
-            Text(
-              _duration(train.originDeparture, train.destArrival),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w700,
+            if (isPast)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.history_rounded,
+                    size: 13,
+                    color: cs.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '已開出',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              )
+            else
+              Text(
+                railDurationLabel(train.originDeparture, train.destArrival),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.primary,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
           ],
         ),
       ),
     );
   }
 
-  String _duration(String departure, String arrival) {
-    try {
-      final depParts = departure
-          .split(':')
-          .map(int.parse)
-          .toList(growable: false);
-      final arrParts = arrival
-          .split(':')
-          .map(int.parse)
-          .toList(growable: false);
-      final depMinutes = depParts[0] * 60 + depParts[1];
-      final arrMinutes = arrParts[0] * 60 + arrParts[1];
-      final diff = arrMinutes - depMinutes;
-      if (diff <= 0) {
-        return '';
-      }
-      final hours = diff ~/ 60;
-      final minutes = diff % 60;
-      if (hours > 0) {
-        return '${hours}h${minutes}m';
-      }
-      return '${minutes}m';
-    } catch (_) {
-      return '';
-    }
-  }
 }
 
 class _ThsrSeatTile extends StatelessWidget {
-  const _ThsrSeatTile({required this.info, required this.station});
+  const _ThsrSeatTile({
+    required this.info,
+    required this.station,
+    this.isPast = false,
+  });
 
   final ThsrSeatInfo info;
   final RailStation station;
 
+  /// Seat availability on a train that has already left is pure noise.
+  final bool isPast;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     final seat = _seatForStation();
+    final chipBackground = isPast
+        ? cs.surfaceContainerHighest
+        : (isDark
+              ? Colors.orange.shade900.withValues(alpha: 0.35)
+              : Colors.orange.shade100);
 
     return Card(
+      color: isPast
+          ? cs.surfaceContainerHighest.withValues(alpha: 0.22)
+          : null,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -881,7 +1045,7 @@ class _ThsrSeatTile extends StatelessWidget {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.orange.shade100,
+                    color: chipBackground,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -889,7 +1053,11 @@ class _ThsrSeatTile extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w700,
-                      color: Colors.orange.shade900,
+                      color: isPast
+                          ? cs.onSurfaceVariant
+                          : (isDark
+                                ? Colors.orange.shade200
+                                : Colors.orange.shade900),
                     ),
                   ),
                 ),
@@ -1021,104 +1189,7 @@ class _SeatChipStyle {
   final Color background;
 }
 
-class _RailStationAutocomplete extends StatelessWidget {
-  const _RailStationAutocomplete({
-    required this.label,
-    required this.stations,
-    required this.selected,
-    required this.onSelected,
-  });
 
-  final String label;
-  final List<RailStation> stations;
-  final RailStation? selected;
-  final ValueChanged<RailStation> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Autocomplete<RailStation>(
-      key: ValueKey('${label}_${selected?.stationId ?? 'none'}'),
-      displayStringForOption: (station) => station.name,
-      initialValue: selected != null
-          ? TextEditingValue(text: selected!.name)
-          : null,
-      optionsBuilder: (textEditingValue) {
-        if (textEditingValue.text.isEmpty) {
-          return stations;
-        }
-        final query = textEditingValue.text.toLowerCase();
-        return stations.where((station) {
-          return station.name.toLowerCase().contains(query) ||
-              station.stationId.toLowerCase().contains(query) ||
-              station.nameEn.toLowerCase().contains(query);
-        });
-      },
-      fieldViewBuilder: (_, controller, focusNode, onSubmitted) {
-        return TextField(
-          controller: controller,
-          focusNode: focusNode,
-          decoration: InputDecoration(
-            labelText: label,
-            prefixIcon: const Icon(Icons.train_rounded),
-            border: const OutlineInputBorder(),
-          ),
-          onSubmitted: (_) => onSubmitted(),
-        );
-      },
-      onSelected: onSelected,
-    );
-  }
-}
-
-class _RailAlertCard extends StatelessWidget {
-  const _RailAlertCard({required this.alerts});
-
-  final List<RailAlert> alerts;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      color: Colors.orange.shade50,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.orange.shade900,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '營運公告',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: Colors.orange.shade900,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ...alerts.take(3).map((alert) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  '• ${alert.title}',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: Colors.orange.shade900,
-                  ),
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _SelectedThsrStationCard extends StatelessWidget {
   const _SelectedThsrStationCard({
@@ -1198,65 +1269,4 @@ class _SelectedThsrStationCard extends StatelessWidget {
   }
 }
 
-class _EmptyPanel extends StatelessWidget {
-  const _EmptyPanel({required this.icon, required this.label});
 
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.35,
-        ),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 28, color: theme.colorScheme.outline),
-          const SizedBox(height: 10),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.message, required this.onRetry});
-
-  final String message;
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('重試'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

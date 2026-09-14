@@ -47,6 +47,48 @@ void main() {
     expect(intent.stopId, 2);
   });
 
+  test('bus map routes keep the city they were opened for', () {
+    final intent = parseAppRoute('/map?city=nwt');
+
+    expect(intent.kind, AppRouteKind.busMap);
+    expect(intent.provider, BusProvider.nwt);
+    expect(intent.location, '/map?city=nwt');
+  });
+
+  test('bus map accepts the routeid prefix as well as the enum name', () {
+    expect(parseAppRoute('/map?city=NWT').provider, BusProvider.nwt);
+    expect(parseAppRoute('/map?city=TPE').provider, BusProvider.tpe);
+    expect(parseAppRoute('/map?city=inter').provider, BusProvider.inter);
+  });
+
+  test('bus map without a usable city falls back to the default', () {
+    // Null rather than a guess: the screen then opens the user's own city.
+    expect(parseAppRoute('/map').provider, isNull);
+    expect(parseAppRoute('/map?city=').provider, isNull);
+    expect(parseAppRoute('/map?city=atlantis').provider, isNull);
+    expect(parseAppRoute('/map').kind, AppRouteKind.busMap);
+  });
+
+  test('bus map aliases resolve to the canonical path', () {
+    expect(AppRoutes.normalize('map'), AppRoutes.busMap);
+    expect(AppRoutes.normalize('bus_map'), AppRoutes.busMap);
+    expect(
+      parseAppRoute(
+        'https://busapp.avianjay.sbs/map?city=tpe',
+      ).provider,
+      BusProvider.tpe,
+    );
+  });
+
+  test('busMapPath round-trips through the parser', () {
+    for (final provider in [BusProvider.tpe, BusProvider.txg, BusProvider.inter]) {
+      final location = AppRoutes.busMapPath(provider: provider);
+
+      expect(parseAppRoute(location).provider, provider);
+    }
+    expect(AppRoutes.busMapPath(), AppRoutes.busMap);
+  });
+
   test('normalize accepts supported absolute internal route URLs', () {
     final location = AppRoutes.normalize(
       'https://busapp.avianjay.sbs/route/tpe/123456?routeId=TPE12345',

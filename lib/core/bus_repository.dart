@@ -81,6 +81,13 @@ class BusRepository {
   _routeRealtimeBusesCache = <String, _TimedValue<List<RouteRealtimeBus>>>{};
   final Map<String, Future<List<RouteRealtimeBus>>>
   _routeRealtimeBusesInFlight = <String, Future<List<RouteRealtimeBus>>>{};
+  // Short: the server already caches a city snapshot for its own TTL, so this
+  // only collapses the burst a screen makes when it rebuilds.
+  static const _cityBusesCacheTtl = Duration(seconds: 3);
+  final Map<String, _TimedValue<CityBusSnapshot>> _cityBusesCache =
+      <String, _TimedValue<CityBusSnapshot>>{};
+  final Map<String, Future<CityBusSnapshot>> _cityBusesInFlight =
+      <String, Future<CityBusSnapshot>>{};
   _TimedValue<Map<String, List<int>>>? _taichungRouteIndexCache;
   Future<Map<String, List<int>>>? _taichungRouteIndexInFlight;
   final Map<String, _TimedValue<List<CancelledDeparture>>>
@@ -2500,6 +2507,136 @@ class BusRepository {
         .toList();
   }
 
+  /// Every live bus in one city, for the 全公車地圖 screen.
+  ///
+  /// One request per city rather than one per route: the per-route endpoint
+  /// would need hundreds of calls to cover a city and would exhaust the rate
+  /// limit long before it finished.
+  Future<CityBusSnapshot> getCityRealtimeBuses(BusProvider provider) async {
+    final cacheKey = provider.name;
+    final cached = _readFreshCache(
+      _cityBusesCache,
+      cacheKey,
+      _cityBusesCacheTtl,
+    );
+    if (cached != null) {
+      return cached;
+    }
+
+    final inFlight = _cityBusesInFlight[cacheKey];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _loadCityRealtimeBuses(provider);
+    _cityBusesInFlight[cacheKey] = future;
+    try {
+      final snapshot = await future;
+      _cityBusesCache[cacheKey] = _TimedValue<CityBusSnapshot>(snapshot);
+      return snapshot;
+    } finally {
+      if (identical(_cityBusesInFlight[cacheKey], future)) {
+        _cityBusesInFlight.remove(cacheKey);
+      }
+    }
+  }
+
+  Future<CityBusSnapshot> _loadCityRealtimeBuses(BusProvider provider) async {
+    final response = await _client.get(
+      Uri.parse('$_apiBaseUrl/api/v1/cities/${provider.prefix}/buses'),
+      headers: _apiJsonHeaders,
+    );
+    if (response.statusCode == 429) {
+      throw const HttpException(rateLimitedErrorMessage);
+    }
+    if (response.statusCode == 404) {
+      // Either a server that predates this endpoint, or a city it does not
+      // serve. Both mean the same thing to the user.
+      throw CityBusFeedUnavailableException(provider);
+    }
+    if (response.statusCode != 200) {
+      throw HttpException(
+        '無法取得全公車地圖資料：${provider.label} (${response.statusCode})',
+      );
+    }
+
+    final decoded = jsonDecode(apiResponseText(response));
+    if (decoded is! Map) {
+      throw const FormatException('City bus snapshot is invalid.');
+    }
+
+    final routes = <String, CityBusRouteInfo>{};
+    for (final entry in (decoded['routes'] as Map? ?? const {}).entries) {
+      final routeId = entry.key.toString().trim();
+      final value = entry.value;
+      if (routeId.isEmpty || value is! Map) {
+        continue;
+      }
+      routes[routeId] = CityBusRouteInfo(
+        routeId: routeId,
+        name: value['name']?.toString().trim().isNotEmpty == true
+            ? value['name'].toString().trim()
+            : routeId,
+        routeUid: _nonEmptyString(value['route_uid']),
+      );
+    }
+
+    final families = <String, CityBusFamily>{};
+    for (final entry in (decoded['families'] as Map? ?? const {}).entries) {
+      final routeUid = entry.key.toString().trim();
+      final value = entry.value;
+      if (routeUid.isEmpty || value is! Map) {
+        continue;
+      }
+      families[routeUid] = CityBusFamily(
+        routeUid: routeUid,
+        name: value['name']?.toString().trim().isNotEmpty == true
+            ? value['name'].toString().trim()
+            : routeUid,
+        routeIds: (value['routeids'] as List? ?? const [])
+            .map((routeId) => routeId?.toString().trim() ?? '')
+            .where((routeId) => routeId.isNotEmpty)
+            .toList(growable: false),
+        stopsRouteId: _nonEmptyString(value['stops_routeid']),
+        geometryRouteId: _nonEmptyString(value['geometry_routeid']),
+      );
+    }
+
+    final buses = <CityBus>[];
+    for (final raw
+        in (decoded['buses'] as List? ?? const []).whereType<Map>()) {
+      final routeUid = _nonEmptyString(raw['route_uid']);
+      final routeId = _nonEmptyString(raw['routeid']);
+      if (routeUid == null && routeId == null) {
+        continue;
+      }
+      final bus = _parseRouteRealtimeBus(routeId ?? routeUid!, raw);
+      if (bus == null || bus.id.isEmpty) {
+        continue;
+      }
+      buses.add(
+        CityBus(bus: bus, routeUid: routeUid ?? routeId!, routeId: routeId),
+      );
+    }
+
+    final updatedAtSeconds = _nullableInt(decoded['updated_at']);
+    return CityBusSnapshot(
+      provider: provider,
+      buses: buses,
+      routes: routes,
+      families: families,
+      ttlSeconds: _nullableInt(decoded['ttl']) ?? 15,
+      updatedAt: updatedAtSeconds == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(
+              updatedAtSeconds * 1000,
+              isUtc: true,
+            ).toLocal(),
+      stale: decoded['stale'] == true,
+      truncated: decoded['truncated'] == true,
+    );
+  }
+
   Future<List<RouteAlert>> fetchRouteAlerts(String routeId) async {
     final cached = _readFreshCache(
       _routeAlertsCache,
@@ -3745,6 +3882,12 @@ class BusRepository {
     }
     return null;
   }
+
+  /// The stable client-side key for a routeid.
+  ///
+  /// Route detail is addressed by [routeKey], but anything that arrives from
+  /// the network carries a routeid, so callers need a way to cross over.
+  int routeKeyForRouteId(String routeId) => _routeKeyForRouteId(routeId);
 
   int _routeKeyForRouteId(String routeId) {
     const offset = 0x811c9dc5;

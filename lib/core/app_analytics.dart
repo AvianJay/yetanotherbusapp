@@ -158,6 +158,26 @@ class AppAnalytics {
     });
   }
 
+  Future<void> logBusMapOpened({
+    required BusProvider provider,
+    required String source,
+  }) {
+    return _logEvent('bus_map_opened', {
+      'provider': provider.name,
+      'source': source,
+    });
+  }
+
+  Future<void> logBusMapCityChanged({required BusProvider provider}) {
+    return _logEvent('bus_map_city_changed', {'provider': provider.name});
+  }
+
+  Future<void> logBusMapFilterToggled({required bool favoritesOnly}) {
+    return _logEvent('bus_map_filter_toggled', {
+      'favorites_only': favoritesOnly,
+    });
+  }
+
   Future<void> logDatabasesDownloaded({
     required int providerCount,
     required bool includesCurrentProvider,

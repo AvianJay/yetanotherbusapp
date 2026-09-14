@@ -14,6 +14,7 @@ class AppRoutes {
   static const termsOfService = '/terms-of-service';
   static const privacyPolicy = '/privacy-policy';
   static const announcements = '/announcement';
+  static const busMap = '/map';
 
   static const _supportedInternalHosts = <String>{'busapp.avianjay.sbs'};
   static const _legacyAliases = <String, String>{
@@ -30,6 +31,8 @@ class AppRoutes {
     'privacy-policy': privacyPolicy,
     'announcement': announcements,
     'announcements': announcements,
+    'map': busMap,
+    'bus_map': busMap,
   };
 
   static bool isSupportedInternalHost(String host) {
@@ -109,6 +112,14 @@ class AppRoutes {
     ).toString();
   }
 
+  /// A link to the city bus map, optionally pinned to one authority.
+  static String busMapPath({BusProvider? provider}) {
+    return Uri(
+      path: busMap,
+      queryParameters: provider == null ? null : {'city': provider.name},
+    ).toString();
+  }
+
   static String announcementDetailPath(String announcementId) {
     return Uri(pathSegments: ['announcement', announcementId]).toString();
   }
@@ -136,6 +147,7 @@ enum AppRouteKind {
   privacyPolicy,
   announcements,
   announcementDetail,
+  busMap,
   routeDetail,
   stationDetail,
   stopDetail,
@@ -249,6 +261,18 @@ AppRouteIntent parseAppRoute(String? rawLocation) {
     );
   }
 
+  if (uri.path == AppRoutes.busMap) {
+    // Unlike the other flat paths, this one carries a query worth keeping: a
+    // link can name the city to open, and losing it would silently drop the
+    // reader somewhere else.
+    final provider = _providerFromNameOrPrefix(uri.queryParameters['city']);
+    return AppRouteIntent(
+      kind: AppRouteKind.busMap,
+      location: AppRoutes.busMapPath(provider: provider),
+      provider: provider,
+    );
+  }
+
   final segments = uri.pathSegments;
   if (segments.isEmpty) {
     return const AppRouteIntent(
@@ -321,6 +345,22 @@ int? _tryParseInt(String? value) {
 String? _nonEmptyText(String? value) {
   final trimmed = (value ?? '').trim();
   return trimmed.isEmpty ? null : trimmed;
+}
+
+/// Accepts either the persisted enum name ("nwt") or the routeid prefix
+/// ("NWT"), and answers null rather than guessing for anything else.
+BusProvider? _providerFromNameOrPrefix(String? rawValue) {
+  final normalized = (rawValue ?? '').trim().toLowerCase();
+  if (normalized.isEmpty) {
+    return null;
+  }
+  for (final provider in BusProvider.values) {
+    if (provider.name == normalized ||
+        provider.prefix.toLowerCase() == normalized) {
+      return provider;
+    }
+  }
+  return null;
 }
 
 BusProvider? _providerFromName(String rawValue) {

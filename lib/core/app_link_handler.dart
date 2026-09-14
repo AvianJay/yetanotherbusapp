@@ -57,6 +57,7 @@ String? _internalLocationForUri(Uri uri) {
     case AppRouteKind.termsOfService:
     case AppRouteKind.privacyPolicy:
     case AppRouteKind.announcements:
+    case AppRouteKind.busMap:
     case AppRouteKind.announcementDetail:
     case AppRouteKind.routeDetail:
     case AppRouteKind.stationDetail:

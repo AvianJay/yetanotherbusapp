@@ -19,6 +19,8 @@ class DesktopDiscordRouteObserver extends NavigatorObserver {
     'nearby': '附近站牌',
     'database_settings': '資料庫設定',
     'route_detail': '查看路線',
+    'bus_map': '全公車地圖',
+    '/map': '全公車地圖',
   };
 
   @override

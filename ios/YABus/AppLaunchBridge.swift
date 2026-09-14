@@ -16,6 +16,7 @@ final class AppLaunchBridge {
     "/terms-of-service",
     "/privacy-policy",
     "/announcement",
+    "/map",
   ]
 
   private let channelName = "tw.avianjay.taiwanbus.flutter/app_launch"

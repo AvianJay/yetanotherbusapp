@@ -43,3 +43,16 @@ String httpStatusMessage(int statusCode, String fallback) {
   }
   return fallback;
 }
+
+/// The server has no whole-city bus feed for this provider.
+///
+/// Raised for a 404, which covers both a server older than the endpoint and a
+/// city the deployment does not sync. The map shows the same notice either way.
+class CityBusFeedUnavailableException implements Exception {
+  const CityBusFeedUnavailableException(this.provider);
+
+  final Object provider;
+
+  @override
+  String toString() => '此城市暫不支援全公車地圖。';
+}

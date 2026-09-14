@@ -863,11 +863,8 @@ class _BusMapScreenState extends State<BusMapScreen>
             child: _buildStatusChips(theme, drawSet, favoriteRouteIds),
           ),
         if (!useSplitLayout && selectedBus != null)
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
-            child: _BusMapSelectionCard(
+          Positioned.fill(
+            child: _BusMapSelectionSheet(
               snapshot: _snapshot!,
               cityBus: selectedBus,
               state: _busStates[selectedBus.stateKey],
@@ -876,6 +873,8 @@ class _BusMapScreenState extends State<BusMapScreen>
               onOpenDetail: () => unawaited(_openRouteDetail(selectedBus)),
               onShowWholeRoute: _fitSelectedRoute,
               onClose: _clearSelection,
+              onStopSelected: (stop) =>
+                  unawaited(_openRouteDetail(selectedBus, stop: stop)),
             ),
           ),
       ],
@@ -1794,8 +1793,18 @@ class _StatusChip extends StatelessWidget {
 }
 
 /// What the rider sees about the bus they tapped.
-class _BusMapSelectionCard extends StatelessWidget {
-  const _BusMapSelectionCard({
+/// The selected bus on a phone: a sheet you can drag down out of the way.
+///
+/// A card pinned over the map looked fine at default text size and buried the
+/// map at larger display sizes, where the rider most needs to see where the bus
+/// actually is. As a sheet it collapses to a single line, and its stop list
+/// becomes reachable without leaving the map.
+///
+/// Heights are measured rather than guessed at: the collapsed state has to fit
+/// one line of the *user's* text size, so the fractions are derived from the
+/// real line height instead of a constant that only holds at 1.0x.
+class _BusMapSelectionSheet extends StatelessWidget {
+  const _BusMapSelectionSheet({
     required this.snapshot,
     required this.cityBus,
     required this.state,
@@ -1804,6 +1813,7 @@ class _BusMapSelectionCard extends StatelessWidget {
     required this.onOpenDetail,
     required this.onShowWholeRoute,
     required this.onClose,
+    required this.onStopSelected,
   });
 
   final CityBusSnapshot snapshot;
@@ -1814,6 +1824,117 @@ class _BusMapSelectionCard extends StatelessWidget {
   final VoidCallback onOpenDetail;
   final VoidCallback onShowWholeRoute;
   final VoidCallback onClose;
+  final ValueChanged<StopInfo> onStopSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final textScaler = MediaQuery.textScalerOf(context);
+    final titleHeight = textScaler.scale(
+      theme.textTheme.titleMedium?.fontSize ?? 16,
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final available = constraints.maxHeight;
+        // Drag handle, one title line, and breathing room.
+        final collapsedHeight = 28 + titleHeight * 2.4;
+        final minSize = (collapsedHeight / available).clamp(0.12, 0.5);
+        final restSize = (minSize * 2.6).clamp(minSize, 0.62);
+        final maxSize = stops.isEmpty ? restSize : 0.78;
+
+        return DraggableScrollableSheet(
+          initialChildSize: restSize,
+          minChildSize: minSize,
+          maxChildSize: math.max(maxSize, restSize),
+          snap: true,
+          snapSizes: <double>{
+            minSize,
+            restSize,
+            math.max(maxSize, restSize),
+          }.toList()..sort(),
+          builder: (context, scrollController) {
+            return Material(
+              elevation: 8,
+              color: theme.colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: ListView(
+                controller: scrollController,
+                padding: EdgeInsets.zero,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(top: 10, bottom: 6),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.outlineVariant,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  _BusMapSelectionCard(
+                    snapshot: snapshot,
+                    cityBus: cityBus,
+                    state: state,
+                    stops: stops,
+                    pathId: pathId,
+                    onOpenDetail: onOpenDetail,
+                    onShowWholeRoute: onShowWholeRoute,
+                    onClose: onClose,
+                    embedded: true,
+                  ),
+                  if (stops.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                      child: Text('沿途站牌', style: theme.textTheme.titleSmall),
+                    ),
+                    for (final stop in stops)
+                      ListTile(
+                        dense: true,
+                        leading: Text('${stop.sequence}'),
+                        title: Text(stop.stopName),
+                        onTap: () => onStopSelected(stop),
+                      ),
+                    const SizedBox(height: 12),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _BusMapSelectionCard extends StatelessWidget {
+  const _BusMapSelectionCard({
+    required this.snapshot,
+    required this.cityBus,
+    required this.state,
+    required this.stops,
+    required this.pathId,
+    required this.onOpenDetail,
+    required this.onShowWholeRoute,
+    required this.onClose,
+    this.embedded = false,
+  });
+
+  final CityBusSnapshot snapshot;
+  final CityBus cityBus;
+  final AnimatedBusState? state;
+  final List<StopInfo> stops;
+  final int? pathId;
+  final VoidCallback onOpenDetail;
+  final VoidCallback onShowWholeRoute;
+  final VoidCallback onClose;
+
+  /// True when a sheet already provides the surface and elevation.
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
@@ -1830,105 +1951,107 @@ class _BusMapSelectionCard extends StatelessWidget {
     final speedKph = cityBus.bus.speedKph;
     final updatedAt = cityBus.bus.updatedAt;
 
-    return Card(
-      elevation: 6,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    name,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+    final body = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
-                ),
-                IconButton(
-                  tooltip: '取消選取',
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: onClose,
-                ),
-              ],
-            ),
-            if (direction.isNotEmpty)
-              Text(direction, style: theme.textTheme.bodyMedium),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                Chip(
-                  visualDensity: VisualDensity.compact,
-                  label: Text(cityBus.bus.id),
-                ),
-                Chip(
-                  visualDensity: VisualDensity.compact,
-                  backgroundColor: status.color,
-                  label: Text(
-                    status.label,
-                    style: TextStyle(
-                      color: status.color.computeLuminance() > 0.45
-                          ? Colors.black87
-                          : Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                if (speedKph != null)
-                  Chip(
-                    visualDensity: VisualDensity.compact,
-                    label: Text('${speedKph.round()} km/h'),
-                  ),
-                if (updatedAt != null)
-                  Chip(
-                    visualDensity: VisualDensity.compact,
-                    label: Text(formatRelativeTimestamp(updatedAt)),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '同路線 ${snapshot.siblingCountFor(cityBus)} 輛行駛中',
-              style: theme.textTheme.bodySmall,
-            ),
-            if (ambiguous && family != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                family.isBareCode
-                    ? '這輛車的路線代碼是 ${cityBus.routeUid}，尚無路線名稱。'
-                    : '這輛車屬於「${family.name}」路線群，無法判定是哪個區間班次。',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              IconButton(
+                tooltip: '取消選取',
+                icon: const Icon(Icons.close_rounded),
+                onPressed: onClose,
+              ),
             ],
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: onOpenDetail,
-                  icon: const Icon(Icons.list_alt_rounded),
-                  label: const Text('路線詳情'),
+          ),
+          if (direction.isNotEmpty)
+            Text(direction, style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Chip(
+                visualDensity: VisualDensity.compact,
+                label: Text(cityBus.bus.id),
+              ),
+              Chip(
+                visualDensity: VisualDensity.compact,
+                backgroundColor: status.color,
+                label: Text(
+                  status.label,
+                  style: TextStyle(
+                    color: status.color.computeLuminance() > 0.45
+                        ? Colors.black87
+                        : Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                OutlinedButton.icon(
-                  onPressed: onShowWholeRoute,
-                  icon: const Icon(Icons.route_rounded),
-                  label: const Text('顯示整條路線'),
+              ),
+              if (speedKph != null)
+                Chip(
+                  visualDensity: VisualDensity.compact,
+                  label: Text('${speedKph.round()} km/h'),
                 ),
-              ],
+              if (updatedAt != null)
+                Chip(
+                  visualDensity: VisualDensity.compact,
+                  label: Text(formatRelativeTimestamp(updatedAt)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '同路線 ${snapshot.siblingCountFor(cityBus)} 輛行駛中',
+            style: theme.textTheme.bodySmall,
+          ),
+          if (ambiguous && family != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              family.isBareCode
+                  ? '這輛車的路線代碼是 ${cityBus.routeUid}，尚無路線名稱。'
+                  : '這輛車屬於「${family.name}」路線群，無法判定是哪個區間班次。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
             ),
           ],
-        ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: onOpenDetail,
+                icon: const Icon(Icons.list_alt_rounded),
+                label: const Text('路線詳情'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onShowWholeRoute,
+                icon: const Icon(Icons.route_rounded),
+                label: const Text('顯示整條路線'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
+
+    if (embedded) {
+      return body;
+    }
+    return Card(elevation: 6, child: body);
   }
 }

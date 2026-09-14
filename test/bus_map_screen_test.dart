@@ -178,23 +178,48 @@ Future<AppController> _createController(http.Client client) async {
 
 /// Pumps the map. [zoom] decides whether buses draw individually (the default
 /// here) or collapse into clustered counts, as they do on a whole-city view.
+/// [textScale] mimics a rider who has turned the display size up.
 Future<void> _pumpMap(
   WidgetTester tester,
   AppController controller, {
   double zoom = 15,
+  double textScale = 1.0,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
       navigatorObservers: [appRouteObserver],
-      home: AppControllerScope(
-        controller: controller,
-        child: BusMapScreen(
-          initialProvider: BusProvider.tpe,
-          initialZoom: zoom,
-          tileProvider: _NoopTileProvider(),
+      home: MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(textScale)),
+        child: AppControllerScope(
+          controller: controller,
+          child: BusMapScreen(
+            initialProvider: BusProvider.tpe,
+            initialZoom: zoom,
+            tileProvider: _NoopTileProvider(),
+          ),
         ),
       ),
     ),
+  );
+}
+
+/// Taps the bus the fixture names '234' and waits for its sheet.
+Future<void> _selectTheResolvedBus(WidgetTester tester, _RequestLog log) async {
+  final marker = find.byWidgetPredicate(
+    (widget) => widget is BusMapBusMarker && widget.label == '234 KKA-1234',
+  );
+  await tester.tap(marker, warnIfMissed: false);
+  await _pumpUntil(
+    tester,
+    () => find.text('路線詳情').evaluate().isNotEmpty,
+    reason: 'selection sheet never appeared',
+  );
+  // The stops arrive a moment after the sheet; wait for them so callers can
+  // rely on the route's pins being on the map.
+  await _pumpUntil(
+    tester,
+    () => log.count('/stops') == 1,
+    reason: 'stops were never requested for the tapped route',
   );
 }
 
@@ -274,6 +299,18 @@ const _transparentPng = <int>[
   0x60,
   0x82,
 ];
+
+/// Drives animations forward a fixed amount. `pumpAndSettle` cannot be used on
+/// this screen: the refresh progress bar animates for as long as it is open.
+Future<void> _pumpFrames(
+  WidgetTester tester, {
+  int frames = 24,
+  Duration step = const Duration(milliseconds: 40),
+}) async {
+  for (var frame = 0; frame < frames; frame++) {
+    await tester.pump(step);
+  }
+}
 
 /// Let real time pass and repaint, without waiting for animations that never
 /// end (the refresh progress bar runs for as long as the screen is open).
@@ -459,20 +496,7 @@ void main() {
       () => find.byType(BusMapBusMarker).evaluate().length == 2,
     );
 
-    final marker = find.byWidgetPredicate(
-      (widget) => widget is BusMapBusMarker && widget.label == '234 KKA-1234',
-    );
-    await tester.tap(marker, warnIfMissed: false);
-    await _pumpUntil(
-      tester,
-      () => find.text('路線詳情').evaluate().isNotEmpty,
-      reason: 'selection card never appeared',
-    );
-    await _pumpUntil(
-      tester,
-      () => log.count('/stops') == 1,
-      reason: 'stops were never requested for the tapped route',
-    );
+    await _selectTheResolvedBus(tester, log);
 
     // Exactly one of each: a tap must not fan out into a request per bus.
     expect(log.count('/points'), 1);
@@ -576,6 +600,65 @@ void main() {
         .widgetList<BusMapClusterMarker>(find.byType(BusMapClusterMarker))
         .fold<int>(0, (sum, marker) => sum + marker.count);
     expect(total, 2);
+  });
+
+  _mapTest('the selection sheet can be dragged down out of the way', (
+    tester,
+    log,
+    controller,
+  ) async {
+    await _pumpMap(tester, controller);
+    await _pumpUntil(
+      tester,
+      () => find.byType(BusMapBusMarker).evaluate().length == 2,
+    );
+    await _selectTheResolvedBus(tester, log);
+
+    final sheet = find.byType(DraggableScrollableSheet);
+    expect(sheet, findsOneWidget);
+    final restTop = tester.getTopLeft(find.text('路線詳情')).dy;
+
+    // Drag the handle down: the sheet should sink, giving the map back.
+    await tester.drag(find.text('234'), const Offset(0, 260));
+    await _pumpFrames(tester);
+
+    expect(
+      tester.getTopLeft(find.text('234')).dy,
+      greaterThan(restTop - 100),
+      reason: 'the sheet did not move down when dragged',
+    );
+    // Still selected: the route line and its stops stay on the map.
+    expect(find.byTooltip('西門'), findsOneWidget);
+  });
+
+  _mapTest('at a large display size the sheet still leaves the map visible', (
+    tester,
+    log,
+    controller,
+  ) async {
+    await _pumpMap(tester, controller, textScale: 2.0);
+    await _pumpUntil(
+      tester,
+      () => find.byType(BusMapBusMarker).evaluate().length == 2,
+    );
+    await _selectTheResolvedBus(tester, log);
+
+    // The whole point of the sheet: however big the text, it must not take the
+    // screen, because the rider is here to see where the bus is.
+    final screenHeight =
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
+    final sheetTop = tester
+        .getTopLeft(find.byType(DraggableScrollableSheet))
+        .dy;
+    final sheetRect = tester.getRect(find.text('234'));
+
+    expect(sheetTop, lessThan(screenHeight));
+    expect(
+      sheetRect.top,
+      greaterThan(screenHeight * 0.25),
+      reason: 'the sheet should still start below the top quarter of the map',
+    );
+    expect(find.byType(FlutterMap), findsOneWidget);
   });
 
   _mapTest('backgrounding the app stops the polling too', (

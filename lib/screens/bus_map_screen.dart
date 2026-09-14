@@ -34,9 +34,18 @@ import 'route_detail_navigation.dart';
 /// points, so drawing them all is not an option, and a single tapped route is
 /// the only one whose detail is worth the request.
 class BusMapScreen extends StatefulWidget {
-  const BusMapScreen({this.initialProvider, this.tileProvider, super.key});
+  const BusMapScreen({
+    this.initialProvider,
+    this.initialZoom,
+    this.tileProvider,
+    super.key,
+  });
 
   final BusProvider? initialProvider;
+
+  /// Where the camera starts. Defaults to a whole-city view, where buses are
+  /// shown as clustered counts rather than individually.
+  final double? initialZoom;
 
   /// Test seam: lets a widget test render the map without fetching tiles.
   final TileProvider? tileProvider;
@@ -50,12 +59,12 @@ class _BusMapScreenState extends State<BusMapScreen>
   static const _simulationTick = Duration(milliseconds: 250);
   static const _splitLayoutBreakpoint = 1080.0;
   static const _cityZoom = 12.0;
+  double get _openingZoom => widget.initialZoom ?? _cityZoom;
   static const _userZoom = 15.0;
 
-  // Below this the whole city is a smear of pins that means nothing, and
-  // rendering thousands of markers to say so is not worth the frame budget.
-  static const _minMarkerZoom = 10.0;
   static const _viewportPadding = 0.2;
+  // How far in a cluster tap takes you.
+  static const _clusterZoomStep = 2.0;
 
   final MapController _mapController = MapController();
   gmaps.GoogleMapController? _googleMapController;
@@ -96,7 +105,12 @@ class _BusMapScreenState extends State<BusMapScreen>
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
 
   LatLngBounds? _visibleBounds;
-  double _zoom = _cityZoom;
+  late double _zoom = _openingZoom;
+  String? _osmMarkerCacheKey;
+  List<Marker> _cachedOsmMarkers = const [];
+  final Map<String, gmaps.BitmapDescriptor> _googleClusterIcons =
+      <String, gmaps.BitmapDescriptor>{};
+  final Set<String> _pendingGoogleClusterIconKeys = <String>{};
   bool _isMovingCameraProgrammatically = false;
   final Map<String, gmaps.BitmapDescriptor> _googleBusIcons =
       <String, gmaps.BitmapDescriptor>{};
@@ -224,7 +238,7 @@ class _BusMapScreenState extends State<BusMapScreen>
   void _startSimulationTimer() {
     _simulationTimer?.cancel();
     _simulationTimer = Timer.periodic(_simulationTick, (_) {
-      if (!mounted || !_isActive || _selectedGroupKey == null) {
+      if (!mounted || !_isActive || _selectedGroupKey == null || _isClustered) {
         return;
       }
       setState(() {});
@@ -272,7 +286,7 @@ class _BusMapScreenState extends State<BusMapScreen>
         _hasLoadedOnce = true;
       });
       if (fitCamera) {
-        _moveCamera(_providerCenter(provider), _cityZoom);
+        _moveCamera(_providerCenter(provider), _openingZoom);
       }
     } catch (error) {
       if (!mounted ||
@@ -686,14 +700,20 @@ class _BusMapScreenState extends State<BusMapScreen>
   ///
   /// Zoomed in, the viewport itself is the limit. Zoomed out it is not: a whole
   /// city fits, and drawing every bus costs frames to produce a mush of pins.
+  /// How many individual markers the current zoom is allowed to draw.
+  ///
+  /// Clustering handles the wide views, so this only bounds the zoomed-in ones.
+  /// The numbers are deliberately modest: every marker is a platform-channel
+  /// update on Google Maps, and the app runs on phones where a few hundred of
+  /// those drops frames.
   int? get _markerLimit {
-    if (_zoom >= 14) {
+    if (_zoom >= 15) {
       return null;
     }
-    if (_zoom >= 12) {
-      return 600;
+    if (_zoom >= 14) {
+      return 300;
     }
-    return 300;
+    return 150;
   }
 
   bool _isWithinViewport(CityBus bus) {
@@ -709,9 +729,12 @@ class _BusMapScreenState extends State<BusMapScreen>
         bus.bus.lon <= bounds.east + lonSpan;
   }
 
+  /// True when individual buses would be an unreadable smear.
+  bool get _isClustered => _zoom < kBusClusterMaxZoom;
+
   List<CityBus> _visibleBuses(Set<String> favoriteRouteIds) {
     final snapshot = _snapshot;
-    if (snapshot == null || _zoom < _minMarkerZoom) {
+    if (snapshot == null) {
       return const [];
     }
     final bounds = _visibleBounds;
@@ -725,6 +748,38 @@ class _BusMapScreenState extends State<BusMapScreen>
       limit: _markerLimit,
       centerLat: bounds == null ? null : (bounds.north + bounds.south) / 2,
       centerLon: bounds == null ? null : (bounds.east + bounds.west) / 2,
+    );
+  }
+
+  /// What to actually draw: individual buses, plus clusters for the rest.
+  ///
+  /// The watched route is never clustered — the rider is following it — so it
+  /// stays as real markers even while everything else collapses into bubbles.
+  _BusMapDrawSet _drawSet(Set<String> favoriteRouteIds) {
+    final buses = _visibleBuses(favoriteRouteIds);
+    if (!_isClustered) {
+      return _BusMapDrawSet(buses: buses, clusters: const []);
+    }
+    final selectedGroupKey = _selectedGroupKey;
+    final individual = <CityBus>[];
+    final clusterable = <CityBus>[];
+    for (final bus in buses) {
+      if (selectedGroupKey != null && bus.groupKey == selectedGroupKey) {
+        individual.add(bus);
+      } else {
+        clusterable.add(bus);
+      }
+    }
+    return _BusMapDrawSet(
+      buses: individual,
+      clusters: clusterBuses(clusterable, clusterCellDegrees(_zoom)),
+    );
+  }
+
+  void _zoomIntoCluster(BusCluster cluster) {
+    _moveCamera(
+      LatLng(cluster.lat, cluster.lon),
+      math.min(_zoom + _clusterZoomStep, 18),
     );
   }
 
@@ -747,15 +802,21 @@ class _BusMapScreenState extends State<BusMapScreen>
         .length;
   }
 
+  /// Where to draw a bus right now.
+  ///
+  /// Only the watched route is interpolated. Everything else sits at its last
+  /// reported position until the next poll: dead-reckoning a few hundred buses
+  /// four times a second costs a frame each time and moves dots too small to
+  /// see, and it makes every marker look changed to the platform layer.
   LatLng _pointFor(CityBus bus, DateTime now) {
+    if (bus.groupKey != _selectedGroupKey) {
+      return LatLng(bus.bus.lat, bus.bus.lon);
+    }
     final state = _busStates[bus.stateKey];
     if (state == null) {
       return LatLng(bus.bus.lat, bus.bus.lon);
     }
-    final geometry = bus.groupKey == _selectedGroupKey
-        ? _selectedGeometry
-        : null;
-    return state.positionAt(now, geometry: geometry);
+    return state.positionAt(now, geometry: _selectedGeometry);
   }
 
   Color _colorFor(CityBus bus) =>
@@ -780,7 +841,7 @@ class _BusMapScreenState extends State<BusMapScreen>
       controller.favoriteGroups,
       _provider,
     );
-    final buses = _visibleBuses(favoriteRouteIds);
+    final drawSet = _drawSet(favoriteRouteIds);
     final useSplitLayout =
         MediaQuery.sizeOf(context).width >= _splitLayoutBreakpoint;
     final selectedBus = _selectedBusKey == null
@@ -789,7 +850,7 @@ class _BusMapScreenState extends State<BusMapScreen>
 
     final map = _unsupported
         ? _buildUnsupportedNotice(theme)
-        : _buildMap(theme, buses, controller.settings.mobileMapProvider);
+        : _buildMap(theme, drawSet, controller.settings.mobileMapProvider);
 
     final overlay = Stack(
       children: [
@@ -799,7 +860,7 @@ class _BusMapScreenState extends State<BusMapScreen>
             top: 12,
             left: 12,
             right: 12,
-            child: _buildStatusChips(theme, buses.length, favoriteRouteIds),
+            child: _buildStatusChips(theme, drawSet, favoriteRouteIds),
           ),
         if (!useSplitLayout && selectedBus != null)
           Positioned(
@@ -943,9 +1004,10 @@ class _BusMapScreenState extends State<BusMapScreen>
 
   Widget _buildStatusChips(
     ThemeData theme,
-    int shownCount,
+    _BusMapDrawSet drawSet,
     Set<String> favoriteRouteIds,
   ) {
+    final shownCount = drawSet.buses.length + drawSet.clusteredBusCount;
     final snapshot = _snapshot;
     final matching = _matchingBusCount(favoriteRouteIds);
     final chips = <Widget>[];
@@ -976,9 +1038,9 @@ class _BusMapScreenState extends State<BusMapScreen>
               : '$matching 輛公車 · ${formatRelativeTimestamp(updated)}',
         ),
       );
-      if (_zoom < _minMarkerZoom) {
+      if (drawSet.clusters.isNotEmpty) {
         chips.add(
-          const _StatusChip(icon: Icons.zoom_in_rounded, label: '請放大地圖以顯示公車'),
+          const _StatusChip(icon: Icons.zoom_in_rounded, label: '放大或點圓圈看個別公車'),
         );
       } else if (shownCount < matching) {
         chips.add(
@@ -1125,23 +1187,24 @@ class _BusMapScreenState extends State<BusMapScreen>
 
   Widget _buildMap(
     ThemeData theme,
-    List<CityBus> buses,
+    _BusMapDrawSet drawSet,
     MobileMapProvider mapProvider,
   ) {
     if (useGoogleMapsProviderFor(mapProvider)) {
-      return _buildGoogleMap(theme, buses);
+      return _buildGoogleMap(theme, drawSet);
     }
-    return _buildFlutterMap(theme, buses);
+    return _buildFlutterMap(theme, drawSet);
   }
 
-  Widget _buildFlutterMap(ThemeData theme, List<CityBus> buses) {
+  Widget _buildFlutterMap(ThemeData theme, _BusMapDrawSet drawSet) {
+    final buses = drawSet.buses;
     final now = DateTime.now();
     final geometry = _selectedGeometry;
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
         initialCenter: _providerCenter(_provider),
-        initialZoom: _cityZoom,
+        initialZoom: _openingZoom,
         interactionOptions: const InteractionOptions(
           flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
         ),
@@ -1213,29 +1276,79 @@ class _BusMapScreenState extends State<BusMapScreen>
                   ),
             ],
           ),
-        MarkerLayer(
-          markers: [
-            for (final bus in buses)
-              Marker(
-                point: _pointFor(bus, now),
-                width: bus.stateKey == _selectedBusKey ? 48 : 40,
-                height: bus.stateKey == _selectedBusKey ? 48 : 40,
-                child: GestureDetector(
-                  onTap: () => _selectBus(bus.stateKey),
-                  child: Opacity(
-                    opacity: _opacityFor(bus),
-                    child: BusMapBusMarker(
-                      color: _colorFor(bus),
-                      selected: bus.stateKey == _selectedBusKey,
-                      label: '${_snapshot!.displayNameFor(bus)} ${bus.bus.id}',
-                    ),
+        if (drawSet.clusters.isNotEmpty)
+          MarkerLayer(
+            markers: [
+              for (final cluster in drawSet.clusters)
+                Marker(
+                  point: LatLng(cluster.lat, cluster.lon),
+                  width: clusterMarkerSize(cluster.count),
+                  height: clusterMarkerSize(cluster.count),
+                  child: GestureDetector(
+                    onTap: () => _zoomIntoCluster(cluster),
+                    child: BusMapClusterMarker(count: cluster.count),
                   ),
                 ),
-              ),
-          ],
-        ),
+            ],
+          ),
+        MarkerLayer(markers: _osmBusMarkers(buses, now)),
       ],
     );
+  }
+
+  /// Bus markers for `flutter_map`, reusing the widgets that have not moved.
+  ///
+  /// Only the watched route changes between polls, so handing Flutter the very
+  /// same `Marker` instances for everything else lets it skip those subtrees
+  /// entirely instead of laying out hundreds of identical dots every tick.
+  List<Marker> _osmBusMarkers(List<CityBus> buses, DateTime now) {
+    final cacheKey = _staticMarkerCacheKey(buses);
+    final selectedGroupKey = _selectedGroupKey;
+    if (cacheKey != _osmMarkerCacheKey) {
+      _osmMarkerCacheKey = cacheKey;
+      _cachedOsmMarkers = [
+        for (final bus in buses)
+          if (bus.groupKey != selectedGroupKey) _osmBusMarker(bus, now),
+      ];
+    }
+    return [
+      ..._cachedOsmMarkers,
+      for (final bus in buses)
+        if (bus.groupKey == selectedGroupKey) _osmBusMarker(bus, now),
+    ];
+  }
+
+  Marker _osmBusMarker(CityBus bus, DateTime now) {
+    final selected = bus.stateKey == _selectedBusKey;
+    return Marker(
+      point: _pointFor(bus, now),
+      width: selected ? 48 : 40,
+      height: selected ? 48 : 40,
+      child: GestureDetector(
+        onTap: () => _selectBus(bus.stateKey),
+        child: Opacity(
+          opacity: _opacityFor(bus),
+          child: BusMapBusMarker(
+            color: _colorFor(bus),
+            selected: selected,
+            label: '${_snapshot!.displayNameFor(bus)} ${bus.bus.id}',
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Identifies a set of markers that does not move between animation ticks.
+  String _staticMarkerCacheKey(List<CityBus> buses) {
+    return [
+      _snapshot?.updatedAt?.millisecondsSinceEpoch ?? 0,
+      buses.length,
+      _selectedGroupKey ?? '',
+      _selectedBusKey ?? '',
+      _favoritesOnly,
+      _nameFilter,
+      _zoom.toStringAsFixed(1),
+    ].join('|');
   }
 
   void _syncFlutterMapViewport() {
@@ -1253,8 +1366,8 @@ class _BusMapScreenState extends State<BusMapScreen>
     }
   }
 
-  Widget _buildGoogleMap(ThemeData theme, List<CityBus> buses) {
-    _ensureGoogleIcons(buses);
+  Widget _buildGoogleMap(ThemeData theme, _BusMapDrawSet drawSet) {
+    _ensureGoogleIcons(theme, drawSet);
     final now = DateTime.now();
     final geometry = _selectedGeometry;
     final center = _providerCenter(_provider);
@@ -1262,7 +1375,7 @@ class _BusMapScreenState extends State<BusMapScreen>
     return gmaps.GoogleMap(
       initialCameraPosition: gmaps.CameraPosition(
         target: toGoogleLatLng(center),
-        zoom: _cityZoom,
+        zoom: _openingZoom,
       ),
       mapType: gmaps.MapType.normal,
       style: googleMapStyleForBrightness(theme.brightness),
@@ -1280,7 +1393,7 @@ class _BusMapScreenState extends State<BusMapScreen>
             width: 5,
           ),
       },
-      markers: _buildGoogleMarkers(theme, buses, now),
+      markers: _buildGoogleMarkers(theme, drawSet, now),
       onMapCreated: (controller) {
         _googleMapController = controller;
         unawaited(_syncGoogleViewport());
@@ -1325,10 +1438,37 @@ class _BusMapScreenState extends State<BusMapScreen>
 
   Set<gmaps.Marker> _buildGoogleMarkers(
     ThemeData theme,
-    List<CityBus> buses,
+    _BusMapDrawSet drawSet,
     DateTime now,
   ) {
+    final buses = drawSet.buses;
     final markers = <gmaps.Marker>{};
+    final pixelRatioForClusters = MediaQuery.of(
+      context,
+    ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+    for (final cluster in drawSet.clusters) {
+      final icon =
+          _googleClusterIcons[googleClusterIconKey(
+            count: cluster.count,
+            pixelRatio: pixelRatioForClusters,
+          )];
+      markers.add(
+        gmaps.Marker(
+          markerId: gmaps.MarkerId('cluster:${cluster.key}'),
+          position: gmaps.LatLng(cluster.lat, cluster.lon),
+          consumeTapEvents: true,
+          anchor: icon == null ? const Offset(0.5, 1) : const Offset(0.5, 0.5),
+          icon:
+              icon ??
+              gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                googleMarkerHueForColor(theme.colorScheme.primaryContainer),
+              ),
+          infoWindow: gmaps.InfoWindow(title: '${cluster.count} 輛公車'),
+          zIndexInt: 1,
+          onTap: () => _zoomIntoCluster(cluster),
+        ),
+      );
+    }
     final userLocation = _userLocation;
     if (userLocation != null) {
       final icon = _googleUserLocationIcon;
@@ -1409,10 +1549,30 @@ class _BusMapScreenState extends State<BusMapScreen>
     return markers;
   }
 
-  void _ensureGoogleIcons(List<CityBus> buses) {
+  void _ensureGoogleIcons(ThemeData theme, _BusMapDrawSet drawSet) {
     final pixelRatio = MediaQuery.of(
       context,
     ).devicePixelRatio.clamp(1.0, 3.0).toDouble();
+    final clusterRequests = <int>[];
+    for (final cluster in drawSet.clusters) {
+      final key = googleClusterIconKey(
+        count: cluster.count,
+        pixelRatio: pixelRatio,
+      );
+      if (_googleClusterIcons.containsKey(key) ||
+          _pendingGoogleClusterIconKeys.contains(key)) {
+        continue;
+      }
+      _pendingGoogleClusterIconKeys.add(key);
+      clusterRequests.add(cluster.count);
+    }
+    if (clusterRequests.isNotEmpty) {
+      unawaited(
+        _generateGoogleClusterIcons(theme, clusterRequests, pixelRatio),
+      );
+    }
+
+    final buses = drawSet.buses;
     final requests = <GoogleBusIconRequest>[];
     for (final bus in buses) {
       for (final selected in <bool>[false, bus.stateKey == _selectedBusKey]) {
@@ -1473,6 +1633,42 @@ class _BusMapScreenState extends State<BusMapScreen>
     }
   }
 
+  Future<void> _generateGoogleClusterIcons(
+    ThemeData theme,
+    List<int> counts,
+    double pixelRatio,
+  ) async {
+    final generated = <String, gmaps.BitmapDescriptor>{};
+    final keys = <String>[];
+    try {
+      for (final count in counts) {
+        final key = googleClusterIconKey(count: count, pixelRatio: pixelRatio);
+        keys.add(key);
+        final bytes = await drawGoogleClusterIcon(
+          count: count,
+          pixelRatio: pixelRatio,
+          background: theme.colorScheme.primaryContainer,
+          foreground: theme.colorScheme.onPrimaryContainer,
+          border: theme.colorScheme.surface,
+        );
+        final size = clusterMarkerSize(count);
+        generated[key] = gmaps.BitmapDescriptor.bytes(
+          bytes,
+          imagePixelRatio: pixelRatio,
+          width: size,
+          height: size,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _pendingGoogleClusterIconKeys.removeAll(keys);
+          _googleClusterIcons.addAll(generated);
+        });
+      }
+    }
+  }
+
   Future<void> _generateGoogleUserLocationIcon(double pixelRatio) async {
     try {
       final Uint8List bytes = await drawGoogleUserLocationIcon(pixelRatio);
@@ -1491,6 +1687,20 @@ class _BusMapScreenState extends State<BusMapScreen>
       _isGeneratingGoogleUserLocationIcon = false;
     }
   }
+}
+
+/// What one frame of the map should draw.
+///
+/// Zoomed in these are all individual buses; zoomed out most of them collapse
+/// into [clusters] and only the watched route stays drawn bus by bus.
+class _BusMapDrawSet {
+  const _BusMapDrawSet({required this.buses, required this.clusters});
+
+  final List<CityBus> buses;
+  final List<BusCluster> clusters;
+
+  int get clusteredBusCount =>
+      clusters.fold(0, (total, cluster) => total + cluster.count);
 }
 
 /// A stop on the route being watched. Deliberately plain: the city map has no

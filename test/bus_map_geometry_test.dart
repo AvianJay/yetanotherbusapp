@@ -207,6 +207,43 @@ void main() {
     });
   });
 
+  group('animation cost', () {
+    final now = DateTime(2026, 9, 6, 21, 40);
+
+    test('a still bus yields the identical point every tick', () {
+      // The map reuses marker objects between animation ticks, which only
+      // works while an unwatched bus reports the same position.
+      final state = buildAnimatedBusStates(
+        null,
+        [_bus(lat: 25.0350, lon: 121.5690, speedKph: 0, azimuth: 45)],
+        const {},
+        now: now,
+        refreshSeconds: 10,
+      )['KKA-1234']!;
+
+      final first = state.positionAt(now.add(const Duration(seconds: 1)));
+      final second = state.positionAt(now.add(const Duration(seconds: 2)));
+
+      expect(first, second);
+      expect(first, state.rawPoint);
+    });
+
+    test('dead reckoning is capped so a stale fix cannot fly away', () {
+      final state = buildAnimatedBusStates(
+        null,
+        [_bus(lat: 25.0350, lon: 121.5690, speedKph: 90, azimuth: 0)],
+        const {},
+        now: now,
+        refreshSeconds: 10,
+      )['KKA-1234']!;
+
+      final far = state.positionAt(now.add(const Duration(minutes: 10)));
+
+      // 240 m is the hard ceiling, about 0.0022 degrees of latitude.
+      expect(far.latitude - 25.0350, lessThan(0.0025));
+    });
+  });
+
   group('effectiveBusSampleTime', () {
     final now = DateTime(2026, 9, 6, 21, 40);
 

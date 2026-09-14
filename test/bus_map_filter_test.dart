@@ -203,6 +203,60 @@ void main() {
     });
   });
 
+  group('clusterBuses', () {
+    test('groups nearby buses and counts them', () {
+      final buses = [
+        _bus(id: 'A', routeUid: 'U1', lat: 25.030, lon: 121.560),
+        _bus(id: 'B', routeUid: 'U2', lat: 25.031, lon: 121.561),
+        // Far enough away to land in its own cell.
+        _bus(id: 'C', routeUid: 'U3', lat: 25.200, lon: 121.700),
+      ];
+
+      final clusters = clusterBuses(buses, 0.05);
+
+      expect(clusters.length, 2);
+      expect(clusters.map((cluster) => cluster.count).toList()..sort(), [1, 2]);
+      expect(
+        clusters.fold<int>(0, (sum, cluster) => sum + cluster.count),
+        buses.length,
+        reason: 'clustering must not lose or invent buses',
+      );
+    });
+
+    test('a cluster sits on its members, not on a grid corner', () {
+      final clusters = clusterBuses([
+        _bus(id: 'A', routeUid: 'U1', lat: 25.040, lon: 121.560),
+        _bus(id: 'B', routeUid: 'U2', lat: 25.060, lon: 121.580),
+      ], 0.5);
+
+      expect(clusters.single.count, 2);
+      expect(clusters.single.lat, closeTo(25.05, 1e-9));
+      expect(clusters.single.lon, closeTo(121.57, 1e-9));
+    });
+
+    test('cells stay the same size on screen as zoom changes', () {
+      // Each zoom level halves the ground covered by a screen pixel.
+      expect(
+        clusterCellDegrees(12),
+        closeTo(clusterCellDegrees(11) / 2, 1e-9),
+      );
+      expect(clusterCellDegrees(11), closeTo(0.0549, 1e-3));
+      expect(clusterBuses(const [], clusterCellDegrees(11)), isEmpty);
+    });
+
+    test('is stable, so bubbles do not jump between refreshes', () {
+      final buses = [
+        _bus(id: 'A', routeUid: 'U1', lat: 25.030, lon: 121.560),
+        _bus(id: 'B', routeUid: 'U2', lat: 25.031, lon: 121.561),
+      ];
+
+      final first = clusterBuses(buses, 0.05);
+      final second = clusterBuses(buses.reversed.toList(), 0.05);
+
+      expect(first.map((c) => c.key), second.map((c) => c.key));
+    });
+  });
+
   group('visibleBusesFor', () {
     test('hides what the viewport excludes', () {
       final buses = visibleBusesFor(

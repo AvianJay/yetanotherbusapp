@@ -176,7 +176,13 @@ Future<AppController> _createController(http.Client client) async {
   );
 }
 
-Future<void> _pumpMap(WidgetTester tester, AppController controller) async {
+/// Pumps the map. [zoom] decides whether buses draw individually (the default
+/// here) or collapse into clustered counts, as they do on a whole-city view.
+Future<void> _pumpMap(
+  WidgetTester tester,
+  AppController controller, {
+  double zoom = 15,
+}) async {
   await tester.pumpWidget(
     MaterialApp(
       navigatorObservers: [appRouteObserver],
@@ -184,6 +190,7 @@ Future<void> _pumpMap(WidgetTester tester, AppController controller) async {
         controller: controller,
         child: BusMapScreen(
           initialProvider: BusProvider.tpe,
+          initialZoom: zoom,
           tileProvider: _NoopTileProvider(),
         ),
       ),
@@ -547,6 +554,29 @@ void main() {
       expect(find.byTooltip('切換縣市'), findsOneWidget);
     },
   );
+
+  _mapTest('zoomed out the buses collapse into count bubbles', (
+    tester,
+    log,
+    controller,
+  ) async {
+    await _pumpMap(tester, controller, zoom: 11);
+    await _pumpUntil(
+      tester,
+      () => find.byType(BusMapClusterMarker).evaluate().isNotEmpty,
+      reason: 'buses never clustered at a whole-city zoom',
+    );
+
+    expect(find.byType(BusMapClusterMarker), findsWidgets);
+    expect(find.byType(BusMapBusMarker), findsNothing);
+    expect(find.text('放大或點圓圈看個別公車'), findsOneWidget);
+
+    // Nothing is lost: the two buses are accounted for in the bubbles.
+    final total = tester
+        .widgetList<BusMapClusterMarker>(find.byType(BusMapClusterMarker))
+        .fold<int>(0, (sum, marker) => sum + marker.count);
+    expect(total, 2);
+  });
 
   _mapTest('backgrounding the app stops the polling too', (
     tester,

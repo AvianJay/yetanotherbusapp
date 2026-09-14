@@ -178,9 +178,11 @@ void main() {
       expect(cwaTownships, hasLength(greaterThan(300)));
       // 22 counties, each with a F-D0047 dataset id.
       expect(cwaTownships.map((t) => t.county).toSet(), hasLength(22));
+      // Station ids are the only thing sent to CWA, so a duplicate would
+      // silently make one of the two unreachable.
       expect(
-        cwaStations.every((s) => s.latitude > 20 && s.latitude < 27),
-        isTrue,
+        cwaStations.map((s) => s.id).toSet(),
+        hasLength(cwaStations.length),
       );
       expect(cwaTownships.first.label, startsWith(cwaTownships.first.county));
     });
@@ -377,7 +379,7 @@ void main() {
 
     test('surfaces failed responses and malformed payloads', () async {
       final failing = WeatherService(
-        client: MockClient((request) async => http.Response('nope', 503)),
+        client: MockClient((_) async => http.Response('nope', 503)),
       );
       await expectLater(
         failing.fetchCurrent(latitude: _taipeiLat, longitude: _taipeiLon),
@@ -392,7 +394,7 @@ void main() {
 
       Future<void> expectRejects(String body) async {
         final service = WeatherService(
-          client: MockClient((request) async => http.Response(body, 200)),
+          client: MockClient((_) async => http.Response(body, 200)),
         );
         await expectLater(
           service.fetchCurrent(latitude: _taipeiLat, longitude: _taipeiLon),
@@ -639,44 +641,51 @@ void main() {
       final base = await _taiwanHour();
       final day = DateTime.utc(base.year, base.month, base.day);
 
-      final service = WeatherService(
-        client: _cwaClient(
-          observation: _observationBody([
-            _station(id: '466920', latitude: 25.0377, longitude: 121.5149),
-          ]),
-          threeHourly: _forecastBody([
-            _pointElement('溫度', 'Temperature', [
-              (base, '35'),
-              (base.add(const Duration(hours: 1)), '19'),
+      // One sample, pinned to the current hour: it always survives the hourly
+      // anchor and always lands on today, whatever hour CI happens to run at.
+      Future<WeatherDaily> dayWithHourly(String temperature) async {
+        final service = WeatherService(
+          client: _cwaClient(
+            observation: _observationBody([
+              _station(id: '466920', latitude: 25.0377, longitude: 121.5149),
             ]),
-          ]),
-          weekly: _forecastBody([
-            _rangeElement('最高溫度', [
-              (
-                day.add(const Duration(hours: 6)),
-                day.add(const Duration(hours: 18)),
-                {'MaxTemperature': '30'},
-              ),
+            threeHourly: _forecastBody([
+              _pointElement('溫度', 'Temperature', [(base, temperature)]),
             ]),
-            _rangeElement('最低溫度', [
-              (
-                day.add(const Duration(hours: 6)),
-                day.add(const Duration(hours: 18)),
-                {'MinTemperature': '25'},
-              ),
+            weekly: _forecastBody([
+              _rangeElement('最高溫度', [
+                (
+                  day.add(const Duration(hours: 6)),
+                  day.add(const Duration(hours: 18)),
+                  {'MaxTemperature': '30'},
+                ),
+              ]),
+              _rangeElement('最低溫度', [
+                (
+                  day.add(const Duration(hours: 6)),
+                  day.add(const Duration(hours: 18)),
+                  {'MinTemperature': '25'},
+                ),
+              ]),
             ]),
-          ]),
-        ),
-      );
+          ),
+        );
+        final forecast = await service.fetchForecast(
+          latitude: _taipeiLat,
+          longitude: _taipeiLon,
+        );
+        return forecast.daily.single;
+      }
 
-      final forecast = await service.fetchForecast(
-        latitude: _taipeiLat,
-        longitude: _taipeiLon,
-      );
+      // The 12 hour block is a summary; the hourly series can beat it on either
+      // end, and the day should report the wider range it actually saw.
+      final hot = await dayWithHourly('35');
+      expect(hot.displayHigh, 35);
+      expect(hot.displayLow, 25, reason: 'the block still bounds the cold end');
 
-      // The hourly samples exceed the official block on both ends.
-      expect(forecast.daily.single.displayHigh, 35);
-      expect(forecast.daily.single.displayLow, 19);
+      final cold = await dayWithHourly('19');
+      expect(cold.displayLow, 19);
+      expect(cold.displayHigh, 30, reason: 'the block still bounds the warm end');
     });
 
     test('caps the week and drops days already past', () async {
@@ -738,24 +747,25 @@ void main() {
         ),
       );
 
-      await service.fetchForecast(latitude: 25.0, longitude: 121.5);
+      await service.fetchForecast(latitude: _taipeiLat, longitude: _taipeiLon);
       expect(calls, 3);
 
-      await service.fetchForecast(latitude: 25.001, longitude: 121.502);
+      // Same township, and the same key once rounded to two decimals.
+      await service.fetchForecast(latitude: 25.0351, longitude: 121.5587);
       expect(calls, 3);
 
       // The forecast's own observation fills the chip's cache too.
       final snapshot = await service.fetchCurrent(
-        latitude: 25.0,
-        longitude: 121.5,
+        latitude: _taipeiLat,
+        longitude: _taipeiLon,
       );
       expect(calls, 3);
       expect(snapshot.displayTemperature, 29);
       expect(snapshot.condition, '多雲');
 
       await service.fetchForecast(
-        latitude: 25.0,
-        longitude: 121.5,
+        latitude: _taipeiLat,
+        longitude: _taipeiLon,
         force: true,
       );
       expect(calls, 6);
@@ -844,9 +854,15 @@ void main() {
   group('time handling', () {
     test('parses CWA timestamps as Taiwan wall clock, not local time',
         () async {
-      // Digits must survive whatever timezone the test machine is in, and
-      // 2026-03-08T02:30 does not exist in US zones (spring forward), so
-      // parsing as local time would shift it an hour.
+      // 02:30+08:00 is the previous calendar day everywhere west of UTC+8 —
+      // including the UTC runners CI uses — so parsing with toLocal would file
+      // these blocks under the wrong date. Both dates are also spring-forward
+      // Sundays (2036-03-09 in the US, 2036-03-30 in the EU) where 02:30 does
+      // not exist locally at all, which is where a naive parse shifts an hour.
+      final starts = [
+        DateTime.utc(2036, 3, 9, 2, 30),
+        DateTime.utc(2036, 3, 30, 2, 30),
+      ];
       final service = WeatherService(
         client: _cwaClient(
           observation: _observationBody([
@@ -854,18 +870,20 @@ void main() {
           ]),
           weekly: _forecastBody([
             _rangeElement('最高溫度', [
-              (
-                DateTime.utc(2026, 3, 8, 2, 30),
-                DateTime.utc(2026, 3, 8, 14, 30),
-                {'MaxTemperature': '20'},
-              ),
+              for (final start in starts)
+                (
+                  start,
+                  start.add(const Duration(hours: 12)),
+                  {'MaxTemperature': '20'},
+                ),
             ]),
             _rangeElement('最低溫度', [
-              (
-                DateTime.utc(2026, 3, 8, 2, 30),
-                DateTime.utc(2026, 3, 8, 14, 30),
-                {'MinTemperature': '12'},
-              ),
+              for (final start in starts)
+                (
+                  start,
+                  start.add(const Duration(hours: 12)),
+                  {'MinTemperature': '12'},
+                ),
             ]),
           ]),
         ),
@@ -876,9 +894,10 @@ void main() {
         longitude: _taipeiLon,
       );
 
-      // 2026-03-08 is long past, so the day itself is filtered out — the point
-      // is that parsing it did not throw or shift into a neighbouring date.
-      expect(forecast.daily, isEmpty);
+      expect(forecast.daily.map((day) => day.date), [
+        DateTime.utc(2036, 3, 9),
+        DateTime.utc(2036, 3, 30),
+      ]);
       expect(taiwanNow().isUtc, isTrue);
     });
 
@@ -955,7 +974,7 @@ void main() {
       tester,
     ) async {
       final service = WeatherService(
-        client: MockClient((request) async => http.Response('nope', 503)),
+        client: MockClient((_) async => http.Response('nope', 503)),
       );
 
       await tester.pumpWidget(

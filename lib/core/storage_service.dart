@@ -8,7 +8,7 @@ import 'models.dart';
 
 class StorageService {
   static const _schemaVersionKey = 'storage_schema_version';
-  static const _currentSchemaVersion = 2;
+  static const _currentSchemaVersion = 3;
   static const _settingsKey = 'app_settings';
   static const _historyKey = 'search_history';
   static const _favoritesKey = 'favorite_groups';
@@ -29,12 +29,11 @@ class StorageService {
       return;
     }
 
-    await prefs.remove(_settingsKey);
-    await prefs.remove(_historyKey);
-    await prefs.remove(_favoritesKey);
-    await prefs.remove('tracked_buses');
-    await prefs.remove(_routeUsageProfilesKey);
-    await prefs.remove(_favoriteUsageProfilesKey);
+    // `tracked_buses` was legacy API cache data. The remaining values are
+    // user-owned settings and must survive schema upgrades.
+    if (currentVersion < 3) {
+      await prefs.remove('tracked_buses');
+    }
     await prefs.setInt(_schemaVersionKey, _currentSchemaVersion);
   }
 

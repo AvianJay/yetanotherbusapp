@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/friendly_error.dart';
+import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
@@ -13,16 +14,21 @@ import '../widgets/ad_banner_widget.dart';
 enum _TraPanel { query, map }
 
 class TraScreen extends StatefulWidget {
-  const TraScreen({required this.onModeChanged, super.key});
+  const TraScreen({
+    required this.onModeChanged,
+    required this.isActive,
+    super.key,
+  });
 
   final ValueChanged<TransitMode> onModeChanged;
+  final bool isActive;
 
   @override
   State<TraScreen> createState() => _TraScreenState();
 }
 
 class _TraScreenState extends State<TraScreen> {
-  final TransitRepository _repo = TransitRepository();
+  final TransitRepository _repo = TransitRepository.shared;
 
   bool _loadingStations = true;
   bool _loadingBoard = false;
@@ -43,6 +49,8 @@ class _TraScreenState extends State<TraScreen> {
   RailStation? _dest;
   DateTime _date = DateTime.now();
   List<TraOdTrain> _results = [];
+  final _initialDataRequest = RequestSequence();
+  final _boardRequest = RequestSequence();
 
   @override
   void initState() {
@@ -56,7 +64,30 @@ class _TraScreenState extends State<TraScreen> {
     super.dispose();
   }
 
-  Future<void> _loadInitialData() async {
+  @override
+  void didUpdateWidget(covariant TraScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) {
+      return;
+    }
+    if (!widget.isActive) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      return;
+    }
+    if (_selectedStation != null) {
+      unawaited(_loadBoard());
+    } else if (!_loadingStations) {
+      unawaited(_loadInitialData());
+    }
+  }
+
+  Future<void> _loadInitialData({bool refresh = false}) async {
+    final request = _initialDataRequest.next();
+    _boardRequest.next();
+    if (refresh) {
+      _repo.invalidateCache('tra_');
+    }
     setState(() {
       _loadingStations = true;
       _pageError = null;
@@ -66,7 +97,7 @@ class _TraScreenState extends State<TraScreen> {
         _repo.getTraStations(),
         _repo.getTraAlerts(),
       ]);
-      if (!mounted) return;
+      if (!mounted || !_initialDataRequest.isCurrent(request)) return;
 
       final stations = futures[0] as List<RailStation>;
       final alerts = futures[1] as List<RailAlert>;
@@ -89,10 +120,10 @@ class _TraScreenState extends State<TraScreen> {
         await _loadBoard(station: selectedStation);
       }
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || !_initialDataRequest.isCurrent(request)) return;
       setState(() => _pageError = friendlyErrorMessage(error));
     } finally {
-      if (mounted) {
+      if (mounted && _initialDataRequest.isCurrent(request)) {
         setState(() => _loadingStations = false);
       }
     }
@@ -113,6 +144,7 @@ class _TraScreenState extends State<TraScreen> {
   Future<void> _loadBoard({RailStation? station}) async {
     final activeStation = station ?? _selectedStation;
     if (activeStation == null) return;
+    final request = _boardRequest.next();
     setState(() => _loadingBoard = true);
     try {
       final boardFuture = _repo.getTraLiveBoard(activeStation.stationId);
@@ -126,7 +158,7 @@ class _TraScreenState extends State<TraScreen> {
       } catch (_) {
         positions = const <TraTrainPosition>[];
       }
-      if (!mounted) return;
+      if (!mounted || !_boardRequest.isCurrent(request)) return;
       setState(() {
         _selectedStation = activeStation;
         _boardEntries = entries;
@@ -138,19 +170,21 @@ class _TraScreenState extends State<TraScreen> {
           _selectedTrainNo = null;
         }
       });
-      _refreshTimer?.cancel();
-      _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-        _loadBoard();
-      });
+      if (widget.isActive) {
+        _refreshTimer?.cancel();
+        _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+          if (!mounted || !widget.isActive) {
+            _refreshTimer?.cancel();
+            _refreshTimer = null;
+            return;
+          }
+          unawaited(_loadBoard());
+        });
+      }
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _boardEntries = const [];
-        _trainPositions = const [];
-        _selectedTrainNo = null;
-      });
+      if (!mounted || !_boardRequest.isCurrent(request)) return;
     } finally {
-      if (mounted) {
+      if (mounted && _boardRequest.isCurrent(request)) {
         setState(() => _loadingBoard = false);
       }
     }
@@ -226,6 +260,7 @@ class _TraScreenState extends State<TraScreen> {
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YATrain'),
+        automaticallyImplyLeading: false,
         leading:
             MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
             ? null
@@ -238,7 +273,7 @@ class _TraScreenState extends State<TraScreen> {
         actions: [
           IconButton(
             tooltip: '重新整理',
-            onPressed: _loadInitialData,
+            onPressed: () => _loadInitialData(refresh: true),
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -253,15 +288,15 @@ class _TraScreenState extends State<TraScreen> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 960),
-                child: _loadingStations
+                child: _loadingStations && _stations.isEmpty
                     ? const Center(child: CircularProgressIndicator())
                     : _pageError != null && _stations.isEmpty
                     ? _ErrorState(
                         message: _pageError!,
-                        onRetry: _loadInitialData,
+                        onRetry: () => _loadInitialData(refresh: true),
                       )
                     : RefreshIndicator(
-                        onRefresh: _loadInitialData,
+                        onRefresh: () => _loadInitialData(refresh: true),
                         child: ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.all(16),

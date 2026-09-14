@@ -1,9 +1,8 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'api_http.dart';
 import 'api_user_agent.dart';
 import 'cwa_geo_index.dart';
 import 'http_error_utils.dart';
@@ -249,7 +248,6 @@ class WeatherService {
   static const _host = 'opendata.cwa.gov.tw';
   static const _basePath = '/api/v1/rest/datastore/';
   static const _observationDataset = 'O-A0003-001';
-  static const _timeout = Duration(seconds: 15);
 
   /// How long a reading stays fresh before another request is made.
   static const cacheTtl = Duration(minutes: 15);
@@ -702,24 +700,19 @@ class WeatherService {
       ...query,
     });
 
-    // Built by hand on purpose: ApiUserAgent.applyTo would attach the signed
-    // in user's bearer token, and CWA is a third party.
-    final response = await _client
-        .get(
-          uri,
-          headers: <String, String>{
-            'Accept': 'application/json',
-            // User-Agent is a forbidden header in browsers.
-            if (!kIsWeb) 'User-Agent': ApiUserAgent.value,
-          },
-        )
-        .timeout(_timeout);
+    // githubApplyTo rather than applyTo: it sends the User-Agent without the
+    // signed in user's bearer token, and CWA is a third party.
+    final response = await apiGet(
+      _client,
+      uri,
+      headers: ApiUserAgent.githubApplyTo(apiJsonHeaders),
+    );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(httpStatusMessage(response.statusCode, '天氣資料載入失敗。'));
     }
 
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final decoded = apiDecodeJsonResponse(response);
     if (decoded is! Map<Object?, Object?>) {
       throw const FormatException('天氣資料格式錯誤。');
     }

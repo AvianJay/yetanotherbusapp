@@ -330,16 +330,16 @@ class RouteTripMonitorService : Service() {
         val content = when {
             nearestIndex >= 0 -> "最近站牌 ${session.stops[nearestIndex].stopName}"
             session.destinationStopName?.isNotBlank() == true ->
-                "已啟動 ${session.destinationStopName} 下車提醒"
+                "已啓動 ${session.destinationStopName} 下車提醒"
             session.boardingStopName?.isNotBlank() == true ->
-                "已啟動 ${session.boardingStopName} 乘車提醒"
-            appInForeground -> "已啟動這條路線的乘車提醒"
-            else -> "背景乘車提醒已啟動"
+                "已啓動 ${session.boardingStopName} 乘車提醒"
+            appInForeground -> "已啓動這條路線的乘車提醒"
+            else -> "背景乘車提醒已啓動"
         }
         return TrackingSnapshot(
             title = session.routeName,
             content = content,
-            subText = subTextParts.ifEmpty { listOf("背景乘車提醒已啟動") }.joinToString(" · "),
+            subText = subTextParts.ifEmpty { listOf("背景乘車提醒已啓動") }.joinToString(" · "),
             progressMax = null,
             progressValue = null,
             shortCriticalText = null,

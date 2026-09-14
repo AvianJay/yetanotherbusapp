@@ -22,7 +22,7 @@ class AnnouncementContent extends StatelessWidget {
     }
     ScaffoldMessenger.maybeOf(
       context,
-    )?.showSnackBar(const SnackBar(content: Text('無法開啟連結。')));
+    )?.showSnackBar(const SnackBar(content: Text('無法開啓連結。')));
   }
 
   @override

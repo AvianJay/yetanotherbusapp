@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/friendly_error.dart';
+import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/eta_badge.dart';
@@ -14,16 +15,21 @@ import '../widgets/ad_banner_widget.dart';
 enum _MetroPanel { live, map }
 
 class MetroScreen extends StatefulWidget {
-  const MetroScreen({required this.onModeChanged, super.key});
+  const MetroScreen({
+    required this.onModeChanged,
+    required this.isActive,
+    super.key,
+  });
 
   final ValueChanged<TransitMode> onModeChanged;
+  final bool isActive;
 
   @override
   State<MetroScreen> createState() => _MetroScreenState();
 }
 
 class _MetroScreenState extends State<MetroScreen> {
-  final TransitRepository _repo = TransitRepository();
+  final TransitRepository _repo = TransitRepository.shared;
 
   bool _loading = true;
   bool _loadingSystem = false;
@@ -45,6 +51,9 @@ class _MetroScreenState extends State<MetroScreen> {
   String? _etaMessage;
   List<MetroFrequencyInfo>? _frequency;
   Timer? _refreshTimer;
+  final _systemsRequest = RequestSequence();
+  final _systemDataRequest = RequestSequence();
+  final _etaRequest = RequestSequence();
 
   @override
   void initState() {
@@ -58,14 +67,36 @@ class _MetroScreenState extends State<MetroScreen> {
     super.dispose();
   }
 
-  Future<void> _loadSystems() async {
+  @override
+  void didUpdateWidget(covariant MetroScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) {
+      return;
+    }
+    if (!widget.isActive) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      return;
+    }
+    if (_selectedLine != null) {
+      unawaited(_loadLineEta());
+    } else if (!_loading) {
+      unawaited(_loadSystems());
+    }
+  }
+
+  Future<void> _loadSystems({bool refresh = false}) async {
+    final request = _systemsRequest.next();
+    if (refresh) {
+      _repo.invalidateCache('metro_');
+    }
     setState(() {
       _loading = true;
       _pageError = null;
     });
     try {
       final systems = await _repo.getMetroSystems();
-      if (!mounted) {
+      if (!mounted || !_systemsRequest.isCurrent(request)) {
         return;
       }
       final selectedSystem =
@@ -79,18 +110,26 @@ class _MetroScreenState extends State<MetroScreen> {
         await _loadSystemData(system: selectedSystem);
       }
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || !_systemsRequest.isCurrent(request)) {
         return;
       }
       setState(() => _pageError = friendlyErrorMessage(error));
     } finally {
-      if (mounted) {
+      if (mounted && _systemsRequest.isCurrent(request)) {
         setState(() => _loading = false);
       }
     }
   }
 
-  Future<void> _loadSystemData({required MetroSystem system}) async {
+  Future<void> _loadSystemData({
+    required MetroSystem system,
+    bool refresh = false,
+  }) async {
+    final request = _systemDataRequest.next();
+    _etaRequest.next();
+    if (refresh) {
+      _repo.invalidateCache('metro_');
+    }
     _refreshTimer?.cancel();
     setState(() {
       _loadingSystem = true;
@@ -107,7 +146,7 @@ class _MetroScreenState extends State<MetroScreen> {
         _repo.getMetroStations(system.system),
         _repo.getMetroStationOfLine(system.system),
       ]);
-      if (!mounted) {
+      if (!mounted || !_systemDataRequest.isCurrent(request)) {
         return;
       }
 
@@ -133,12 +172,12 @@ class _MetroScreenState extends State<MetroScreen> {
         await _loadLineEta(line: selectedLine);
       }
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || !_systemDataRequest.isCurrent(request)) {
         return;
       }
       setState(() => _pageError = friendlyErrorMessage(error));
     } finally {
-      if (mounted) {
+      if (mounted && _systemDataRequest.isCurrent(request)) {
         setState(() => _loadingSystem = false);
       }
     }
@@ -150,6 +189,7 @@ class _MetroScreenState extends State<MetroScreen> {
     if (activeSystem == null || activeLine == null) {
       return;
     }
+    final request = _etaRequest.next();
     setState(() {
       _loadingEta = true;
       _lineError = null;
@@ -160,7 +200,7 @@ class _MetroScreenState extends State<MetroScreen> {
         activeSystem.system,
         activeLine.lineId,
       );
-      if (!mounted) {
+      if (!mounted || !_etaRequest.isCurrent(request)) {
         return;
       }
       final selectedStationId =
@@ -175,20 +215,24 @@ class _MetroScreenState extends State<MetroScreen> {
         _etaMessage = eta.message;
         _frequency = eta.frequency;
       });
-      if (resetTimer) {
+      if (resetTimer && widget.isActive) {
         _refreshTimer?.cancel();
-        _refreshTimer = Timer.periodic(
-          const Duration(seconds: 10),
-          (_) => _loadLineEta(resetTimer: false),
-        );
+        _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+          if (!mounted || !widget.isActive) {
+            _refreshTimer?.cancel();
+            _refreshTimer = null;
+            return;
+          }
+          unawaited(_loadLineEta(resetTimer: false));
+        });
       }
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || !_etaRequest.isCurrent(request)) {
         return;
       }
       setState(() => _lineError = friendlyErrorMessage(error));
     } finally {
-      if (mounted) {
+      if (mounted && _etaRequest.isCurrent(request)) {
         setState(() => _loadingEta = false);
       }
     }
@@ -402,6 +446,7 @@ class _MetroScreenState extends State<MetroScreen> {
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YAMetro'),
+        automaticallyImplyLeading: false,
         leading:
             MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
             ? null
@@ -415,8 +460,9 @@ class _MetroScreenState extends State<MetroScreen> {
           IconButton(
             tooltip: '重新整理',
             onPressed: _selectedSystem == null
-                ? _loadSystems
-                : () => _loadSystemData(system: _selectedSystem!),
+                ? () => _loadSystems(refresh: true)
+                : () =>
+                      _loadSystemData(system: _selectedSystem!, refresh: true),
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -431,14 +477,20 @@ class _MetroScreenState extends State<MetroScreen> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 960),
-                child: _loading
+                child: _loading && _systems.isEmpty
                     ? const Center(child: CircularProgressIndicator())
                     : _pageError != null && _systems.isEmpty
-                    ? _ErrorState(message: _pageError!, onRetry: _loadSystems)
+                    ? _ErrorState(
+                        message: _pageError!,
+                        onRetry: () => _loadSystems(refresh: true),
+                      )
                     : RefreshIndicator(
                         onRefresh: _selectedSystem == null
-                            ? _loadSystems
-                            : () => _loadSystemData(system: _selectedSystem!),
+                            ? () => _loadSystems(refresh: true)
+                            : () => _loadSystemData(
+                                system: _selectedSystem!,
+                                refresh: true,
+                              ),
                         child: ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.all(16),

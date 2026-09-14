@@ -70,7 +70,25 @@ function buildAppleAssociation(env) {
 }
 
 async function serveStatic(request, env) {
-  return env.ASSETS.fetch(request);
+  const response = await env.ASSETS.fetch(request);
+  const headers = new Headers(response.headers);
+  const path = new URL(request.url).pathname;
+  const noStorePaths = new Set([
+    '/sw.js',
+    '/firebase-messaging-sw.js',
+    '/flutter_service_worker.js',
+  ]);
+  headers.set(
+    'cache-control',
+    noStorePaths.has(path)
+      ? 'no-store'
+      : 'public, max-age=0, must-revalidate',
+  );
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 export default {

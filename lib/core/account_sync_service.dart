@@ -15,7 +15,8 @@ class AccountSyncService {
   final http.Client _client;
 
   Future<AccountSyncSummary> fetchSummary() async {
-    final response = await _client.get(
+    final response = await apiGet(
+      _client,
       Uri.parse('${ApiConfig.baseUrl}/api/v1/account/sync'),
       headers: ApiUserAgent.applyTo(apiJsonHeaders),
     );
@@ -36,7 +37,8 @@ class AccountSyncService {
   Future<AccountSyncDocument> fetchDocument(
     AccountSyncNamespace namespace,
   ) async {
-    final response = await _client.get(
+    final response = await apiGet(
+      _client,
       Uri.parse(
         '${ApiConfig.baseUrl}/api/v1/account/sync/${namespace.apiValue}',
       ),
@@ -66,7 +68,8 @@ class AccountSyncService {
     int? baseRevision,
     String? baseEtag,
   }) async {
-    final response = await _client.put(
+    final response = await apiPut(
+      _client,
       Uri.parse(
         '${ApiConfig.baseUrl}/api/v1/account/sync/${namespace.apiValue}',
       ),

@@ -99,7 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!granted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('需要通知權限才能啟用智慧推薦通知。')));
+      ).showSnackBar(const SnackBar(content: Text('需要通知權限才能啓用智慧推薦通知。')));
       return;
     }
     await controller.updateEnableSmartRouteNotifications(true);
@@ -181,7 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    messenger.showSnackBar(const SnackBar(content: Text('無法開啟 Discord 社群連結。')));
+    messenger.showSnackBar(const SnackBar(content: Text('無法開啓 Discord 社群連結。')));
   }
 
   InlineSpan _buildRgbContributorSpan(
@@ -282,7 +282,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           title: const Text('顯示天氣'),
                           subtitle: const Text(
                             '在首頁標題旁顯示目前氣溫，點一下可開啟完整預報；'
-                            '需要已授權的定位權限，不會另外詢問。位置會傳送至 Open-Meteo。',
+                            '需要已授權的定位權限，不會另外詢問。資料來自中央氣象署，'
+                            '座標只在裝置上比對，向氣象署查詢的是觀測站代碼與鄉鎮名稱。',
                           ),
                           value: controller.settings.showWeatherInAppBar,
                           onChanged: controller.updateShowWeatherInAppBar,
@@ -321,7 +322,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 settings: const RouteSettings(
-                                  name: 'personalization',
+                                  name: '/personalization',
                                 ),
                                 builder: (_) => const PersonalizationScreen(),
                               ),
@@ -349,7 +350,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            settings: const RouteSettings(name: 'account'),
+                            settings: const RouteSettings(
+                              name: AppRoutes.account,
+                            ),
                             builder: (_) => const AccountScreen(),
                           ),
                         );
@@ -425,7 +428,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               const SizedBox(height: 12),
                               SwitchListTile(
                                 contentPadding: EdgeInsets.zero,
-                                title: const Text('啟用 Wear OS 同步'),
+                                title: const Text('啓用 Wear OS 同步'),
                                 subtitle: const Text('將最愛站牌同步到手錶'),
                                 value: controller.settings.wearSyncEnabled,
                                 onChanged: controller.updateWearSyncEnabled,
@@ -507,7 +510,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '啟動更新：${controller.settings.databaseAutoUpdateMode.label}',
+                            '啓動更新：${controller.settings.databaseAutoUpdateMode.label}',
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                           if (controller.hasPendingDatabaseUpdates) ...[
@@ -523,7 +526,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               Navigator.of(context).push(
                                 MaterialPageRoute<void>(
                                   settings: const RouteSettings(
-                                    name: 'database_settings',
+                                    name: AppRoutes.databaseSettings,
                                   ),
                                   builder: (_) =>
                                       const DatabaseSettingsScreen(),
@@ -531,7 +534,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               );
                             },
                             icon: const Icon(Icons.storage_rounded),
-                            label: const Text('開啟資料庫頁面'),
+                            label: const Text('開啓資料庫頁面'),
                           ),
                         ],
                       ),
@@ -630,7 +633,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('智慧推薦'),
-                          subtitle: const Text('依照你常開啟的時段與路線，在首頁顯示推薦。'),
+                          subtitle: const Text('依照你常開啓的時段與路線，在首頁顯示推薦。'),
                           value: controller.settings.enableSmartRecommendations,
                           onChanged:
                               controller.updateEnableSmartRecommendations,
@@ -785,7 +788,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             initialValue:
                                 controller.settings.appUpdateCheckMode,
                             decoration: const InputDecoration(
-                              labelText: '啟動時檢查',
+                              labelText: '啓動時檢查',
                             ),
                             items: AppUpdateCheckMode.values
                                 .map(

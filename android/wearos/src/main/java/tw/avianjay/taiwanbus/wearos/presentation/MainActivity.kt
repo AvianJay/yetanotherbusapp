@@ -486,7 +486,7 @@ private fun WearApp(
                                             ""
 
                                         else ->
-                                            "未啟用同步。"
+                                            "未啓用同步。"
                                     }
                                 },
                             )
@@ -640,12 +640,12 @@ private fun TransformingLazyColumnScope.favoritesContent(
                 title = if (state.settings.syncEnabled) {
                     "無最愛"
                 } else {
-                    "同步未開啟"
+                    "同步未開啓"
                 },
                 subtitle = if (state.settings.syncEnabled) {
                     "請在手機應用選擇最愛後再同步"
                 } else {
-                    "請在手機應用開啟 Wear OS 同步"
+                    "請在手機應用開啓 Wear OS 同步"
                 },
             )
         }

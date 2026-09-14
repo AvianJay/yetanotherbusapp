@@ -94,11 +94,11 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
         _ => downloadFile,
       };
 
-      onProgress?.call(null, '啟動安裝程式…');
+      onProgress?.call(null, '啓動安裝程式…');
       await _channel.invokeMethod<void>('installApk', {'path': apkFile.path});
       return const AppUpdateInstallResult(
         status: AppUpdateInstallStatus.launchedInstaller,
-        message: '安裝程式已啟動。',
+        message: '安裝程式已啓動。',
       );
     } catch (error) {
       return AppUpdateInstallResult(
@@ -267,7 +267,7 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
         );
       }
 
-      onProgress?.call(null, '準備關閉 App 並啟動安裝程式…');
+      onProgress?.call(null, '準備關閉 App 並啓動安裝程式…');
       await _scheduleDesktopInstallerLaunch(
         installerFile,
         packageFormat: update.packageFormat,
@@ -275,7 +275,7 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
 
       return const AppUpdateInstallResult(
         status: AppUpdateInstallStatus.launchedInstaller,
-        message: '即將關閉 App 並啟動安裝程式。',
+        message: '即將關閉 App 並啓動安裝程式。',
       );
     } catch (error) {
       return AppUpdateInstallResult(

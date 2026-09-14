@@ -3,6 +3,46 @@ import 'package:flutter/material.dart';
 /// Which top-level transit mode is active.
 enum TransitMode { bus, metro, thsr, tra, youbike }
 
+class TransitModeDestination {
+  const TransitModeDestination({
+    required this.mode,
+    required this.icon,
+    required this.label,
+  });
+
+  final TransitMode mode;
+  final IconData icon;
+  final String label;
+}
+
+const kTransitModeDestinations = <TransitModeDestination>[
+  TransitModeDestination(
+    mode: TransitMode.bus,
+    icon: Icons.directions_bus_rounded,
+    label: '公車',
+  ),
+  TransitModeDestination(
+    mode: TransitMode.metro,
+    icon: Icons.subway_rounded,
+    label: '捷運',
+  ),
+  TransitModeDestination(
+    mode: TransitMode.thsr,
+    icon: Icons.train_rounded,
+    label: '高鐵',
+  ),
+  TransitModeDestination(
+    mode: TransitMode.tra,
+    icon: Icons.tram_rounded,
+    label: '台鐵',
+  ),
+  TransitModeDestination(
+    mode: TransitMode.youbike,
+    icon: Icons.pedal_bike_rounded,
+    label: 'YouBike',
+  ),
+];
+
 /// Minimum screen width to show the persistent desktop navigation rail.
 /// Below this width, transit screens fall back to the hamburger drawer.
 const double kDesktopNavigationRailBreakpoint = 1100;
@@ -19,14 +59,6 @@ class TransitDrawer extends StatelessWidget {
 
   final TransitMode currentMode;
   final ValueChanged<TransitMode> onModeChanged;
-
-  static const _modes = [
-    (TransitMode.bus, Icons.directions_bus_rounded, '公車'),
-    (TransitMode.youbike, Icons.pedal_bike_rounded, 'YouBike'),
-    (TransitMode.metro, Icons.subway_rounded, '捷運'),
-    (TransitMode.tra, Icons.tram_rounded, '台鐵'),
-    (TransitMode.thsr, Icons.train_rounded, '高鐵'),
-  ];
 
   void _switchTo(BuildContext context, TransitMode mode) {
     Navigator.of(context).pop(); // close drawer
@@ -65,12 +97,12 @@ class TransitDrawer extends StatelessWidget {
               ],
             ),
           ),
-          for (final (mode, icon, label) in _modes)
+          for (final destination in kTransitModeDestinations)
             ListTile(
-              leading: Icon(icon),
-              title: Text(label),
-              selected: mode == currentMode,
-              onTap: () => _switchTo(context, mode),
+              leading: Icon(destination.icon),
+              title: Text(destination.label),
+              selected: destination.mode == currentMode,
+              onTap: () => _switchTo(context, destination.mode),
             ),
         ],
       ),

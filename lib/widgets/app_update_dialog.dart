@@ -75,7 +75,7 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
 
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('無法開啟連結。')));
+    ).showSnackBar(const SnackBar(content: Text('無法開啓連結。')));
   }
 
   String? _buildChangelogMarkdown() {

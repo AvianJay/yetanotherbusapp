@@ -18,7 +18,12 @@
  * runs it automatically via the predeploy:web hook.
  */
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,6 +31,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const webRoot = path.join(repoRoot, 'build', 'web');
 const swPath = path.join(webRoot, 'sw.js');
 const versionJsonPath = path.join(webRoot, 'version.json');
+const appShellManifestPath = path.join(webRoot, 'app-shell.json');
 
 function fail(message) {
   console.error(`[stamp-web-build] ${message}`);
@@ -99,6 +105,46 @@ if (!swPattern.test(sw)) {
 }
 writeFileSync(swPath, sw.replace(swPattern, `const BUILD_VERSION = '${buildVersion}';`));
 
+// ── Generate app shell manifest ─────────────────────────────────
+const appShellRoots = ['assets', 'canvaskit', 'icons', 'splash'];
+const appShellRootFiles = [
+  'index.html',
+  'favicon.png',
+  'flutter.js',
+  'flutter_bootstrap.js',
+  'main.dart.js',
+  'main.dart.mjs',
+  'main.dart.wasm',
+  'manifest.json',
+];
+
+function listFiles(directory) {
+  if (!existsSync(directory)) {
+    return [];
+  }
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      return listFiles(entryPath);
+    }
+    return entry.isFile() ? [entryPath] : [];
+  });
+}
+
+const appShellUrls = [
+  ...appShellRootFiles
+    .filter((file) => existsSync(path.join(webRoot, file)))
+    .map((file) => `/${file}`),
+  ...appShellRoots.flatMap((root) =>
+    listFiles(path.join(webRoot, root))
+      .filter((file) => !file.endsWith('.symbols'))
+      .map(
+        (file) => `/${path.relative(webRoot, file).split(path.sep).join('/')}`,
+      ),
+  ),
+].sort();
+writeFileSync(appShellManifestPath, `${JSON.stringify(appShellUrls)}\n`);
+
 // ── Merge version.json ─────────────────────────────────────────
 const merged = {
   ...existing,
@@ -111,5 +157,6 @@ writeFileSync(versionJsonPath, `${JSON.stringify(merged, null, 2)}\n`);
 
 console.log(
   `[stamp-web-build] sw.js BUILD_VERSION=${buildVersion}; ` +
-    `version.json version=${version} buildNumber=${buildNumber} gitSha=${gitSha}`,
+    `version.json version=${version} buildNumber=${buildNumber} gitSha=${gitSha}; ` +
+    `app-shell.json assets=${appShellUrls.length}`,
 );

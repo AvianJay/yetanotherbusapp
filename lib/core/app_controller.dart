@@ -127,8 +127,12 @@ class AppController extends ChangeNotifier {
   String? _lastWearSmartSignature;
   int _lastWearSmartPushAtMs = 0;
   StreamSubscription<Map<String, Object?>>? _wearEventSubscription;
+  final ValueNotifier<int> _themeRevision = ValueNotifier<int>(0);
+  late _ThemeSettings _lastThemeSettings = _ThemeSettings.from(_settings);
+  bool _postFrameInitializationStarted = false;
 
   AppSettings get settings => _settings;
+  ValueListenable<int> get themeRevision => _themeRevision;
   AuthSession? get authSession => _authSession;
   AuthAccount? get authAccount => _authAccount;
   AccountSyncSummary? get accountSyncSummary => _accountSyncSummary;
@@ -300,42 +304,70 @@ class AppController extends ChangeNotifier {
     _routeUsageProfiles = await storage.loadRouteUsageProfiles();
     _favoriteUsageProfiles = await storage.loadFavoriteUsageProfiles();
     _stopVisitProfiles = await storage.loadStopVisitProfiles();
-    await AndroidHomeIntegration.updateFavoriteWidgetAutoRefreshMinutes(
-      _settings.favoriteWidgetAutoRefreshMinutes,
-    );
-    await IOSWidgetIntegration.syncFavoriteGroups(
-      _favoriteGroups,
-      waitForBridge: true,
-    );
-    await _normalizeWearSelectedFavoriteIds(scheduleSync: false);
-    await _syncWearOsSnapshot(requestRefresh: false);
-    _attachWearOsEventStream();
-    await AndroidHomeIntegration.syncSmartRouteNotifications(
-      _settings.enableSmartRouteNotifications,
-    );
-    await refreshDatabaseState();
-    await desktopDiscordPresenceService.refresh(settings: _settings);
+    _initialized = true;
+    notifyListeners();
+  }
 
-    // Validate the persisted token against the server. If the token has
-    // expired or been revoked the server will return 401/403, and we
-    // silently clear the local session so the user sees the logged-out UI
-    // instead of a stale authenticated state.
-    if (_authSession != null) {
-      try {
-        _authAccount = await authService.fetchAccount();
-      } on AuthTokenExpiredException {
-        await _forceLocalLogout();
-      } catch (_) {
-        // Network errors are non-fatal; keep the session for now.
-        _authAccount = null;
-      }
+  Future<void> initializeAfterFirstFrame() async {
+    if (!_initialized || _postFrameInitializationStarted) {
+      return;
     }
+    _postFrameInitializationStarted = true;
+
+    await _runNonCriticalStartupTask(
+      () => AndroidHomeIntegration.updateFavoriteWidgetAutoRefreshMinutes(
+        _settings.favoriteWidgetAutoRefreshMinutes,
+      ),
+    );
+    await _runNonCriticalStartupTask(
+      () => IOSWidgetIntegration.syncFavoriteGroups(
+        _favoriteGroups,
+        waitForBridge: true,
+      ),
+    );
+    await _runNonCriticalStartupTask(
+      () => _normalizeWearSelectedFavoriteIds(scheduleSync: false),
+    );
+    await _runNonCriticalStartupTask(
+      () => _syncWearOsSnapshot(requestRefresh: false),
+    );
+    _attachWearOsEventStream();
+    await _runNonCriticalStartupTask(
+      () => AndroidHomeIntegration.syncSmartRouteNotifications(
+        _settings.enableSmartRouteNotifications,
+      ),
+    );
+    await _runNonCriticalStartupTask(refreshDatabaseState);
+    await _runNonCriticalStartupTask(
+      () => desktopDiscordPresenceService.refresh(settings: _settings),
+    );
+    await _validatePersistedAuthSession();
 
     if (accountSyncEnabled) {
       scheduleForegroundAccountSync(force: true);
     }
+  }
 
-    _initialized = true;
+  Future<void> _runNonCriticalStartupTask(Future<void> Function() task) async {
+    try {
+      await task();
+    } catch (_) {
+      // Background integrations must not delay or break the first frame.
+    }
+  }
+
+  Future<void> _validatePersistedAuthSession() async {
+    if (_authSession == null) {
+      return;
+    }
+    try {
+      _authAccount = await authService.fetchAccount();
+    } on AuthTokenExpiredException {
+      await _forceLocalLogout();
+    } catch (_) {
+      // Network errors are non-fatal; keep the session for now.
+      _authAccount = null;
+    }
     notifyListeners();
   }
 
@@ -3161,8 +3193,71 @@ class AppController extends ChangeNotifier {
   void dispose() {
     _cancelScheduledAccountSync();
     _wearEventSubscription?.cancel();
+    _themeRevision.dispose();
     super.dispose();
   }
+
+  @override
+  void notifyListeners() {
+    final nextThemeSettings = _ThemeSettings.from(_settings);
+    if (nextThemeSettings != _lastThemeSettings) {
+      _lastThemeSettings = nextThemeSettings;
+      _themeRevision.value += 1;
+    }
+    super.notifyListeners();
+  }
+}
+
+class _ThemeSettings {
+  const _ThemeSettings({
+    required this.themeMode,
+    required this.useAmoledDark,
+    required this.seedColor,
+    required this.overlayOpacity,
+    required this.backgroundImagePaths,
+  });
+
+  factory _ThemeSettings.from(AppSettings settings) {
+    return _ThemeSettings(
+      themeMode: settings.themeMode,
+      useAmoledDark: settings.useAmoledDark,
+      seedColor: settings.seedColor,
+      overlayOpacity: settings.overlayOpacity,
+      backgroundImagePaths: Map<String, String>.unmodifiable(
+        settings.pageBackgroundImagePaths,
+      ),
+    );
+  }
+
+  final ThemeMode themeMode;
+  final bool useAmoledDark;
+  final Color? seedColor;
+  final double overlayOpacity;
+  final Map<String, String> backgroundImagePaths;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _ThemeSettings &&
+        other.themeMode == themeMode &&
+        other.useAmoledDark == useAmoledDark &&
+        other.seedColor == seedColor &&
+        other.overlayOpacity == overlayOpacity &&
+        mapEquals(other.backgroundImagePaths, backgroundImagePaths);
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    themeMode,
+    useAmoledDark,
+    seedColor,
+    overlayOpacity,
+    Object.hashAll(
+      backgroundImagePaths.entries
+          .map((entry) => '${entry.key}:${entry.value}')
+          .toList()
+        ..sort(),
+    ),
+  );
 }
 
 class _WearFavoriteSelection {

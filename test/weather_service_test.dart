@@ -993,6 +993,17 @@ void main() {
     });
 
     testWidgets('weather screen renders a CWA forecast', (tester) async {
+      // The page scrolls, and a ListView only builds what fits. The default
+      // 800x600 surface leaves the source credit below the fold, where no
+      // finder can see it, so give the test a viewport tall enough for the
+      // whole page.
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(420, 1600);
+      addTearDown(() {
+        tester.view.resetDevicePixelRatio();
+        tester.view.resetPhysicalSize();
+      });
+
       final base = await _taiwanHour();
       final day = DateTime.utc(base.year, base.month, base.day);
       final service = WeatherService(

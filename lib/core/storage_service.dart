@@ -21,6 +21,7 @@ class StorageService {
   static const _favoritesLastModifiedAtKey =
       'favorite_groups_last_modified_at_ms';
   static const _accountSyncStateKeyPrefix = 'account_sync_state';
+  static const _railOdSelectionKeyPrefix = 'rail_od_selection';
 
   Future<void> migrateLegacyApiDataIfNeeded() async {
     final prefs = await SharedPreferences.getInstance();
@@ -58,6 +59,44 @@ class StorageService {
     await prefs.setInt(
       _settingsLastModifiedAtKey,
       modifiedAtMs ?? DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  /// Last origin/destination station pair a rail dashboard was left on.
+  ///
+  /// Keyed by [system] ('tra', 'thsr') so each dashboard remembers its own.
+  /// Only station ids are stored; the caller resolves them against the live
+  /// station list and ignores ids that no longer exist.
+  Future<({String? origin, String? dest})> loadRailOdSelection(
+    String system,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('${_railOdSelectionKeyPrefix}_$system');
+    if (raw == null || raw.isEmpty) {
+      return (origin: null, dest: null);
+    }
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      final origin = decoded['origin'] as String?;
+      final dest = decoded['dest'] as String?;
+      return (
+        origin: (origin?.isEmpty ?? true) ? null : origin,
+        dest: (dest?.isEmpty ?? true) ? null : dest,
+      );
+    } catch (_) {
+      return (origin: null, dest: null);
+    }
+  }
+
+  Future<void> saveRailOdSelection(
+    String system, {
+    String? origin,
+    String? dest,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      '${_railOdSelectionKeyPrefix}_$system',
+      jsonEncode({'origin': origin ?? '', 'dest': dest ?? ''}),
     );
   }
 

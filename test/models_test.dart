@@ -193,6 +193,21 @@ void main() {
     expect(restored.mobileMapProvider, MobileMapProvider.osm);
   });
 
+  test('app settings persist the app bar weather toggle', () {
+    final settings = AppSettings.defaults().copyWith(
+      showWeatherInAppBar: false,
+    );
+
+    final restored = AppSettings.fromJson(settings.toJson());
+
+    expect(restored.showWeatherInAppBar, isFalse);
+    // Settings saved before this feature existed must still load.
+    expect(
+      AppSettings.fromJson(const <String, dynamic>{}).showWeatherInAppBar,
+      isTrue,
+    );
+  });
+
   test('app settings persist wear os sync preferences', () {
     final settings = AppSettings.defaults().copyWith(
       wearSyncEnabled: true,

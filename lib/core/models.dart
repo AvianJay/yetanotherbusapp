@@ -327,6 +327,7 @@ class AppSettings {
     required this.alwaysShowSeconds,
     required this.enableHapticFeedback,
     required this.enableCompactMode,
+    required this.showWeatherInAppBar,
     required this.enableSmartRecommendations,
     required this.enableAutoFavoriteFrequentStops,
     required this.enableSmartRouteNotifications,
@@ -368,6 +369,7 @@ class AppSettings {
       alwaysShowSeconds: false,
       enableHapticFeedback: true,
       enableCompactMode: false,
+      showWeatherInAppBar: true,
       enableSmartRecommendations: true,
       enableAutoFavoriteFrequentStops: true,
       enableSmartRouteNotifications: false,
@@ -468,6 +470,7 @@ class AppSettings {
       alwaysShowSeconds: json['alwaysShowSeconds'] as bool? ?? false,
       enableHapticFeedback: json['enableHapticFeedback'] as bool? ?? true,
       enableCompactMode: json['enableCompactMode'] as bool? ?? false,
+      showWeatherInAppBar: json['showWeatherInAppBar'] as bool? ?? true,
       enableSmartRecommendations:
           json['enableSmartRecommendations'] as bool? ?? true,
       enableAutoFavoriteFrequentStops:
@@ -545,6 +548,7 @@ class AppSettings {
   final bool alwaysShowSeconds;
   final bool enableHapticFeedback;
   final bool enableCompactMode;
+  final bool showWeatherInAppBar;
   final bool enableSmartRecommendations;
   final bool enableAutoFavoriteFrequentStops;
   final bool enableSmartRouteNotifications;
@@ -585,6 +589,7 @@ class AppSettings {
     bool? alwaysShowSeconds,
     bool? enableHapticFeedback,
     bool? enableCompactMode,
+    bool? showWeatherInAppBar,
     bool? enableSmartRecommendations,
     bool? enableAutoFavoriteFrequentStops,
     bool? enableSmartRouteNotifications,
@@ -628,6 +633,7 @@ class AppSettings {
       alwaysShowSeconds: alwaysShowSeconds ?? this.alwaysShowSeconds,
       enableHapticFeedback: enableHapticFeedback ?? this.enableHapticFeedback,
       enableCompactMode: enableCompactMode ?? this.enableCompactMode,
+      showWeatherInAppBar: showWeatherInAppBar ?? this.showWeatherInAppBar,
       enableSmartRecommendations:
           enableSmartRecommendations ?? this.enableSmartRecommendations,
       enableAutoFavoriteFrequentStops:
@@ -690,6 +696,7 @@ class AppSettings {
       'alwaysShowSeconds': alwaysShowSeconds,
       'enableHapticFeedback': enableHapticFeedback,
       'enableCompactMode': enableCompactMode,
+      'showWeatherInAppBar': showWeatherInAppBar,
       'enableSmartRecommendations': enableSmartRecommendations,
       'enableAutoFavoriteFrequentStops': enableAutoFavoriteFrequentStops,
       'enableSmartRouteNotifications': enableSmartRouteNotifications,

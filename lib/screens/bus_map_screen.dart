@@ -106,6 +106,12 @@ class _BusMapScreenState extends State<BusMapScreen>
 
   LatLngBounds? _visibleBounds;
   late double _zoom = _openingZoom;
+
+  /// Ticks the bus animation without rebuilding the rest of the screen.
+  ///
+  /// A plain `setState` here rebuilt the selection sheet four times a second,
+  /// which fought with the rider's drag.
+  final ValueNotifier<int> _animationTick = ValueNotifier<int>(0);
   String? _osmMarkerCacheKey;
   List<Marker> _cachedOsmMarkers = const [];
   final Map<String, gmaps.BitmapDescriptor> _googleClusterIcons =
@@ -164,6 +170,7 @@ class _BusMapScreenState extends State<BusMapScreen>
     _refreshTimer?.cancel();
     _simulationTimer?.cancel();
     _refreshProgressController.dispose();
+    _animationTick.dispose();
     _filterController.dispose();
     _googleMapController?.dispose();
     super.dispose();
@@ -241,7 +248,7 @@ class _BusMapScreenState extends State<BusMapScreen>
       if (!mounted || !_isActive || _selectedGroupKey == null || _isClustered) {
         return;
       }
-      setState(() {});
+      _animationTick.value++;
     });
   }
 
@@ -850,7 +857,14 @@ class _BusMapScreenState extends State<BusMapScreen>
 
     final map = _unsupported
         ? _buildUnsupportedNotice(theme)
-        : _buildMap(theme, drawSet, controller.settings.mobileMapProvider);
+        : ValueListenableBuilder<int>(
+            valueListenable: _animationTick,
+            builder: (context, _, _) => _buildMap(
+              theme,
+              drawSet,
+              controller.settings.mobileMapProvider,
+            ),
+          );
 
     final overlay = Stack(
       children: [
@@ -1803,7 +1817,61 @@ class _StatusChip extends StatelessWidget {
 /// Heights are measured rather than guessed at: the collapsed state has to fit
 /// one line of the *user's* text size, so the fractions are derived from the
 /// real line height instead of a constant that only holds at 1.0x.
-class _BusMapSelectionSheet extends StatelessWidget {
+/// The sheet's geometry, cached so rebuilds hand the SDK identical values.
+///
+/// `DraggableScrollableSheet` re-snaps whenever `snapSizes` is a different list
+/// *instance* (it compares by identity, see `_replaceExtent`). Building a fresh
+/// list each time therefore yanked the sheet back to a snap point whenever
+/// anything else on the screen rebuilt — such as the timestamp ticking over
+/// while the rider was still dragging.
+class _SheetSizes {
+  const _SheetSizes({
+    required this.available,
+    required this.titleHeight,
+    required this.hasStops,
+    required this.min,
+    required this.rest,
+    required this.max,
+    required this.snapSizes,
+  });
+
+  factory _SheetSizes.compute({
+    required double available,
+    required double titleHeight,
+    required bool hasStops,
+  }) {
+    // Drag handle, one line of the user's own text size, and breathing room.
+    final collapsedHeight = 28 + titleHeight * 2.4;
+    final min = (collapsedHeight / available).clamp(0.12, 0.5);
+    final rest = (min * 2.6).clamp(min, 0.62);
+    final max = math.max(hasStops ? 0.78 : rest, rest);
+    return _SheetSizes(
+      available: available,
+      titleHeight: titleHeight,
+      hasStops: hasStops,
+      min: min,
+      rest: rest,
+      max: max,
+      snapSizes: <double>{min, rest, max}.toList()..sort(),
+    );
+  }
+
+  final double available;
+  final double titleHeight;
+  final bool hasStops;
+  final double min;
+  final double rest;
+  final double max;
+  final List<double> snapSizes;
+
+  bool matches(double available, double titleHeight, bool hasStops) {
+    return this.available == available &&
+        this.titleHeight == titleHeight &&
+        this.hasStops == hasStops;
+  }
+}
+
+class _BusMapSelectionSheet extends StatefulWidget {
   const _BusMapSelectionSheet({
     required this.snapshot,
     required this.cityBus,
@@ -1827,8 +1895,30 @@ class _BusMapSelectionSheet extends StatelessWidget {
   final ValueChanged<StopInfo> onStopSelected;
 
   @override
+  State<_BusMapSelectionSheet> createState() => _BusMapSelectionSheetState();
+}
+
+class _BusMapSelectionSheetState extends State<_BusMapSelectionSheet> {
+  _SheetSizes? _sizes;
+
+  _SheetSizes _sizesFor(double available, double titleHeight, bool hasStops) {
+    final cached = _sizes;
+    if (cached != null && cached.matches(available, titleHeight, hasStops)) {
+      return cached;
+    }
+    final sizes = _SheetSizes.compute(
+      available: available,
+      titleHeight: titleHeight,
+      hasStops: hasStops,
+    );
+    _sizes = sizes;
+    return sizes;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final stops = widget.stops;
     final textScaler = MediaQuery.textScalerOf(context);
     final titleHeight = textScaler.scale(
       theme.textTheme.titleMedium?.fontSize ?? 16,
@@ -1836,23 +1926,18 @@ class _BusMapSelectionSheet extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final available = constraints.maxHeight;
-        // Drag handle, one title line, and breathing room.
-        final collapsedHeight = 28 + titleHeight * 2.4;
-        final minSize = (collapsedHeight / available).clamp(0.12, 0.5);
-        final restSize = (minSize * 2.6).clamp(minSize, 0.62);
-        final maxSize = stops.isEmpty ? restSize : 0.78;
+        final sizes = _sizesFor(
+          constraints.maxHeight,
+          titleHeight,
+          stops.isNotEmpty,
+        );
 
         return DraggableScrollableSheet(
-          initialChildSize: restSize,
-          minChildSize: minSize,
-          maxChildSize: math.max(maxSize, restSize),
+          initialChildSize: sizes.rest,
+          minChildSize: sizes.min,
+          maxChildSize: sizes.max,
           snap: true,
-          snapSizes: <double>{
-            minSize,
-            restSize,
-            math.max(maxSize, restSize),
-          }.toList()..sort(),
+          snapSizes: sizes.snapSizes,
           builder: (context, scrollController) {
             return Material(
               elevation: 8,
@@ -1877,14 +1962,14 @@ class _BusMapSelectionSheet extends StatelessWidget {
                     ),
                   ),
                   _BusMapSelectionCard(
-                    snapshot: snapshot,
-                    cityBus: cityBus,
-                    state: state,
+                    snapshot: widget.snapshot,
+                    cityBus: widget.cityBus,
+                    state: widget.state,
                     stops: stops,
-                    pathId: pathId,
-                    onOpenDetail: onOpenDetail,
-                    onShowWholeRoute: onShowWholeRoute,
-                    onClose: onClose,
+                    pathId: widget.pathId,
+                    onOpenDetail: widget.onOpenDetail,
+                    onShowWholeRoute: widget.onShowWholeRoute,
+                    onClose: widget.onClose,
                     embedded: true,
                   ),
                   if (stops.isNotEmpty) ...[
@@ -1897,7 +1982,7 @@ class _BusMapSelectionSheet extends StatelessWidget {
                         dense: true,
                         leading: Text('${stop.sequence}'),
                         title: Text(stop.stopName),
-                        onTap: () => onStopSelected(stop),
+                        onTap: () => widget.onStopSelected(stop),
                       ),
                     const SizedBox(height: 12),
                   ],

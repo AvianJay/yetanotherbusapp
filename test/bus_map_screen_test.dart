@@ -128,13 +128,13 @@ class _RequestLog {
       paths.where((path) => path.contains(needle)).length;
 }
 
-MockClient _mockClient(_RequestLog log) {
+MockClient _mockClient(_RequestLog log, {int ttl = 15}) {
   return MockClient((request) async {
     final path = request.url.path;
     log.paths.add(path);
     if (path.endsWith('/api/v1/cities/TPE/buses')) {
       return http.Response(
-        jsonEncode(_snapshotBody),
+        jsonEncode({..._snapshotBody, 'ttl': ttl}),
         200,
         headers: {'content-type': 'application/json; charset=utf-8'},
       );
@@ -373,15 +373,16 @@ void _mapTest(
     _RequestLog log,
     AppController controller,
   )
-  body,
-) {
+  body, {
+  int ttl = 15,
+}) {
   testWidgets(description, (tester) async {
     SharedPreferences.setMockInitialValues({});
     GeolocatorPlatform.instance = _FakeGeolocator();
     // Windows has no Google Maps, so the flutter_map branch renders.
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     final log = _RequestLog();
-    final controller = await _createController(_mockClient(log));
+    final controller = await _createController(_mockClient(log, ttl: ttl));
     try {
       await body(tester, log, controller);
     } finally {
@@ -629,6 +630,40 @@ void main() {
     );
     // Still selected: the route line and its stops stay on the map.
     expect(find.byTooltip('西門'), findsOneWidget);
+  });
+
+  _mapTest('a rebuild underneath does not disturb the sheet', (
+    tester,
+    log,
+    controller,
+  ) async {
+    await _pumpMap(tester, controller);
+    await _pumpUntil(
+      tester,
+      () => find.byType(BusMapBusMarker).evaluate().length == 2,
+    );
+    await _selectTheResolvedBus(tester, log);
+
+    final sheet = find.byType(DraggableScrollableSheet);
+    final before = tester.widget<DraggableScrollableSheet>(sheet);
+
+    // Anything that rebuilds the screen — a poll landing, the timestamp
+    // ticking over — must hand the sheet the very same snap sizes. The SDK
+    // compares that list by identity and re-snaps when it differs, which threw
+    // the sheet back to a stop mid-drag.
+    await tester.tap(find.byTooltip('只看最愛路線'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('只看最愛路線'));
+    await tester.pump();
+
+    final after = tester.widget<DraggableScrollableSheet>(sheet);
+    expect(
+      identical(after.snapSizes, before.snapSizes),
+      isTrue,
+      reason: 'new snapSizes on rebuild makes the SDK re-snap the sheet',
+    );
+    expect(after.minChildSize, before.minChildSize);
+    expect(after.maxChildSize, before.maxChildSize);
   });
 
   _mapTest('at a large display size the sheet still leaves the map visible', (

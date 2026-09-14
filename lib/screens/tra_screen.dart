@@ -632,7 +632,7 @@ class _TraScreenState extends State<TraScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _StationField(
+            RailStationField(
               key: const ValueKey('tra-origin-selector'),
               label: '出發站',
               station: _origin,
@@ -650,7 +650,7 @@ class _TraScreenState extends State<TraScreen> {
                 tooltip: '對調出發站與到達站',
               ),
             ),
-            _StationField(
+            RailStationField(
               key: const ValueKey('tra-dest-selector'),
               label: '到達站',
               station: _dest,
@@ -666,7 +666,7 @@ class _TraScreenState extends State<TraScreen> {
                     onPressed: _pickDate,
                     icon: const Icon(Icons.calendar_today_rounded),
                     label: Text(
-                      '${_date.month}/${_date.day}（${_weekdayLabel(_date.weekday)}）',
+                      '${_date.month}/${_date.day}（${railWeekdayLabel(_date.weekday)}）',
                     ),
                   ),
                 ),
@@ -723,7 +723,8 @@ class _TraScreenState extends State<TraScreen> {
           )
         else ...[
           if (past.isNotEmpty) ...[
-            _PastDisclosure(
+            PastTrainsDisclosure(
+              key: const ValueKey('tra-past-toggle'),
               count: past.length,
               expanded: _showPastTrains,
               onToggle: () =>
@@ -884,16 +885,6 @@ class _TraScreenState extends State<TraScreen> {
     );
   }
 
-  String _weekdayLabel(int weekday) => switch (weekday) {
-    1 => '一',
-    2 => '二',
-    3 => '三',
-    4 => '四',
-    5 => '五',
-    6 => '六',
-    7 => '日',
-    _ => '',
-  };
 
   String _positionSummary(TraTrainPosition position) {
     return switch (position.status) {
@@ -925,90 +916,6 @@ class _TraOdRow {
   final DateTime? effectiveDeparture;
 }
 
-/// Tappable field that opens the wheel picker.
-class _StationField extends StatelessWidget {
-  const _StationField({
-    required this.label,
-    required this.station,
-    required this.placeholder,
-    required this.onTap,
-    super.key,
-  });
-
-  final String label;
-  final RailStation? station;
-  final String placeholder;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final selected = station;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: InputDecorator(
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: const Icon(Icons.train_rounded),
-          suffixIcon: const Icon(Icons.expand_more_rounded),
-          border: const OutlineInputBorder(),
-        ),
-        child: Text(
-          selected == null ? placeholder : selected.name,
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: selected == null
-                ? theme.colorScheme.onSurfaceVariant
-                : theme.colorScheme.onSurface,
-            fontWeight: selected == null ? FontWeight.w400 : FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Header that hides the trains the user can no longer catch.
-class _PastDisclosure extends StatelessWidget {
-  const _PastDisclosure({
-    required this.count,
-    required this.expanded,
-    required this.onToggle,
-  });
-
-  final int count;
-  final bool expanded;
-  final VoidCallback onToggle;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return InkWell(
-      key: const ValueKey('tra-past-toggle'),
-      onTap: onToggle,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-        child: Row(
-          children: [
-            Icon(
-              expanded ? Icons.expand_more_rounded : Icons.chevron_right_rounded,
-              size: 20,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              expanded ? '收合已開出的 $count 班' : '顯示已開出的 $count 班',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _TraOdTile extends StatelessWidget {
   const _TraOdTile({

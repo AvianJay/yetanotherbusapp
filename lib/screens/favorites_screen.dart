@@ -964,7 +964,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    settings: const RouteSettings(name: 'favorite_groups'),
+                    settings: const RouteSettings(name: '/favorite_groups'),
                     builder: (_) => const FavoriteGroupsScreen(),
                   ),
                 );

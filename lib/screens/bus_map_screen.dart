@@ -1232,6 +1232,10 @@ class _BusMapScreenState extends State<BusMapScreen>
         ),
         if (geometry != null && geometry.points.length >= 2)
           PolylineLayer(
+            // Only the selected route is drawn here, so keeping its whole
+            // geometry is cheap — and it stops Web dropping segments during
+            // flutter_map's viewport culling (same fix as the route sheet).
+            cullingMargin: null,
             polylines: [
               Polyline(
                 points: geometry.points,

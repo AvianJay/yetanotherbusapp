@@ -21,7 +21,8 @@ class LegalDocumentService {
 
   Future<String> _fetchMarkdownDocument(String path) async {
     final uri = Uri.parse('${ApiConfig.baseUrl}$path');
-    final response = await _client.get(
+    final response = await apiGet(
+      _client,
       uri,
       headers: ApiUserAgent.applyTo(apiJsonHeaders),
     );

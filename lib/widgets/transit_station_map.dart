@@ -1,3 +1,5 @@
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
@@ -55,10 +57,20 @@ class TransitStationMap extends StatefulWidget {
   State<TransitStationMap> createState() => _TransitStationMapState();
 }
 
-class _TransitStationMapState extends State<TransitStationMap> {
+class _TransitStationMapState extends State<TransitStationMap>
+    with SingleTickerProviderStateMixin {
+  static const _pointZoom = 16.0;
+  static const _cameraAnimationDuration = Duration(milliseconds: 320);
+
   final MapController _mapController = MapController();
+  late final AnimationController _osmCameraAnimation;
   gmaps.GoogleMapController? _googleMapController;
   bool? _lastUseGoogleMapsPointProvider;
+  bool _osmMapReady = false;
+  LatLng? _osmCameraStart;
+  LatLng? _osmCameraTarget;
+  double? _osmCameraStartZoom;
+  double? _osmCameraTargetZoom;
 
   List<TransitMapPoint> get _validPoints => widget.points
       .where((point) => point.hasValidLocation)
@@ -70,6 +82,9 @@ class _TransitStationMapState extends State<TransitStationMap> {
 
   @override
   void dispose() {
+    _osmCameraAnimation
+      ..removeListener(_animateOsmCamera)
+      ..dispose();
     _googleMapController?.dispose();
     super.dispose();
   }
@@ -77,6 +92,10 @@ class _TransitStationMapState extends State<TransitStationMap> {
   @override
   void initState() {
     super.initState();
+    _osmCameraAnimation = AnimationController(
+      vsync: this,
+      duration: _cameraAnimationDuration,
+    )..addListener(_animateOsmCamera);
     _fitCamera();
   }
 
@@ -116,16 +135,20 @@ class _TransitStationMapState extends State<TransitStationMap> {
   }
 
   void _fitOsmCamera() {
+    if (!_osmMapReady) {
+      return;
+    }
     try {
       final selectedPoint = _selectedPoint;
       if (selectedPoint != null) {
-        _mapController.move(selectedPoint.latLng, 14.5);
+        _animateOsmCameraTo(selectedPoint.latLng, _pointZoom);
         return;
       }
       if (_validPoints.length == 1) {
-        _mapController.move(_validPoints.first.latLng, 14.5);
+        _animateOsmCameraTo(_validPoints.first.latLng, _pointZoom);
         return;
       }
+      _osmCameraAnimation.stop();
       _mapController.fitCamera(
         CameraFit.bounds(
           bounds: LatLngBounds.fromPoints(
@@ -144,6 +167,40 @@ class _TransitStationMapState extends State<TransitStationMap> {
     }
   }
 
+  void _animateOsmCameraTo(LatLng target, double targetZoom) {
+    try {
+      final camera = _mapController.camera;
+      _osmCameraStart = camera.center;
+      _osmCameraTarget = target;
+      _osmCameraStartZoom = camera.zoom;
+      _osmCameraTargetZoom = targetZoom;
+      _osmCameraAnimation.forward(from: 0);
+    } catch (_) {
+      _mapController.move(target, targetZoom);
+    }
+  }
+
+  void _animateOsmCamera() {
+    final start = _osmCameraStart;
+    final target = _osmCameraTarget;
+    final startZoom = _osmCameraStartZoom;
+    final targetZoom = _osmCameraTargetZoom;
+    if (start == null ||
+        target == null ||
+        startZoom == null ||
+        targetZoom == null) {
+      return;
+    }
+    final progress = Curves.easeOutCubic.transform(_osmCameraAnimation.value);
+    _mapController.move(
+      LatLng(
+        lerpDouble(start.latitude, target.latitude, progress)!,
+        lerpDouble(start.longitude, target.longitude, progress)!,
+      ),
+      lerpDouble(startZoom, targetZoom, progress)!,
+    );
+  }
+
   void _fitGoogleCamera() {
     final controller = _googleMapController;
     if (controller == null) {
@@ -155,7 +212,7 @@ class _TransitStationMapState extends State<TransitStationMap> {
         controller.animateCamera(
           gmaps.CameraUpdate.newLatLngZoom(
             toGoogleLatLng(selectedPoint.latLng),
-            14.5,
+            _pointZoom,
           ),
         );
         return;
@@ -164,7 +221,7 @@ class _TransitStationMapState extends State<TransitStationMap> {
         controller.animateCamera(
           gmaps.CameraUpdate.newLatLngZoom(
             toGoogleLatLng(_validPoints.first.latLng),
-            14.5,
+            _pointZoom,
           ),
         );
         return;
@@ -196,6 +253,11 @@ class _TransitStationMapState extends State<TransitStationMap> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final selectedPointId = widget.selectedPointId;
+    final orderedPoints = [
+      ..._validPoints.where((point) => point.id != selectedPointId),
+      ..._validPoints.where((point) => point.id == selectedPointId),
+    ];
     if (_validPoints.isEmpty) {
       return SizedBox(
         height: widget.height,
@@ -241,10 +303,14 @@ class _TransitStationMapState extends State<TransitStationMap> {
             else
               FlutterMap(
                 mapController: _mapController,
-                options: const MapOptions(
-                  initialCenter: LatLng(23.7, 121.0),
+                options: MapOptions(
+                  initialCenter: const LatLng(23.7, 121.0),
                   initialZoom: 7.2,
-                  interactionOptions: InteractionOptions(
+                  onMapReady: () {
+                    _osmMapReady = true;
+                    _fitCamera();
+                  },
+                  interactionOptions: const InteractionOptions(
                     flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                   ),
                 ),
@@ -255,9 +321,11 @@ class _TransitStationMapState extends State<TransitStationMap> {
                     userAgentPackageName: 'tw.avianjay.taiwanbus.flutter',
                   ),
                   MarkerLayer(
-                    markers: _validPoints
+                    // Render the selected label last so nearby point dots
+                    // cannot overlap its text.
+                    markers: orderedPoints
                         .map((point) {
-                          final selected = point.id == widget.selectedPointId;
+                          final selected = point.id == selectedPointId;
                           return Marker(
                             point: point.latLng,
                             width: selected ? 160 : 28,

@@ -971,8 +971,8 @@ private enum FavoriteWidgetDeepLink {
 
 @available(iOS 18.0, *)
 private struct OpenFavoriteWidgetItemIntent: AppIntent {
-  static var title: LocalizedStringResource = "開啟收藏項目"
-  static var description = IntentDescription("在 YABus 開啟路線、站牌或乘車點。")
+  static var title: LocalizedStringResource = "開啓收藏項目"
+  static var description = IntentDescription("在 YABus 開啓路線、站牌或乘車點。")
   static var openAppWhenRun = true
   static var isDiscoverable = false
 

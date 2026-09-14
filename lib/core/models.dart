@@ -215,8 +215,8 @@ enum AppUpdateCheckMode {
 
   String get description => switch (this) {
     AppUpdateCheckMode.off => '只在手動檢查時顯示',
-    AppUpdateCheckMode.notify => '啟動後用通知提示',
-    AppUpdateCheckMode.popup => '啟動後直接跳出更新視窗',
+    AppUpdateCheckMode.notify => '啓動後用通知提示',
+    AppUpdateCheckMode.popup => '啓動後直接跳出更新視窗',
   };
 }
 
@@ -252,10 +252,10 @@ enum DatabaseAutoUpdateMode {
   };
 
   String get description => switch (this) {
-    DatabaseAutoUpdateMode.off => '啟動時不主動檢查資料庫更新。',
-    DatabaseAutoUpdateMode.checkPopup => '啟動時檢查更新，若有新版本就彈出提示。',
-    DatabaseAutoUpdateMode.checkNotify => '啟動時檢查更新，若有新版本就顯示提示。',
-    DatabaseAutoUpdateMode.always => '啟動時有新版本就直接下載並更新。',
+    DatabaseAutoUpdateMode.off => '啓動時不主動檢查資料庫更新。',
+    DatabaseAutoUpdateMode.checkPopup => '啓動時檢查更新，若有新版本就彈出提示。',
+    DatabaseAutoUpdateMode.checkNotify => '啓動時檢查更新，若有新版本就顯示提示。',
+    DatabaseAutoUpdateMode.always => '啓動時有新版本就直接下載並更新。',
     DatabaseAutoUpdateMode.wifiOnly => '僅在 Wi‑Fi 連線時自動更新，其他網路只保留提示。',
     DatabaseAutoUpdateMode.cellularOnly => '僅在行動數據連線時自動更新，其他網路只保留提示。',
   };
@@ -2373,4 +2373,19 @@ class RouteScheduleEntry {
     }
     return '班次$tripId';
   }
+}
+
+/// A Taichung city-bus departure that is present in the base timetable but
+/// absent from the selected day's timetable.
+class CancelledDeparture {
+  const CancelledDeparture({
+    required this.direction,
+    required this.departureTime,
+  });
+
+  /// Taichung city-bus direction: 1 for outbound and 2 for return.
+  final int direction;
+
+  /// The scheduled time at the route's origin, normalized to HH:MM.
+  final String departureTime;
 }

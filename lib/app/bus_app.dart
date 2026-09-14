@@ -58,7 +58,7 @@ class BusApp extends StatelessWidget {
       child: DynamicColorBuilder(
         builder: (lightDynamic, darkDynamic) {
           return AnimatedBuilder(
-            animation: controller,
+            animation: controller.themeRevision,
             builder: (context, _) {
               return MaterialApp(
                 title: 'YetAnotherBusApp',
@@ -530,7 +530,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
       barrierDismissible: false,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('啟用雲端同步？'),
+          title: const Text('啓用雲端同步？'),
           content: const Text(
             '登入後可以自動同步最愛站牌與偏好設定。之後進入 app 時會自動更新，資料變更後也會稍後自動同步。',
           ),
@@ -541,7 +541,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('開啟同步'),
+              child: const Text('開啓同步'),
             ),
           ],
         );
@@ -559,7 +559,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
       }
       messenger?.showSnackBar(
         SnackBar(
-          content: Text(enabled == true ? '已開啟雲端同步。' : '已略過自動同步，你之後仍可手動同步。'),
+          content: Text(enabled == true ? '已開啓雲端同步。' : '已略過自動同步，你之後仍可手動同步。'),
         ),
       );
     } catch (error) {
@@ -868,7 +868,7 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
                 ),
               if (preview.activeDeviceCount > 0) ...[
                 const SizedBox(height: 8),
-                Text('來源帳號目前有 ${preview.activeDeviceCount} 台啟用中的裝置。'),
+                Text('來源帳號目前有 ${preview.activeDeviceCount} 台啓用中的裝置。'),
               ],
             ],
           ),

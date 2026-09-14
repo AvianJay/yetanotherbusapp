@@ -37,14 +37,17 @@ class HomeScreen extends StatelessWidget {
   ) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'database_settings'),
+        settings: const RouteSettings(name: AppRoutes.databaseSettings),
         builder: (_) => const DatabaseSettingsScreen(),
       ),
     );
   }
 
-  Widget _buildFeatureList(BuildContext context, AppController controller) {
-    final compactMode = _useCompactHomeMode(context, controller.settings);
+  Widget _buildFeatureList(
+    BuildContext context,
+    AppController controller, {
+    required bool compactMode,
+  }) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
       children: [
@@ -70,9 +73,9 @@ class HomeScreen extends StatelessWidget {
 
   Widget _buildDesktopMainPanel(
     BuildContext context,
-    AppController controller,
-  ) {
-    final compactMode = _useCompactHomeMode(context, controller.settings);
+    AppController controller, {
+    required bool compactMode,
+  }) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 32, 12, 32),
       children: [
@@ -143,7 +146,7 @@ class HomeScreen extends StatelessWidget {
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
-            settings: const RouteSettings(name: 'search'),
+            settings: const RouteSettings(name: AppRoutes.search),
             builder: (_) => const SearchScreen(),
           ),
         );
@@ -165,7 +168,7 @@ class HomeScreen extends StatelessWidget {
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
-            settings: const RouteSettings(name: 'favorites'),
+            settings: const RouteSettings(name: AppRoutes.favorites),
             builder: (_) => const FavoritesScreen(),
           ),
         );
@@ -187,7 +190,7 @@ class HomeScreen extends StatelessWidget {
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
-            settings: const RouteSettings(name: 'nearby'),
+            settings: const RouteSettings(name: AppRoutes.nearby),
             builder: (_) => const NearbyScreen(),
           ),
         );
@@ -268,7 +271,7 @@ class HomeScreen extends StatelessWidget {
                   child: FilledButton.tonalIcon(
                     onPressed: () => openAdaptiveSettingsScreen(context),
                     icon: const Icon(Icons.tune_rounded),
-                    label: const Text('開啟設定'),
+                    label: const Text('開啓設定'),
                     style: FilledButton.styleFrom(
                       alignment: Alignment.centerLeft,
                     ),
@@ -303,13 +306,12 @@ class HomeScreen extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final hasBusBackgroundImage = controller.settings.pageBackgroundImagePaths
         .containsKey('bus');
-    final isWideLayout =
-        MediaQuery.sizeOf(context).width >= _desktopSidebarBreakpoint;
-
     return Scaffold(
       backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YABus'),
+        titleSpacing: 24,
+        automaticallyImplyLeading: false,
         leading:
             MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
             ? null
@@ -366,43 +368,52 @@ class HomeScreen extends StatelessWidget {
         currentMode: TransitMode.bus,
         onModeChanged: onModeChanged,
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: _shouldShowGradient(controller)
-              ? LinearGradient(
-                  colors: [
-                    colorScheme.primaryContainer.withValues(
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWideLayout =
+              constraints.maxWidth >= _desktopSidebarBreakpoint;
+          final compactMode = _useCompactHomeMode(
+            controller.settings,
+            constraints.maxWidth,
+          );
+          return Container(
+            decoration: BoxDecoration(
+              color: _shouldShowHomeBackground(controller)
+                  ? colorScheme.primaryContainer.withValues(
                       alpha: controller.settings.homeBackgroundOpacity,
-                    ),
-                    Theme.of(context).scaffoldBackgroundColor,
-                    colorScheme.secondaryContainer.withValues(
-                      alpha: controller.settings.homeBackgroundOpacity * 0.38,
-                    ),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : null,
-        ),
-        child: isWideLayout
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: _buildDesktopMainPanel(context, controller)),
-                  SizedBox(
-                    width: _desktopSidebarWidth,
-                    child: _buildDesktopSidebar(context, controller),
+                    )
+                  : null,
+            ),
+            child: isWideLayout
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _buildDesktopMainPanel(
+                          context,
+                          controller,
+                          compactMode: compactMode,
+                        ),
+                      ),
+                      SizedBox(
+                        width: _desktopSidebarWidth,
+                        child: _buildDesktopSidebar(context, controller),
+                      ),
+                    ],
+                  )
+                : _buildFeatureList(
+                    context,
+                    controller,
+                    compactMode: compactMode,
                   ),
-                ],
-              )
-            : _buildFeatureList(context, controller),
+          );
+        },
       ),
     );
   }
 
-  /// In AMOLED dark mode, skip the gradient so the pure-black background shows.
-  /// Also skip gradient when a background image is set for the bus page.
-  bool _shouldShowGradient(AppController controller) {
+  /// Avoid tinting AMOLED black or a user-selected background image.
+  bool _shouldShowHomeBackground(AppController controller) {
     final settings = controller.settings;
     if (settings.useAmoledDark && settings.themeMode != ThemeMode.light) {
       return false;
@@ -414,7 +425,7 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-bool _useCompactHomeMode(BuildContext context, AppSettings settings) {
+bool _useCompactHomeMode(AppSettings settings, double availableWidth) {
   final isDesktopApp =
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.windows ||
@@ -422,7 +433,7 @@ bool _useCompactHomeMode(BuildContext context, AppSettings settings) {
           defaultTargetPlatform == TargetPlatform.macOS);
   return isDesktopApp ||
       settings.enableCompactMode ||
-      MediaQuery.sizeOf(context).width >= HomeScreen._desktopSidebarBreakpoint;
+      availableWidth >= HomeScreen._desktopSidebarBreakpoint;
 }
 
 class _WebPwaInstallButton extends StatelessWidget {
@@ -437,7 +448,7 @@ class _WebPwaInstallButton extends StatelessWidget {
           content: const Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('把 YABus 安裝成應用程式，之後就能像一般應用程式一樣開啟。'),
+              Text('把 YABus 安裝成應用程式，之後就能像一般應用程式一樣開啓。'),
               SizedBox(height: 12),
               Text(
                 '功能會比原版應用程式少就是了',
@@ -772,7 +783,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '這個功能目前已關閉。開啟後，YABus 會學習你在不同時段最常點開的路線，並在首頁直接推薦。',
+            '這個功能目前已關閉。開啓後，YABus 會學習你在不同時段最常點開的路線，並在首頁直接推薦。',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 16),
@@ -809,7 +820,7 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '再多打開幾次常用路線，尤其是在你平常會查車的時段。至少累積幾次實際開啟後，這裡才會開始穩定推薦；如果有定位資料，也會優先嘗試帶你看最近站點。',
+            '再多打開幾次常用路線，尤其是在你平常會查車的時段。至少累積幾次實際開啓後，這裡才會開始穩定推薦；如果有定位資料，也會優先嘗試帶你看最近站點。',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 14),
@@ -1231,7 +1242,7 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
 
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        throw StateError('定位服務尚未開啟。');
+        throw StateError('定位服務尚未開啓。');
       }
 
       var permission = await Geolocator.checkPermission();
@@ -1326,7 +1337,7 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
   Future<void> _openNearbyScreen() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'nearby'),
+        settings: const RouteSettings(name: AppRoutes.nearby),
         builder: (_) => const NearbyScreen(),
       ),
     );
@@ -1344,8 +1355,8 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
             routeName: selected.route.routeName,
           );
     final compactMode = _useCompactHomeMode(
-      context,
       widget.controller.settings,
+      HomeScreen._desktopSidebarWidth,
     );
 
     return Card(

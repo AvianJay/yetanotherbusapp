@@ -106,7 +106,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
       if (!serviceEnabled) {
         setState(() {
-          _permissionMessage = '定位服務尚未開啟。你仍可手動選擇資料庫。';
+          _permissionMessage = '定位服務尚未開啓。你仍可手動選擇資料庫。';
         });
       } else if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever ||

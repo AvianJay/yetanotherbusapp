@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -25,8 +26,8 @@ Future<void> main(List<String> args) async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   usePathUrlStrategy();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
-  await configureDatabaseFactory();
   try {
+    await configureDatabaseFactory();
     await AppLaunchService.instance.initialize(initialArguments: args);
     final analytics = await AppAnalytics.initialize();
     final buildInfo = await AppBuildInfo.load();
@@ -45,14 +46,20 @@ Future<void> main(List<String> args) async {
     await controller.initialize();
     unawaited(AdService.instance.initialize());
     runApp(BusApp(controller: controller, analytics: analytics));
-    unawaited(AnnouncementPushService.instance.initialize());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(controller.initializeAfterFirstFrame());
+    });
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(AnnouncementPushService.instance.initialize());
+      });
+    } else {
+      unawaited(AnnouncementPushService.instance.initialize());
+    }
   } catch (error) {
     runApp(
       _StartupErrorApp(
-        message: friendlyErrorMessage(
-          error,
-          fallback: '啟動時發生未預期的錯誤，請稍後再試。',
-        ),
+        message: friendlyErrorMessage(error, fallback: '啓動時發生未預期的錯誤，請稍後再試。'),
         detail: '$error',
       ),
     );
@@ -80,7 +87,7 @@ class _StartupErrorApp extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    '啟動失敗',
+                    '啓動失敗',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 12),

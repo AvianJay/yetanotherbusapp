@@ -95,7 +95,7 @@ class DatabaseSettingsScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('啟動時更新', style: theme.textTheme.titleMedium),
+                      Text('啓動時更新', style: theme.textTheme.titleMedium),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<DatabaseAutoUpdateMode>(
                         initialValue:
@@ -329,7 +329,7 @@ class DatabaseSettingsScreen extends StatelessWidget {
                         const SizedBox(height: 8),
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
-                          title: const Text('啟用 Discord Rich Presence'),
+                          title: const Text('啓用 Discord Rich Presence'),
                           subtitle: const Text(
                             '分享你正在看的公車給朋友 (⁠ ⁠/⁠^⁠ω⁠^⁠)⁠/⁠⁠',
                           ),

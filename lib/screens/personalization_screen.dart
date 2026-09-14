@@ -347,7 +347,7 @@ class PersonalizationScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       // Text(
-                      //   '背景圖片啟用時，卡片、AppBar 等元件的透明度，數值越高越不透明',
+                      //   '背景圖片啓用時，卡片、AppBar 等元件的透明度，數值越高越不透明',
                       //   style: Theme.of(context).textTheme.bodySmall,
                       // ),
                       const SizedBox(height: 12),

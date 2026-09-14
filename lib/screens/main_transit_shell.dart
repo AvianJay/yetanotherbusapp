@@ -26,20 +26,6 @@ class _MainTransitShellState extends State<MainTransitShell> {
   TransitMode _currentMode = TransitMode.bus;
   final Set<TransitMode> _loadedModes = {TransitMode.bus};
 
-  static const _visibleModes = [
-    TransitMode.bus,
-    TransitMode.metro,
-    TransitMode.thsr,
-    TransitMode.tra,
-    TransitMode.youbike,
-  ];
-  static const _railDestinations = [
-    (TransitMode.bus, Icons.directions_bus_rounded, '公車'),
-    (TransitMode.metro, Icons.subway_rounded, '捷運'),
-    (TransitMode.thsr, Icons.train_rounded, '高鐵'),
-    (TransitMode.tra, Icons.tram_rounded, '台鐵'),
-    (TransitMode.youbike, Icons.pedal_bike_rounded, 'YouBike'),
-  ];
   static const _desktopRailExtendedBreakpoint = 1280.0;
   static const _switchDuration = Duration(milliseconds: 220);
   static const _hiddenOffset = Offset(0.035, 0);
@@ -51,25 +37,20 @@ class _MainTransitShellState extends State<MainTransitShell> {
   }
 
   void _setMode(TransitMode mode) {
-    if (!_visibleModes.contains(mode)) {
+    if (!kTransitModeDestinations.any(
+      (destination) => destination.mode == mode,
+    )) {
       mode = TransitMode.bus;
     }
     if (mode == _currentMode) {
       return;
     }
 
-    if (_loadedModes.contains(mode)) {
-      setState(() => _currentMode = mode);
-      unawaited(_syncDesktopPresenceForMode(mode));
-      return;
-    }
-
-    setState(() => _loadedModes.add(mode));
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() => _currentMode = mode);
-      unawaited(_syncDesktopPresenceForMode(mode));
+    setState(() {
+      _loadedModes.add(mode);
+      _currentMode = mode;
     });
+    unawaited(_syncDesktopPresenceForMode(mode));
   }
 
   Future<void> _syncDesktopPresenceForMode(TransitMode mode) async {
@@ -94,9 +75,14 @@ class _MainTransitShellState extends State<MainTransitShell> {
 
   @override
   Widget build(BuildContext context) {
-    final screens = _visibleModes
-        .where(_loadedModes.contains)
-        .map((mode) => (mode: mode, child: _buildScreenForMode(mode)))
+    final screens = kTransitModeDestinations
+        .where((destination) => _loadedModes.contains(destination.mode))
+        .map(
+          (destination) => (
+            mode: destination.mode,
+            child: _buildScreenForMode(destination.mode),
+          ),
+        )
         .toList();
     final orderedScreens = [
       ...screens.where((screen) => screen.mode != _currentMode),
@@ -120,27 +106,45 @@ class _MainTransitShellState extends State<MainTransitShell> {
     }
 
     final colorScheme = Theme.of(context).colorScheme;
+    final isExtendedRail = screenWidth >= _desktopRailExtendedBreakpoint;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         NavigationRail(
-          extended: screenWidth >= _desktopRailExtendedBreakpoint,
+          extended: isExtendedRail,
+          minExtendedWidth: 184,
           backgroundColor: colorScheme.surfaceContainerLow,
-          selectedIndex: _visibleModes.indexOf(_currentMode),
+          groupAlignment: -0.82,
+          leading: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 20, 12, 8),
+            child: isExtendedRail
+                ? Text(
+                    '交通工具',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  )
+                : Icon(
+                    Icons.directions_transit_rounded,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+          ),
+          selectedIndex: kTransitModeDestinations.indexWhere(
+            (destination) => destination.mode == _currentMode,
+          ),
           onDestinationSelected: (index) {
-            if (index >= 0 && index < _visibleModes.length) {
-              _setMode(_visibleModes[index]);
+            if (index >= 0 && index < kTransitModeDestinations.length) {
+              _setMode(kTransitModeDestinations[index].mode);
             }
           },
-          labelType: screenWidth >= _desktopRailExtendedBreakpoint
-              ? null
-              : NavigationRailLabelType.all,
+          labelType: isExtendedRail ? null : NavigationRailLabelType.all,
           destinations: [
-            for (final (_, icon, label) in _railDestinations)
+            for (final destination in kTransitModeDestinations)
               NavigationRailDestination(
-                icon: Icon(icon),
-                selectedIcon: Icon(icon),
-                label: Text(label),
+                icon: Icon(destination.icon),
+                selectedIcon: Icon(destination.icon),
+                label: Text(destination.label),
               ),
           ],
         ),
@@ -157,10 +161,22 @@ class _MainTransitShellState extends State<MainTransitShell> {
   Widget _buildScreenForMode(TransitMode mode) {
     return switch (mode) {
       TransitMode.bus => HomeScreen(onModeChanged: _setMode),
-      TransitMode.metro => MetroScreen(onModeChanged: _setMode),
-      TransitMode.thsr => ThsrScreen(onModeChanged: _setMode),
-      TransitMode.tra => TraScreen(onModeChanged: _setMode),
-      TransitMode.youbike => YouBikeScreen(onModeChanged: _setMode),
+      TransitMode.metro => MetroScreen(
+        onModeChanged: _setMode,
+        isActive: mode == _currentMode,
+      ),
+      TransitMode.thsr => ThsrScreen(
+        onModeChanged: _setMode,
+        isActive: mode == _currentMode,
+      ),
+      TransitMode.tra => TraScreen(
+        onModeChanged: _setMode,
+        isActive: mode == _currentMode,
+      ),
+      TransitMode.youbike => YouBikeScreen(
+        onModeChanged: _setMode,
+        isActive: mode == _currentMode,
+      ),
     };
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/bus_app.dart';
 import '../core/friendly_error.dart';
+import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
@@ -13,16 +14,21 @@ import '../widgets/ad_banner_widget.dart';
 enum _ThsrPanel { timetable, seats, map }
 
 class ThsrScreen extends StatefulWidget {
-  const ThsrScreen({required this.onModeChanged, super.key});
+  const ThsrScreen({
+    required this.onModeChanged,
+    required this.isActive,
+    super.key,
+  });
 
   final ValueChanged<TransitMode> onModeChanged;
+  final bool isActive;
 
   @override
   State<ThsrScreen> createState() => _ThsrScreenState();
 }
 
 class _ThsrScreenState extends State<ThsrScreen> {
-  final TransitRepository _repo = TransitRepository();
+  final TransitRepository _repo = TransitRepository.shared;
 
   bool _loadingStations = true;
   bool _loadingSeats = false;
@@ -41,6 +47,8 @@ class _ThsrScreenState extends State<ThsrScreen> {
   List<ThsrOdTrain> _results = [];
   List<ThsrSeatInfo> _seatInfos = [];
   Timer? _seatRefreshTimer;
+  final _initialDataRequest = RequestSequence();
+  final _seatsRequest = RequestSequence();
 
   @override
   void initState() {
@@ -54,7 +62,30 @@ class _ThsrScreenState extends State<ThsrScreen> {
     super.dispose();
   }
 
-  Future<void> _loadInitialData() async {
+  @override
+  void didUpdateWidget(covariant ThsrScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) {
+      return;
+    }
+    if (!widget.isActive) {
+      _seatRefreshTimer?.cancel();
+      _seatRefreshTimer = null;
+      return;
+    }
+    if (_selectedStation != null) {
+      unawaited(_loadSeats());
+    } else if (!_loadingStations) {
+      unawaited(_loadInitialData());
+    }
+  }
+
+  Future<void> _loadInitialData({bool refresh = false}) async {
+    final request = _initialDataRequest.next();
+    _seatsRequest.next();
+    if (refresh) {
+      _repo.invalidateCache('thsr_');
+    }
     setState(() {
       _loadingStations = true;
       _pageError = null;
@@ -64,7 +95,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
         _repo.getThsrStations(),
         _repo.getThsrAlerts(),
       ]);
-      if (!mounted) {
+      if (!mounted || !_initialDataRequest.isCurrent(request)) {
         return;
       }
 
@@ -91,12 +122,12 @@ class _ThsrScreenState extends State<ThsrScreen> {
         await _loadSeats(station: selectedStation);
       }
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || !_initialDataRequest.isCurrent(request)) {
         return;
       }
       setState(() => _pageError = friendlyErrorMessage(error));
     } finally {
-      if (mounted) {
+      if (mounted && _initialDataRequest.isCurrent(request)) {
         setState(() => _loadingStations = false);
       }
     }
@@ -122,37 +153,41 @@ class _ThsrScreenState extends State<ThsrScreen> {
     if (activeStation == null) {
       return;
     }
+    final request = _seatsRequest.next();
     setState(() {
       _loadingSeats = true;
       _seatError = null;
     });
     try {
       final seatInfos = await _repo.getThsrSeats(activeStation.stationId);
-      if (!mounted) {
+      if (!mounted || !_seatsRequest.isCurrent(request)) {
         return;
       }
       setState(() {
         _selectedStation = activeStation;
         _seatInfos = seatInfos;
       });
-      if (resetTimer) {
+      if (resetTimer && widget.isActive) {
         _seatRefreshTimer?.cancel();
-        _seatRefreshTimer = Timer.periodic(
-          const Duration(seconds: 30),
-          (_) => _loadSeats(resetTimer: false),
-        );
+        _seatRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+          if (!mounted || !widget.isActive) {
+            _seatRefreshTimer?.cancel();
+            _seatRefreshTimer = null;
+            return;
+          }
+          unawaited(_loadSeats(resetTimer: false));
+        });
       }
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || !_seatsRequest.isCurrent(request)) {
         return;
       }
       setState(() {
         _selectedStation = activeStation;
-        _seatInfos = const [];
         _seatError = friendlyErrorMessage(error);
       });
     } finally {
-      if (mounted) {
+      if (mounted && _seatsRequest.isCurrent(request)) {
         setState(() => _loadingSeats = false);
       }
     }
@@ -221,6 +256,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
         title: const Text('YAHSR'),
+        automaticallyImplyLeading: false,
         leading:
             MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
             ? null
@@ -233,7 +269,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
         actions: [
           IconButton(
             tooltip: '重新整理',
-            onPressed: _loadInitialData,
+            onPressed: () => _loadInitialData(refresh: true),
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -248,15 +284,15 @@ class _ThsrScreenState extends State<ThsrScreen> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 960),
-                child: _loadingStations
+                child: _loadingStations && _stations.isEmpty
                     ? const Center(child: CircularProgressIndicator())
                     : _pageError != null && _stations.isEmpty
                     ? _ErrorState(
                         message: _pageError!,
-                        onRetry: _loadInitialData,
+                        onRetry: () => _loadInitialData(refresh: true),
                       )
                     : RefreshIndicator(
-                        onRefresh: _loadInitialData,
+                        onRefresh: () => _loadInitialData(refresh: true),
                         child: ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.all(16),

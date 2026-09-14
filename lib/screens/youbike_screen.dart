@@ -9,6 +9,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 
 import '../app/bus_app.dart';
+import '../core/debouncer.dart';
+import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_drawer.dart';
@@ -16,17 +18,24 @@ import '../widgets/platform_map_provider.dart';
 import '../widgets/ad_banner_widget.dart';
 
 class YouBikeScreen extends StatefulWidget {
-  const YouBikeScreen({required this.onModeChanged, super.key});
+  const YouBikeScreen({
+    required this.onModeChanged,
+    required this.isActive,
+    super.key,
+  });
 
   final ValueChanged<TransitMode> onModeChanged;
+  final bool isActive;
 
   @override
   State<YouBikeScreen> createState() => _YouBikeScreenState();
 }
 
-class _YouBikeScreenState extends State<YouBikeScreen> {
-  final TransitRepository _repo = TransitRepository();
+class _YouBikeScreenState extends State<YouBikeScreen>
+    with SingleTickerProviderStateMixin {
+  final TransitRepository _repo = TransitRepository.shared;
   final MapController _mapController = MapController();
+  late final AnimationController _osmCameraAnimation;
   gmaps.GoogleMapController? _googleMapController;
   final Map<String, gmaps.BitmapDescriptor> _googleStationIcons =
       <String, gmaps.BitmapDescriptor>{};
@@ -38,6 +47,8 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   static const _defaultZoom = 15.0;
   static const _searchRadius = 1500; // metres
   static const _splitLayoutBreakpoint = 1080.0;
+  static const _mapMoveDebounce = Duration(milliseconds: 300);
+  static const _cameraAnimationDuration = Duration(milliseconds: 320);
 
   LatLng _center = _defaultCenter;
   LatLng _googleCameraCenter = _defaultCenter;
@@ -48,6 +59,13 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   List<BikeStation> _stations = [];
   BikeStation? _selectedStation;
   Timer? _refreshTimer;
+  bool _usesSplitLayout = false;
+  final _nearbyRequest = RequestSequence();
+  final _mapMoveDebouncer = Debouncer(_mapMoveDebounce);
+  LatLng? _osmCameraStart;
+  LatLng? _osmCameraTarget;
+  double? _osmCameraStartZoom;
+  double? _osmCameraTargetZoom;
 
   bool get _useGoogleMapsPointProvider => useGoogleMapsProviderFor(
     AppControllerScope.read(context).settings.mobileMapProvider,
@@ -56,14 +74,38 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   @override
   void initState() {
     super.initState();
+    _osmCameraAnimation = AnimationController(
+      vsync: this,
+      duration: _cameraAnimationDuration,
+    )..addListener(_animateOsmCamera);
     _initLocation();
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _mapMoveDebouncer.dispose();
+    _osmCameraAnimation
+      ..removeListener(_animateOsmCamera)
+      ..dispose();
     _googleMapController?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant YouBikeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) {
+      return;
+    }
+    if (!widget.isActive) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      return;
+    }
+    if (!_locating) {
+      unawaited(_loadNearby(_center));
+    }
   }
 
   Future<void> _initLocation() async {
@@ -103,6 +145,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   }
 
   Future<void> _loadNearby(LatLng loc) async {
+    final request = _nearbyRequest.next();
     setState(() => _loadingStations = true);
     try {
       final stations = await _repo.getBikeNearby(
@@ -110,18 +153,27 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
         lon: loc.longitude,
         radius: _searchRadius,
       );
-      if (!mounted) return;
+      if (!mounted || !_nearbyRequest.isCurrent(request)) return;
       setState(() {
         _stations = stations;
         _center = loc;
       });
-      _refreshTimer?.cancel();
-      _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-        _loadNearby(_center);
-      });
+      if (widget.isActive) {
+        _refreshTimer?.cancel();
+        _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+          if (!mounted || !widget.isActive) {
+            _refreshTimer?.cancel();
+            _refreshTimer = null;
+            return;
+          }
+          unawaited(_loadNearby(_center));
+        });
+      }
     } catch (_) {
     } finally {
-      if (mounted) setState(() => _loadingStations = false);
+      if (mounted && _nearbyRequest.isCurrent(request)) {
+        setState(() => _loadingStations = false);
+      }
     }
   }
 
@@ -142,7 +194,21 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
           c.longitude,
         ) >
         800) {
-      _loadNearby(c);
+      _mapMoveDebouncer.schedule(() {
+        if (!mounted) {
+          return;
+        }
+        final center = _mapController.camera.center;
+        if (Geolocator.distanceBetween(
+              _center.latitude,
+              _center.longitude,
+              center.latitude,
+              center.longitude,
+            ) >
+            800) {
+          unawaited(_loadNearby(center));
+        }
+      });
     }
   }
 
@@ -167,7 +233,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
     final point = _stationPointIfValid(station);
     setState(() => _selectedStation = station);
     if (point == null) {
-      if (MediaQuery.sizeOf(context).width < _splitLayoutBreakpoint) {
+      if (!_usesSplitLayout) {
         _showStationDetail(station);
       }
       return;
@@ -181,9 +247,9 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
         ),
       );
     } else {
-      _mapController.move(point, _mapController.camera.zoom);
+      _animateOsmCameraTo(point, _mapController.camera.zoom);
     }
-    if (MediaQuery.sizeOf(context).width < _splitLayoutBreakpoint) {
+    if (!_usesSplitLayout) {
       _showStationDetail(station);
     }
   }
@@ -200,10 +266,44 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
           ),
         );
       } else {
-        _mapController.move(_userLocation!, _defaultZoom);
+        _animateOsmCameraTo(_userLocation!, _defaultZoom);
       }
       _loadNearby(_userLocation!);
     }
+  }
+
+  void _animateOsmCameraTo(LatLng target, double targetZoom) {
+    try {
+      final camera = _mapController.camera;
+      _osmCameraStart = camera.center;
+      _osmCameraTarget = target;
+      _osmCameraStartZoom = camera.zoom;
+      _osmCameraTargetZoom = targetZoom;
+      _osmCameraAnimation.forward(from: 0);
+    } catch (_) {
+      _mapController.move(target, targetZoom);
+    }
+  }
+
+  void _animateOsmCamera() {
+    final start = _osmCameraStart;
+    final target = _osmCameraTarget;
+    final startZoom = _osmCameraStartZoom;
+    final targetZoom = _osmCameraTargetZoom;
+    if (start == null ||
+        target == null ||
+        startZoom == null ||
+        targetZoom == null) {
+      return;
+    }
+    final progress = Curves.easeOutCubic.transform(_osmCameraAnimation.value);
+    _mapController.move(
+      LatLng(
+        ui.lerpDouble(start.latitude, target.latitude, progress)!,
+        ui.lerpDouble(start.longitude, target.longitude, progress)!,
+      ),
+      ui.lerpDouble(startZoom, targetZoom, progress)!,
+    );
   }
 
   void _showNearbyStationsSheet() {
@@ -302,7 +402,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                               subtitle: Text(
-                                '可借 ${station.availableRent}  可還 ${station.availableReturn}',
+                                _bikeAvailabilitySummary(station),
                                 style: theme.textTheme.bodySmall,
                               ),
                               trailing: station.distanceMeters != null
@@ -424,8 +524,21 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                 child: _StatItem(
                   icon: Icons.pedal_bike_rounded,
                   color: Colors.green.shade600,
-                  label: '可借',
-                  value: '${station.availableRent}',
+                  label: '一般車',
+                  value: '${station.availableRentGeneral}',
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 40,
+                color: theme.colorScheme.outlineVariant,
+              ),
+              Expanded(
+                child: _StatItem(
+                  icon: Icons.electric_bike_rounded,
+                  color: Colors.orange.shade700,
+                  label: '2.0E 電輔',
+                  value: '${station.availableRentElectric}',
                 ),
               ),
               Container(
@@ -439,19 +552,6 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                   color: Colors.blue.shade600,
                   label: '可還',
                   value: '${station.availableReturn}',
-                ),
-              ),
-              Container(
-                width: 1,
-                height: 40,
-                color: theme.colorScheme.outlineVariant,
-              ),
-              Expanded(
-                child: _StatItem(
-                  icon: Icons.grid_view_rounded,
-                  color: theme.colorScheme.onSurfaceVariant,
-                  label: '當前總計',
-                  value: '${station.availableRent + station.availableReturn}',
                 ),
               ),
             ],
@@ -608,7 +708,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 subtitle: Text(
-                                  '可借 ${station.availableRent}  可還 ${station.availableReturn}',
+                                  _bikeAvailabilitySummary(station),
                                   style: theme.textTheme.bodySmall,
                                 ),
                                 trailing: station.distanceMeters != null
@@ -742,15 +842,28 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
                                 ),
                               ],
                             ),
-                            child: Center(
-                              child: Text(
-                                '${station.availableRent}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Center(
+                                  child: Text(
+                                    '${station.availableRent}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                if (station.availableRentElectric > 0)
+                                  Positioned(
+                                    top: -3,
+                                    right: -3,
+                                    child: _ElectricBikeMapBadge(
+                                      size: selected ? 17 : 15,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ),
@@ -838,11 +951,13 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
           key: _googleStationIconKey(
             countLabel: _bikeCountLabel(station),
             color: _availabilityColor(station),
+            hasElectric: station.availableRentElectric > 0,
             selected: markerSelected,
             pixelRatio: pixelRatio,
           ),
           countLabel: _bikeCountLabel(station),
           color: _availabilityColor(station),
+          hasElectric: station.availableRentElectric > 0,
           selected: markerSelected,
           pixelRatio: pixelRatio,
         );
@@ -863,12 +978,14 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
   String _googleStationIconKey({
     required String countLabel,
     required Color color,
+    required bool hasElectric,
     required bool selected,
     required double pixelRatio,
   }) {
     return [
       countLabel,
       color.toARGB32().toRadixString(16),
+      hasElectric ? 'electric' : 'standard',
       selected ? 'selected' : 'normal',
       pixelRatio.toStringAsFixed(2),
     ].join('|');
@@ -995,6 +1112,32 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       center - ui.Offset(textPainter.width / 2, textPainter.height / 2),
     );
 
+    if (request.hasElectric) {
+      final badgeCenter = ui.Offset(request.logicalSize - 8, 8);
+      canvas.drawCircle(
+        badgeCenter,
+        7,
+        ui.Paint()..color = const Color(0xFF172033),
+      );
+      canvas.drawCircle(
+        badgeCenter,
+        7,
+        ui.Paint()
+          ..style = ui.PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = Colors.white,
+      );
+      final bolt = ui.Path()
+        ..moveTo(badgeCenter.dx - 1, badgeCenter.dy - 5)
+        ..lineTo(badgeCenter.dx - 5, badgeCenter.dy + 1)
+        ..lineTo(badgeCenter.dx - 1, badgeCenter.dy + 1)
+        ..lineTo(badgeCenter.dx - 3, badgeCenter.dy + 6)
+        ..lineTo(badgeCenter.dx + 5, badgeCenter.dy - 2)
+        ..lineTo(badgeCenter.dx + 1, badgeCenter.dy - 2)
+        ..close();
+      canvas.drawPath(bolt, ui.Paint()..color = const Color(0xFFFFD54F));
+    }
+
     final picture = recorder.endRecording();
     final image = await picture.toImage(pixelSize, pixelSize);
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -1037,6 +1180,7 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       final iconKey = _googleStationIconKey(
         countLabel: _bikeCountLabel(station),
         color: color,
+        hasElectric: station.availableRentElectric > 0,
         selected: selected,
         pixelRatio: MediaQuery.of(
           context,
@@ -1086,8 +1230,6 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final useSplitLayout =
-        MediaQuery.sizeOf(context).width >= _splitLayoutBreakpoint;
     final theme = Theme.of(context);
     final useGoogleMapsPointProvider = useGoogleMapsProviderFor(
       AppControllerScope.of(context).settings.mobileMapProvider,
@@ -1097,75 +1239,89 @@ class _YouBikeScreenState extends State<YouBikeScreen> {
       pageKey: 'bus',
     );
 
-    return Scaffold(
-      backgroundColor: hasBackgroundImage ? Colors.transparent : null,
-      appBar: AppBar(
-        title: const Text('YABike'),
-        leading:
-            MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
-            ? null
-            : Builder(
-                builder: (ctx) => IconButton(
-                  icon: const Icon(Icons.menu_rounded),
-                  onPressed: () => Scaffold.of(ctx).openDrawer(),
-                ),
-              ),
-        actions: [
-          if (!useSplitLayout)
-            IconButton(
-              tooltip: '附近站點',
-              onPressed: _showNearbyStationsSheet,
-              icon: Badge(
-                isLabelVisible: _stations.isNotEmpty,
-                label: Text('${_stations.length}'),
-                child: const Icon(Icons.list_alt_rounded),
-              ),
-            ),
-        ],
-      ),
-      drawer: TransitDrawer(
-        currentMode: TransitMode.youbike,
-        onModeChanged: widget.onModeChanged,
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _locating
-                ? const Center(child: CircularProgressIndicator())
-                : useSplitLayout
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SizedBox(
-                        width: 380,
-                        child: _buildSplitStationSidebar(theme),
-                      ),
-                      VerticalDivider(
-                        width: 1,
-                        thickness: 1,
-                        color: theme.colorScheme.outlineVariant,
-                      ),
-                      Expanded(
-                        child: _buildMapContent(
-                          useGoogleMapsPointProvider:
-                              useGoogleMapsPointProvider,
-                        ),
-                      ),
-                    ],
-                  )
-                : _buildMapContent(
-                    useGoogleMapsPointProvider: useGoogleMapsPointProvider,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useSplitLayout = constraints.maxWidth >= _splitLayoutBreakpoint;
+        _usesSplitLayout = useSplitLayout;
+        return Scaffold(
+          backgroundColor: hasBackgroundImage ? Colors.transparent : null,
+          appBar: AppBar(
+            title: const Text('YABike'),
+            automaticallyImplyLeading: false,
+            leading:
+                MediaQuery.sizeOf(context).width >=
+                    kDesktopNavigationRailBreakpoint
+                ? null
+                : Builder(
+                    builder: (ctx) => IconButton(
+                      icon: const Icon(Icons.menu_rounded),
+                      onPressed: () => Scaffold.of(ctx).openDrawer(),
+                    ),
                   ),
+            actions: [
+              if (!useSplitLayout)
+                IconButton(
+                  tooltip: '附近站點',
+                  onPressed: _showNearbyStationsSheet,
+                  icon: Badge(
+                    isLabelVisible: _stations.isNotEmpty,
+                    label: Text('${_stations.length}'),
+                    child: const Icon(Icons.list_alt_rounded),
+                  ),
+                ),
+            ],
           ),
-          const AdBannerWidget(),
-        ],
-      ),
+          drawer: TransitDrawer(
+            currentMode: TransitMode.youbike,
+            onModeChanged: widget.onModeChanged,
+          ),
+          body: Column(
+            children: [
+              Expanded(
+                child: _locating
+                    ? const Center(child: CircularProgressIndicator())
+                    : useSplitLayout
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            width: 380,
+                            child: _buildSplitStationSidebar(theme),
+                          ),
+                          VerticalDivider(
+                            width: 1,
+                            thickness: 1,
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                          Expanded(
+                            child: _buildMapContent(
+                              useGoogleMapsPointProvider:
+                                  useGoogleMapsPointProvider,
+                            ),
+                          ),
+                        ],
+                      )
+                    : _buildMapContent(
+                        useGoogleMapsPointProvider: useGoogleMapsPointProvider,
+                      ),
+              ),
+              const AdBannerWidget(),
+            ],
+          ),
+        );
+      },
     );
   }
 
   String _formatDist(double meters) {
     if (meters < 1000) return '${meters.round()}m';
     return '${(meters / 1000).toStringAsFixed(1)}km';
+  }
+
+  String _bikeAvailabilitySummary(BikeStation station) {
+    return '一般 ${station.availableRentGeneral} · '
+        '2.0E ${station.availableRentElectric} · '
+        '可還 ${station.availableReturn}';
   }
 }
 
@@ -1174,6 +1330,7 @@ class _GoogleYouBikeMarkerRequest {
     required this.key,
     required this.countLabel,
     required this.color,
+    required this.hasElectric,
     required this.selected,
     required this.pixelRatio,
   });
@@ -1181,6 +1338,7 @@ class _GoogleYouBikeMarkerRequest {
   final String key;
   final String countLabel;
   final Color color;
+  final bool hasElectric;
   final bool selected;
   final double pixelRatio;
 
@@ -1210,6 +1368,30 @@ class _GoogleYouBikeUserLocationIcon {
   double get outerRadius => 12;
 
   double get innerRadius => 8.6;
+}
+
+class _ElectricBikeMapBadge extends StatelessWidget {
+  const _ElectricBikeMapBadge({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: const Color(0xFF172033),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 1.5),
+      ),
+      child: Icon(
+        Icons.bolt_rounded,
+        size: size - 3,
+        color: const Color(0xFFFFD54F),
+      ),
+    );
+  }
 }
 
 class _StatItem extends StatelessWidget {

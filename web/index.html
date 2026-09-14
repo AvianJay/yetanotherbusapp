@@ -198,13 +198,20 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
-  <!-- Google Analytics (gtag.js) -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-RB7WBXXRQN"></script>
+  <!-- Analytics is noncritical; defer its network work until first-render idle time. -->
   <script>
     window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-    gtag('config', 'G-RB7WBXXRQN');
+    window.gtag = window.gtag || function(){ window.dataLayer.push(arguments); };
+    (window.requestIdleCallback || function(callback) {
+      return window.setTimeout(callback, 3000);
+    })(function() {
+      window.gtag('js', new Date());
+      window.gtag('config', 'G-RB7WBXXRQN');
+      var script = document.createElement('script');
+      script.async = true;
+      script.src = 'https://www.googletagmanager.com/gtag/js?id=G-RB7WBXXRQN';
+      document.head.appendChild(script);
+    }, { timeout: 3000 });
   </script>
 
   <script src="flutter_bootstrap.js" async=""></script>

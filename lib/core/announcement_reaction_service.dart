@@ -26,7 +26,8 @@ class AnnouncementReactionService {
     String announcementId,
     String emoji,
   ) async {
-    final response = await _client.post(
+    final response = await apiPost(
+      _client,
       Uri.parse(
         '${ApiConfig.baseUrl}/api/v1/announcements/'
         '${Uri.encodeComponent(announcementId)}/reactions/toggle',

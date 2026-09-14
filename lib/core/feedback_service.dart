@@ -62,7 +62,8 @@ class FeedbackService {
       throw ArgumentError('內容不能超過 4000 字。');
     }
 
-    final response = await _client.post(
+    final response = await apiPost(
+      _client,
       Uri.parse('${ApiConfig.baseUrl}/api/v1/feedback'),
       headers: ApiUserAgent.applyTo(apiJsonContentHeaders),
       body: jsonEncode({'title': cleanedTitle, 'content': cleanedContent}),

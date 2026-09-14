@@ -133,6 +133,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   List<RouteAlert> _alerts = const <RouteAlert>[];
   bool _alertsFetched = false;
   bool _alertsRead = false;
+  bool _cancelledDeparturePromptChecked = false;
   int _refreshRequestId = 0;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
   Map<int, int> _nearestStopByPath = const <int, int>{};
@@ -319,6 +320,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           );
         });
       }
+      if (!_cancelledDeparturePromptChecked) {
+        await _maybeShowTaichungCancelledDepartures(displayDetail);
+      }
       if (!_alertsFetched) {
         _alertsFetched = true;
         unawaited(_fetchAndShowAlerts(displayDetail.route.routeId));
@@ -391,6 +395,97 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     } catch (_) {
       // Silently ignore alert fetch errors.
     }
+  }
+
+  Future<void> _maybeShowTaichungCancelledDepartures(
+    RouteDetailData detail,
+  ) async {
+    if (_cancelledDeparturePromptChecked ||
+        widget.provider != BusProvider.txg) {
+      return;
+    }
+    _cancelledDeparturePromptChecked = true;
+    try {
+      final departures = await AppControllerScope.read(context).repository
+          .fetchTaichungCancelledDepartures(
+            routeId: detail.route.routeId,
+            routeName: detail.route.routeName,
+            date: DateTime.now(),
+          );
+      if (!mounted || !_isRouteVisible || departures.isEmpty) {
+        return;
+      }
+      final departuresByDirection = <int, List<CancelledDeparture>>{};
+      for (final departure in departures) {
+        (departuresByDirection[departure.direction] ??= <CancelledDeparture>[])
+            .add(departure);
+      }
+      final directions = departuresByDirection.keys.toList()..sort();
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          final theme = Theme.of(dialogContext);
+          return AlertDialog(
+            title: const Text('今日取消發車資訊'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final direction in directions) ...[
+                    Text(
+                      '${_taichungCancelledDestinationLabel(detail, direction)}：',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      departuresByDirection[direction]!
+                          .map((departure) => departure.departureTime)
+                          .join('、'),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: theme.colorScheme.error,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (direction != directions.last)
+                      const SizedBox(height: 12),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('知道了'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (_) {
+      // Cancellation data is supplementary; keep route details usable.
+    }
+  }
+
+  String _taichungCancelledDestinationLabel(
+    RouteDetailData detail,
+    int direction,
+  ) {
+    final pathId = direction - 1;
+    String? pathName;
+    for (final path in detail.paths) {
+      if (path.pathId == pathId) {
+        pathName = path.name;
+        break;
+      }
+    }
+    return routeDirectionLabel(
+      pathName: pathName,
+      pathId: pathId,
+      routeName: detail.route.routeName,
+    );
   }
 
   void _playSelectionHaptic() {
@@ -1412,7 +1507,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         context: context,
         builder: (context) {
           return AlertDialog(
-            title: const Text('啟用背景乘車提醒？'),
+            title: const Text('啓用背景乘車提醒？'),
             content: const Text('YABus 可以在你把 app 丟到背景後繼續追蹤這條路線，並在接近目的地下車前提醒你。'),
             actions: [
               TextButton(
@@ -1421,7 +1516,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               ),
               FilledButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('啟用'),
+                child: const Text('啓用'),
               ),
             ],
           );
@@ -1457,7 +1552,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 content: const Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('你的系統可能支援流體雲功能，但你需要在 YABus 的通知設定裡啟用他。'),
+                    Text('你的系統可能支援流體雲功能，但你需要在 YABus 的通知設定裡啓用他。'),
                     SizedBox(height: 8),
                     Image(
                       image: AssetImage('assets/oppo_enable_live_alert.jpg'),
@@ -1522,10 +1617,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('如果背景乘車資訊沒有出現在 Now Bar，請啟用 Samsung 的即時通知測試選項。'),
+                  Text('如果背景乘車資訊沒有出現在 Now Bar，請啓用 Samsung 的即時通知測試選項。'),
                   SizedBox(height: 12),
                   Text(
-                    '尚未啟用開發人員選項：\n'
+                    '尚未啓用開發人員選項：\n'
                     '設定 → 關於手機 → 軟體資訊 → 連點「版本號碼」7 次',
                   ),
                   SizedBox(height: 12),
@@ -1559,7 +1654,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           await AndroidTripMonitor.openSamsungLiveNotificationSettings();
       if (!didOpen && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('無法開啟系統設定，請依照提示中的路徑手動前往。')),
+          const SnackBar(content: Text('無法開啓系統設定，請依照提示中的路徑手動前往。')),
         );
       }
     } finally {
@@ -1734,7 +1829,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           await _stopLiveActivity();
           if (forcePermissionCheck && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('要使用背景乘車提醒，請先開啟定位服務。')),
+              const SnackBar(content: Text('要使用背景乘車提醒，請先開啓定位服務。')),
             );
           }
           return;
@@ -1848,7 +1943,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         if (!updatedHasAlwaysPermission && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('未啟用「一律允許」定位，背景乘車提醒會改用最後一次定位與公車到站資訊繼續運作。'),
+              content: Text('未啓用「一律允許」定位，背景乘車提醒會改用最後一次定位與公車到站資訊繼續運作。'),
             ),
           );
         }
@@ -1939,7 +2034,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('去開啟'),
+              child: const Text('去開啓'),
             ),
           ],
         );
@@ -1959,7 +2054,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (!hasAlwaysPermission && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('未啟用「一律允許」定位，背景乘車提醒會改用最後一次定位與公車到站資訊繼續運作。'),
+          content: Text('未啓用「一律允許」定位，背景乘車提醒會改用最後一次定位與公車到站資訊繼續運作。'),
         ),
       );
     }
@@ -3605,7 +3700,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       builder: (context) {
         return AlertDialog(
           title: const Text('設定最愛目的地？'),
-          content: const Text('下次從最愛或小工具開啟時，會自動幫你套用下車提醒。'),
+          content: const Text('下次從最愛或小工具開啓時，會自動幫你套用下車提醒。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -3742,7 +3837,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('無法開啟 Google Maps。')));
+    ).showSnackBar(const SnackBar(content: Text('無法開啓 Google Maps。')));
   }
 
   bool _canShowRelatedStopRoutesAction(StopInfo stop) {
@@ -4162,7 +4257,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               SimpleDialogOption(
                 onPressed: () =>
                     Navigator.of(context).pop(_StopAction.googleMaps),
-                child: const Text('在 Google Maps 開啟'),
+                child: const Text('在 Google Maps 開啓'),
               ),
             if (showShortcutAction)
               SimpleDialogOption(
@@ -4376,7 +4471,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('無法開啟 TWBusforum。')));
+    ).showSnackBar(const SnackBar(content: Text('無法開啓 TWBusforum。')));
   }
 
   Future<void> _handleVehicleAction(

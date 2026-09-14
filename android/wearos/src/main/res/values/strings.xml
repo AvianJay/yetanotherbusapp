@@ -10,13 +10,13 @@
     <string name="watch_section_favorites">我的最愛</string>
     <string name="watch_section_nearby">附近站牌</string>
     <string name="watch_section_search">搜尋公車</string>
-    <string name="watch_action_open_phone">在手機開啟</string>
+    <string name="watch_action_open_phone">在手機開啓</string>
     <string name="watch_action_refresh">重新整理</string>
     <string name="watch_action_add_favorite">加為最愛</string>
     <string name="watch_action_added">已通知手機加入最愛</string>
     <string name="watch_state_loading">載入中…</string>
     <string name="watch_state_offline">無網路連線</string>
-    <string name="watch_state_sync_disabled">在手機開啟 Wear OS 同步</string>
+    <string name="watch_state_sync_disabled">在手機開啓 Wear OS 同步</string>
     <string name="watch_state_no_data">尚無資料</string>
 
     <!-- Nearby -->

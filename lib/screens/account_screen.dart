@@ -46,7 +46,7 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted || opened) {
         return;
       }
-      messenger.showSnackBar(const SnackBar(content: Text('無法開啟登入頁面。')));
+      messenger.showSnackBar(const SnackBar(content: Text('無法開啓登入頁面。')));
     } catch (error) {
       if (!mounted) {
         return;
@@ -75,7 +75,7 @@ class _AccountScreenState extends State<AccountScreen> {
       if (!mounted || opened) {
         return;
       }
-      messenger.showSnackBar(const SnackBar(content: Text('無法開啟連結頁面。')));
+      messenger.showSnackBar(const SnackBar(content: Text('無法開啓連結頁面。')));
     } catch (error) {
       if (!mounted) {
         return;
@@ -125,7 +125,7 @@ class _AccountScreenState extends State<AccountScreen> {
         return;
       }
       messenger.showSnackBar(
-        SnackBar(content: Text(enabled ? '已開啟自動同步。' : '已關閉自動同步。')),
+        SnackBar(content: Text(enabled ? '已開啓自動同步。' : '已關閉自動同步。')),
       );
     } catch (error) {
       if (!mounted) {
@@ -487,7 +487,7 @@ class _SyncCard extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               value: enabled,
               onChanged: busy ? null : onChanged,
-              title: const Text('啟用雲端同步'),
+              title: const Text('啓用雲端同步'),
               subtitle: Text(
                 enabled
                     ? '最後同步時間：${_formatDateTime(lastSyncAt)}'

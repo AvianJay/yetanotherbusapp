@@ -58,6 +58,7 @@ dependencies:
   firebase_analytics: ^12.0.1
   firebase_messaging: ^16.2.0
   image_picker: ^1.1.2
+  palette_generator: ^0.3.3+6
   dynamic_color: ^1.8.1
   font_awesome_flutter: ^11.0.0
   discord_rich_presence: ^1.1.1

@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:palette_generator/palette_generator.dart';
 
 import '../core/announcement_models.dart';
 import '../core/announcement_push_service.dart';
@@ -57,57 +59,62 @@ class BusApp extends StatelessWidget {
       controller: controller,
       child: DynamicColorBuilder(
         builder: (lightDynamic, darkDynamic) {
-          return AnimatedBuilder(
-            animation: controller.themeRevision,
-            builder: (context, _) {
-              return MaterialApp(
-                title: 'YetAnotherBusApp',
-                debugShowCheckedModeBanner: false,
-                themeMode: controller.settings.themeMode,
-                theme: _buildTheme(
-                  Brightness.light,
-                  settings: controller.settings,
-                  dynamicColorScheme: lightDynamic,
-                ),
-                darkTheme: _buildTheme(
-                  Brightness.dark,
-                  settings: controller.settings,
-                  dynamicColorScheme: darkDynamic,
-                ),
-                navigatorObservers: [
-                  appRouteObserver,
-                  DesktopDiscordRouteObserver(controller),
-                  if (analytics.observer != null) analytics.observer!,
-                ],
-                builder: (context, child) {
-                  final theme = Theme.of(context);
-                  final isDark = theme.brightness == Brightness.dark;
-                  return AnnotatedRegion<SystemUiOverlayStyle>(
-                    value: SystemUiOverlayStyle(
-                      statusBarColor: Colors.transparent,
-                      statusBarIconBrightness: isDark
-                          ? Brightness.light
-                          : Brightness.dark,
-                      statusBarBrightness: isDark
-                          ? Brightness.dark
-                          : Brightness.light,
-                      systemNavigationBarColor: theme.scaffoldBackgroundColor,
-                      systemNavigationBarDividerColor: Colors.transparent,
-                      systemNavigationBarIconBrightness: isDark
-                          ? Brightness.light
-                          : Brightness.dark,
-                      systemNavigationBarContrastEnforced: false,
-                    ),
-                    child: child ?? const SizedBox.shrink(),
-                  );
-                },
-                onGenerateRoute: (settings) =>
-                    _buildAppRoute(settings, controller),
-                onGenerateInitialRoutes: (initialRoute) =>
-                    _buildInitialRoutes(initialRoute, controller),
-                onUnknownRoute: (_) => _buildHomeRoute(controller),
-              );
-            },
+          return _AutomaticBackgroundColor(
+            controller: controller,
+            builder: (automaticSeedColor) => AnimatedBuilder(
+              animation: controller.themeRevision,
+              builder: (context, _) {
+                return MaterialApp(
+                  title: 'YetAnotherBusApp',
+                  debugShowCheckedModeBanner: false,
+                  themeMode: controller.settings.themeMode,
+                  theme: _buildTheme(
+                    Brightness.light,
+                    settings: controller.settings,
+                    dynamicColorScheme: lightDynamic,
+                    automaticSeedColor: automaticSeedColor,
+                  ),
+                  darkTheme: _buildTheme(
+                    Brightness.dark,
+                    settings: controller.settings,
+                    dynamicColorScheme: darkDynamic,
+                    automaticSeedColor: automaticSeedColor,
+                  ),
+                  navigatorObservers: [
+                    appRouteObserver,
+                    DesktopDiscordRouteObserver(controller),
+                    if (analytics.observer != null) analytics.observer!,
+                  ],
+                  builder: (context, child) {
+                    final theme = Theme.of(context);
+                    final isDark = theme.brightness == Brightness.dark;
+                    return AnnotatedRegion<SystemUiOverlayStyle>(
+                      value: SystemUiOverlayStyle(
+                        statusBarColor: Colors.transparent,
+                        statusBarIconBrightness: isDark
+                            ? Brightness.light
+                            : Brightness.dark,
+                        statusBarBrightness: isDark
+                            ? Brightness.dark
+                            : Brightness.light,
+                        systemNavigationBarColor: theme.scaffoldBackgroundColor,
+                        systemNavigationBarDividerColor: Colors.transparent,
+                        systemNavigationBarIconBrightness: isDark
+                            ? Brightness.light
+                            : Brightness.dark,
+                        systemNavigationBarContrastEnforced: false,
+                      ),
+                      child: child ?? const SizedBox.shrink(),
+                    );
+                  },
+                  onGenerateRoute: (settings) =>
+                      _buildAppRoute(settings, controller),
+                  onGenerateInitialRoutes: (initialRoute) =>
+                      _buildInitialRoutes(initialRoute, controller),
+                  onUnknownRoute: (_) => _buildHomeRoute(controller),
+                );
+              },
+            ),
           );
         },
       ),
@@ -118,13 +125,19 @@ class BusApp extends StatelessWidget {
     Brightness brightness, {
     required AppSettings settings,
     ColorScheme? dynamicColorScheme,
+    Color? automaticSeedColor,
   }) {
     final useAmoled = settings.useAmoledDark && brightness == Brightness.dark;
 
-    // Color priority: manual seed override > system dynamic color > fallback seed.
-    var colorScheme = settings.seedColor != null
+    // Automatic color falls back to the system scheme while no image is set.
+    final seedColor = switch (settings.colorSource) {
+      AppColorSource.custom => settings.seedColor,
+      AppColorSource.automatic => automaticSeedColor,
+      AppColorSource.system => null,
+    };
+    var colorScheme = seedColor != null
         ? ColorScheme.fromSeed(
-            seedColor: settings.seedColor!,
+            seedColor: seedColor,
             brightness: brightness,
           )
         : (dynamicColorScheme ??
@@ -222,6 +235,92 @@ class BusApp extends StatelessWidget {
       ),
     );
   }
+}
+
+class _AutomaticBackgroundColor extends StatefulWidget {
+  const _AutomaticBackgroundColor({
+    required this.controller,
+    required this.builder,
+  });
+
+  final AppController controller;
+  final Widget Function(Color? automaticSeedColor) builder;
+
+  @override
+  State<_AutomaticBackgroundColor> createState() =>
+      _AutomaticBackgroundColorState();
+}
+
+class _AutomaticBackgroundColorState extends State<_AutomaticBackgroundColor> {
+  Color? _seedColor;
+  String? _resolvedPath;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_updateColor);
+    _updateColor();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AutomaticBackgroundColor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_updateColor);
+      widget.controller.addListener(_updateColor);
+      _resolvedPath = null;
+      _updateColor();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_updateColor);
+    super.dispose();
+  }
+
+  void _updateColor() {
+    final settings = widget.controller.settings;
+    final paths = settings.pageBackgroundImagePaths;
+    final path = settings.colorSource == AppColorSource.automatic
+        ? (paths['bus']?.trim().isNotEmpty == true
+              ? paths['bus']
+              : paths.values.cast<String?>().firstWhere(
+                  (value) => value?.trim().isNotEmpty == true,
+                  orElse: () => null,
+                ))
+        : null;
+    if (path == _resolvedPath) return;
+    _resolvedPath = path;
+    if (_seedColor != null && mounted) setState(() => _seedColor = null);
+    if (path == null) {
+      return;
+    }
+    unawaited(_extractColor(path));
+  }
+
+  Future<void> _extractColor(String path) async {
+    try {
+      final ImageProvider provider = kIsWeb
+          ? NetworkImage(path)
+          : FileImage(File(path));
+      final palette = await PaletteGenerator.fromImageProvider(
+        provider,
+        size: const Size(128, 128),
+        maximumColorCount: 10,
+      );
+      if (!mounted || _resolvedPath != path) return;
+      final color = palette.dominantColor?.color;
+      if (color != _seedColor) setState(() => _seedColor = color);
+    } catch (_) {
+      if (mounted && _resolvedPath == path && _seedColor != null) {
+        setState(() => _seedColor = null);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(_seedColor);
 }
 
 Route<dynamic> _buildHomeRoute(AppController controller) {

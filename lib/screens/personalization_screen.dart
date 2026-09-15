@@ -141,7 +141,8 @@ class PersonalizationScreen extends StatelessWidget {
                             ],
                           ),
                         ),
-                        if (settings.seedColor != null) ...[
+                        if (settings.colorSource == AppColorSource.custom &&
+                            settings.seedColor != null) ...[
                           Container(
                             width: 20,
                             height: 20,
@@ -395,11 +396,11 @@ class PersonalizationScreen extends StatelessWidget {
   }
 
   String _colorSubtitle(AppSettings settings) {
-    final seedColor = settings.seedColor;
-    if (seedColor == null) {
-      return '自動';
-    }
-    return _formatColorValue(seedColor);
+    return switch (settings.colorSource) {
+      AppColorSource.system => '系統',
+      AppColorSource.automatic => '自動（背景圖片）',
+      AppColorSource.custom => _formatColorValue(settings.seedColor!),
+    };
   }
 
   String _formatColorValue(Color color) {
@@ -425,18 +426,22 @@ class PersonalizationScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '支援系統配色的裝置會自動套用系統色；選擇自訂色後會覆蓋自動配色。',
+                        '「自動」會依背景圖片取色；「系統」會使用裝置的動態配色。',
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 12),
                       _SeedColorPicker(
                         selectedColor: settings.seedColor,
+                        colorSource: settings.colorSource,
                         presetColors: _presetColors,
                         onColorSelected: (color) {
                           controller.updateSeedColor(color);
                         },
                         onClear: () {
-                          controller.updateSeedColor(null);
+                          controller.updateColorSource(AppColorSource.system);
+                        },
+                        onAutomaticSelected: () {
+                          controller.updateColorSource(AppColorSource.automatic);
                         },
                       ),
                     ],
@@ -464,15 +469,19 @@ class PersonalizationScreen extends StatelessWidget {
 class _SeedColorPicker extends StatelessWidget {
   const _SeedColorPicker({
     required this.selectedColor,
+    required this.colorSource,
     required this.presetColors,
     required this.onColorSelected,
     required this.onClear,
+    required this.onAutomaticSelected,
   });
 
   final Color? selectedColor;
+  final AppColorSource colorSource;
   final List<Color> presetColors;
   final ValueChanged<Color> onColorSelected;
   final VoidCallback onClear;
+  final VoidCallback onAutomaticSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -488,10 +497,23 @@ class _SeedColorPicker extends StatelessWidget {
               context,
               color: null,
               label: '自動',
-              selected: selectedColor == null,
+              selected: colorSource == AppColorSource.automatic,
+              onSelected: onAutomaticSelected,
+            ),
+            _colorChip(
+              context,
+              color: null,
+              label: '系統',
+              selected: colorSource == AppColorSource.system,
+              onSelected: onClear,
             ),
             for (final c in presetColors)
-              _colorChip(context, color: c, selected: selectedColor == c),
+              _colorChip(
+                context,
+                color: c,
+                selected:
+                    colorSource == AppColorSource.custom && selectedColor == c,
+              ),
             ActionChip(
               avatar: Icon(
                 Icons.colorize_outlined,
@@ -518,6 +540,7 @@ class _SeedColorPicker extends StatelessWidget {
     required Color? color,
     required bool selected,
     String? label,
+    VoidCallback? onSelected,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -531,10 +554,10 @@ class _SeedColorPicker extends StatelessWidget {
           ? color.withValues(alpha: 0.18)
           : colorScheme.primaryContainer.withValues(alpha: 0.5),
       onSelected: (_) {
-        if (color != null) {
+        if (onSelected != null) {
+          onSelected();
+        } else if (color != null) {
           onColorSelected(color);
-        } else {
-          onClear();
         }
       },
     );

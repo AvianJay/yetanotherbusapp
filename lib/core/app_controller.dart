@@ -1609,12 +1609,30 @@ class AppController extends ChangeNotifier {
 
   Future<void> updateSeedColor(Color? color) async {
     if (color != null) {
-      _settings = _settings.copyWith(seedColor: color);
+      _settings = _settings.copyWith(
+        colorSource: AppColorSource.custom,
+        seedColor: color,
+      );
     } else {
-      _settings = _settings.copyWith(clearSeedColor: true);
+      _settings = _settings.copyWith(
+        colorSource: AppColorSource.system,
+        clearSeedColor: true,
+      );
     }
     await _persistSettings();
     await analytics.logSeedColorChanged(usesCustomColor: color != null);
+    notifyListeners();
+  }
+
+  Future<void> updateColorSource(AppColorSource source) async {
+    _settings = _settings.copyWith(
+      colorSource: source,
+      clearSeedColor: source != AppColorSource.custom,
+    );
+    await _persistSettings();
+    await analytics.logSeedColorChanged(
+      usesCustomColor: source == AppColorSource.custom,
+    );
     notifyListeners();
   }
 
@@ -3075,6 +3093,7 @@ class AppController extends ChangeNotifier {
     if (appearance != null) {
       _copyKnownKey(appearance, merged, 'themeMode');
       _copyKnownKey(appearance, merged, 'useAmoledDark');
+      _copyKnownKey(appearance, merged, 'colorSource');
       _copyKnownKey(appearance, merged, 'seedColor');
       _copyKnownKey(appearance, merged, 'homeBackgroundOpacity');
       _copyKnownKey(appearance, merged, 'overlayOpacity');
@@ -3205,6 +3224,7 @@ class _ThemeSettings {
   const _ThemeSettings({
     required this.themeMode,
     required this.useAmoledDark,
+    required this.colorSource,
     required this.seedColor,
     required this.overlayOpacity,
     required this.backgroundImagePaths,
@@ -3214,6 +3234,7 @@ class _ThemeSettings {
     return _ThemeSettings(
       themeMode: settings.themeMode,
       useAmoledDark: settings.useAmoledDark,
+      colorSource: settings.colorSource,
       seedColor: settings.seedColor,
       overlayOpacity: settings.overlayOpacity,
       backgroundImagePaths: Map<String, String>.unmodifiable(
@@ -3224,6 +3245,7 @@ class _ThemeSettings {
 
   final ThemeMode themeMode;
   final bool useAmoledDark;
+  final AppColorSource colorSource;
   final Color? seedColor;
   final double overlayOpacity;
   final Map<String, String> backgroundImagePaths;
@@ -3233,6 +3255,7 @@ class _ThemeSettings {
     return other is _ThemeSettings &&
         other.themeMode == themeMode &&
         other.useAmoledDark == useAmoledDark &&
+        other.colorSource == colorSource &&
         other.seedColor == seedColor &&
         other.overlayOpacity == overlayOpacity &&
         mapEquals(other.backgroundImagePaths, backgroundImagePaths);
@@ -3242,6 +3265,7 @@ class _ThemeSettings {
   int get hashCode => Object.hash(
     themeMode,
     useAmoledDark,
+    colorSource,
     seedColor,
     overlayOpacity,
     Object.hashAll(
@@ -3343,6 +3367,7 @@ Map<String, dynamic> _preferencesSyncPayloadFromSettings(AppSettings settings) {
     'appearance': {
       'themeMode': json['themeMode'],
       'useAmoledDark': json['useAmoledDark'],
+      'colorSource': json['colorSource'],
       'seedColor': json['seedColor'],
       'homeBackgroundOpacity': json['homeBackgroundOpacity'],
       'overlayOpacity': json['overlayOpacity'],

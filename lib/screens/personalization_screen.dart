@@ -89,8 +89,8 @@ class PersonalizationScreen extends StatelessWidget {
     final controller = AppControllerScope.of(context);
     final settings = controller.settings;
     final backgroundOpacity = _backgroundOpacityValue(settings);
-    final isAmoled =
-        settings.useAmoledDark && settings.themeMode != ThemeMode.light;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isAmoled = settings.useAmoledDark && isDark;
 
     return Scaffold(
       appBar: AppBar(title: const Text('個人化')),
@@ -183,8 +183,8 @@ class PersonalizationScreen extends StatelessWidget {
                         secondary: const Icon(Icons.dark_mode_outlined),
                         title: const Text('純黑 (AMOLED) 深色主題'),
                         subtitle: const Text('深色模式下使用純黑背景，可省電並提升對比'),
-                        value: settings.useAmoledDark,
-                        onChanged: settings.themeMode == ThemeMode.light
+                        value: isAmoled,
+                        onChanged: !isDark
                             ? null
                             : (value) {
                                 controller.updateUseAmoledDark(value);
@@ -441,7 +441,9 @@ class PersonalizationScreen extends StatelessWidget {
                           controller.updateColorSource(AppColorSource.system);
                         },
                         onAutomaticSelected: () {
-                          controller.updateColorSource(AppColorSource.automatic);
+                          controller.updateColorSource(
+                            AppColorSource.automatic,
+                          );
                         },
                       ),
                     ],
@@ -718,7 +720,8 @@ class _PerPageBackgroundScreen extends StatelessWidget {
     final controller = AppControllerScope.of(context);
     final settings = controller.settings;
     final isAmoled =
-        settings.useAmoledDark && settings.themeMode != ThemeMode.light;
+        settings.useAmoledDark &&
+        Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(title: const Text('各頁面背景設定')),

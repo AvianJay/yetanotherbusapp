@@ -17,6 +17,9 @@ const _generatedReleaseDownloadTableStart =
     '<!-- YABUS_RELEASE_DOWNLOAD_TABLE_START -->';
 const _generatedReleaseDownloadTableEnd =
     '<!-- YABUS_RELEASE_DOWNLOAD_TABLE_END -->';
+final _fullGitShaPattern = RegExp(r'^[0-9a-f]{40}$');
+
+bool _isFullGitSha(String value) => _fullGitShaPattern.hasMatch(value);
 
 /// The preferred asset suffix for the current platform when checking
 /// GitHub Release assets for a downloadable update.
@@ -169,10 +172,11 @@ class AppUpdateService {
   }
 
   Future<AppUpdateCheckResult> _checkNightlyUpdates() async {
-    if (!buildInfo.hasKnownGitSha) {
+    final currentSha = buildInfo.normalizedGitSha;
+    if (!_isFullGitSha(currentSha)) {
       return const AppUpdateCheckResult(
         status: AppUpdateStatus.unavailable,
-        message: '這個安裝包沒有內建 commit 資訊，無法比較 nightly 更新。',
+        message: '這個安裝包沒有內建完整 commit 資訊，無法比較 nightly 更新。',
       );
     }
 
@@ -191,23 +195,51 @@ class AppUpdateService {
     }
 
     final latestRun = workflowRuns.first as Map<String, dynamic>;
+    final runId = latestRun['id']?.toString().trim() ?? '';
+    if (runId.isEmpty) {
+      return const AppUpdateCheckResult(
+        status: AppUpdateStatus.unavailable,
+        message: 'nightly 建置沒有回傳有效的 workflow run。',
+      );
+    }
     final latestSha = (latestRun['head_sha'] as String? ?? '')
         .trim()
         .toLowerCase();
-    if (latestSha.isEmpty) {
+    if (!_isFullGitSha(latestSha)) {
       return const AppUpdateCheckResult(
         status: AppUpdateStatus.unavailable,
-        message: 'nightly 建置沒有回傳有效的 commit。',
+        message: 'nightly 建置沒有回傳有效的完整 commit。',
       );
     }
 
-    final latestShortSha = latestSha.length <= 7
-        ? latestSha
-        : latestSha.substring(0, 7);
-    if (latestShortSha == buildInfo.shortGitSha) {
+    if (latestSha == currentSha) {
       return AppUpdateCheckResult(
         status: AppUpdateStatus.upToDate,
-        message: '目前已是最新 nightly commit：${buildInfo.shortGitSha}',
+        message: '目前已是最新 nightly commit：$currentSha',
+      );
+    }
+
+    final artifactsUri = Uri.https(
+      'api.github.com',
+      '/repos/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/actions/runs/$runId/artifacts',
+      {'per_page': '100'},
+    );
+    final artifactsPayload =
+        await _getJson(artifactsUri) as Map<String, dynamic>;
+    final artifacts =
+        artifactsPayload['artifacts'] as List<dynamic>? ?? const [];
+    final artifact = artifacts.whereType<Map<String, dynamic>>().firstWhere(
+      (candidate) =>
+          candidate['name'] == AppBuildInfo.nightlyArtifactName &&
+          candidate['expired'] != true &&
+          (candidate['archive_download_url'] as String? ?? '').isNotEmpty,
+      orElse: () => const <String, dynamic>{},
+    );
+    final downloadUrl = artifact['archive_download_url'] as String? ?? '';
+    if (downloadUrl.isEmpty) {
+      return const AppUpdateCheckResult(
+        status: AppUpdateStatus.unavailable,
+        message: '最新 nightly 建置找不到此平台的下載檔。',
       );
     }
 
@@ -220,23 +252,21 @@ class AppUpdateService {
           orElse: () => '新的 nightly 建置已可下載。',
         );
     final compareUrl =
-        'https://github.com/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/compare/${buildInfo.shortGitSha}...$latestShortSha';
-    final downloadUrl =
-        'https://nightly.link/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/workflows/${AppBuildInfo.workflowIdForNightlyLink}/main/${AppBuildInfo.nightlyArtifactName}.zip';
+        'https://github.com/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/compare/$currentSha...$latestSha';
 
     return AppUpdateCheckResult(
       status: AppUpdateStatus.updateAvailable,
-      message: '找到新的 nightly commit：$latestShortSha',
+      message: '找到新的 nightly commit：$latestSha',
       update: AppUpdateInfo(
         channel: AppUpdateChannel.nightly,
-        currentVersionLabel: buildInfo.shortGitSha,
-        latestVersionLabel: latestShortSha,
-        title: 'Nightly 更新：$latestShortSha',
+        currentVersionLabel: currentSha,
+        latestVersionLabel: latestSha,
+        title: 'Nightly 更新：$latestSha',
         summary: commitMessage,
         downloadUrl: downloadUrl,
         packageFormat: _nightlyPackageFormat,
         detailsUrl: compareUrl,
-        notes: '目前版本：${buildInfo.shortGitSha}\n最新版本：$latestShortSha',
+        notes: '目前版本：$currentSha\n最新版本：$latestSha',
       ),
     );
   }

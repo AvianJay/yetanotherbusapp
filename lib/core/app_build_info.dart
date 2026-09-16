@@ -78,13 +78,18 @@ class AppBuildInfo {
   final String gitSha;
   final AppUpdateChannel defaultUpdateChannel;
 
-  bool get hasKnownGitSha => gitSha.isNotEmpty && gitSha != 'unknown';
+  String get normalizedGitSha => gitSha.trim().toLowerCase();
+
+  bool get hasKnownGitSha =>
+      normalizedGitSha.isNotEmpty && normalizedGitSha != 'unknown';
 
   String get shortGitSha {
     if (!hasKnownGitSha) {
       return 'unknown';
     }
-    return gitSha.length <= 7 ? gitSha : gitSha.substring(0, 7);
+    return normalizedGitSha.length <= 7
+        ? normalizedGitSha
+        : normalizedGitSha.substring(0, 7);
   }
 
   String get displayVersion => '$version+$buildNumber';

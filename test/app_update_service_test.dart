@@ -9,25 +9,53 @@ import 'package:taiwanbus_flutter/core/models.dart';
 
 void main() {
   test(
-    'nightly check reports update when latest workflow commit differs',
+    'nightly compares normalized full SHAs and uses the selected run artifact',
     () async {
+      const currentSha = 'abcdef0123456789abcdef0123456789abcdef01';
+      const latestSha = 'abcdef0fedcba9876543210fedcba9876543210f';
+      const artifactUrl =
+          'https://api.github.com/repos/AvianJay/yetanotherbusapp/actions/artifacts/2468/zip';
       final service = AppUpdateService(
         buildInfo: const AppBuildInfo(
           version: '1.0.0',
           buildNumber: '1',
-          gitSha: 'abc1234',
+          gitSha: ' ABCDEF0123456789ABCDEF0123456789ABCDEF01 ',
           defaultUpdateChannel: AppUpdateChannel.nightly,
         ),
         client: MockClient((request) async {
-          expect(request.url.path, contains('/actions/workflows/'));
-          expect(request.url.queryParameters['branch'], 'main');
-          expect(request.url.queryParameters['event'], 'push');
+          if (request.url.path.contains('/actions/workflows/')) {
+            expect(request.url.queryParameters['branch'], 'main');
+            expect(request.url.queryParameters['event'], 'push');
+            return http.Response(
+              jsonEncode({
+                'workflow_runs': [
+                  {
+                    'id': 1357,
+                    'head_sha': latestSha.toUpperCase(),
+                    'head_commit': {'message': 'nightly update'},
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+
+          expect(
+            request.url.path,
+            '/repos/AvianJay/yetanotherbusapp/actions/runs/1357/artifacts',
+          );
+          expect(request.url.queryParameters['per_page'], '100');
           return http.Response(
             jsonEncode({
-              'workflow_runs': [
+              'artifacts': [
                 {
-                  'head_sha': 'def5678fedcba',
-                  'head_commit': {'message': 'nightly update'},
+                  'name': 'unrelated-artifact',
+                  'archive_download_url': 'https://example.com/unrelated.zip',
+                },
+                {
+                  'name': AppBuildInfo.nightlyArtifactName,
+                  'expired': false,
+                  'archive_download_url': artifactUrl,
                 },
               ],
             }),
@@ -39,41 +67,50 @@ void main() {
       final result = await service.checkForUpdates(AppUpdateChannel.nightly);
 
       expect(result.hasUpdate, isTrue);
-      expect(result.update?.latestVersionLabel, 'def5678');
-      expect(result.update?.downloadUrl, endsWith('android-apk-release.zip'));
+      expect(result.update?.currentVersionLabel, currentSha);
+      expect(result.update?.latestVersionLabel, latestSha);
+      expect(result.update?.downloadUrl, artifactUrl);
+      expect(
+        result.update?.detailsUrl,
+        'https://github.com/AvianJay/yetanotherbusapp/compare/$currentSha...$latestSha',
+      );
     },
   );
 
-  test('nightly check reports up to date when commit matches', () async {
-    final service = AppUpdateService(
-      buildInfo: const AppBuildInfo(
-        version: '1.0.0',
-        buildNumber: '1',
-        gitSha: 'abc1234',
-        defaultUpdateChannel: AppUpdateChannel.nightly,
-      ),
-      client: MockClient((request) async {
-        expect(request.url.queryParameters['branch'], 'main');
-        expect(request.url.queryParameters['event'], 'push');
-        return http.Response(
-          jsonEncode({
-            'workflow_runs': [
-              {
-                'head_sha': 'abc1234fedcba',
-                'head_commit': {'message': 'same commit'},
-              },
-            ],
-          }),
-          200,
-        );
-      }),
-    );
+  test(
+    'nightly check reports up to date when normalized full commit matches',
+    () async {
+      final service = AppUpdateService(
+        buildInfo: const AppBuildInfo(
+          version: '1.0.0',
+          buildNumber: '1',
+          gitSha: ' ABCDEF0123456789ABCDEF0123456789ABCDEF01 ',
+          defaultUpdateChannel: AppUpdateChannel.nightly,
+        ),
+        client: MockClient((request) async {
+          expect(request.url.queryParameters['branch'], 'main');
+          expect(request.url.queryParameters['event'], 'push');
+          return http.Response(
+            jsonEncode({
+              'workflow_runs': [
+                {
+                  'id': 1357,
+                  'head_sha': 'abcdef0123456789abcdef0123456789abcdef01',
+                  'head_commit': {'message': 'same commit'},
+                },
+              ],
+            }),
+            200,
+          );
+        }),
+      );
 
-    final result = await service.checkForUpdates(AppUpdateChannel.nightly);
+      final result = await service.checkForUpdates(AppUpdateChannel.nightly);
 
-    expect(result.status, AppUpdateStatus.upToDate);
-    expect(result.hasUpdate, isFalse);
-  });
+      expect(result.status, AppUpdateStatus.upToDate);
+      expect(result.hasUpdate, isFalse);
+    },
+  );
 
   test('release check strips generated download table from notes', () async {
     final service = AppUpdateService(

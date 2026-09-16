@@ -573,6 +573,7 @@ jobs:
           fi
 
           gh release create "nightly-$GITHUB_SHA" "${release_files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Nightly $short_sha" \
             --notes "Nightly build for commit \`$GITHUB_SHA\`." \

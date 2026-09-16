@@ -1568,6 +1568,13 @@ class _SmartRecommendationShell extends StatelessWidget {
                 ?trailing,
               ],
             ),
+            const SizedBox(height: 4),
+            Text(
+              '根據你的使用習慣推薦路線',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
             const SizedBox(height: 16),
             child,
           ],

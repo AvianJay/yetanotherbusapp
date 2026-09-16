@@ -73,7 +73,7 @@ class AppController extends ChangeNotifier {
 
   static const defaultFavoriteGroupName = '收藏';
   static const autoFavoriteGroupName = '常用';
-  static const _autoFavoriteStopVisitThreshold = 5;
+  static const _autoFavoriteStopVisitThreshold = 3;
   static const Duration _accountSyncDebounce = Duration(seconds: 3);
   static const Duration _foregroundAccountSyncCooldown = Duration(minutes: 1);
 

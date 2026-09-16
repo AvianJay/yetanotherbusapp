@@ -757,7 +757,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   Widget _buildDisabledState(BuildContext context) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '根據你在不同時段最常點開的路線，主動推薦現在最可能要查的那一條。',
       trailing: IconButton(
         tooltip: '設定',
         onPressed: _openSettings,
@@ -785,7 +784,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   Widget _buildNeedDatabaseState(BuildContext context) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '根據你平常點開路線的時間點，推薦你現在最可能要看的路線。',
       child: Text('請先下載本地資料庫。下載完成後，這張卡片才會開始學習你的使用習慣並顯示附近站牌到站時間。'),
     );
   }
@@ -794,7 +792,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   Widget _buildEmptyState(BuildContext context) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '根據你平常點開路線的時間點，推薦你現在最可能要看的路線。',
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -1014,13 +1011,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     BuildContext context,
     List<SmartRouteSuggestion> suggestions,
   ) {
-    final subtitle = suggestions.length > 1
-        ? '根據你的使用習慣，整理出你現在最可能要查的路線。'
-        : suggestions.first.reason;
-
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: subtitle,
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -1083,7 +1075,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   ) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '最近的站點。',
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -1110,7 +1101,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
             !snapshot.hasData) {
           return _SmartRecommendationShell(
             title: '智慧推薦',
-            subtitle: '正在整理你這個時段最常看的路線...',
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Center(child: CircularProgressIndicator()),
@@ -1535,20 +1525,17 @@ class _DesktopNearbyMessage extends StatelessWidget {
 class _SmartRecommendationShell extends StatelessWidget {
   const _SmartRecommendationShell({
     required this.title,
-    required this.subtitle,
     required this.child,
     this.trailing,
   });
 
   final String title;
-  final String subtitle;
   final Widget child;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasSubtitle = subtitle.trim().isNotEmpty;
 
     return Card(
       child: Padding(
@@ -1560,16 +1547,7 @@ class _SmartRecommendationShell extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: theme.textTheme.headlineSmall),
-                      if (hasSubtitle) ...[
-                        const SizedBox(height: 6),
-                        Text(subtitle, style: theme.textTheme.bodyMedium),
-                      ],
-                    ],
-                  ),
+                  child: Text(title, style: theme.textTheme.headlineSmall),
                 ),
                 ?trailing,
               ],

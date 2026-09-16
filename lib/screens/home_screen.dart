@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../app/bus_app.dart';
@@ -301,7 +302,10 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDesktop =
+        MediaQuery.sizeOf(context).width >= _desktopSidebarBreakpoint;
     final hasBusBackgroundImage = hasBackgroundImageForPage(
       controller.settings,
       pageKey: 'bus',
@@ -309,9 +313,22 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
-        title: const Text('YABus'),
+        title: Transform.translate(
+          offset: Offset(0, isDesktop ? 4 : 0),
+          child: SvgPicture.asset(
+            'assets/branding/YABus-black.svg',
+            width: isDesktop ? 164 : 96,
+            height: isDesktop ? 36 : 21,
+            semanticsLabel: 'YABus',
+            colorFilter: ColorFilter.mode(
+              colorScheme.onSurface,
+              BlendMode.srcIn,
+            ),
+          ),
+        ),
         titleSpacing: 24,
         automaticallyImplyLeading: false,
+        actionsPadding: const EdgeInsets.only(right: 16),
         actions: [
           if (kIsWeb) const _WebPwaInstallButton(),
           if (!kIsWeb)

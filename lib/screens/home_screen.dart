@@ -48,7 +48,7 @@ class HomeScreen extends StatelessWidget {
     required bool compactMode,
   }) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       children: [
         if (controller.settings.enableSmartRecommendations) ...[
           _SmartRecommendationCard(
@@ -64,7 +64,6 @@ class HomeScreen extends StatelessWidget {
         _buildNearbyFeatureCard(context, compactMode: compactMode),
         const SizedBox(height: 8),
         _buildBusMapFeatureCard(context, compactMode: compactMode),
-        const SizedBox(height: 8),
         const AdBannerWidget(),
       ],
     );

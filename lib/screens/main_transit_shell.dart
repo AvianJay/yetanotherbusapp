@@ -22,13 +22,27 @@ class MainTransitShell extends StatefulWidget {
   State<MainTransitShell> createState() => _MainTransitShellState();
 }
 
-class _MainTransitShellState extends State<MainTransitShell> {
+class _MainTransitShellState extends State<MainTransitShell>
+    with SingleTickerProviderStateMixin {
   TransitMode _currentMode = TransitMode.bus;
+  TransitMode? _outgoingMode;
   final Set<TransitMode> _loadedModes = {TransitMode.bus};
+  late final AnimationController _modeTransitionController;
 
   static const _desktopRailExtendedBreakpoint = 1280.0;
   static const _switchDuration = Duration(milliseconds: 220);
-  static const _hiddenOffset = Offset(0.035, 0);
+
+  @override
+  void initState() {
+    super.initState();
+    _modeTransitionController =
+        AnimationController(vsync: this, duration: _switchDuration)
+          ..addStatusListener((status) {
+            if (status == AnimationStatus.completed && mounted) {
+              setState(() => _outgoingMode = null);
+            }
+          });
+  }
 
   @override
   void didChangeDependencies() {
@@ -45,12 +59,21 @@ class _MainTransitShellState extends State<MainTransitShell> {
     if (mode == _currentMode) {
       return;
     }
+    final outgoingMode = _currentMode;
 
     setState(() {
       _loadedModes.add(mode);
+      _outgoingMode = outgoingMode;
       _currentMode = mode;
     });
+    _modeTransitionController.forward(from: 0);
     unawaited(_syncDesktopPresenceForMode(mode));
+  }
+
+  @override
+  void dispose() {
+    _modeTransitionController.dispose();
+    super.dispose();
   }
 
   Future<void> _syncDesktopPresenceForMode(TransitMode mode) async {
@@ -196,25 +219,35 @@ class _MainTransitShellState extends State<MainTransitShell> {
 
   Widget _buildModeLayer({required TransitMode mode, required Widget child}) {
     final isActive = mode == _currentMode;
+    final isOutgoing = mode == _outgoingMode;
     // All 5 transit modes share the 'bus' (main/home) page key
     // so the background image is shared across the home page tabs.
     const pageKey = 'bus';
+    final content = BackgroundImageWrapper(pageKey: pageKey, child: child);
 
-    return IgnorePointer(
-      ignoring: !isActive,
-      child: ExcludeSemantics(
-        excluding: !isActive,
-        child: TickerMode(
-          enabled: isActive,
-          child: AnimatedSlide(
-            duration: _switchDuration,
-            curve: Curves.easeOutCubic,
-            offset: isActive ? Offset.zero : _hiddenOffset,
-            child: AnimatedOpacity(
-              duration: _switchDuration,
-              curve: Curves.easeOutCubic,
-              opacity: isActive ? 1 : 0,
-              child: BackgroundImageWrapper(pageKey: pageKey, child: child),
+    return Offstage(
+      offstage: !isActive && !isOutgoing,
+      child: IgnorePointer(
+        ignoring: !isActive,
+        child: ExcludeSemantics(
+          excluding: !isActive,
+          child: TickerMode(
+            enabled: isActive,
+            child: AnimatedBuilder(
+              animation: _modeTransitionController,
+              child: content,
+              builder: (context, child) {
+                final offset = isActive && _outgoingMode != null
+                    ? 1 -
+                          Curves.easeOutCubic.transform(
+                            _modeTransitionController.value,
+                          )
+                    : 0.0;
+                return FractionalTranslation(
+                  translation: Offset(offset, 0),
+                  child: child,
+                );
+              },
             ),
           ),
         ),

@@ -4223,6 +4223,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         return _StopScheduleSheet(
           routeId: detail.route.routeId,
           routeName: detail.route.routeName,
+          provider: widget.provider,
           stop: stop,
           repository: AppControllerScope.read(context).repository,
         );
@@ -5797,6 +5798,7 @@ class _RouteInfoDialog extends StatefulWidget {
 class _RouteInfoDialogState extends State<_RouteInfoDialog> {
   List<RouteOperator>? _operators;
   List<RouteScheduleEntry>? _schedule;
+  Set<String> _cancelledDepartures = const <String>{};
   bool _loading = true;
   String? _error;
   final Set<String> _expandedAlertIds = <String>{};
@@ -5839,6 +5841,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
         _schedule = results[1] as List<RouteScheduleEntry>;
         _loading = false;
       });
+      unawaited(_loadCancelledDepartures());
     } catch (e) {
       debugPrint('RouteInfoDialog load error for $routeId: $e');
       if (!mounted) return;
@@ -5846,6 +5849,33 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
         _loading = false;
         _error = friendlyErrorMessage(e);
       });
+    }
+  }
+
+  Future<void> _loadCancelledDepartures() async {
+    if (widget.provider != BusProvider.txg) {
+      return;
+    }
+    try {
+      final departures = await widget.repository
+          .fetchTaichungCancelledDepartures(
+            routeId: widget.detail.route.routeId,
+            routeName: widget.detail.route.routeName,
+            date: _selectedDate,
+          );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _cancelledDepartures = departures
+            .map(
+              (departure) =>
+                  '${departure.direction}:${departure.departureTime}',
+            )
+            .toSet();
+      });
+    } catch (_) {
+      // Cancellation data is supplementary to the timetable.
     }
   }
 
@@ -6168,6 +6198,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     if (picked == null || !mounted) return;
     setState(() => _selectedDate = picked);
     unawaited(_ensureHolidaysLoaded(picked.year));
+    unawaited(_loadCancelledDepartures());
   }
 
   /// Determines whether a schedule entry is active on the selected date,
@@ -6235,7 +6266,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     ThemeData theme,
   ) {
     final frequencyEntries = entries.where((e) => e.isFrequency).toList();
-    final departureTimes = <String>{};
+    final departureTimes = <String, bool>{};
     for (final entry in entries) {
       if (entry.isFrequency) continue;
       final stops = entry.payload['stop_times'] as List<dynamic>? ?? [];
@@ -6243,12 +6274,15 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
         final first = stops.first as Map<String, dynamic>;
         final departure = (first['departure'] as String? ?? '').trim();
         if (departure.isNotEmpty) {
-          departureTimes.add(_normalizeTime(departure));
+          final time = _normalizeTime(departure);
+          departureTimes[time] = _cancelledDepartures.contains(
+            '${direction + 1}:$time',
+          );
         }
       }
     }
 
-    final sortedTimes = departureTimes.toList()..sort();
+    final sortedTimes = departureTimes.keys.toList()..sort();
 
     return Padding(
       padding: const EdgeInsets.only(top: 4, bottom: 8),
@@ -6285,10 +6319,22 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest,
+                      color: departureTimes[time] == true
+                          ? theme.colorScheme.errorContainer
+                          : theme.colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: Text(time, style: theme.textTheme.bodySmall),
+                    child: Text(
+                      time,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: departureTimes[time] == true
+                            ? theme.colorScheme.error
+                            : null,
+                        fontWeight: departureTimes[time] == true
+                            ? FontWeight.w700
+                            : null,
+                      ),
+                    ),
                   ),
               ],
             )
@@ -6334,12 +6380,14 @@ class _StopScheduleSheet extends StatefulWidget {
   const _StopScheduleSheet({
     required this.routeId,
     required this.routeName,
+    required this.provider,
     required this.stop,
     required this.repository,
   });
 
   final String routeId;
   final String routeName;
+  final BusProvider provider;
   final StopInfo stop;
   final BusRepository repository;
 
@@ -6349,6 +6397,7 @@ class _StopScheduleSheet extends StatefulWidget {
 
 class _StopScheduleSheetState extends State<_StopScheduleSheet> {
   List<RouteScheduleEntry>? _schedule;
+  Set<String> _cancelledDepartures = const <String>{};
   bool _loading = true;
   String? _error;
   DateTime _selectedDate = DateTime.now();
@@ -6383,6 +6432,7 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
         _schedule = schedule;
         _loading = false;
       });
+      unawaited(_loadCancelledDepartures());
     } catch (e) {
       debugPrint('StopScheduleSheet load error: $e');
       if (!mounted) return;
@@ -6390,6 +6440,33 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
         _loading = false;
         _error = friendlyErrorMessage(e);
       });
+    }
+  }
+
+  Future<void> _loadCancelledDepartures() async {
+    if (widget.provider != BusProvider.txg) {
+      return;
+    }
+    try {
+      final departures = await widget.repository
+          .fetchTaichungCancelledDepartures(
+            routeId: widget.routeId,
+            routeName: widget.routeName,
+            date: _selectedDate,
+          );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _cancelledDepartures = departures
+            .map(
+              (departure) =>
+                  '${departure.direction}:${departure.departureTime}',
+            )
+            .toSet();
+      });
+    } catch (_) {
+      // Cancellation data is supplementary to the timetable.
     }
   }
 
@@ -6437,6 +6514,7 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
     if (picked == null || !mounted) return;
     setState(() => _selectedDate = picked);
     unawaited(_ensureHolidaysLoaded(picked.year));
+    unawaited(_loadCancelledDepartures());
   }
 
   bool _isEntryActiveOnSelectedDate(RouteScheduleEntry entry) {
@@ -6490,6 +6568,24 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
   bool _isEntryEstimated(RouteScheduleEntry entry) {
     return entry.isFrequency &&
         (entry.payload['has_estimated_stops'] as bool? ?? false);
+  }
+
+  bool _isCancelledDeparture(RouteScheduleEntry entry) {
+    if (entry.isFrequency) {
+      return false;
+    }
+    final stops = entry.payload['stop_times'] as List<dynamic>? ?? const [];
+    if (stops.isEmpty || stops.first is! Map<String, dynamic>) {
+      return false;
+    }
+    final first = stops.first as Map<String, dynamic>;
+    final departure = (first['departure'] as String? ?? '').trim();
+    if (departure.isEmpty) {
+      return false;
+    }
+    return _cancelledDepartures.contains(
+      '${entry.direction + 1}:${_normalizeTime(departure)}',
+    );
   }
 
   String _normalizeTime(String raw) {
@@ -6575,6 +6671,7 @@ class _StopScheduleSheetState extends State<_StopScheduleSheet> {
     final timetableEntries = schedule
         .where((e) => !e.isFrequency)
         .where(_isEntryActiveOnSelectedDate)
+        .where((entry) => !_isCancelledDeparture(entry))
         .toList();
     final frequencyEntries = schedule
         .where((e) => e.isFrequency)

@@ -30,7 +30,7 @@ class _MainTransitShellState extends State<MainTransitShell>
   late final AnimationController _modeTransitionController;
 
   static const _desktopRailExtendedBreakpoint = 1280.0;
-  static const _compactNavigationHeight = 64.0;
+  static const _compactNavigationHeight = 48.0;
   static const _switchDuration = Duration(milliseconds: 220);
 
   @override

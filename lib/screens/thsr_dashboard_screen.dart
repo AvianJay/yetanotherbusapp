@@ -13,9 +13,14 @@ import '../widgets/ad_banner_widget.dart';
 enum _ThsrPanel { timetable, seats, map }
 
 class ThsrScreen extends StatefulWidget {
-  const ThsrScreen({required this.isActive, super.key});
+  const ThsrScreen({
+    required this.isActive,
+    this.mobileBottomNavigation,
+    super.key,
+  });
 
   final bool isActive;
+  final Widget? mobileBottomNavigation;
 
   @override
   State<ThsrScreen> createState() => _ThsrScreenState();
@@ -246,6 +251,10 @@ class _ThsrScreenState extends State<ThsrScreen> {
       AppControllerScope.of(context).settings,
       pageKey: 'bus',
     );
+    final showInlineNavigation =
+        widget.mobileBottomNavigation != null &&
+        !(_loadingStations && _stations.isEmpty) &&
+        !(_pageError != null && _stations.isEmpty);
     return Scaffold(
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
@@ -300,13 +309,17 @@ class _ThsrScreenState extends State<ThsrScreen> {
                                 _ThsrPanel.map => _buildMapPanel(theme),
                               },
                             ),
+                            if (showInlineNavigation)
+                              widget.mobileBottomNavigation!,
                           ],
                         ),
                       ),
               ),
             ),
           ),
-          const AdBannerWidget(),
+          if (!showInlineNavigation && widget.mobileBottomNavigation != null)
+            widget.mobileBottomNavigation!,
+          if (widget.mobileBottomNavigation == null) const AdBannerWidget(),
         ],
       ),
     );

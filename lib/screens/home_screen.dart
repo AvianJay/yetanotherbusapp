@@ -25,7 +25,9 @@ import 'search_screen.dart';
 import '../widgets/ad_banner_widget.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({this.mobileBottomNavigation, super.key});
+
+  final Widget? mobileBottomNavigation;
 
   static const _desktopSidebarBreakpoint = 1100.0;
   static const _desktopSidebarWidth = 450.0;
@@ -47,25 +49,29 @@ class HomeScreen extends StatelessWidget {
     AppController controller, {
     required bool compactMode,
   }) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      children: [
-        if (controller.settings.enableSmartRecommendations) ...[
-          _SmartRecommendationCard(
-            controller: controller,
-            compactMode: compactMode,
-          ),
+    return MediaQuery.removePadding(
+      context: context,
+      removeBottom: true,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        children: [
+          if (controller.settings.enableSmartRecommendations) ...[
+            _SmartRecommendationCard(
+              controller: controller,
+              compactMode: compactMode,
+            ),
+            const SizedBox(height: 8),
+          ],
+          _buildSearchFeatureCard(context, compactMode: compactMode),
           const SizedBox(height: 8),
+          _buildFavoritesFeatureCard(context, compactMode: compactMode),
+          const SizedBox(height: 8),
+          _buildNearbyFeatureCard(context, compactMode: compactMode),
+          const SizedBox(height: 8),
+          _buildBusMapFeatureCard(context, compactMode: compactMode),
+          ?mobileBottomNavigation,
         ],
-        _buildSearchFeatureCard(context, compactMode: compactMode),
-        const SizedBox(height: 8),
-        _buildFavoritesFeatureCard(context, compactMode: compactMode),
-        const SizedBox(height: 8),
-        _buildNearbyFeatureCard(context, compactMode: compactMode),
-        const SizedBox(height: 8),
-        _buildBusMapFeatureCard(context, compactMode: compactMode),
-        const AdBannerWidget(),
-      ],
+      ),
     );
   }
 

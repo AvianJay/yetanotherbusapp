@@ -17,9 +17,14 @@ import '../widgets/platform_map_provider.dart';
 import '../widgets/ad_banner_widget.dart';
 
 class YouBikeScreen extends StatefulWidget {
-  const YouBikeScreen({required this.isActive, super.key});
+  const YouBikeScreen({
+    required this.isActive,
+    this.mobileBottomNavigation,
+    super.key,
+  });
 
   final bool isActive;
+  final Widget? mobileBottomNavigation;
 
   @override
   State<YouBikeScreen> createState() => _YouBikeScreenState();
@@ -1285,7 +1290,9 @@ class _YouBikeScreenState extends State<YouBikeScreen>
                         useGoogleMapsPointProvider: useGoogleMapsPointProvider,
                       ),
               ),
-              const AdBannerWidget(),
+              if (widget.mobileBottomNavigation != null)
+                widget.mobileBottomNavigation!,
+              if (widget.mobileBottomNavigation == null) const AdBannerWidget(),
             ],
           ),
         );

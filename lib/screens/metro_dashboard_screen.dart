@@ -14,9 +14,14 @@ import '../widgets/ad_banner_widget.dart';
 enum _MetroPanel { live, map }
 
 class MetroScreen extends StatefulWidget {
-  const MetroScreen({required this.isActive, super.key});
+  const MetroScreen({
+    required this.isActive,
+    this.mobileBottomNavigation,
+    super.key,
+  });
 
   final bool isActive;
+  final Widget? mobileBottomNavigation;
 
   @override
   State<MetroScreen> createState() => _MetroScreenState();
@@ -436,6 +441,10 @@ class _MetroScreenState extends State<MetroScreen> {
       AppControllerScope.of(context).settings,
       pageKey: 'bus',
     );
+    final showInlineNavigation =
+        widget.mobileBottomNavigation != null &&
+        !(_loading && _systems.isEmpty) &&
+        !(_pageError != null && _systems.isEmpty);
     return Scaffold(
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
@@ -504,13 +513,17 @@ class _MetroScreenState extends State<MetroScreen> {
                                 _MetroPanel.map => _buildMapPanel(theme),
                               },
                             ),
+                            if (showInlineNavigation)
+                              widget.mobileBottomNavigation!,
                           ],
                         ),
                       ),
               ),
             ),
           ),
-          const AdBannerWidget(),
+          if (!showInlineNavigation && widget.mobileBottomNavigation != null)
+            widget.mobileBottomNavigation!,
+          if (widget.mobileBottomNavigation == null) const AdBannerWidget(),
         ],
       ),
     );

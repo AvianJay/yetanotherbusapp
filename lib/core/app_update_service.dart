@@ -21,6 +21,15 @@ final _fullGitShaPattern = RegExp(r'^[0-9a-f]{40}$');
 
 bool _isFullGitSha(String value) => _fullGitShaPattern.hasMatch(value);
 
+String? _nightlyShaFromTag(String value) {
+  const prefix = 'nightly-';
+  if (!value.startsWith(prefix)) {
+    return null;
+  }
+  final sha = value.substring(prefix.length).trim().toLowerCase();
+  return _isFullGitSha(sha) ? sha : null;
+}
+
 /// The preferred asset suffix for the current platform when checking
 /// GitHub Release assets for a downloadable update.
 String get _platformAssetSuffix {
@@ -58,18 +67,6 @@ AppUpdatePackageFormat _packageFormatFromAssetName(String name) {
     return AppUpdatePackageFormat.appImage;
   }
   return AppUpdatePackageFormat.zip;
-}
-
-AppUpdatePackageFormat get _nightlyPackageFormat {
-  if (kIsWeb) {
-    return AppUpdatePackageFormat.zip;
-  }
-  return switch (defaultTargetPlatform) {
-    TargetPlatform.windows => AppUpdatePackageFormat.exe,
-    TargetPlatform.macOS => AppUpdatePackageFormat.dmg,
-    TargetPlatform.linux => AppUpdatePackageFormat.deb,
-    _ => AppUpdatePackageFormat.zip,
-  };
 }
 
 String _stripGeneratedReleaseDownloadTable(String markdown) {
@@ -182,33 +179,25 @@ class AppUpdateService {
 
     final uri = Uri.https(
       'api.github.com',
-      '/repos/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/actions/workflows/${AppBuildInfo.workflowIdForApi}/runs',
-      {'branch': 'main', 'event': 'push', 'status': 'success', 'per_page': '1'},
+      '/repos/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/releases',
+      {'per_page': '30'},
     );
-    final payload = await _getJson(uri) as Map<String, dynamic>;
-    final workflowRuns = payload['workflow_runs'] as List<dynamic>? ?? const [];
-    if (workflowRuns.isEmpty) {
+    final releases = await _getJson(uri) as List<dynamic>;
+    final nightlyRelease = releases
+        .whereType<Map<String, dynamic>>()
+        .firstWhere(
+          (release) =>
+              release['prerelease'] == true &&
+              _nightlyShaFromTag(release['tag_name']?.toString() ?? '') != null,
+          orElse: () => const <String, dynamic>{},
+        );
+    final latestSha = _nightlyShaFromTag(
+      nightlyRelease['tag_name']?.toString() ?? '',
+    );
+    if (latestSha == null) {
       return const AppUpdateCheckResult(
         status: AppUpdateStatus.unavailable,
-        message: '找不到可用的 nightly 建置。',
-      );
-    }
-
-    final latestRun = workflowRuns.first as Map<String, dynamic>;
-    final runId = latestRun['id']?.toString().trim() ?? '';
-    if (runId.isEmpty) {
-      return const AppUpdateCheckResult(
-        status: AppUpdateStatus.unavailable,
-        message: 'nightly 建置沒有回傳有效的 workflow run。',
-      );
-    }
-    final latestSha = (latestRun['head_sha'] as String? ?? '')
-        .trim()
-        .toLowerCase();
-    if (!_isFullGitSha(latestSha)) {
-      return const AppUpdateCheckResult(
-        status: AppUpdateStatus.unavailable,
-        message: 'nightly 建置沒有回傳有效的完整 commit。',
+        message: '找不到可用的 nightly 發布版本。',
       );
     }
 
@@ -219,23 +208,10 @@ class AppUpdateService {
       );
     }
 
-    final artifactsUri = Uri.https(
-      'api.github.com',
-      '/repos/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/actions/runs/$runId/artifacts',
-      {'per_page': '100'},
-    );
-    final artifactsPayload =
-        await _getJson(artifactsUri) as Map<String, dynamic>;
-    final artifacts =
-        artifactsPayload['artifacts'] as List<dynamic>? ?? const [];
-    final artifact = artifacts.whereType<Map<String, dynamic>>().firstWhere(
-      (candidate) =>
-          candidate['name'] == AppBuildInfo.nightlyArtifactName &&
-          candidate['expired'] != true &&
-          (candidate['archive_download_url'] as String? ?? '').isNotEmpty,
-      orElse: () => const <String, dynamic>{},
-    );
-    final downloadUrl = artifact['archive_download_url'] as String? ?? '';
+    final assets = nightlyRelease['assets'] as List<dynamic>? ?? const [];
+    final asset = _findPlatformReleaseAsset(assets);
+    final assetName = asset['name'] as String? ?? '';
+    final downloadUrl = asset['browser_download_url'] as String? ?? '';
     if (downloadUrl.isEmpty) {
       return const AppUpdateCheckResult(
         status: AppUpdateStatus.unavailable,
@@ -243,14 +219,7 @@ class AppUpdateService {
       );
     }
 
-    final headCommit = latestRun['head_commit'] as Map<String, dynamic>?;
-    final commitMessage = (headCommit?['message'] as String? ?? '')
-        .trim()
-        .split('\n')
-        .firstWhere(
-          (line) => line.trim().isNotEmpty,
-          orElse: () => '新的 nightly 建置已可下載。',
-        );
+    final releaseNotes = (nightlyRelease['body'] as String? ?? '').trim();
     final compareUrl =
         'https://github.com/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/compare/$currentSha...$latestSha';
 
@@ -262,11 +231,13 @@ class AppUpdateService {
         currentVersionLabel: currentSha,
         latestVersionLabel: latestSha,
         title: 'Nightly 更新：$latestSha',
-        summary: commitMessage,
+        summary: 'Nightly 建置 ${latestSha.substring(0, 7)} 已可下載。',
         downloadUrl: downloadUrl,
-        packageFormat: _nightlyPackageFormat,
+        packageFormat: _packageFormatFromAssetName(assetName),
         detailsUrl: compareUrl,
-        notes: '目前版本：$currentSha\n最新版本：$latestSha',
+        notes: releaseNotes.isEmpty
+            ? '目前版本：$currentSha\n最新版本：$latestSha'
+            : '$releaseNotes\n\n目前版本：$currentSha\n最新版本：$latestSha',
       ),
     );
   }
@@ -294,30 +265,7 @@ class AppUpdateService {
 
     final assets = payload['assets'] as List<dynamic>? ?? const [];
 
-    // Find the best-matching asset for the current platform.
-    Map<String, dynamic>? platformAsset;
-    final suffix = _platformAssetSuffix;
-    if (suffix.isNotEmpty) {
-      for (final asset in assets.whereType<Map<String, dynamic>>()) {
-        final name = asset['name'] as String? ?? '';
-        if (name.contains(suffix)) {
-          platformAsset = asset;
-          break;
-        }
-      }
-    }
-
-    // Fallback: try APK for mobile, generic zip otherwise.
-    platformAsset ??= assets.whereType<Map<String, dynamic>>().firstWhere(
-      (asset) =>
-          (asset['name'] as String? ?? '').toLowerCase().endsWith('.apk'),
-      orElse: () => assets.whereType<Map<String, dynamic>>().firstWhere(
-        (asset) =>
-            (asset['name'] as String? ?? '').toLowerCase().endsWith('.zip'),
-        orElse: () => throw StateError('no matching asset'),
-      ),
-    );
-
+    final platformAsset = _findPlatformReleaseAsset(assets);
     final assetName = platformAsset['name'] as String? ?? '';
     final body = (payload['body'] as String? ?? '').trim();
     final notes = _stripGeneratedReleaseDownloadTable(body);
@@ -346,6 +294,34 @@ class AppUpdateService {
         notes: notes.isEmpty ? null : notes,
       ),
     );
+  }
+
+  Map<String, dynamic> _findPlatformReleaseAsset(List<dynamic> assets) {
+    // Find the best-matching asset for the current platform.
+    Map<String, dynamic>? platformAsset;
+    final suffix = _platformAssetSuffix;
+    if (suffix.isNotEmpty) {
+      for (final asset in assets.whereType<Map<String, dynamic>>()) {
+        final name = asset['name'] as String? ?? '';
+        if (name.contains(suffix)) {
+          platformAsset = asset;
+          break;
+        }
+      }
+    }
+
+    // Fallback: try APK for mobile, generic zip otherwise.
+    platformAsset ??= assets.whereType<Map<String, dynamic>>().firstWhere(
+      (asset) =>
+          (asset['name'] as String? ?? '').toLowerCase().endsWith('.apk'),
+      orElse: () => assets.whereType<Map<String, dynamic>>().firstWhere(
+        (asset) =>
+            (asset['name'] as String? ?? '').toLowerCase().endsWith('.zip'),
+        orElse: () => throw StateError('no matching asset'),
+      ),
+    );
+
+    return platformAsset;
   }
 
   Future<Object?> _getJson(Uri uri) async {

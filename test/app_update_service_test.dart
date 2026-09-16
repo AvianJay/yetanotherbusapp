@@ -8,13 +8,26 @@ import 'package:taiwanbus_flutter/core/app_update_service.dart';
 import 'package:taiwanbus_flutter/core/models.dart';
 
 void main() {
+  List<Map<String, String>> nightlyAssets(String downloadUrl) => [
+    {'name': 'YABus-nightly.apk', 'browser_download_url': downloadUrl},
+    {
+      'name': 'YABus-nightly-windows-x64-setup.exe',
+      'browser_download_url': downloadUrl,
+    },
+    {
+      'name': 'YABus-nightly-linux-amd64.deb',
+      'browser_download_url': downloadUrl,
+    },
+    {'name': 'YABus-nightly-macos.dmg', 'browser_download_url': downloadUrl},
+  ];
+
   test(
-    'nightly compares normalized full SHAs and uses the selected run artifact',
+    'nightly compares normalized full SHAs and uses its release asset',
     () async {
       const currentSha = 'abcdef0123456789abcdef0123456789abcdef01';
       const latestSha = 'abcdef0fedcba9876543210fedcba9876543210f';
       const artifactUrl =
-          'https://api.github.com/repos/AvianJay/yetanotherbusapp/actions/artifacts/2468/zip';
+          'https://github.com/AvianJay/yetanotherbusapp/releases/download/nightly/YABus-nightly.apk';
       final service = AppUpdateService(
         buildInfo: const AppBuildInfo(
           version: '1.0.0',
@@ -23,42 +36,27 @@ void main() {
           defaultUpdateChannel: AppUpdateChannel.nightly,
         ),
         client: MockClient((request) async {
-          if (request.url.path.contains('/actions/workflows/')) {
-            expect(request.url.queryParameters['branch'], 'main');
-            expect(request.url.queryParameters['event'], 'push');
-            return http.Response(
-              jsonEncode({
-                'workflow_runs': [
+          expect(request.url.path, '/repos/AvianJay/yetanotherbusapp/releases');
+          expect(request.url.queryParameters['per_page'], '30');
+          return http.Response(
+            jsonEncode([
+              {
+                'tag_name': 'nightly-$latestSha',
+                'prerelease': true,
+                'body': 'Nightly build for this commit.',
+                'assets': nightlyAssets(artifactUrl),
+              },
+              {
+                'tag_name': 'v1.0.0',
+                'prerelease': false,
+                'assets': [
                   {
-                    'id': 1357,
-                    'head_sha': latestSha.toUpperCase(),
-                    'head_commit': {'message': 'nightly update'},
+                    'name': 'unrelated-artifact',
+                    'browser_download_url': 'https://example.com/unrelated.zip',
                   },
                 ],
-              }),
-              200,
-            );
-          }
-
-          expect(
-            request.url.path,
-            '/repos/AvianJay/yetanotherbusapp/actions/runs/1357/artifacts',
-          );
-          expect(request.url.queryParameters['per_page'], '100');
-          return http.Response(
-            jsonEncode({
-              'artifacts': [
-                {
-                  'name': 'unrelated-artifact',
-                  'archive_download_url': 'https://example.com/unrelated.zip',
-                },
-                {
-                  'name': AppBuildInfo.nightlyArtifactName,
-                  'expired': false,
-                  'archive_download_url': artifactUrl,
-                },
-              ],
-            }),
+              },
+            ]),
             200,
           );
         }),
@@ -78,8 +76,9 @@ void main() {
   );
 
   test(
-    'nightly check reports up to date when normalized full commit matches',
+    'nightly check reports up to date when normalized full release tag matches',
     () async {
+      const sha = 'abcdef0123456789abcdef0123456789abcdef01';
       final service = AppUpdateService(
         buildInfo: const AppBuildInfo(
           version: '1.0.0',
@@ -88,18 +87,15 @@ void main() {
           defaultUpdateChannel: AppUpdateChannel.nightly,
         ),
         client: MockClient((request) async {
-          expect(request.url.queryParameters['branch'], 'main');
-          expect(request.url.queryParameters['event'], 'push');
+          expect(request.url.path, '/repos/AvianJay/yetanotherbusapp/releases');
           return http.Response(
-            jsonEncode({
-              'workflow_runs': [
-                {
-                  'id': 1357,
-                  'head_sha': 'abcdef0123456789abcdef0123456789abcdef01',
-                  'head_commit': {'message': 'same commit'},
-                },
-              ],
-            }),
+            jsonEncode([
+              {
+                'tag_name': 'nightly-$sha',
+                'prerelease': true,
+                'assets': const [],
+              },
+            ]),
             200,
           );
         }),
@@ -111,6 +107,33 @@ void main() {
       expect(result.hasUpdate, isFalse);
     },
   );
+
+  test('nightly ignores pre-releases without a full commit tag', () async {
+    final service = AppUpdateService(
+      buildInfo: const AppBuildInfo(
+        version: '1.0.0',
+        buildNumber: '1',
+        gitSha: 'abcdef0123456789abcdef0123456789abcdef01',
+        defaultUpdateChannel: AppUpdateChannel.nightly,
+      ),
+      client: MockClient((request) async {
+        return http.Response(
+          jsonEncode([
+            {
+              'tag_name': 'nightly-main',
+              'prerelease': true,
+              'assets': const [],
+            },
+          ]),
+          200,
+        );
+      }),
+    );
+
+    final result = await service.checkForUpdates(AppUpdateChannel.nightly);
+
+    expect(result.status, AppUpdateStatus.unavailable);
+  });
 
   test('release check strips generated download table from notes', () async {
     final service = AppUpdateService(

@@ -7,6 +7,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -518,3 +521,59 @@ jobs:
         with:
           name: ios-unsigned-ipa
           path: build/ipa/Generated_IPA.ipa
+
+  publish-nightly:
+    name: Publish Nightly
+    runs-on: ubuntu-latest
+    needs:
+      - build-android
+      - build-wearos
+      - build-web
+      - build-windows
+      - build-linux
+      - build-macos
+      - build-ios-ipa
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: nightly-artifacts
+          pattern: '*-release'
+
+      - name: Publish commit-bound nightly release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          mkdir -p nightly-release
+          release_files=()
+
+          add_asset() {
+            local source="$1"
+            local target="$2"
+            if [[ -n "$source" ]]; then
+              cp "$source" "nightly-release/$target"
+              release_files+=("nightly-release/$target")
+            fi
+          }
+
+          add_asset "$(find nightly-artifacts/android-apk-release -type f -name '*.apk' -print -quit)" "YABus-nightly-$short_sha.apk"
+          add_asset "$(find nightly-artifacts/windows-release -type f -name '*.exe' -print -quit)" "YABus-nightly-$short_sha-windows-x64-setup.exe"
+          add_asset "$(find nightly-artifacts/linux-release -type f -name '*.deb' -print -quit)" "YABus-nightly-$short_sha-linux-amd64.deb"
+          add_asset "$(find nightly-artifacts/linux-release -type f -name '*.AppImage' -print -quit)" "YABus-nightly-$short_sha-linux-amd64.AppImage"
+          add_asset "$(find nightly-artifacts/macos-release -type f -name '*.dmg' -print -quit)" "YABus-nightly-$short_sha-macos.dmg"
+
+          if [[ ${#release_files[@]} -eq 0 ]]; then
+            echo 'No installable nightly assets were found.' >&2
+            exit 1
+          fi
+
+          gh release create "nightly-$GITHUB_SHA" "${release_files[@]}" \
+            --target "$GITHUB_SHA" \
+            --title "Nightly $short_sha" \
+            --notes "Nightly build for commit \`$GITHUB_SHA\`." \
+            --prerelease

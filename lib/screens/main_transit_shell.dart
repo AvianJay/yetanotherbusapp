@@ -26,7 +26,6 @@ class _MainTransitShellState extends State<MainTransitShell> {
   TransitMode _currentMode = TransitMode.bus;
   final Set<TransitMode> _loadedModes = {TransitMode.bus};
 
-  static const _desktopRailExtendedBreakpoint = 1280.0;
   static const _switchDuration = Duration(milliseconds: 220);
   static const _hiddenOffset = Offset(0.035, 0);
 
@@ -105,31 +104,10 @@ class _MainTransitShellState extends State<MainTransitShell> {
       return modeStack;
     }
 
-    final colorScheme = Theme.of(context).colorScheme;
-    final isExtendedRail = screenWidth >= _desktopRailExtendedBreakpoint;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Column(
       children: [
-        NavigationRail(
-          extended: isExtendedRail,
-          minExtendedWidth: 184,
-          backgroundColor: colorScheme.surfaceContainerLow,
-          groupAlignment: -0.82,
-          leading: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 20, 12, 8),
-            child: isExtendedRail
-                ? Text(
-                    '交通工具',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  )
-                : Icon(
-                    Icons.directions_transit_rounded,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-          ),
+        Expanded(child: modeStack),
+        NavigationBar(
           selectedIndex: kTransitModeDestinations.indexWhere(
             (destination) => destination.mode == _currentMode,
           ),
@@ -138,22 +116,15 @@ class _MainTransitShellState extends State<MainTransitShell> {
               _setMode(kTransitModeDestinations[index].mode);
             }
           },
-          labelType: isExtendedRail ? null : NavigationRailLabelType.all,
           destinations: [
             for (final destination in kTransitModeDestinations)
-              NavigationRailDestination(
+              NavigationDestination(
                 icon: Icon(destination.icon),
                 selectedIcon: Icon(destination.icon),
-                label: Text(destination.label),
+                label: destination.label,
               ),
           ],
         ),
-        VerticalDivider(
-          width: 1,
-          thickness: 1,
-          color: colorScheme.outlineVariant,
-        ),
-        Expanded(child: modeStack),
       ],
     );
   }

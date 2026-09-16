@@ -1160,7 +1160,8 @@ class _AppHomeState extends State<_AppHome> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return widget.controller.needsOnboarding
+    final controller = AppControllerScope.of(context);
+    return controller.needsOnboarding
         ? const OnboardingScreen()
         : const MainTransitShell();
   }

@@ -100,6 +100,9 @@ class PersonalizationScreen extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
             children: [
+              const _AppearancePreviewCard(),
+              const SizedBox(height: 12),
+
               // ── 背景圖片預覽滑動 ────────────────────────────
               if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
                 _BackgroundPreviewCarousel(
@@ -798,6 +801,99 @@ class _PerPageBackgroundScreen extends StatelessWidget {
 // ────────────────────────────────────────────────────────────────
 // Background preview carousel
 // ────────────────────────────────────────────────────────────────
+
+class _AppearancePreviewCard extends StatelessWidget {
+  const _AppearancePreviewCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final isAmoled =
+        theme.brightness == Brightness.dark &&
+        theme.scaffoldBackgroundColor == Colors.black;
+    final modeLabel = isAmoled
+        ? 'AMOLED 純黑'
+        : theme.brightness == Brightness.dark
+        ? '深色模式'
+        : '淺色模式';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('外觀預覽', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(modeLabel, style: theme.textTheme.bodySmall),
+            const SizedBox(height: 14),
+            Container(
+              height: 110,
+              decoration: BoxDecoration(
+                color: theme.scaffoldBackgroundColor,
+                border: Border.all(color: colors.outlineVariant),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            color: colors.primary,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.directions_bus_rounded,
+                            size: 16,
+                            color: colors.onPrimary,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text('公車資訊', style: theme.textTheme.titleSmall),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: theme.cardTheme.color ?? colors.surface,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '下一班 3 分鐘',
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                            ),
+                            FilledButton(
+                              onPressed: null,
+                              child: const Text('查看'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _BackgroundPreviewCarousel extends StatelessWidget {
   const _BackgroundPreviewCarousel({

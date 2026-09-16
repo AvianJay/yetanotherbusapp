@@ -807,11 +807,11 @@ class _AppearancePreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controller = AppControllerScope.of(context);
+    final settings = controller.settings;
     final theme = Theme.of(context);
-    final colors = theme.colorScheme;
     final isAmoled =
-        theme.brightness == Brightness.dark &&
-        theme.scaffoldBackgroundColor == Colors.black;
+        settings.useAmoledDark && settings.themeMode != ThemeMode.light;
     final modeLabel = isAmoled
         ? 'AMOLED 純黑'
         : theme.brightness == Brightness.dark
@@ -828,67 +828,188 @@ class _AppearancePreviewCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(modeLabel, style: theme.textTheme.bodySmall),
             const SizedBox(height: 14),
-            Container(
-              height: 110,
-              decoration: BoxDecoration(
-                color: theme.scaffoldBackgroundColor,
-                border: Border.all(color: colors.outlineVariant),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+            _HomeAppearancePreview(settings: settings, isAmoled: isAmoled),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeAppearancePreview extends StatelessWidget {
+  const _HomeAppearancePreview({
+    required this.settings,
+    required this.isAmoled,
+  });
+
+  final AppSettings settings;
+  final bool isAmoled;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final imagePath = settings.pageBackgroundImagePaths['bus'];
+    final hasImage = !isAmoled && imagePath != null && imagePath.isNotEmpty;
+    final cardColor = theme.cardTheme.color ?? colors.surface;
+    final appBarColor = theme.appBarTheme.backgroundColor ?? Colors.transparent;
+    final lineColor = colors.onSurfaceVariant;
+
+    return SizedBox(
+      height: 242,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: theme.scaffoldBackgroundColor,
+            border: Border.all(color: colors.outlineVariant),
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (hasImage)
+                buildStoredBackgroundImage(
+                  path: imagePath,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: imagePath.toLowerCase().endsWith('.gif'),
+                  opacity: settings.pageBackgroundImageOpacities['bus'] ?? 0.25,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                ),
+              if (!isAmoled && settings.homeBackgroundOpacity > 0)
+                Positioned.fill(
+                  top: 44,
+                  child: ColoredBox(
+                    color: colors.primaryContainer.withValues(
+                      alpha: settings.homeBackgroundOpacity.clamp(0.0, 1.0),
+                    ),
+                  ),
+                ),
+              Column(
+                children: [
+                  Container(
+                    height: 44,
+                    color: appBarColor,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
                       children: [
-                        Container(
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            color: colors.primary,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            Icons.directions_bus_rounded,
-                            size: 16,
-                            color: colors.onPrimary,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text('公車資訊', style: theme.textTheme.titleSmall),
+                        Icon(Icons.menu_rounded, color: colors.onSurface),
+                        const SizedBox(width: 12),
+                        Text('YABus', style: theme.textTheme.titleMedium),
+                        const Spacer(),
+                        Icon(Icons.campaign_outlined, color: colors.onSurface),
+                        const SizedBox(width: 12),
+                        Icon(Icons.settings_outlined, color: colors.onSurface),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    Expanded(
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: theme.cardTheme.color ?? colors.surface,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        children: [
+                          _HomePreviewFeatureCard(
+                            icon: Icons.search_rounded,
+                            title: '搜尋路線',
+                            subtitle: '快速查詢即時到站資訊',
+                            cardColor: cardColor,
+                            lineColor: lineColor,
+                          ),
+                          const SizedBox(height: 8),
+                          _HomePreviewFeatureCard(
+                            icon: Icons.favorite_outline_rounded,
+                            title: '我的最愛',
+                            subtitle: '常用站牌與群組',
+                            cardColor: cardColor,
+                            lineColor: lineColor,
+                          ),
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              height: 28,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: colors.primary,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
                               child: Text(
-                                '下一班 3 分鐘',
-                                style: theme.textTheme.bodyMedium,
+                                '開啓設定',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: colors.onPrimary,
+                                ),
                               ),
                             ),
-                            FilledButton(
-                              onPressed: null,
-                              child: const Text('查看'),
-                            ),
-                          ],
-                        ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomePreviewFeatureCard extends StatelessWidget {
+  const _HomePreviewFeatureCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.cardColor,
+    required this.lineColor,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color cardColor;
+  final Color lineColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Expanded(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: colors.outlineVariant),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              Icon(icon, color: colors.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: theme.textTheme.titleSmall),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: lineColor,
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+              Icon(Icons.chevron_right_rounded, color: lineColor),
+            ],
+          ),
         ),
       ),
     );

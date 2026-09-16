@@ -12,6 +12,7 @@ import '../core/models.dart';
 import '../core/pwa_install_service.dart';
 import '../core/route_direction_label.dart';
 import '../widgets/eta_badge.dart';
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_station_map.dart';
 import '../widgets/transit_drawer.dart';
 import 'adaptive_settings_presenter.dart';
@@ -304,8 +305,10 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
     final colorScheme = Theme.of(context).colorScheme;
-    final hasBusBackgroundImage = controller.settings.pageBackgroundImagePaths
-        .containsKey('bus');
+    final hasBusBackgroundImage = hasBackgroundImageForPage(
+      controller.settings,
+      pageKey: 'bus',
+    );
     return Scaffold(
       backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
@@ -412,13 +415,10 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  /// Avoid tinting AMOLED black or a user-selected background image.
+  /// AMOLED mode keeps the home page pure black.
   bool _shouldShowHomeBackground(AppController controller) {
     final settings = controller.settings;
     if (settings.useAmoledDark && settings.themeMode != ThemeMode.light) {
-      return false;
-    }
-    if (settings.pageBackgroundImagePaths.containsKey('bus')) {
       return false;
     }
     return settings.homeBackgroundOpacity > 0;

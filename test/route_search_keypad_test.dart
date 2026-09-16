@@ -99,6 +99,27 @@ void main() {
     expect(changes, ['紅312', '紅42']);
   });
 
+  testWidgets('only shows shortcuts found in downloaded route data', (
+    tester,
+  ) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    await _pumpKeypad(
+      tester,
+      controller: controller,
+      availableRouteNames: const <String>{'紅1', '500跳蛙'},
+    );
+
+    expect(find.byKey(const ValueKey('route-keypad-prefix-紅')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('route-keypad-prefix-跳蛙')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('route-keypad-prefix-藍')), findsNothing);
+    expect(find.byKey(const ValueKey('route-keypad-prefix-幹線')), findsNothing);
+  });
+
   testWidgets('route prefixes replace the existing leading prefix', (
     tester,
   ) async {
@@ -350,6 +371,7 @@ Future<void> _pumpKeypad(
   ValueChanged<String>? onChanged,
   VoidCallback? onRequestTextInput,
   VoidCallback? onCollapse,
+  Set<String>? availableRouteNames,
   Size size = const Size(390, 844),
   TextScaler textScaler = TextScaler.noScaling,
 }) async {
@@ -366,6 +388,7 @@ Future<void> _pumpKeypad(
           onChanged: onChanged ?? (_) {},
           onRequestTextInput: onRequestTextInput ?? () {},
           onCollapse: onCollapse ?? () {},
+          availableRouteNames: availableRouteNames,
         ),
       ),
     ),

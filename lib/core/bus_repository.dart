@@ -435,6 +435,14 @@ class BusRepository {
     );
   }
 
+  Future<Set<String>> routeNames({required BusProvider provider}) async {
+    final rows = await _loadMetadataPathRows(provider: provider);
+    return rows
+        .map((row) => row.routeName.trim())
+        .where((routeName) => routeName.isNotEmpty)
+        .toSet();
+  }
+
   Future<List<StopRouteSearchResult>> searchRoutesByStopName(
     String query, {
     required BusProvider provider,

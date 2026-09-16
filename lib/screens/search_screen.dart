@@ -34,6 +34,9 @@ class _SearchScreenState extends State<SearchScreen> {
   BusProvider? _webPreferredProvider;
   Position? _lastResolvedSearchPosition;
   int _activeSearchToken = 0;
+  int _routeNameLoadToken = 0;
+  String? _loadedRouteNameProviders;
+  Set<String> _availableRouteNames = const <String>{};
   late bool _isRouteKeypadVisible;
   bool _isUsingNativeKeyboard = false;
 
@@ -50,6 +53,40 @@ class _SearchScreenState extends State<SearchScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         unawaited(_resolveWebPreferredProvider());
       });
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_supportsRouteKeypad) {
+      return;
+    }
+    final controller = AppControllerScope.of(context);
+    final providers = controller.downloadedProviders;
+    final providerKey = providers.map((provider) => provider.name).join('|');
+    if (_loadedRouteNameProviders == providerKey) {
+      return;
+    }
+    _loadedRouteNameProviders = providerKey;
+    final token = ++_routeNameLoadToken;
+    unawaited(_loadAvailableRouteNames(controller, token));
+  }
+
+  Future<void> _loadAvailableRouteNames(
+    AppController controller,
+    int token,
+  ) async {
+    try {
+      final routeNames = await controller.routeNamesForDownloadedProviders();
+      if (!mounted || token != _routeNameLoadToken) {
+        return;
+      }
+      setState(() => _availableRouteNames = routeNames);
+    } catch (_) {
+      if (mounted && token == _routeNameLoadToken) {
+        setState(() => _availableRouteNames = const <String>{});
+      }
     }
   }
 
@@ -1251,6 +1288,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 onChanged: _onQueryChanged,
                 onRequestTextInput: _requestNativeKeyboard,
                 onCollapse: _collapseRouteKeypad,
+                availableRouteNames: _availableRouteNames,
               )
             : null,
       ),

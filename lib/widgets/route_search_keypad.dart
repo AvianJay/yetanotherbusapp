@@ -16,6 +16,7 @@ class RouteSearchKeypad extends StatelessWidget {
     required this.onChanged,
     required this.onRequestTextInput,
     required this.onCollapse,
+    this.availableRouteNames,
     super.key,
   });
 
@@ -23,6 +24,7 @@ class RouteSearchKeypad extends StatelessWidget {
   final ValueChanged<String> onChanged;
   final VoidCallback onRequestTextInput;
   final VoidCallback onCollapse;
+  final Set<String>? availableRouteNames;
 
   static const List<_RouteShortcutKey> _shortcutKeys = <_RouteShortcutKey>[
     _RouteShortcutKey.prefix('紅', Color(0xFFD84A4A)),
@@ -165,6 +167,21 @@ class RouteSearchKeypad extends StatelessWidget {
     }
   }
 
+  bool _isShortcutAvailable(_RouteShortcutKey key) {
+    final names = availableRouteNames;
+    if (names == null) {
+      return true;
+    }
+    return names.any((name) {
+      return switch (key.action) {
+        _RouteShortcutAction.prefix => name.startsWith(key.data),
+        _RouteShortcutAction.suffix => name.endsWith(key.data),
+        _RouteShortcutAction.keyword ||
+        _RouteShortcutAction.category => name.contains(key.data),
+      };
+    });
+  }
+
   int _leadingPrefixLength(String text) {
     var offset = 0;
     while (offset < text.length) {
@@ -274,7 +291,9 @@ class RouteSearchKeypad extends StatelessWidget {
                           Orientation.landscape &&
                       constraints.maxWidth >= 520;
                   final prefixRail = _PrefixRail(
-                    keys: _shortcutKeys,
+                    keys: _shortcutKeys
+                        .where(_isShortcutAvailable)
+                        .toList(growable: false),
                     onPressed: _selectShortcut,
                   );
                   final numberGrid = _NumberGrid(

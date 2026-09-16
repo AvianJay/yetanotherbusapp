@@ -255,6 +255,15 @@ class AppController extends ChangeNotifier {
     return _databaseReadyByProvider[provider] ?? false;
   }
 
+  Future<Set<String>> routeNamesForDownloadedProviders() async {
+    final routeNames = await Future.wait(
+      downloadedProviders.map(
+        (provider) => repository.routeNames(provider: provider),
+      ),
+    );
+    return routeNames.expand((names) => names).toSet();
+  }
+
   Future<bool> isRouteMetadataDatabaseReady() {
     return repository.routeMetadataDatabaseExists();
   }

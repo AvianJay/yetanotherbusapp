@@ -42,4 +42,12 @@ void main() {
     expect(groups, hasLength(3));
     expect(groups.map((group) => group.trunkName), ['50', '500', '500']);
   });
+
+  test('resolves the same family name for trunk and supported variants', () {
+    expect(routeFamilyName('500'), '500');
+    expect(routeFamilyName('500延'), '500');
+    expect(routeFamilyName('500跳蛙'), '500');
+    expect(routeFamilyName('500延跳蛙'), '500');
+    expect(routeFamilyName('500區'), '500區');
+  });
 }

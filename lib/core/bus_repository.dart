@@ -13,6 +13,7 @@ import 'api_config.dart';
 import 'http_error_utils.dart';
 import 'models.dart';
 import 'native_sqlite_bridge.dart';
+import 'route_search_grouping.dart';
 import 'route_search_ranking.dart';
 
 class DatabaseNotReadyException implements Exception {
@@ -441,6 +442,43 @@ class BusRepository {
         .map((row) => row.routeName.trim())
         .where((routeName) => routeName.isNotEmpty)
         .toSet();
+  }
+
+  /// Finds variants of [route] that share its supported trunk-route suffix.
+  ///
+  /// The backend has no route-family identifier, so this intentionally uses
+  /// the same name rule as the route search UI and never crosses providers.
+  Future<List<RouteSummary>> getRouteFamily(
+    RouteSummary route, {
+    required BusProvider provider,
+  }) async {
+    final familyName = routeFamilyName(route.routeName);
+    List<RouteSummary> candidates;
+    try {
+      candidates = await searchRoutes(
+        familyName,
+        provider: provider,
+        limit: 120,
+      );
+    } on DatabaseNotReadyException {
+      candidates = await searchRoutesFromApi(
+        familyName,
+        provider: provider,
+        limit: 120,
+      );
+    }
+
+    final family = <RouteSummary>[route];
+    final routeIds = <String>{route.routeId};
+    for (final candidate in candidates) {
+      if (routeFamilyName(candidate.routeName) != familyName ||
+          !routeIds.add(candidate.routeId)) {
+        continue;
+      }
+      family.add(candidate);
+    }
+    family.sort((left, right) => left.routeName.compareTo(right.routeName));
+    return family;
   }
 
   Future<List<StopRouteSearchResult>> searchRoutesByStopName(

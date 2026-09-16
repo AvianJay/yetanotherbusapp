@@ -5832,8 +5832,9 @@ class _RouteInfoDialog extends StatefulWidget {
 
 class _RouteInfoDialogState extends State<_RouteInfoDialog> {
   List<RouteOperator>? _operators;
-  List<RouteScheduleEntry>? _schedule;
+  List<_RouteSchedule>? _schedules;
   Set<String> _cancelledDepartures = const <String>{};
+  String? _selectedScheduleRouteId;
   bool _loading = true;
   String? _error;
   final Set<String> _expandedAlertIds = <String>{};
@@ -5866,14 +5867,23 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
   Future<void> _loadData() async {
     final routeId = widget.detail.route.routeId;
     try {
-      final results = await Future.wait([
+      final family = await widget.repository.getRouteFamily(
+        widget.detail.route,
+        provider: widget.provider,
+      );
+      final results = await Future.wait<Object>([
         widget.repository.fetchRouteOperators(routeId),
-        widget.repository.fetchRouteSchedule(routeId),
+        ...family.map((route) async {
+          final entries = await widget.repository.fetchRouteSchedule(
+            route.routeId,
+          );
+          return _RouteSchedule(route: route, entries: entries);
+        }),
       ]);
       if (!mounted) return;
       setState(() {
         _operators = results[0] as List<RouteOperator>;
-        _schedule = results[1] as List<RouteScheduleEntry>;
+        _schedules = results.skip(1).cast<_RouteSchedule>().toList();
         _loading = false;
       });
       unawaited(_loadCancelledDepartures());
@@ -5888,25 +5898,31 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
   }
 
   Future<void> _loadCancelledDepartures() async {
-    if (widget.provider != BusProvider.txg) {
+    final schedules = _schedules;
+    if (widget.provider != BusProvider.txg || schedules == null) {
       return;
     }
     try {
-      final departures = await widget.repository
-          .fetchTaichungCancelledDepartures(
-            routeId: widget.detail.route.routeId,
-            routeName: widget.detail.route.routeName,
-            date: _selectedDate,
+      final cancelledByRoute = await Future.wait(
+        schedules.map((schedule) async {
+          final departures = await widget.repository
+              .fetchTaichungCancelledDepartures(
+                routeId: schedule.route.routeId,
+                routeName: schedule.route.routeName,
+                date: _selectedDate,
+              );
+          return departures.map(
+            (departure) =>
+                '${schedule.route.routeId}:${departure.direction}:${departure.departureTime}',
           );
+        }),
+      );
       if (!mounted) {
         return;
       }
       setState(() {
-        _cancelledDepartures = departures
-            .map(
-              (departure) =>
-                  '${departure.direction}:${departure.departureTime}',
-            )
+        _cancelledDepartures = cancelledByRoute
+            .expand((items) => items)
             .toSet();
       });
     } catch (_) {
@@ -5997,7 +6013,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
                 for (final op in _operators!) _buildOperatorTile(op, theme),
                 const Divider(height: 20),
               ],
-              if (_schedule != null && _schedule!.isNotEmpty) ...[
+              if (_hasScheduleEntries) ...[
                 Row(
                   children: [
                     Text('發車時間', style: theme.textTheme.titleSmall),
@@ -6014,6 +6030,39 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
                   ],
                 ),
                 const SizedBox(height: 4),
+                if (_schedules!.length > 1) ...[
+                  Text(
+                    '相關路線',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('全部'),
+                        selected: _selectedScheduleRouteId == null,
+                        onSelected: (_) =>
+                            setState(() => _selectedScheduleRouteId = null),
+                      ),
+                      for (final schedule in _schedules!)
+                        ChoiceChip(
+                          label: Text(schedule.route.routeName),
+                          selected:
+                              _selectedScheduleRouteId ==
+                              schedule.route.routeId,
+                          onSelected: (_) => setState(
+                            () => _selectedScheduleRouteId =
+                                schedule.route.routeId,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                ],
                 ..._buildScheduleSection(),
               ],
             ],
@@ -6259,15 +6308,29 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     return days[key] == 1;
   }
 
+  bool get _hasScheduleEntries =>
+      _schedules?.any((schedule) => schedule.entries.isNotEmpty) ?? false;
+
   List<Widget> _buildScheduleSection() {
     final theme = Theme.of(context);
+    final schedules = _schedules!
+        .where(
+          (schedule) =>
+              _selectedScheduleRouteId == null ||
+              schedule.route.routeId == _selectedScheduleRouteId,
+        )
+        .map(
+          (schedule) => _RouteSchedule(
+            route: schedule.route,
+            entries: schedule.entries
+                .where(_isEntryActiveOnSelectedDate)
+                .toList(growable: false),
+          ),
+        )
+        .where((schedule) => schedule.entries.isNotEmpty)
+        .toList(growable: false);
 
-    // Filter entries that run on the selected date, then group by direction.
-    final activeEntries = _schedule!
-        .where(_isEntryActiveOnSelectedDate)
-        .toList();
-
-    if (activeEntries.isEmpty) {
+    if (schedules.isEmpty) {
       return [
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -6281,25 +6344,47 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
       ];
     }
 
-    final byDirection = <int, List<RouteScheduleEntry>>{};
-    for (final entry in activeEntries) {
-      (byDirection[entry.direction] ??= []).add(entry);
-    }
-
-    final directions = byDirection.keys.toList()..sort();
     final widgets = <Widget>[];
-    for (final direction in directions) {
-      final entries = byDirection[direction]!;
-      widgets.add(_buildDirectionRow(direction, entries, theme));
+    for (final schedule in schedules) {
+      if (_schedules!.length > 1) {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.only(top: 6, bottom: 2),
+            child: Text(
+              schedule.route.routeName,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+      final byDirection = <int, List<RouteScheduleEntry>>{};
+      for (final entry in schedule.entries) {
+        (byDirection[entry.direction] ??= []).add(entry);
+      }
+      final directions = byDirection.keys.toList()..sort();
+      for (final direction in directions) {
+        widgets.add(
+          _buildDirectionRow(
+            routeId: schedule.route.routeId,
+            direction: direction,
+            entries: byDirection[direction]!,
+            theme: theme,
+          ),
+        );
+      }
     }
     return widgets;
   }
 
-  Widget _buildDirectionRow(
-    int direction,
-    List<RouteScheduleEntry> entries,
-    ThemeData theme,
-  ) {
+  Widget _buildDirectionRow({
+    required String routeId,
+    required int direction,
+    required List<RouteScheduleEntry> entries,
+    required ThemeData theme,
+  }) {
     final frequencyEntries = entries.where((e) => e.isFrequency).toList();
     final departureTimes = <String, bool>{};
     for (final entry in entries) {
@@ -6311,7 +6396,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
         if (departure.isNotEmpty) {
           final time = _normalizeTime(departure);
           departureTimes[time] = _cancelledDepartures.contains(
-            '${direction + 1}:$time',
+            '$routeId:${direction + 1}:$time',
           );
         }
       }
@@ -6407,6 +6492,13 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     }
     return raw;
   }
+}
+
+class _RouteSchedule {
+  const _RouteSchedule({required this.route, required this.entries});
+
+  final RouteSummary route;
+  final List<RouteScheduleEntry> entries;
 }
 
 /// Bottom sheet showing the timetabled arrival/departure times at a single

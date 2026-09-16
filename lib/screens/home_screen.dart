@@ -47,23 +47,46 @@ class HomeScreen extends StatelessWidget {
     required bool compactMode,
   }) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       children: [
         if (controller.settings.enableSmartRecommendations) ...[
           _SmartRecommendationCard(
             controller: controller,
             compactMode: compactMode,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
         ],
-        _buildSearchFeatureCard(context, compactMode: compactMode),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          childAspectRatio: 1.65,
+          children: [
+            _buildSearchFeatureCard(
+              context,
+              compactMode: compactMode,
+              grid: true,
+            ),
+            _buildFavoritesFeatureCard(
+              context,
+              compactMode: compactMode,
+              grid: true,
+            ),
+            _buildNearbyFeatureCard(
+              context,
+              compactMode: compactMode,
+              grid: true,
+            ),
+            _buildBusMapFeatureCard(
+              context,
+              compactMode: compactMode,
+              grid: true,
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
-        _buildFavoritesFeatureCard(context, compactMode: compactMode),
-        const SizedBox(height: 12),
-        _buildNearbyFeatureCard(context, compactMode: compactMode),
-        const SizedBox(height: 12),
-        _buildBusMapFeatureCard(context, compactMode: compactMode),
-        const SizedBox(height: 16),
         const AdBannerWidget(),
       ],
     );
@@ -134,6 +157,7 @@ class HomeScreen extends StatelessWidget {
     BuildContext context, {
     bool bigIcon = false,
     bool compactMode = false,
+    bool grid = false,
   }) {
     return _FeatureCard(
       icon: Icons.search_rounded,
@@ -141,6 +165,7 @@ class HomeScreen extends StatelessWidget {
       subtitle: '輸入公車號碼、路線名稱或客運路線，直接看即時到站資訊。',
       bigIcon: bigIcon,
       compact: compactMode,
+      grid: grid,
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -156,6 +181,7 @@ class HomeScreen extends StatelessWidget {
     BuildContext context, {
     bool bigIcon = false,
     bool compactMode = false,
+    bool grid = false,
   }) {
     return _FeatureCard(
       icon: Icons.favorite_outline_rounded,
@@ -163,6 +189,7 @@ class HomeScreen extends StatelessWidget {
       subtitle: '整理常用站牌與群組，快速跳回指定站點。',
       bigIcon: bigIcon,
       compact: compactMode,
+      grid: grid,
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -178,6 +205,7 @@ class HomeScreen extends StatelessWidget {
     BuildContext context, {
     bool bigIcon = false,
     bool compactMode = false,
+    bool grid = false,
   }) {
     return _FeatureCard(
       icon: Icons.near_me_outlined,
@@ -185,6 +213,7 @@ class HomeScreen extends StatelessWidget {
       subtitle: '依照你目前位置找附近的公車站牌。',
       bigIcon: bigIcon,
       compact: compactMode,
+      grid: grid,
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -200,6 +229,7 @@ class HomeScreen extends StatelessWidget {
     BuildContext context, {
     bool bigIcon = false,
     bool compactMode = false,
+    bool grid = false,
   }) {
     return _FeatureCard(
       icon: Icons.map_outlined,
@@ -207,6 +237,7 @@ class HomeScreen extends StatelessWidget {
       subtitle: '看整個縣市的公車現在開到哪，點一輛就能看它的路線與站牌。',
       bigIcon: bigIcon,
       compact: compactMode,
+      grid: grid,
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -417,7 +448,7 @@ bool _useCompactHomeMode(AppSettings settings, double availableWidth) {
           defaultTargetPlatform == TargetPlatform.macOS);
   return isDesktopApp ||
       settings.enableCompactMode ||
-      availableWidth >= HomeScreen._desktopSidebarBreakpoint;
+      availableWidth < HomeScreen._desktopSidebarBreakpoint;
 }
 
 class _WebPwaInstallButton extends StatelessWidget {
@@ -1591,6 +1622,7 @@ class _FeatureCard extends StatelessWidget {
     required this.onTap,
     required this.bigIcon,
     required this.compact,
+    required this.grid,
   });
 
   final IconData icon;
@@ -1599,6 +1631,7 @@ class _FeatureCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool bigIcon;
   final bool compact;
+  final bool grid;
 
   @override
   Widget build(BuildContext context) {
@@ -1627,13 +1660,43 @@ class _FeatureCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         onTap: onTap,
         child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            18,
-            bigIcon ? 16 : 18,
-            18,
-            bigIcon ? 16 : 18,
-          ),
-          child: bigIcon
+          padding: grid
+              ? const EdgeInsets.symmetric(horizontal: 12, vertical: 10)
+              : EdgeInsets.fromLTRB(
+                  18,
+                  bigIcon ? 16 : 18,
+                  18,
+                  bigIcon ? 16 : 18,
+                ),
+          child: grid
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        icon,
+                        size: 22,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                )
+              : bigIcon
               ? Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

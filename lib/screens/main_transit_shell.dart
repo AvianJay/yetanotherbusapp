@@ -30,6 +30,7 @@ class _MainTransitShellState extends State<MainTransitShell>
   late final AnimationController _modeTransitionController;
 
   static const _desktopRailExtendedBreakpoint = 1280.0;
+  static const _compactNavigationHeight = 64.0;
   static const _switchDuration = Duration(milliseconds: 220);
 
   @override
@@ -188,6 +189,8 @@ class _MainTransitShellState extends State<MainTransitShell>
 
   Widget _buildModeNavigation() {
     return NavigationBar(
+      height: _compactNavigationHeight,
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       selectedIndex: kTransitModeDestinations.indexWhere(
         (destination) => destination.mode == _currentMode,
       ),

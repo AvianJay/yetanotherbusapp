@@ -13,18 +13,12 @@ import '../core/debouncer.dart';
 import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
 import '../widgets/background_image_wrapper.dart';
-import '../widgets/transit_drawer.dart';
 import '../widgets/platform_map_provider.dart';
 import '../widgets/ad_banner_widget.dart';
 
 class YouBikeScreen extends StatefulWidget {
-  const YouBikeScreen({
-    required this.onModeChanged,
-    required this.isActive,
-    super.key,
-  });
+  const YouBikeScreen({required this.isActive, super.key});
 
-  final ValueChanged<TransitMode> onModeChanged;
   final bool isActive;
 
   @override
@@ -1248,16 +1242,6 @@ class _YouBikeScreenState extends State<YouBikeScreen>
           appBar: AppBar(
             title: const Text('YABike'),
             automaticallyImplyLeading: false,
-            leading:
-                MediaQuery.sizeOf(context).width >=
-                    kDesktopNavigationRailBreakpoint
-                ? null
-                : Builder(
-                    builder: (ctx) => IconButton(
-                      icon: const Icon(Icons.menu_rounded),
-                      onPressed: () => Scaffold.of(ctx).openDrawer(),
-                    ),
-                  ),
             actions: [
               if (!useSplitLayout)
                 IconButton(
@@ -1270,10 +1254,6 @@ class _YouBikeScreenState extends State<YouBikeScreen>
                   ),
                 ),
             ],
-          ),
-          drawer: TransitDrawer(
-            currentMode: TransitMode.youbike,
-            onModeChanged: widget.onModeChanged,
           ),
           body: Column(
             children: [

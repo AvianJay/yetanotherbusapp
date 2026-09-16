@@ -14,7 +14,6 @@ import '../core/route_direction_label.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_station_map.dart';
-import '../widgets/transit_drawer.dart';
 import 'adaptive_settings_presenter.dart';
 import 'bus_map_screen.dart';
 import 'database_settings_screen.dart';
@@ -25,12 +24,10 @@ import 'search_screen.dart';
 import '../widgets/ad_banner_widget.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({required this.onModeChanged, super.key});
+  const HomeScreen({super.key});
 
   static const _desktopSidebarBreakpoint = 1100.0;
   static const _desktopSidebarWidth = 450.0;
-
-  final ValueChanged<TransitMode> onModeChanged;
 
   Future<void> _openDatabaseSettings(
     BuildContext context,
@@ -315,15 +312,6 @@ class HomeScreen extends StatelessWidget {
         title: const Text('YABus'),
         titleSpacing: 24,
         automaticallyImplyLeading: false,
-        leading:
-            MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
-            ? null
-            : Builder(
-                builder: (ctx) => IconButton(
-                  icon: const Icon(Icons.menu_rounded),
-                  onPressed: () => Scaffold.of(ctx).openDrawer(),
-                ),
-              ),
         actions: [
           if (kIsWeb) const _WebPwaInstallButton(),
           if (!kIsWeb)
@@ -366,10 +354,6 @@ class HomeScreen extends StatelessWidget {
             icon: const Icon(Icons.settings_outlined),
           ),
         ],
-      ),
-      drawer: TransitDrawer(
-        currentMode: TransitMode.bus,
-        onModeChanged: onModeChanged,
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {

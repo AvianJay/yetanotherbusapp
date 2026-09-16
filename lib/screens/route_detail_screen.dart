@@ -33,6 +33,7 @@ import '../widgets/cat_state_card.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/route_bus_map_sheet.dart';
 import '../widgets/ad_banner_widget.dart';
+import '../widgets/stop_transfer_sheet.dart';
 import 'favorite_groups_screen.dart';
 
 class RouteDetailScreen extends StatefulWidget {
@@ -4131,6 +4132,31 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     await _openRelatedRouteDetail(selectedRoute);
   }
 
+  Future<void> _openStopTransfers(StopInfo stop) async {
+    if (!_canOpenStopInGoogleMaps(stop)) {
+      return;
+    }
+    final detail = _detail;
+    if (detail == null) {
+      return;
+    }
+    final selectedRoute = await showModalBottomSheet<StopRouteSearchResult>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => StopTransferSheet(
+        controller: AppControllerScope.read(context),
+        provider: widget.provider,
+        currentRouteId: detail.route.routeId,
+        stop: stop,
+      ),
+    );
+    if (!mounted || selectedRoute == null) {
+      return;
+    }
+    await _openRelatedRouteDetail(selectedRoute);
+  }
+
   Future<void> _openStopActionsWithShortcut(StopInfo stop) async {
     final controller = AppControllerScope.read(context);
     final showDestinationAction =
@@ -4139,6 +4165,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final showShortcutAction = _isAndroid;
     final showGoogleMapsAction = _canOpenStopInGoogleMaps(stop);
     final showRelatedRoutesAction = _canShowRelatedStopRoutesAction(stop);
+    final showTransfersAction = _canOpenStopInGoogleMaps(stop);
     final action = await showDialog<_StopAction>(
       context: context,
       builder: (context) {
@@ -4170,6 +4197,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 onPressed: () =>
                     Navigator.of(context).pop(_StopAction.relatedRoutes),
                 child: const Text('站牌經過路線'),
+              ),
+            if (showTransfersAction)
+              SimpleDialogOption(
+                onPressed: () =>
+                    Navigator.of(context).pop(_StopAction.transfers),
+                child: const Text('附近轉乘方式'),
               ),
             if (showGoogleMapsAction)
               SimpleDialogOption(
@@ -4205,6 +4238,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       await _openStopScheduleDrawer(stop);
     } else if (action == _StopAction.relatedRoutes) {
       await _openRelatedStopRoutes(stop);
+    } else if (action == _StopAction.transfers) {
+      await _openStopTransfers(stop);
     } else if (action == _StopAction.googleMaps) {
       await _openStopInGoogleMaps(stop);
     } else if (action == _StopAction.shortcut) {
@@ -7008,6 +7043,7 @@ enum _StopAction {
   destination,
   schedule,
   relatedRoutes,
+  transfers,
   googleMaps,
   shortcut,
 }

@@ -142,8 +142,7 @@ class _BusMapScreenState extends State<BusMapScreen>
         provider: _provider,
         source: widget.initialProvider == null ? 'home_card' : 'deep_link',
       );
-      unawaited(_loadBuses(fitCamera: true));
-      unawaited(_locateSilently());
+      unawaited(_initializeMap());
     }
 
     final route = ModalRoute.of(context);
@@ -323,6 +322,13 @@ class _BusMapScreenState extends State<BusMapScreen>
     }
     if (!_unsupported) {
       _scheduleNextRefresh();
+    }
+  }
+
+  Future<void> _initializeMap() async {
+    await _loadBuses(fitCamera: true);
+    if (mounted) {
+      await _locateMe(showFeedback: false);
     }
   }
 
@@ -608,35 +614,12 @@ class _BusMapScreenState extends State<BusMapScreen>
     await _loadBuses();
   }
 
-  /// Show the user's dot if we already have permission, without prompting.
-  Future<void> _locateSilently() async {
+  Future<void> _locateMe({bool showFeedback = true}) async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        return;
-      }
-      final permission = await Geolocator.checkPermission();
-      if (permission != LocationPermission.always &&
-          permission != LocationPermission.whileInUse) {
-        return;
-      }
-      final position =
-          await Geolocator.getLastKnownPosition() ??
-          await Geolocator.getCurrentPosition();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _userLocation = LatLng(position.latitude, position.longitude);
-      });
-    } catch (_) {
-      // Location is a nicety here; the city centre is a fine default.
-    }
-  }
-
-  Future<void> _locateMe() async {
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        _showLocationHint('定位服務尚未開啟。');
+        if (showFeedback) {
+          _showLocationHint('定位服務尚未開啟。');
+        }
         return;
       }
       var permission = await Geolocator.checkPermission();
@@ -645,7 +628,9 @@ class _BusMapScreenState extends State<BusMapScreen>
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        _showLocationHint('沒有取得定位權限。', offerSettings: true);
+        if (showFeedback) {
+          _showLocationHint('沒有取得定位權限。', offerSettings: true);
+        }
         return;
       }
       final position = await Geolocator.getCurrentPosition();
@@ -667,18 +652,20 @@ class _BusMapScreenState extends State<BusMapScreen>
           return;
         }
         _moveCamera(here, _userZoom);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('已切換至${nearest.label}'),
-            action: SnackBarAction(
-              label: '復原',
-              onPressed: () => unawaited(_switchProvider(previous)),
+        if (showFeedback) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('已切換至${nearest.label}'),
+              action: SnackBarAction(
+                label: '復原',
+                onPressed: () => unawaited(_switchProvider(previous)),
+              ),
             ),
-          ),
-        );
+          );
+        }
       }
     } catch (error) {
-      if (mounted) {
+      if (mounted && showFeedback) {
         _showLocationHint(friendlyErrorMessage(error));
       }
     }

@@ -98,6 +98,7 @@ flutter:
 
   assets:
     - assets/branding/YABus-black.svg
+    - assets/branding/icon.svg
     - assets/branding/splash_android.png
     - assets/branding/icon_transparent.png
     - assets/cat_cry.png

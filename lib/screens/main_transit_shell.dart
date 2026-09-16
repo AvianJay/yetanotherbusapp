@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app/bus_app.dart';
 import '../core/desktop_discord_presence_service.dart';
@@ -144,20 +145,19 @@ class _MainTransitShellState extends State<MainTransitShell>
           minExtendedWidth: 184,
           backgroundColor: colorScheme.surfaceContainerLow,
           groupAlignment: -0.82,
-          leading: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 20, 12, 8),
-            child: isExtendedRail
-                ? Text(
-                    '交通工具',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  )
-                : Icon(
-                    Icons.directions_transit_rounded,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+          trailingAtBottom: true,
+          trailing: Padding(
+            padding: const EdgeInsets.all(16),
+            child: SvgPicture.asset(
+              'assets/branding/icon.svg',
+              width: 48,
+              height: 48,
+              semanticsLabel: 'YABus',
+              colorFilter: ColorFilter.mode(
+                colorScheme.onSurfaceVariant,
+                BlendMode.srcIn,
+              ),
+            ),
           ),
           selectedIndex: kTransitModeDestinations.indexWhere(
             (destination) => destination.mode == _currentMode,

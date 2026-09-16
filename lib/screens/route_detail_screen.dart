@@ -87,7 +87,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int _remainingSeconds = 0;
   bool _didScrollToInitialStop = false;
   bool _isScrollingToInitialStop = false;
-  bool _didAutoScrollToCurrentLocation = false;
+  int? _autoScrolledPathId;
   bool _didAttemptLocationTracking = false;
   bool _didRecordRouteVisit = false;
   Timer? _routeVisitTimer;
@@ -894,7 +894,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _pendingAutoDestinationSelection = requestedDestinationStopId == null;
       _targetInitialPathId = resolvedPathId;
       _didScrollToInitialStop = requestedStopId == null;
-      _didAutoScrollToCurrentLocation = false;
+      _autoScrolledPathId = null;
     });
 
     if (detail != null && _tabController != null && resolvedPathId != null) {
@@ -2516,12 +2516,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   void _maybeScrollToCurrentLocation() {
-    if (_didAutoScrollToCurrentLocation || _requestedStopId != null) {
+    if (_requestedStopId != null) {
       return;
     }
 
     final pathId = _currentPathId;
-    if (pathId == null) {
+    if (pathId == null || _autoScrolledPathId == pathId) {
       return;
     }
     final stopId = _nearestStopByPath[pathId];
@@ -2529,7 +2529,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
 
-    _didAutoScrollToCurrentLocation = true;
+    _autoScrolledPathId = pathId;
     unawaited(_scrollToStop(pathId, stopId));
   }
 

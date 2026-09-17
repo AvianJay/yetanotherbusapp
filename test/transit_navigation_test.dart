@@ -198,7 +198,7 @@ void main() {
         );
         final material = tester.widget<Material>(surface);
         final colors = Theme.of(tester.element(navigation)).colorScheme;
-        expect(material.color, colors.surfaceContainer);
+        expect(material.color, colors.surfaceContainerHigh);
         expect(
           material.shape,
           Border(top: BorderSide(color: colors.outlineVariant)),

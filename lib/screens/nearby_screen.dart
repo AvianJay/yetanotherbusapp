@@ -38,6 +38,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
   List<NearbyStopResult> _results = const [];
   Map<String, LiveStopMap> _liveMaps = const {};
   bool _loadingEtas = false;
+  int _requestGeneration = 0;
 
   @override
   void initState() {
@@ -48,11 +49,13 @@ class _NearbyScreenState extends State<NearbyScreen> {
   }
 
   Future<void> _loadNearbyStops() async {
+    final requestGeneration = ++_requestGeneration;
     final controller = AppControllerScope.read(context);
     setState(() {
       _loading = true;
       _error = null;
       _liveMaps = const {};
+      _loadingEtas = false;
     });
 
     try {
@@ -76,17 +79,25 @@ class _NearbyScreenState extends State<NearbyScreen> {
         longitude: position.longitude,
       );
 
-      if (!mounted) {
+      if (!mounted || requestGeneration != _requestGeneration) {
         return;
       }
       setState(() {
         _results = results;
       });
 
-      // Phase 2: load ETAs in background without blocking the list render.
-      unawaited(_loadEtas(results));
+      // Phase 2: fill every visible stop group, then load any ETAs that were
+      // not already embedded by the station endpoint. Neither blocks the seed
+      // rows from rendering.
+      unawaited(
+        _completeNearbyStops(
+          position: position,
+          seedResults: results,
+          requestGeneration: requestGeneration,
+        ),
+      );
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || requestGeneration != _requestGeneration) {
         return;
       }
       setState(() {
@@ -94,7 +105,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
         _error = friendlyErrorMessage(error);
       });
     } finally {
-      if (mounted) {
+      if (mounted && requestGeneration == _requestGeneration) {
         setState(() {
           _loading = false;
         });
@@ -102,18 +113,68 @@ class _NearbyScreenState extends State<NearbyScreen> {
     }
   }
 
-  Future<void> _loadEtas(List<NearbyStopResult> results) async {
-    if (results.isEmpty || !mounted) {
+  Future<void> _completeNearbyStops({
+    required Position position,
+    required List<NearbyStopResult> seedResults,
+    required int requestGeneration,
+  }) async {
+    if (seedResults.isEmpty ||
+        !mounted ||
+        requestGeneration != _requestGeneration) {
       return;
     }
 
     final controller = AppControllerScope.read(context);
     setState(() => _loadingEtas = true);
 
+    var completedResults = seedResults;
+    try {
+      completedResults = await controller.completeNearbyStopGroups(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        seedResults: seedResults,
+      );
+    } catch (_) {
+      // Group completion is an enhancement. Keep the seed list usable when a
+      // downloaded database or station lookup becomes unavailable.
+    }
+
+    if (!mounted || requestGeneration != _requestGeneration) {
+      return;
+    }
+    setState(() {
+      _results = completedResults;
+    });
+    await _loadEtas(completedResults, requestGeneration: requestGeneration);
+  }
+
+  bool _hasEmbeddedLiveData(StopInfo stop) {
+    return stop.sec != null ||
+        (stop.msg?.trim().isNotEmpty ?? false) ||
+        (stop.t?.trim().isNotEmpty ?? false) ||
+        stop.buses.isNotEmpty ||
+        stop.etas.isNotEmpty;
+  }
+
+  Future<void> _loadEtas(
+    List<NearbyStopResult> results, {
+    required int requestGeneration,
+  }) async {
+    if (!mounted || requestGeneration != _requestGeneration) {
+      return;
+    }
+
+    final controller = AppControllerScope.read(context);
+
     final routeIds = results
+        .where((result) => !_hasEmbeddedLiveData(result.stop))
         .map((result) => result.route.routeId)
         .toSet()
         .toList(growable: false);
+    if (routeIds.isEmpty) {
+      setState(() => _loadingEtas = false);
+      return;
+    }
 
     Map<String, LiveStopMap> liveMaps = const {};
     try {
@@ -144,7 +205,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
       liveMaps = merged;
     }
 
-    if (!mounted) {
+    if (!mounted || requestGeneration != _requestGeneration) {
       return;
     }
     setState(() {

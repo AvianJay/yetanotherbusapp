@@ -70,7 +70,7 @@ Map<String, Object?> _stationPayload() => {
           'path_name': '往南港',
           'path_name_en': 'Nangang',
           'seq': 5,
-          'stopid': 'STOP-B',
+          'stopid': 'ROUTE-STOP-B',
           'eta': 60,
           'message': '',
           'updated_at': 1000,
@@ -114,6 +114,7 @@ void main() {
     expect(station?.nextArrival?.sideLabel, 'B');
     expect(station?.nextArrival?.result.route.routeName, '藍1');
     expect(station?.nextArrival?.result.matchedStop.sec, 60);
+    expect(station?.nextArrival?.result.matchedStop.rawStopId, 'ROUTE-STOP-B');
   });
 
   test('getStationPassby rejects cross-city response', () async {

@@ -195,33 +195,40 @@ class _MainTransitShellState extends State<MainTransitShell>
 
   Widget _buildModeNavigation() {
     final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surfaceContainer,
-      elevation: 3,
-      child: SafeArea(
-        top: false,
-        child: NavigationBar(
-          height: _compactNavigationHeight,
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          surfaceTintColor: Colors.transparent,
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          selectedIndex: kTransitModeDestinations.indexWhere(
-            (destination) => destination.mode == _currentMode,
+    // NavigationBar has its own SafeArea. The status-bar inset belongs to
+    // the page above, not to this bottom bar; keep the other insets intact.
+    return MediaQuery.removePadding(
+      context: context,
+      removeTop: true,
+      child: Material(
+        color: theme.colorScheme.surfaceContainer,
+        elevation: 3,
+        shape: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
+        child: SafeArea(
+          top: false,
+          child: NavigationBar(
+            height: _compactNavigationHeight,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            surfaceTintColor: Colors.transparent,
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            selectedIndex: kTransitModeDestinations.indexWhere(
+              (destination) => destination.mode == _currentMode,
+            ),
+            onDestinationSelected: (index) {
+              if (index >= 0 && index < kTransitModeDestinations.length) {
+                _setMode(kTransitModeDestinations[index].mode);
+              }
+            },
+            destinations: [
+              for (final destination in kTransitModeDestinations)
+                NavigationDestination(
+                  icon: Icon(destination.icon),
+                  selectedIcon: Icon(destination.icon),
+                  label: destination.label,
+                ),
+            ],
           ),
-          onDestinationSelected: (index) {
-            if (index >= 0 && index < kTransitModeDestinations.length) {
-              _setMode(kTransitModeDestinations[index].mode);
-            }
-          },
-          destinations: [
-            for (final destination in kTransitModeDestinations)
-              NavigationDestination(
-                icon: Icon(destination.icon),
-                selectedIcon: Icon(destination.icon),
-                label: destination.label,
-              ),
-          ],
         ),
       ),
     );

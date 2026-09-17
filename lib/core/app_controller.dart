@@ -2311,6 +2311,25 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  Future<List<NearbyStopResult>> completeNearbyStopGroups({
+    required double latitude,
+    required double longitude,
+    required List<NearbyStopResult> seedResults,
+    BusProvider? provider,
+    double radiusMeters = 500,
+  }) async {
+    final targetProvider =
+        provider ??
+        nearestBusProvider(latitude: latitude, longitude: longitude);
+    return repository.completeNearbyStopGroups(
+      provider: targetProvider,
+      latitude: latitude,
+      longitude: longitude,
+      seedResults: seedResults,
+      radiusMeters: radiusMeters,
+    );
+  }
+
   Future<void> addHistoryEntry(
     RouteSummary route, {
     required BusProvider provider,

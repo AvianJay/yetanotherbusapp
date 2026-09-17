@@ -149,7 +149,7 @@ class _MainTransitShellState extends State<MainTransitShell>
         NavigationRail(
           extended: isExtendedRail,
           minExtendedWidth: 184,
-          backgroundColor: colorScheme.surfaceContainerLow,
+          backgroundColor: colorScheme.surfaceContainerHigh,
           groupAlignment: -0.82,
           trailingAtBottom: true,
           trailing: Padding(
@@ -201,8 +201,9 @@ class _MainTransitShellState extends State<MainTransitShell>
       context: context,
       removeTop: true,
       child: Material(
-        color: theme.colorScheme.surfaceContainer,
-        elevation: 3,
+        color: theme.colorScheme.surfaceContainerHigh,
+        elevation: 8,
+        shadowColor: theme.colorScheme.shadow.withValues(alpha: 0.2),
         shape: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
         child: SafeArea(
           top: false,

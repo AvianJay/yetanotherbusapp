@@ -9,7 +9,6 @@ import '../core/app_controller.dart';
 import '../core/friendly_error.dart';
 import '../core/haptic_feedback_service.dart';
 import '../core/models.dart';
-import '../core/route_search_grouping.dart';
 import '../core/route_search_ranking.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/cat_state_card.dart';
@@ -1117,41 +1116,8 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   List<Widget> _buildRouteResultCards(AppController busController) {
-    if (_results.any((item) => item.isStopSearchResult)) {
-      return _results
-          .map((item) => _buildRouteResultCard(item, busController))
-          .toList(growable: false);
-    }
-
-    return groupRouteSearchResults(_results.map((item) => item.route).toList())
-        .map((group) {
-          if (group.routes.length == 1) {
-            return _buildRouteResultCard(
-              _SearchDisplayItem.route(group.routes.single),
-              busController,
-            );
-          }
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Card(
-              child: ExpansionTile(
-                leading: CircleAvatar(child: Text(group.trunkName)),
-                title: Text(group.trunkName),
-                subtitle: Text(
-                  '相關班次：${group.routes.map((route) => route.routeName).join('、')}',
-                ),
-                children: group.routes
-                    .map(
-                      (route) => _buildRouteResultTile(
-                        _SearchDisplayItem.route(route),
-                        busController,
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-            ),
-          );
-        })
+    return _results
+        .map((item) => _buildRouteResultCard(item, busController))
         .toList(growable: false);
   }
 

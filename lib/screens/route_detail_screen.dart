@@ -24,6 +24,7 @@ import '../core/live_activity_service.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
 import '../core/route_direction_label.dart';
+import '../core/route_family.dart';
 import '../core/samsung_live_notification_prompt_service.dart';
 import '../core/stop_route_merge.dart';
 import '../core/trip_monitor_notifications.dart';
@@ -136,6 +137,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int _refreshRequestId = 0;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
   Map<int, int> _nearestStopByPath = const <int, int>{};
+  Map<int, StopInfo> _sharedFamilyStopsByKey = const <int, StopInfo>{};
   final Map<int, GlobalKey> _stopKeys = <int, GlobalKey>{};
   final Map<int, ScrollController> _scrollControllers =
       <int, ScrollController>{};
@@ -303,6 +305,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _error = null;
         _statusMessage = fetchedDetail.hasLiveData ? null : '即時資訊暫時無法取得';
       });
+      unawaited(
+        _refreshFamilyLiveData(
+          detail: displayDetail,
+          controller: controller,
+          requestId: requestId,
+        ),
+      );
       if (!_didRecordRouteVisit) {
         _didRecordRouteVisit = true;
         _routeVisitTimer = Timer(const Duration(seconds: 10), () {
@@ -346,6 +355,88 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       });
       _startCountdown(controller.settings.busErrorUpdateTime);
     }
+  }
+
+  Future<void> _refreshFamilyLiveData({
+    required RouteDetailData detail,
+    required AppController controller,
+    required int requestId,
+  }) async {
+    try {
+      final family = await controller.repository.getRouteFamily(
+        detail.route,
+        provider: widget.provider,
+      );
+      final siblingRoutes = family
+          .where((route) => route.routeId != detail.route.routeId)
+          .toList(growable: false);
+      final siblingDetails = await Future.wait(
+        siblingRoutes.map(
+          (route) => controller.getRouteDetail(
+            route.routeKey,
+            provider: widget.provider,
+            routeIdHint: route.routeId,
+            routeNameHint: route.routeName,
+          ),
+        ),
+      );
+      if (!mounted || requestId != _refreshRequestId) {
+        return;
+      }
+      setState(() {
+        _sharedFamilyStopsByKey = _sharedFamilyStopsForDetail(
+          detail,
+          siblingDetails,
+        );
+      });
+    } catch (_) {
+      // Family variants supplement the selected route and must not block it.
+      if (!mounted || requestId != _refreshRequestId) {
+        return;
+      }
+      setState(() {
+        _sharedFamilyStopsByKey = const <int, StopInfo>{};
+      });
+    }
+  }
+
+  Map<int, StopInfo> _sharedFamilyStopsForDetail(
+    RouteDetailData detail,
+    List<RouteDetailData> siblingDetails,
+  ) {
+    final sharedStopsByKey = <int, StopInfo>{};
+    for (final path in detail.paths) {
+      final baseStops = detail.stopsByPath[path.pathId] ?? const <StopInfo>[];
+      if (baseStops.isEmpty) {
+        continue;
+      }
+      final siblingStops = <StopInfo>[];
+      for (final siblingDetail in siblingDetails) {
+        for (final siblingPath in siblingDetail.paths) {
+          if (directionOrdinalLabel(siblingPath.pathId) !=
+              directionOrdinalLabel(path.pathId)) {
+            continue;
+          }
+          final stops =
+              siblingDetail.stopsByPath[siblingPath.pathId] ??
+              const <StopInfo>[];
+          siblingStops.addAll(stops);
+        }
+      }
+      for (final baseStop in baseStops) {
+        final sharedStops = siblingStops
+            .where(
+              (siblingStop) =>
+                  routeFamilyStopsSharePhysicalSide(baseStop, siblingStop),
+            )
+            .toList(growable: false);
+        if (sharedStops.isNotEmpty) {
+          sharedStopsByKey[_keyForStop(path.pathId, baseStop.stopId)] =
+              mergeRouteFamilyStopLiveData(baseStop, sharedStops);
+        }
+      }
+    }
+    return sharedStopsByKey;
   }
 
   void _syncLiveMapStopsByPath(Map<int, List<StopInfo>> stopsByPath) {
@@ -5197,136 +5288,147 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               ),
               const SizedBox(width: 16),
               Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final useCompactVehicleStatus =
-                        stop.buses.isNotEmpty &&
-                        _shouldUseCompactVehicleStatus(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final useCompactVehicleStatus =
+                            stop.buses.isNotEmpty &&
+                            _shouldUseCompactVehicleStatus(
+                              context,
+                              theme,
+                              stop,
+                              isNearest: isNearest,
+                              availableWidth: constraints.maxWidth,
+                            );
+                        final trailingStatus = _buildTrailingStatus(
                           context,
                           theme,
                           stop,
                           isNearest: isNearest,
-                          availableWidth: constraints.maxWidth,
+                          isDestination: isDestination,
                         );
-                    final trailingStatus = _buildTrailingStatus(
-                      context,
-                      theme,
-                      stop,
-                      isNearest: isNearest,
-                      isDestination: isDestination,
-                    );
-                    final vehicleStatusStyle = stop.buses.isEmpty
-                        ? null
-                        : _vehicleStatusStyle(
-                            theme,
-                            stop,
-                            isNearest: isNearest,
-                          );
-                    final trailingStatusWidth = switch ((
-                      isNearest,
-                      isDestination,
-                      stop.buses.isNotEmpty,
-                    )) {
-                      (true, _, _) => _estimateRouteStatusPillWidth(
-                        context,
-                        icon: Icons.gps_fixed_rounded,
-                        label: '你的位置',
-                      ),
-                      (false, true, _) => _estimateRouteStatusPillWidth(
-                        context,
-                        icon: Icons.flag_rounded,
-                        label: '下車站',
-                      ),
-                      (false, false, true) => _estimateRouteStatusPillWidth(
-                        context,
-                        icon: vehicleStatusStyle!.icon,
-                        label: null,
-                        showStackedBuses: vehicleStatusStyle.showStackedBuses,
-                      ),
-                      _ => 0.0,
-                    };
-                    final minimumDividerWidth = trailingStatus == null
-                        ? 48.0
-                        : useCompactVehicleStatus
-                        ? 36.0
-                        : 28.0;
-                    final stopNameMaxWidth = math.max(
-                      96.0,
-                      constraints.maxWidth -
-                          minimumDividerWidth -
-                          trailingStatusWidth -
-                          (trailingStatus == null ? 0.0 : 8.0) -
-                          (hasAlert ? 16.0 : 0.0) -
-                          (hasAlert ? 6.0 : 0.0) -
-                          6.0,
-                    );
-                    final stopNameWidth = math.min(
-                      _measureMaxLineWidth(context, stopName, stopNameStyle),
-                      math.min(stopNameMaxWidth, constraints.maxWidth),
-                    );
-                    final dividerLeftOffset =
-                        stopNameWidth + 6.0 + (hasAlert ? 16.0 + 6.0 : 0.0);
-                    final dividerRightOffset = trailingStatus == null
-                        ? 0.0
-                        : trailingStatusWidth + 8.0;
-                    final showDivider =
-                        constraints.maxWidth -
-                            dividerLeftOffset -
-                            dividerRightOffset >=
-                        24.0;
-
-                    return Stack(
-                      alignment: Alignment.centerLeft,
-                      children: [
-                        if (showDivider)
-                          Positioned(
-                            left: dividerLeftOffset,
-                            right: dividerRightOffset,
-                            child: Container(
-                              height: 1,
-                              color: theme.colorScheme.outlineVariant,
-                            ),
+                        final vehicleStatusStyle = stop.buses.isEmpty
+                            ? null
+                            : _vehicleStatusStyle(
+                                theme,
+                                stop,
+                                isNearest: isNearest,
+                              );
+                        final trailingStatusWidth = switch ((
+                          isNearest,
+                          isDestination,
+                          stop.buses.isNotEmpty,
+                        )) {
+                          (true, _, _) => _estimateRouteStatusPillWidth(
+                            context,
+                            icon: Icons.gps_fixed_rounded,
+                            label: '你的位置',
                           ),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
+                          (false, true, _) => _estimateRouteStatusPillWidth(
+                            context,
+                            icon: Icons.flag_rounded,
+                            label: '下車站',
+                          ),
+                          (false, false, true) => _estimateRouteStatusPillWidth(
+                            context,
+                            icon: vehicleStatusStyle!.icon,
+                            label: null,
+                            showStackedBuses:
+                                vehicleStatusStyle.showStackedBuses,
+                          ),
+                          _ => 0.0,
+                        };
+                        final minimumDividerWidth = trailingStatus == null
+                            ? 48.0
+                            : useCompactVehicleStatus
+                            ? 36.0
+                            : 28.0;
+                        final stopNameMaxWidth = math.max(
+                          96.0,
+                          constraints.maxWidth -
+                              minimumDividerWidth -
+                              trailingStatusWidth -
+                              (trailingStatus == null ? 0.0 : 8.0) -
+                              (hasAlert ? 16.0 : 0.0) -
+                              (hasAlert ? 6.0 : 0.0) -
+                              6.0,
+                        );
+                        final stopNameWidth = math.min(
+                          _measureMaxLineWidth(
+                            context,
+                            stopName,
+                            stopNameStyle,
+                          ),
+                          math.min(stopNameMaxWidth, constraints.maxWidth),
+                        );
+                        final dividerLeftOffset =
+                            stopNameWidth + 6.0 + (hasAlert ? 16.0 + 6.0 : 0.0);
+                        final dividerRightOffset = trailingStatus == null
+                            ? 0.0
+                            : trailingStatusWidth + 8.0;
+                        final showDivider =
+                            constraints.maxWidth -
+                                dividerLeftOffset -
+                                dividerRightOffset >=
+                            24.0;
+
+                        return Stack(
+                          alignment: Alignment.centerLeft,
                           children: [
-                            SizedBox(
-                              width: stopNameWidth,
-                              child: Text(
-                                stopName,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: stopNameStyle,
-                              ),
-                            ),
-                            if (hasAlert) ...[
-                              const SizedBox(width: 6),
-                              GestureDetector(
-                                onTap: _showAlertsDialog,
+                            if (showDivider)
+                              Positioned(
+                                left: dividerLeftOffset,
+                                right: dividerRightOffset,
                                 child: Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: BoxDecoration(
-                                    color: _alertColorForStop(stop),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: theme.colorScheme.surface,
-                                      width: 1,
-                                    ),
-                                  ),
+                                  height: 1,
+                                  color: theme.colorScheme.outlineVariant,
                                 ),
                               ),
-                            ],
-                            const Spacer(),
-                            if (trailingStatus != null) ...[
-                              const SizedBox(width: 8),
-                              trailingStatus,
-                            ],
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                SizedBox(
+                                  width: stopNameWidth,
+                                  child: Text(
+                                    stopName,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: stopNameStyle,
+                                  ),
+                                ),
+                                if (hasAlert) ...[
+                                  const SizedBox(width: 6),
+                                  GestureDetector(
+                                    onTap: _showAlertsDialog,
+                                    child: Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: _alertColorForStop(stop),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: theme.colorScheme.surface,
+                                          width: 1,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                const Spacer(),
+                                if (trailingStatus != null) ...[
+                                  const SizedBox(width: 8),
+                                  trailingStatus,
+                                ],
+                              ],
+                            ),
                           ],
-                        ),
-                      ],
-                    );
-                  },
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -5390,16 +5492,19 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                           return const AdBannerWidget();
                         }
                         final stop = pathStops[index - 1];
+                        final stopKey = _keyForStop(path.pathId, stop.stopId);
                         final key = _stopKeys.putIfAbsent(
-                          _keyForStop(path.pathId, stop.stopId),
+                          stopKey,
                           GlobalKey.new,
                         );
+                        final displayStop =
+                            _sharedFamilyStopsByKey[stopKey] ?? stop;
                         return Container(
                           key: key,
                           child: _buildStopTile(
                             context,
                             theme,
-                            stop,
+                            displayStop,
                             alwaysShowSeconds:
                                 controller.settings.alwaysShowSeconds,
                             isHighlighted: _isInitialStop(stop),
@@ -5563,12 +5668,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       }
                       _showRouteInfoDialog(detail);
                     },
+              tooltip: '同路線時刻表',
               icon: _alerts.isNotEmpty && !_alertsRead
                   ? const Badge(
                       smallSize: 8,
-                      child: Icon(Icons.info_outline_rounded),
+                      child: Icon(Icons.schedule_rounded),
                     )
-                  : const Icon(Icons.info_outline_rounded),
+                  : const Icon(Icons.schedule_rounded),
             ),
           ],
         ),
@@ -6013,10 +6119,10 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
                 for (final op in _operators!) _buildOperatorTile(op, theme),
                 const Divider(height: 20),
               ],
-              if (_hasScheduleEntries) ...[
+              if (_schedules != null) ...[
                 Row(
                   children: [
-                    Text('發車時間', style: theme.textTheme.titleSmall),
+                    Text('同路線時刻表', style: theme.textTheme.titleSmall),
                     const Spacer(),
                     TextButton.icon(
                       onPressed: _pickScheduleDate,
@@ -6308,11 +6414,11 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
     return days[key] == 1;
   }
 
-  bool get _hasScheduleEntries =>
-      _schedules?.any((schedule) => schedule.entries.isNotEmpty) ?? false;
-
   List<Widget> _buildScheduleSection() {
     final theme = Theme.of(context);
+    final hasAnyScheduleEntries = _schedules!.any(
+      (schedule) => schedule.entries.isNotEmpty,
+    );
     final schedules = _schedules!
         .where(
           (schedule) =>
@@ -6335,7 +6441,7 @@ class _RouteInfoDialogState extends State<_RouteInfoDialog> {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Text(
-            '這天沒有發車資訊',
+            hasAnyScheduleEntries ? '這天沒有發車資訊' : '目前沒有時刻表資料',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),

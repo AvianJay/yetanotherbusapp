@@ -16,7 +16,7 @@ concurrency:
 
 env:
   FLUTTER_VERSION: 3.41.6
-  APP_REPO_OWNER: AvianJay
+  APP_REPO_OWNER: ${{ github.repository_owner }}
   APP_REPO_NAME: yetanotherbusapp
   APP_WORKFLOW_API_ID: build.yml
   APP_WORKFLOW_NIGHTLY_ID: build

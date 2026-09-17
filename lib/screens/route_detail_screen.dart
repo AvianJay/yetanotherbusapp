@@ -24,7 +24,6 @@ import '../core/live_activity_service.dart';
 import '../core/models.dart';
 import '../core/route_detail_launch_bridge.dart';
 import '../core/route_direction_label.dart';
-import '../core/route_family.dart';
 import '../core/samsung_live_notification_prompt_service.dart';
 import '../core/stop_route_merge.dart';
 import '../core/trip_monitor_notifications.dart';
@@ -137,7 +136,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int _refreshRequestId = 0;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
   Map<int, int> _nearestStopByPath = const <int, int>{};
-  Map<int, StopInfo> _sharedFamilyStopsByKey = const <int, StopInfo>{};
   final Map<int, GlobalKey> _stopKeys = <int, GlobalKey>{};
   final Map<int, ScrollController> _scrollControllers =
       <int, ScrollController>{};
@@ -305,13 +303,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         _error = null;
         _statusMessage = fetchedDetail.hasLiveData ? null : '即時資訊暫時無法取得';
       });
-      unawaited(
-        _refreshFamilyLiveData(
-          detail: displayDetail,
-          controller: controller,
-          requestId: requestId,
-        ),
-      );
       if (!_didRecordRouteVisit) {
         _didRecordRouteVisit = true;
         _routeVisitTimer = Timer(const Duration(seconds: 10), () {
@@ -355,88 +346,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       });
       _startCountdown(controller.settings.busErrorUpdateTime);
     }
-  }
-
-  Future<void> _refreshFamilyLiveData({
-    required RouteDetailData detail,
-    required AppController controller,
-    required int requestId,
-  }) async {
-    try {
-      final family = await controller.repository.getRouteFamily(
-        detail.route,
-        provider: widget.provider,
-      );
-      final siblingRoutes = family
-          .where((route) => route.routeId != detail.route.routeId)
-          .toList(growable: false);
-      final siblingDetails = await Future.wait(
-        siblingRoutes.map(
-          (route) => controller.getRouteDetail(
-            route.routeKey,
-            provider: widget.provider,
-            routeIdHint: route.routeId,
-            routeNameHint: route.routeName,
-          ),
-        ),
-      );
-      if (!mounted || requestId != _refreshRequestId) {
-        return;
-      }
-      setState(() {
-        _sharedFamilyStopsByKey = _sharedFamilyStopsForDetail(
-          detail,
-          siblingDetails,
-        );
-      });
-    } catch (_) {
-      // Family variants supplement the selected route and must not block it.
-      if (!mounted || requestId != _refreshRequestId) {
-        return;
-      }
-      setState(() {
-        _sharedFamilyStopsByKey = const <int, StopInfo>{};
-      });
-    }
-  }
-
-  Map<int, StopInfo> _sharedFamilyStopsForDetail(
-    RouteDetailData detail,
-    List<RouteDetailData> siblingDetails,
-  ) {
-    final sharedStopsByKey = <int, StopInfo>{};
-    for (final path in detail.paths) {
-      final baseStops = detail.stopsByPath[path.pathId] ?? const <StopInfo>[];
-      if (baseStops.isEmpty) {
-        continue;
-      }
-      final siblingStops = <StopInfo>[];
-      for (final siblingDetail in siblingDetails) {
-        for (final siblingPath in siblingDetail.paths) {
-          if (directionOrdinalLabel(siblingPath.pathId) !=
-              directionOrdinalLabel(path.pathId)) {
-            continue;
-          }
-          final stops =
-              siblingDetail.stopsByPath[siblingPath.pathId] ??
-              const <StopInfo>[];
-          siblingStops.addAll(stops);
-        }
-      }
-      for (final baseStop in baseStops) {
-        final sharedStops = siblingStops
-            .where(
-              (siblingStop) =>
-                  routeFamilyStopsSharePhysicalSide(baseStop, siblingStop),
-            )
-            .toList(growable: false);
-        if (sharedStops.isNotEmpty) {
-          sharedStopsByKey[_keyForStop(path.pathId, baseStop.stopId)] =
-              mergeRouteFamilyStopLiveData(baseStop, sharedStops);
-        }
-      }
-    }
-    return sharedStopsByKey;
   }
 
   void _syncLiveMapStopsByPath(Map<int, List<StopInfo>> stopsByPath) {
@@ -759,6 +668,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       paths: next.paths,
       stopsByPath: mergedStopsByPath,
       hasLiveData: next.hasLiveData,
+      familyRouteIds: next.familyRouteIds,
     );
   }
 
@@ -1415,6 +1325,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               routeName: detail.route.routeName,
               paths: detail.paths,
               stopsByPath: detail.stopsByPath,
+              familyRouteIds: detail.familyRouteIds,
               liveStopsByPathListenable: _liveMapStopsByPath,
               alwaysShowSeconds: controller.settings.alwaysShowSeconds,
               selectedPathIdListenable: _selectedMapPathId,
@@ -5497,14 +5408,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                           stopKey,
                           GlobalKey.new,
                         );
-                        final displayStop =
-                            _sharedFamilyStopsByKey[stopKey] ?? stop;
                         return Container(
                           key: key,
                           child: _buildStopTile(
                             context,
                             theme,
-                            displayStop,
+                            stop,
                             alwaysShowSeconds:
                                 controller.settings.alwaysShowSeconds,
                             isHighlighted: _isInitialStop(stop),
@@ -5543,6 +5452,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       routeName: detail.route.routeName,
       paths: detail.paths,
       stopsByPath: detail.stopsByPath,
+      familyRouteIds: detail.familyRouteIds,
       liveStopsByPathListenable: _liveMapStopsByPath,
       alwaysShowSeconds: controller.settings.alwaysShowSeconds,
       selectedPathIdListenable: _selectedMapPathId,

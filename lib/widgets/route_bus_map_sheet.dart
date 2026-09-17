@@ -26,6 +26,7 @@ class RouteBusMapSheet extends StatefulWidget {
     required this.routeName,
     required this.paths,
     required this.stopsByPath,
+    this.familyRouteIds = const [],
     this.liveStopsByPathListenable,
     required this.alwaysShowSeconds,
     this.routeIdHint,
@@ -46,6 +47,7 @@ class RouteBusMapSheet extends StatefulWidget {
   final String routeName;
   final List<PathInfo> paths;
   final Map<int, List<StopInfo>> stopsByPath;
+  final List<String> familyRouteIds;
   final ValueListenable<Map<int, List<StopInfo>>>? liveStopsByPathListenable;
   final bool alwaysShowSeconds;
   final ValueListenable<int?> selectedPathIdListenable;
@@ -151,6 +153,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         oldWidget.routeKey != widget.routeKey ||
         oldWidget.provider != widget.provider ||
         oldWidget.routeId != widget.routeId ||
+        !listEquals(oldWidget.familyRouteIds, widget.familyRouteIds) ||
         oldWidget.embedded != widget.embedded;
     if (routeIdentityChanged) {
       _refreshTimer?.cancel();
@@ -216,6 +219,11 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   }
 
   int get _refreshSeconds => math.max(3, widget.refreshIntervalSeconds);
+
+  List<String> get _liveRouteIds => {
+    widget.routeId,
+    ...widget.familyRouteIds,
+  }.where((routeId) => routeId.trim().isNotEmpty).toList(growable: false);
 
   AnimatedBusState? get _selectedBusState {
     final selectedBusId = _selectedBusId;
@@ -383,12 +391,16 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         widget.routeId,
         pathId: pathId,
       );
-      final busesFuture = controller.repository.getRouteRealtimeBuses(
-        widget.routeId,
-        pathId: pathId,
+      final busesFuture = Future.wait(
+        _liveRouteIds.map(
+          (routeId) => controller.repository.getRouteRealtimeBuses(
+            routeId,
+            pathId: pathId,
+          ),
+        ),
       );
       final pathPoints = await pathPointsFuture;
-      final buses = await busesFuture;
+      final buses = (await busesFuture).expand((items) => items).toList();
       if (!mounted ||
           pathId != _activePathId ||
           requestId != _refreshRequestSerial) {
@@ -402,6 +414,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         previousStates,
         now: DateTime.now(),
         refreshSeconds: _refreshSeconds,
+        keyOf: (bus) => '${bus.routeId}:${bus.id}',
       );
       final focusedBusId =
           widget.focusedVehicleRequest != _handledVehicleFocusRequest

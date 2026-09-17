@@ -2207,7 +2207,7 @@ class AppController extends ChangeNotifier {
     String? routeIdHint,
     String? routeNameHint,
   }) {
-    return repository.getCompleteBusInfo(
+    return repository.getCompleteRouteFamilyBusInfo(
       routeKey,
       provider: provider ?? _settings.provider,
       routeIdHint: routeIdHint,

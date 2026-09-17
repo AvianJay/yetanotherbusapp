@@ -453,7 +453,7 @@ class BusRepository {
     required BusProvider provider,
   }) async {
     final familyName = routeFamilyName(route.routeName);
-    List<RouteSummary> candidates;
+    var candidates = <RouteSummary>[];
     try {
       candidates = await searchRoutes(
         familyName,
@@ -461,11 +461,28 @@ class BusRepository {
         limit: 120,
       );
     } on DatabaseNotReadyException {
-      candidates = await searchRoutesFromApi(
-        familyName,
-        provider: provider,
-        limit: 120,
-      );
+      // The API below supplies the family when no local database is available.
+    }
+
+    final hasSibling = candidates.any(
+      (candidate) =>
+          candidate.routeId != route.routeId &&
+          routeFamilyName(candidate.routeName) == familyName,
+    );
+    if (!hasSibling) {
+      try {
+        candidates = [
+          ...candidates,
+          ...await searchRoutesFromApi(
+            familyName,
+            provider: provider,
+            limit: 120,
+          ),
+        ];
+      } on HttpException {
+        // A selected route remains usable when a supplementary family lookup
+        // cannot reach the API.
+      }
     }
 
     final family = <RouteSummary>[route];
@@ -1139,6 +1156,47 @@ class BusRepository {
     }
   }
 
+  Future<RouteDetailData> getCompleteRouteFamilyBusInfo(
+    int routeKey, {
+    required BusProvider provider,
+    String? routeIdHint,
+    String? routeNameHint,
+  }) async {
+    final selected = await getCompleteBusInfo(
+      routeKey,
+      provider: provider,
+      routeIdHint: routeIdHint,
+      routeNameHint: routeNameHint,
+    );
+    try {
+      final family = await getRouteFamily(selected.route, provider: provider);
+      final variants = await Future.wait(
+        family.where((route) => route.routeId != selected.route.routeId).map((
+          route,
+        ) async {
+          try {
+            return await getCompleteBusInfo(
+              route.routeKey,
+              provider: provider,
+              routeIdHint: route.routeId,
+              routeNameHint: route.routeName,
+            );
+          } catch (_) {
+            return null;
+          }
+        }),
+      );
+      return mergeRouteFamilyLiveData(
+        selected,
+        variants.whereType<RouteDetailData>().toList(growable: false),
+      );
+    } catch (_) {
+      // Variants supplement a route but must not prevent the selected route
+      // from being displayed when the family lookup is unavailable.
+      return selected;
+    }
+  }
+
   Future<RouteDetailData> _loadCompleteBusInfo({
     required BusProvider provider,
     required String routeId,
@@ -1153,6 +1211,13 @@ class BusRepository {
         provider: provider,
         routeId: routeId,
       );
+      if (routeRows.isEmpty || stopRows.isEmpty) {
+        return _buildRouteDetailFromApi(
+          provider: provider,
+          routeId: routeId,
+          routeNameHint: routeNameHint,
+        );
+      }
 
       var hasLiveData = true;
       LiveStopMap liveMap;

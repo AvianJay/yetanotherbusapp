@@ -1806,12 +1806,14 @@ class RouteDetailData {
     required this.paths,
     required this.stopsByPath,
     required this.hasLiveData,
+    this.familyRouteIds = const [],
   });
 
   final RouteSummary route;
   final List<PathInfo> paths;
   final Map<int, List<StopInfo>> stopsByPath;
   final bool hasLiveData;
+  final List<String> familyRouteIds;
 }
 
 class StopRouteSearchResult {

@@ -118,4 +118,61 @@ void main() {
     expect(merged.sec, 120);
     expect(merged.buses.map((bus) => bus.id), ['KKA-0001', 'KKA-0002']);
   });
+
+  test(
+    'replaces an unavailable trunk ETA with a variant ETA at shared stops',
+    () {
+      RouteDetailData detail({
+        required String routeId,
+        required String routeName,
+        required StopInfo stop,
+      }) {
+        return RouteDetailData(
+          route: RouteSummary(
+            sourceProvider: 'TXG',
+            hashMd5: '',
+            routeKey: routeId.hashCode,
+            routeId: routeId,
+            routeName: routeName,
+            officialRouteName: routeName,
+            description: '',
+            category: '',
+            sequence: 0,
+            rtrip: 0,
+          ),
+          paths: const [PathInfo(routeKey: 0, pathId: 0, name: '臺中車站')],
+          stopsByPath: {
+            0: [stop],
+          },
+          hasLiveData: true,
+        );
+      }
+
+      final sharedStop = stop(
+        rawStopId: '8150',
+        name: '邱厝里',
+        lat: 24.156715,
+        lon: 120.676500,
+      );
+      final merged = mergeRouteFamilyLiveData(
+        detail(
+          routeId: 'TXG5000',
+          routeName: '500',
+          stop: sharedStop.copyWith(msg: '尚未發車'),
+        ),
+        [
+          detail(
+            routeId: 'TXG5002',
+            routeName: '500延',
+            stop: sharedStop.copyWith(sec: 33),
+          ),
+        ],
+      );
+
+      final sharedLiveStop = merged.stopsByPath[0]!.single;
+      expect(sharedLiveStop.sec, 33);
+      expect(sharedLiveStop.msg, isNull);
+      expect(merged.familyRouteIds, ['TXG5000', 'TXG5002']);
+    },
+  );
 }

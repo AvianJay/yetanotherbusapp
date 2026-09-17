@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'models.dart';
+import 'route_direction_label.dart';
 
 String routeFamilyName(String routeName) {
   final normalizedName = routeName.trim();
@@ -85,6 +86,60 @@ StopInfo mergeRouteFamilyStopLiveData(
     t: primaryEtaStop?.t,
     buses: busesById.values.toList(growable: false),
     etas: etasByKey.values.toList(growable: false),
+  );
+}
+
+/// Preserves the selected route's topology while sharing live data from its
+/// variants at stops that both directions physically serve.
+RouteDetailData mergeRouteFamilyLiveData(
+  RouteDetailData selected,
+  List<RouteDetailData> variants,
+) {
+  if (variants.isEmpty) {
+    return selected;
+  }
+
+  final stopsByPath = <int, List<StopInfo>>{};
+  for (final path in selected.paths) {
+    final selectedStops =
+        selected.stopsByPath[path.pathId] ?? const <StopInfo>[];
+    final variantStops = <StopInfo>[];
+    for (final variant in variants) {
+      for (final variantPath in variant.paths) {
+        if (directionOrdinalLabel(variantPath.pathId) !=
+            directionOrdinalLabel(path.pathId)) {
+          continue;
+        }
+        variantStops.addAll(
+          variant.stopsByPath[variantPath.pathId] ?? const <StopInfo>[],
+        );
+      }
+    }
+    stopsByPath[path.pathId] = selectedStops
+        .map((stop) {
+          final sharedStops = variantStops
+              .where(
+                (variantStop) =>
+                    routeFamilyStopsSharePhysicalSide(stop, variantStop),
+              )
+              .toList(growable: false);
+          return sharedStops.isEmpty
+              ? stop
+              : mergeRouteFamilyStopLiveData(stop, sharedStops);
+        })
+        .toList(growable: false);
+  }
+
+  return RouteDetailData(
+    route: selected.route,
+    paths: selected.paths,
+    stopsByPath: stopsByPath,
+    hasLiveData:
+        selected.hasLiveData || variants.any((variant) => variant.hasLiveData),
+    familyRouteIds: <String>{
+      selected.route.routeId,
+      ...variants.map((variant) => variant.route.routeId),
+    }.toList(growable: false),
   );
 }
 

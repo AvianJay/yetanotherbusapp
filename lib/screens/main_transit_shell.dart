@@ -133,7 +133,12 @@ class _MainTransitShellState extends State<MainTransitShell>
         removeBottom: true,
         child: modeStack,
       );
-      return Column(children: [Expanded(child: mobileModeStack)]);
+      return Column(
+        children: [
+          Expanded(child: mobileModeStack),
+          _buildModeNavigation(),
+        ],
+      );
     }
 
     final colorScheme = Theme.of(context).colorScheme;
@@ -188,21 +193,6 @@ class _MainTransitShellState extends State<MainTransitShell>
     );
   }
 
-  Widget? _buildMobileBottomNavigation(bool isMobile) {
-    if (!isMobile) {
-      return null;
-    }
-    return SizedBox(
-      height: _compactNavigationHeight + MediaQuery.paddingOf(context).bottom,
-      child: OverflowBox(
-        minWidth: MediaQuery.sizeOf(context).width,
-        maxWidth: MediaQuery.sizeOf(context).width,
-        alignment: Alignment.topCenter,
-        child: _buildModeNavigation(),
-      ),
-    );
-  }
-
   Widget _buildModeNavigation() {
     final theme = Theme.of(context);
     return Material(
@@ -210,38 +200,28 @@ class _MainTransitShellState extends State<MainTransitShell>
       elevation: 3,
       child: SafeArea(
         top: false,
-        child: SizedBox(
+        child: NavigationBar(
           height: _compactNavigationHeight,
-          child: Transform.translate(
-            offset: const Offset(0, -24),
-            child: MediaQuery.removePadding(
-              context: context,
-              removeBottom: true,
-              child: NavigationBar(
-                height: _compactNavigationHeight,
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                surfaceTintColor: Colors.transparent,
-                labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-                selectedIndex: kTransitModeDestinations.indexWhere(
-                  (destination) => destination.mode == _currentMode,
-                ),
-                onDestinationSelected: (index) {
-                  if (index >= 0 && index < kTransitModeDestinations.length) {
-                    _setMode(kTransitModeDestinations[index].mode);
-                  }
-                },
-                destinations: [
-                  for (final destination in kTransitModeDestinations)
-                    NavigationDestination(
-                      icon: Icon(destination.icon),
-                      selectedIcon: Icon(destination.icon),
-                      label: destination.label,
-                    ),
-                ],
-              ),
-            ),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          surfaceTintColor: Colors.transparent,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          selectedIndex: kTransitModeDestinations.indexWhere(
+            (destination) => destination.mode == _currentMode,
           ),
+          onDestinationSelected: (index) {
+            if (index >= 0 && index < kTransitModeDestinations.length) {
+              _setMode(kTransitModeDestinations[index].mode);
+            }
+          },
+          destinations: [
+            for (final destination in kTransitModeDestinations)
+              NavigationDestination(
+                icon: Icon(destination.icon),
+                selectedIcon: Icon(destination.icon),
+                label: destination.label,
+              ),
+          ],
         ),
       ),
     );
@@ -249,24 +229,22 @@ class _MainTransitShellState extends State<MainTransitShell>
 
   Widget _buildScreenForMode(TransitMode mode, {required bool isMobile}) {
     return switch (mode) {
-      TransitMode.bus => HomeScreen(
-        mobileBottomNavigation: _buildMobileBottomNavigation(isMobile),
-      ),
+      TransitMode.bus => const HomeScreen(),
       TransitMode.metro => MetroScreen(
         isActive: mode == _currentMode,
-        mobileBottomNavigation: _buildMobileBottomNavigation(isMobile),
+        showAdBanner: !isMobile,
       ),
       TransitMode.thsr => ThsrScreen(
         isActive: mode == _currentMode,
-        mobileBottomNavigation: _buildMobileBottomNavigation(isMobile),
+        showAdBanner: !isMobile,
       ),
       TransitMode.tra => TraScreen(
         isActive: mode == _currentMode,
-        mobileBottomNavigation: _buildMobileBottomNavigation(isMobile),
+        showAdBanner: !isMobile,
       ),
       TransitMode.youbike => YouBikeScreen(
         isActive: mode == _currentMode,
-        mobileBottomNavigation: _buildMobileBottomNavigation(isMobile),
+        showAdBanner: !isMobile,
       ),
     };
   }

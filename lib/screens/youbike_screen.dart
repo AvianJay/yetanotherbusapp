@@ -19,12 +19,12 @@ import '../widgets/ad_banner_widget.dart';
 class YouBikeScreen extends StatefulWidget {
   const YouBikeScreen({
     required this.isActive,
-    this.mobileBottomNavigation,
+    this.showAdBanner = true,
     super.key,
   });
 
   final bool isActive;
-  final Widget? mobileBottomNavigation;
+  final bool showAdBanner;
 
   @override
   State<YouBikeScreen> createState() => _YouBikeScreenState();
@@ -1290,9 +1290,7 @@ class _YouBikeScreenState extends State<YouBikeScreen>
                         useGoogleMapsPointProvider: useGoogleMapsPointProvider,
                       ),
               ),
-              if (widget.mobileBottomNavigation != null)
-                widget.mobileBottomNavigation!,
-              if (widget.mobileBottomNavigation == null) const AdBannerWidget(),
+              if (widget.showAdBanner) const AdBannerWidget(),
             ],
           ),
         );

@@ -25,9 +25,7 @@ import 'search_screen.dart';
 import '../widgets/ad_banner_widget.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({this.mobileBottomNavigation, super.key});
-
-  final Widget? mobileBottomNavigation;
+  const HomeScreen({super.key});
 
   static const _desktopSidebarBreakpoint = 1100.0;
   static const _desktopSidebarWidth = 450.0;
@@ -69,7 +67,6 @@ class HomeScreen extends StatelessWidget {
           _buildNearbyFeatureCard(context, compactMode: compactMode),
           const SizedBox(height: 8),
           _buildBusMapFeatureCard(context, compactMode: compactMode),
-          ?mobileBottomNavigation,
         ],
       ),
     );

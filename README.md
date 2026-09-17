@@ -85,16 +85,16 @@ https://github.com/YetAnotherBusDeveloper/yetanotherbusapp/releases/latest
 
 ### Nightly Build
 
-最新測試版本：
+最新測試版本請從 [`main` 分支最近一次成功的 Build](https://github.com/YetAnotherBusDeveloper/yetanotherbusapp/actions/workflows/build.yml?query=branch%3Amain) 中下載 Artifacts（GitHub 可能要求登入）：
 
-| 平台 | Artifact | 下載 |
-| --- | --- | --- |
-| Android APK | `android-apk-release` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/android-apk-release.zip) |
-| iOS Unsigned IPA | `ios-unsigned-ipa` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/ios-unsigned-ipa.zip) |
-| Web | `web-release` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/web-release.zip) |
-| Windows | `windows-release` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/windows-release.zip) |
-| Linux | `linux-release` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/linux-release.zip) |
-| macOS | `macos-release` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/macos-release.zip) |
+| 平台 | Artifact |
+| --- | --- |
+| Android APK | `android-apk-release` |
+| iOS Unsigned IPA | `ios-unsigned-ipa` |
+| Web | `web-release` |
+| Windows | `windows-release` |
+| Linux | `linux-release` |
+| macOS | `macos-release` |
 
 ## 技術棧
 

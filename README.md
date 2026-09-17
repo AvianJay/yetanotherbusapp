@@ -6,12 +6,12 @@
 現代化跨平台公車動態查詢 App
 
 <p align="left">
-  <a href="https://github.com/AvianJay/yetanotherbusapp/actions/workflows/build.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/AvianJay/yetanotherbusapp/build.yml?branch=main">
+  <a href="https://github.com/YetAnotherBusDeveloper/yetanotherbusapp/actions/workflows/build.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/YetAnotherBusDeveloper/yetanotherbusapp/build.yml?branch=main">
   </a>
-  <img src="https://img.shields.io/github/license/AvianJay/yetanotherbusapp">
-  <img src="https://img.shields.io/github/stars/AvianJay/yetanotherbusapp">
-  <img src="https://img.shields.io/github/downloads/AvianJay/yetanotherbusapp/total">
+  <img src="https://img.shields.io/github/license/YetAnotherBusDeveloper/yetanotherbusapp">
+  <img src="https://img.shields.io/github/stars/YetAnotherBusDeveloper/yetanotherbusapp">
+  <img src="https://img.shields.io/github/downloads/YetAnotherBusDeveloper/yetanotherbusapp/total">
 </p>
 
 ## 關於專案
@@ -80,7 +80,7 @@ https://busapp.avianjay.sbs/
   </a>
 </p>
 
-https://github.com/AvianJay/yetanotherbusapp/releases/latest
+https://github.com/YetAnotherBusDeveloper/yetanotherbusapp/releases/latest
 
 
 ### Nightly Build
@@ -89,12 +89,12 @@ https://github.com/AvianJay/yetanotherbusapp/releases/latest
 
 | 平台 | Artifact | 下載 |
 | --- | --- | --- |
-| Android APK | `android-apk-release` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/android-apk-release.zip) |
-| iOS Unsigned IPA | `ios-unsigned-ipa` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/ios-unsigned-ipa.zip) |
-| Web | `web-release` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/web-release.zip) |
-| Windows | `windows-release` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/windows-release.zip) |
-| Linux | `linux-release` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/linux-release.zip) |
-| macOS | `macos-release` | [下載](https://nightly.link/AvianJay/yetanotherbusapp/workflows/build/main/macos-release.zip) |
+| Android APK | `android-apk-release` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/android-apk-release.zip) |
+| iOS Unsigned IPA | `ios-unsigned-ipa` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/ios-unsigned-ipa.zip) |
+| Web | `web-release` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/web-release.zip) |
+| Windows | `windows-release` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/windows-release.zip) |
+| Linux | `linux-release` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/linux-release.zip) |
+| macOS | `macos-release` | [下載](https://nightly.link/YetAnotherBusDeveloper/yetanotherbusapp/workflows/build/main/macos-release.zip) |
 
 ## 技術棧
 
@@ -131,7 +131,7 @@ https://github.com/AvianJay/yetanotherbusapp/releases/latest
 ### Clone
 
 ```bash
-git clone https://github.com/AvianJay/yetanotherbusapp.git
+git clone https://github.com/YetAnotherBusDeveloper/yetanotherbusapp.git
 cd yetanotherbusapp
 ```
 

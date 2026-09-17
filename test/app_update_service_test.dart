@@ -27,7 +27,7 @@ void main() {
       const currentSha = 'abcdef0123456789abcdef0123456789abcdef01';
       const latestSha = 'abcdef0fedcba9876543210fedcba9876543210f';
       const artifactUrl =
-          'https://github.com/AvianJay/yetanotherbusapp/releases/download/nightly/YABus-nightly.apk';
+          'https://github.com/YetAnotherBusDeveloper/yetanotherbusapp/releases/download/nightly/YABus-nightly.apk';
       final service = AppUpdateService(
         buildInfo: const AppBuildInfo(
           version: '1.0.0',
@@ -36,7 +36,10 @@ void main() {
           defaultUpdateChannel: AppUpdateChannel.nightly,
         ),
         client: MockClient((request) async {
-          expect(request.url.path, '/repos/AvianJay/yetanotherbusapp/releases');
+          expect(
+            request.url.path,
+            '/repos/YetAnotherBusDeveloper/yetanotherbusapp/releases',
+          );
           expect(request.url.queryParameters['per_page'], '30');
           return http.Response(
             jsonEncode([
@@ -70,7 +73,7 @@ void main() {
       expect(result.update?.downloadUrl, artifactUrl);
       expect(
         result.update?.detailsUrl,
-        'https://github.com/AvianJay/yetanotherbusapp/compare/$currentSha...$latestSha',
+        'https://github.com/YetAnotherBusDeveloper/yetanotherbusapp/compare/$currentSha...$latestSha',
       );
     },
   );
@@ -87,7 +90,10 @@ void main() {
           defaultUpdateChannel: AppUpdateChannel.nightly,
         ),
         client: MockClient((request) async {
-          expect(request.url.path, '/repos/AvianJay/yetanotherbusapp/releases');
+          expect(
+            request.url.path,
+            '/repos/YetAnotherBusDeveloper/yetanotherbusapp/releases',
+          );
           return http.Response(
             jsonEncode([
               {
@@ -150,7 +156,7 @@ void main() {
             jsonEncode({
               'tag_name': '1.1.0',
               'html_url':
-                  'https://github.com/AvianJay/yetanotherbusapp/releases/tag/1.1.0',
+                  'https://github.com/YetAnotherBusDeveloper/yetanotherbusapp/releases/tag/1.1.0',
               'body': '''
 ## YABus 1.1.0
 

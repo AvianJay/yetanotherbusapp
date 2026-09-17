@@ -12,7 +12,7 @@ class AppBuildInfo {
 
   static const repoOwner = String.fromEnvironment(
     'APP_REPO_OWNER',
-    defaultValue: 'AvianJay',
+    defaultValue: 'YetAnotherBusDeveloper',
   );
   static const repoName = String.fromEnvironment(
     'APP_REPO_NAME',

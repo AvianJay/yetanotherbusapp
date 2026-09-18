@@ -104,6 +104,34 @@ void main() {
     expect(tester.getTopLeft(find.byType(NavigationBar)), navigationTop);
   });
 
+  testWidgets('mode pages enter from their position in the navigation bar', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppControllerScope(
+          controller: controller,
+          child: const MainTransitShell(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('高鐵'));
+    await tester.pump(const Duration(milliseconds: 30));
+    expect(_modeTranslation(tester, TransitMode.thsr).dx, greaterThan(0));
+
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(find.text('捷運'));
+    await tester.pump(const Duration(milliseconds: 30));
+    expect(_modeTranslation(tester, TransitMode.metro).dx, lessThan(0));
+  });
+
   for (final layout in [
     (
       name: 'no system insets',
@@ -214,6 +242,14 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
+}
+
+Offset _modeTranslation(WidgetTester tester, TransitMode mode) {
+  final layer = find.descendant(
+    of: find.byKey(ValueKey<TransitMode>(mode)),
+    matching: find.byType(FractionalTranslation),
+  );
+  return tester.widget<FractionalTranslation>(layer.first).translation;
 }
 
 Future<AppController> _buildController() async {

@@ -12,6 +12,7 @@ import '../core/friendly_error.dart';
 import '../core/models.dart';
 import '../core/pwa_install_service.dart';
 import '../core/route_direction_label.dart';
+import '../core/smart_route_service.dart';
 import '../widgets/eta_badge.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_station_map.dart';
@@ -540,11 +541,13 @@ class _SmartCardData {
 class _NearbyFallbackData {
   const _NearbyFallbackData({
     required this.result,
+    required this.detail,
     required this.liveStop,
     this.path,
   });
 
   final NearbyStopResult result;
+  final RouteDetailData detail;
   final StopInfo? liveStop;
   final PathInfo? path;
 }
@@ -604,10 +607,13 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       }
 
       try {
+        if (lastKnown != null) {
+          return lastKnown;
+        }
         return await Geolocator.getCurrentPosition(
           locationSettings: const LocationSettings(
             accuracy: LocationAccuracy.medium,
-            timeLimit: Duration(seconds: 5),
+            timeLimit: Duration(seconds: 3),
           ),
         );
       } catch (_) {
@@ -623,22 +629,49 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     if (!controller.settings.enableSmartRecommendations) {
       return null;
     }
+    final positionFuture = _resolvePosition();
+    Position? position;
 
     // Smart route suggestions require local database for usage profiles.
     // On web (or when DB not ready), skip to nearby fallback if location is available.
     if (controller.databaseReady && controller.routeUsageProfiles.isNotEmpty) {
-      final position = await _resolvePosition();
-      final suggestions = await controller.getSmartRouteSuggestions(
-        position: position,
+      final baseSuggestions = await controller.getSmartRouteSuggestions(
         limit: widget.maxSuggestions,
       );
-      if (suggestions.isNotEmpty) {
+      if (baseSuggestions.isNotEmpty) {
+        final allHaveFavoriteStops = baseSuggestions.every(
+          (suggestion) => suggestion.favoriteStop != null,
+        );
+        if (!allHaveFavoriteStops) {
+          position = await positionFuture.timeout(
+            const Duration(milliseconds: 800),
+            onTimeout: () => null,
+          );
+        }
+        final suggestions = position == null
+            ? baseSuggestions
+            : baseSuggestions
+                  .map((suggestion) {
+                    final detail = suggestion.detail;
+                    if (detail == null) {
+                      return suggestion;
+                    }
+                    return SmartRouteService.buildSuggestion(
+                      profile: suggestion.profile,
+                      score: suggestion.score,
+                      reason: suggestion.reason,
+                      detail: detail,
+                      favorite: suggestion.favorite,
+                      position: position,
+                    );
+                  })
+                  .toList(growable: false);
         return _SmartCardData.recommended(suggestions);
       }
     }
 
     // Nearby fallback via API — works on both native and web.
-    final position = await _resolvePosition();
+    position ??= await positionFuture;
     if (position == null) {
       return null;
     }
@@ -653,25 +686,30 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         return null;
       }
 
-      final nearbyList = <_NearbyFallbackData>[];
-      for (final nearest in nearbyStops.take(widget.maxSuggestions)) {
-        final routeProvider = busProviderFromString(
-          nearest.route.sourceProvider,
-        );
-        final detail = await controller.getRouteDetail(
-          nearest.route.routeKey,
-          provider: routeProvider,
-        );
-        final liveStop = _findStopInDetail(
-          detail,
-          pathId: nearest.stop.pathId,
-          stopId: nearest.stop.stopId,
-        );
-        final path = _findPath(detail, nearest.stop.pathId);
-        nearbyList.add(
-          _NearbyFallbackData(result: nearest, liveStop: liveStop, path: path),
-        );
-      }
+      final nearbyList = await Future.wait(
+        nearbyStops.take(widget.maxSuggestions).map((nearest) async {
+          final routeProvider = busProviderFromString(
+            nearest.route.sourceProvider,
+          );
+          final detail = await controller.getPrimaryRouteDetail(
+            nearest.route.routeKey,
+            provider: routeProvider,
+            routeIdHint: nearest.route.routeId,
+            routeNameHint: nearest.route.routeName,
+          );
+          final liveStop = _findStopInDetail(
+            detail,
+            pathId: nearest.stop.pathId,
+            stopId: nearest.stop.stopId,
+          );
+          return _NearbyFallbackData(
+            result: nearest,
+            detail: detail,
+            liveStop: liveStop,
+            path: _findPath(detail, nearest.stop.pathId),
+          );
+        }),
+      );
       return _SmartCardData.nearby(nearbyList);
     } catch (_) {
       return null;
@@ -687,34 +725,52 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     final favorite = suggestion.favorite;
     final pathId = suggestion.recommendedPath?.pathId;
     final stopId = suggestion.recommendedStop?.stopId;
-    final autoFavorited = await controller.recordRouteSelection(
-      provider: suggestion.profile.provider,
-      routeKey: suggestion.profile.routeKey,
-      routeName: suggestion.profile.routeName,
-      favorite: favorite,
-      source: 'smart_suggestion',
-      pathId: pathId,
-      stopId: stopId,
-      stopName: suggestion.recommendedStop?.stopName,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (autoFavorited != null) {
-      showAutoFavoritedSnackBar(context, autoFavorited);
-    }
+    final detail = suggestion.detail;
+    final routeId = detail?.route.routeId.trim() ?? '';
+    final routeName = detail?.route.routeName ?? suggestion.profile.routeName;
+    final initialAlertsFuture = routeId.isEmpty
+        ? null
+        : controller
+              .getRouteAlerts(routeId)
+              .catchError((_) => const <RouteAlert>[]);
+    final initialCancelledDeparturesFuture =
+        suggestion.profile.provider != BusProvider.txg
+        ? null
+        : controller.repository
+              .fetchTaichungCancelledDepartures(
+                routeId: routeId,
+                routeName: routeName,
+                date: DateTime.now(),
+              )
+              .catchError((_) => const <CancelledDeparture>[]);
+    unawaited(() async {
+      final autoFavorited = await controller.recordRouteSelection(
+        provider: suggestion.profile.provider,
+        routeKey: suggestion.profile.routeKey,
+        routeName: suggestion.profile.routeName,
+        favorite: favorite,
+        source: 'smart_suggestion',
+        pathId: pathId,
+        stopId: stopId,
+        stopName: suggestion.recommendedStop?.stopName,
+      );
+      if (mounted && autoFavorited != null) {
+        showAutoFavoritedSnackBar(context, autoFavorited);
+      }
+    }());
     await openRouteDetailPage(
       context,
       routeKey: suggestion.profile.routeKey,
       provider: suggestion.profile.provider,
-      routeIdHint:
-          suggestion.detail?.route.routeId ?? suggestion.favorite?.routeId,
-      routeNameHint:
-          suggestion.detail?.route.routeName ?? suggestion.profile.routeName,
+      routeIdHint: routeId.isEmpty ? suggestion.favorite?.routeId : routeId,
+      routeNameHint: routeName,
       initialPathId: pathId,
       initialStopId: stopId,
       initialDestinationPathId: favorite?.destinationPathId,
       initialDestinationStopId: favorite?.destinationStopId,
+      initialTopologyFuture: Future<RouteDetailData?>.value(detail),
+      initialAlertsFuture: initialAlertsFuture,
+      initialCancelledDeparturesFuture: initialCancelledDeparturesFuture,
     );
   }
 
@@ -723,21 +779,35 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     final routeProvider = busProviderFromString(
       nearby.result.route.sourceProvider,
     );
-    final autoFavorited = await controller.recordRouteSelection(
-      provider: routeProvider,
-      routeKey: nearby.result.route.routeKey,
-      routeName: nearby.result.route.routeName,
-      source: 'nearby_fallback',
-      pathId: nearby.result.stop.pathId,
-      stopId: nearby.result.stop.stopId,
-      stopName: nearby.result.stop.stopName,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (autoFavorited != null) {
-      showAutoFavoritedSnackBar(context, autoFavorited);
-    }
+    final routeId = nearby.result.route.routeId.trim();
+    final initialAlertsFuture = routeId.isEmpty
+        ? null
+        : controller
+              .getRouteAlerts(routeId)
+              .catchError((_) => const <RouteAlert>[]);
+    final initialCancelledDeparturesFuture = routeProvider != BusProvider.txg
+        ? null
+        : controller.repository
+              .fetchTaichungCancelledDepartures(
+                routeId: routeId,
+                routeName: nearby.result.route.routeName,
+                date: DateTime.now(),
+              )
+              .catchError((_) => const <CancelledDeparture>[]);
+    unawaited(() async {
+      final autoFavorited = await controller.recordRouteSelection(
+        provider: routeProvider,
+        routeKey: nearby.result.route.routeKey,
+        routeName: nearby.result.route.routeName,
+        source: 'nearby_fallback',
+        pathId: nearby.result.stop.pathId,
+        stopId: nearby.result.stop.stopId,
+        stopName: nearby.result.stop.stopName,
+      );
+      if (mounted && autoFavorited != null) {
+        showAutoFavoritedSnackBar(context, autoFavorited);
+      }
+    }());
     await openRouteDetailPage(
       context,
       routeKey: nearby.result.route.routeKey,
@@ -746,6 +816,9 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       routeNameHint: nearby.result.route.routeName,
       initialPathId: nearby.result.stop.pathId,
       initialStopId: nearby.result.stop.stopId,
+      initialTopologyFuture: Future<RouteDetailData?>.value(nearby.detail),
+      initialAlertsFuture: initialAlertsFuture,
+      initialCancelledDeparturesFuture: initialCancelledDeparturesFuture,
     );
   }
 

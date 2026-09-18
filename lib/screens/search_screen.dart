@@ -1084,23 +1084,46 @@ class _SearchScreenState extends State<SearchScreen> {
   }) async {
     unawaited(AppHaptics.selectionClick());
     final busController = AppControllerScope.read(context);
-    if (saveHistory && route != null) {
-      await busController.addHistoryEntry(route, provider: provider);
-    }
-    final autoFavorited = await busController.recordRouteSelection(
-      provider: provider,
-      routeKey: routeKey,
-      routeName: routeName,
-      source: source,
-      pathId: initialPathId,
-      stopId: initialStopId,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (autoFavorited != null) {
-      showAutoFavoritedSnackBar(context, autoFavorited);
-    }
+    final initialTopologyFuture = busController
+        .getRouteTopology(
+          routeKey,
+          provider: provider,
+          routeIdHint: routeIdHint,
+          routeNameHint: routeName,
+        )
+        .then<RouteDetailData?>((detail) => detail)
+        .catchError((_) => null);
+    final normalizedRouteId = routeIdHint?.trim() ?? '';
+    final initialAlertsFuture = normalizedRouteId.isEmpty
+        ? null
+        : busController
+              .getRouteAlerts(normalizedRouteId)
+              .catchError((_) => const <RouteAlert>[]);
+    final initialCancelledDeparturesFuture = provider != BusProvider.txg
+        ? null
+        : busController.repository
+              .fetchTaichungCancelledDepartures(
+                routeId: normalizedRouteId,
+                routeName: routeName,
+                date: DateTime.now(),
+              )
+              .catchError((_) => const <CancelledDeparture>[]);
+    unawaited(() async {
+      if (saveHistory && route != null) {
+        await busController.addHistoryEntry(route, provider: provider);
+      }
+      final autoFavorited = await busController.recordRouteSelection(
+        provider: provider,
+        routeKey: routeKey,
+        routeName: routeName,
+        source: source,
+        pathId: initialPathId,
+        stopId: initialStopId,
+      );
+      if (mounted && autoFavorited != null) {
+        showAutoFavoritedSnackBar(context, autoFavorited);
+      }
+    }());
     await openRouteDetailPage(
       context,
       routeKey: routeKey,
@@ -1111,6 +1134,9 @@ class _SearchScreenState extends State<SearchScreen> {
       initialStopId: initialStopId,
       initialDestinationPathId: initialDestinationPathId,
       initialDestinationStopId: initialDestinationStopId,
+      initialTopologyFuture: initialTopologyFuture,
+      initialAlertsFuture: initialAlertsFuture,
+      initialCancelledDeparturesFuture: initialCancelledDeparturesFuture,
       suppressAutoDestinationSelection: suppressAutoDestinationSelection,
     );
   }

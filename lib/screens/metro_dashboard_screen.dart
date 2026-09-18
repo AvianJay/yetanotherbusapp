@@ -444,7 +444,7 @@ class _MetroScreenState extends State<MetroScreen> {
     return Scaffold(
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
-        title: const Text('YAMetro'),
+        title: const Text('捷運'),
         automaticallyImplyLeading: false,
         actions: [
           IconButton(

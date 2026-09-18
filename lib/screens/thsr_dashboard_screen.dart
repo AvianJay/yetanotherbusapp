@@ -254,7 +254,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
     return Scaffold(
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
-        title: const Text('YAHSR'),
+        title: const Text('高鐵'),
         automaticallyImplyLeading: false,
         actions: [
           IconButton(

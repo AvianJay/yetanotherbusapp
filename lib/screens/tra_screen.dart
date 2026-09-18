@@ -530,7 +530,7 @@ class _TraScreenState extends State<TraScreen> {
     return Scaffold(
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
-        title: const Text('YATrain'),
+        title: const Text('台鐵'),
         automaticallyImplyLeading: false,
         actions: [
           IconButton(

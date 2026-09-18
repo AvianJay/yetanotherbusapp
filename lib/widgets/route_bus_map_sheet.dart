@@ -65,7 +65,7 @@ class RouteBusMapSheet extends StatefulWidget {
 }
 
 class _RouteBusMapSheetState extends State<RouteBusMapSheet>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const _simulationTick = Duration(milliseconds: 250);
   static const _cameraPadding = EdgeInsets.fromLTRB(20, 20, 20, 140);
   static const _userLocationFocusZoom = 16.4;
@@ -107,6 +107,12 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   bool _osmMapReady = false;
   int _mapWidgetGeneration = 0;
   bool _reloadForFamilyWhenGeometryReady = false;
+  AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
+  int _userLocationRequestSerial = 0;
+
+  bool get _isAppActive =>
+      _appLifecycleState == AppLifecycleState.resumed ||
+      _appLifecycleState == AppLifecycleState.inactive;
 
   bool get _useGoogleMapsRouteProvider => useGoogleMapsProviderFor(
     AppControllerScope.read(context).settings.mobileMapProvider,
@@ -115,6 +121,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _activePathId =
         widget.selectedPathIdListenable.value ?? widget.paths.first.pathId;
     _stopsByPath = _copyStopsByPath(widget.stopsByPath);
@@ -122,13 +129,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     widget.selectedPathIdListenable.addListener(_handleExternalPathSelection);
     widget.familyRouteIdsListenable?.addListener(_handleFamilyRouteIdsUpdate);
     widget.liveStopsByPathListenable?.addListener(_handleExternalStopsUpdate);
-    _simulationTimer = Timer.periodic(_simulationTick, (_) {
-      if (!mounted || _busStates.isEmpty) {
-        return;
-      }
-      _syncSelectedBusCamera();
-      setState(() {});
-    });
+    _startSimulationTimer();
     unawaited(_loadUserLocation());
     unawaited(_loadMapData(fitCamera: true));
   }
@@ -204,6 +205,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.selectedPathIdListenable.removeListener(
       _handleExternalPathSelection,
     );
@@ -219,6 +221,52 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     _invalidateMapLifecycle();
     _refreshProgressController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final wasActive = _isAppActive;
+    _appLifecycleState = state;
+    if (wasActive == _isAppActive) {
+      return;
+    }
+    if (_isAppActive) {
+      _startSimulationTimer();
+      unawaited(_loadUserLocation());
+      unawaited(_loadMapData());
+    } else {
+      _pauseForBackground();
+    }
+  }
+
+  void _startSimulationTimer() {
+    _simulationTimer?.cancel();
+    if (!_isAppActive) {
+      _simulationTimer = null;
+      return;
+    }
+    _simulationTimer = Timer.periodic(_simulationTick, (_) {
+      if (!mounted || !_isAppActive || _busStates.isEmpty) {
+        return;
+      }
+      _syncSelectedBusCamera();
+      setState(() {});
+    });
+  }
+
+  void _pauseForBackground() {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+    _simulationTimer?.cancel();
+    _simulationTimer = null;
+    _refreshProgressController.stop();
+    _refreshRequestSerial += 1;
+    _userLocationRequestSerial += 1;
+    final subscription = _userLocationSubscription;
+    _userLocationSubscription = null;
+    if (subscription != null) {
+      unawaited(subscription.cancel());
+    }
   }
 
   @override
@@ -406,6 +454,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   }
 
   Future<void> _loadMapData({bool fitCamera = false}) async {
+    if (!mounted || !_isAppActive) {
+      return;
+    }
     final controller = AppControllerScope.read(context);
     final pathId = _activePathId;
     final previousStates = _busStates;
@@ -423,6 +474,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       final busesFuture = _loadRealtimeBuses(pathId);
       final pathPoints = await pathPointsFuture;
       if (!mounted ||
+          !_isAppActive ||
           pathId != _activePathId ||
           requestId != _refreshRequestSerial) {
         return;
@@ -448,6 +500,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
 
       final busesResult = await busesFuture;
       if (!mounted ||
+          !_isAppActive ||
           pathId != _activePathId ||
           requestId != _refreshRequestSerial) {
         return;
@@ -504,6 +557,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       _syncSelectedBusCamera(force: true);
     } catch (error) {
       if (!mounted ||
+          !_isAppActive ||
           pathId != _activePathId ||
           requestId != _refreshRequestSerial) {
         return;
@@ -539,7 +593,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       ..stop()
       ..duration = Duration(seconds: _refreshSeconds)
       ..value = 0;
-    if (!mounted) {
+    if (!mounted || !_isAppActive) {
       return;
     }
     unawaited(_refreshProgressController.forward(from: 0));
@@ -552,12 +606,24 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   }
 
   Future<void> _loadUserLocation() async {
+    if (!mounted || !_isAppActive) {
+      return;
+    }
+    final requestId = ++_userLocationRequestSerial;
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
+      if (!serviceEnabled ||
+          !mounted ||
+          !_isAppActive ||
+          requestId != _userLocationRequestSerial) {
         return;
       }
       var permission = await Geolocator.checkPermission();
+      if (!mounted ||
+          !_isAppActive ||
+          requestId != _userLocationRequestSerial) {
+        return;
+      }
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
@@ -567,11 +633,18 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
       }
 
       final lastKnown = await Geolocator.getLastKnownPosition();
+      if (!mounted ||
+          !_isAppActive ||
+          requestId != _userLocationRequestSerial) {
+        return;
+      }
       Position? resolved = lastKnown;
       resolved ??= await Geolocator.getCurrentPosition().timeout(
         const Duration(seconds: 4),
       );
-      if (!mounted) {
+      if (!mounted ||
+          !_isAppActive ||
+          requestId != _userLocationRequestSerial) {
         return;
       }
 
@@ -586,7 +659,12 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         _userLocation = nextLocation;
       });
 
-      _userLocationSubscription?.cancel();
+      await _userLocationSubscription?.cancel();
+      if (!mounted ||
+          !_isAppActive ||
+          requestId != _userLocationRequestSerial) {
+        return;
+      }
       _userLocationSubscription =
           Geolocator.getPositionStream(
             locationSettings: const LocationSettings(
@@ -598,10 +676,10 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
               position.latitude,
               position.longitude,
             );
-            if (nextLocation == null || !mounted) {
-              return;
-            }
-            if (!mounted) {
+            if (nextLocation == null ||
+                !mounted ||
+                !_isAppActive ||
+                requestId != _userLocationRequestSerial) {
               return;
             }
             setState(() {
@@ -617,7 +695,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
                 _fitCameraToGeometry(geometry);
               }
             }
-          });
+          }, onError: (_) {});
 
       final geometry = _geometry;
       if (geometry != null) {
@@ -638,6 +716,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     final targetMapGeneration = mapGeneration ?? _mapWidgetGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
+          !_isAppActive ||
           targetMapGeneration != _mapWidgetGeneration ||
           geometry.points.isEmpty) {
         return;
@@ -760,7 +839,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   }
 
   bool _moveOsmCamera(LatLng center, double zoom) {
-    if (!_osmMapReady) {
+    if (!_isAppActive || !_osmMapReady) {
       return false;
     }
     try {
@@ -772,6 +851,9 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   }
 
   bool _moveGoogleCamera(gmaps.CameraUpdate update) {
+    if (!_isAppActive) {
+      return false;
+    }
     final controller = _googleMapController;
     if (controller == null) {
       return false;
@@ -809,7 +891,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
   }
 
   void _syncSelectedBusCamera({bool force = false}) {
-    if (!_followSelectedBus) {
+    if (!_isAppActive || !_followSelectedBus) {
       return;
     }
     final geometry = _geometry;
@@ -848,7 +930,7 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
     RouteGeometry geometry, {
     required int mapGeneration,
   }) {
-    if (!mounted || mapGeneration != _mapWidgetGeneration) {
+    if (!mounted || !_isAppActive || mapGeneration != _mapWidgetGeneration) {
       return;
     }
     final didFocusUser =

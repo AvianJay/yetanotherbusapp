@@ -107,6 +107,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   late final AnimationController _loadingPulseController;
   TabController? _tabController;
   StreamSubscription<Position>? _positionSubscription;
+  Future<void>? _locationTrackingInFlight;
+  bool? _locationTrackingInFlightForBackground;
+  int _locationTrackingGeneration = 0;
   Position? _lastPosition;
   late final ValueNotifier<int> _remainingSeconds;
   bool _didScrollToInitialStop = false;
@@ -270,6 +273,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _liveMapStopsByPath.dispose();
     _liveMapFamilyRouteIds.dispose();
     _remainingSeconds.dispose();
+    _locationTrackingGeneration += 1;
+    _locationTrackingInFlight = null;
     _positionSubscription?.cancel();
     _tabController?.dispose();
     for (final controller in _scrollControllers.values) {
@@ -292,6 +297,19 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final wasForeground = _appIsForeground;
     _appLifecycleState = state;
+    final isForeground = _appIsForeground;
+
+    if (!isForeground) {
+      _pauseForegroundRefreshLoop(invalidateRequest: true);
+      if (!_locationTrackingConfiguredForBackground) {
+        _pauseForegroundLocationTracking();
+      }
+      if (_isAndroid) {
+        unawaited(AndroidTripMonitor.setAppInForeground(false));
+      }
+      return;
+    }
+
     if (state == AppLifecycleState.resumed &&
         _awaitingBackgroundLocationPermission) {
       _awaitingBackgroundLocationPermission = false;
@@ -303,40 +321,19 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         );
       }
     }
-    if (state == AppLifecycleState.resumed && _isAndroid) {
-      unawaited(_syncBackgroundTripMonitorPausedState());
-    }
     if (state == AppLifecycleState.resumed && _isIOS) {
       unawaited(TripMonitorNotifications.cancelBoardingCheckPrompt());
     }
-    if (!_isAndroid) {
-      return;
-    }
-    final controller = AppControllerScope.read(context);
-    if (!controller.settings.enableRouteBackgroundMonitor ||
-        !_backgroundTripMonitorReady) {
-      return;
-    }
-    final isForeground = switch (state) {
-      AppLifecycleState.resumed => true,
-      AppLifecycleState.inactive => true,
-      AppLifecycleState.hidden => false,
-      AppLifecycleState.paused => false,
-      AppLifecycleState.detached => false,
-    };
-    unawaited(AndroidTripMonitor.setAppInForeground(isForeground));
-    if (isForeground == wasForeground) {
-      if (!isForeground) {
-        _pauseForegroundRefreshLoop();
+
+    if (_isAndroid) {
+      unawaited(AndroidTripMonitor.setAppInForeground(true));
+      if (_backgroundTripMonitorReady) {
+        unawaited(_syncBackgroundTripMonitorPausedState());
       }
-      return;
     }
-    if (isForeground) {
-      if (!wasForeground && _detail != null) {
-        unawaited(_refresh());
-      }
-    } else {
-      _pauseForegroundRefreshLoop();
+    if (!wasForeground && _isRouteVisible && _detail != null) {
+      unawaited(_refresh());
+      unawaited(_ensureLocationTracking(requestPermissionIfNeeded: false));
     }
   }
 
@@ -388,8 +385,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             );
         if (mounted &&
             requestId == _refreshRequestId &&
-            (!_shouldSuspendForegroundRefreshes ||
-                _keepPendingRefreshWhileCovered)) {
+            _canApplyPendingForegroundResult) {
           _syncLiveMapData(topology);
           _syncTabController(topology);
           setState(() {
@@ -417,8 +413,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final fetchedDetail = primaryResult.detail!;
       if (!mounted ||
           requestId != _refreshRequestId ||
-          (_shouldSuspendForegroundRefreshes &&
-              !_keepPendingRefreshWhileCovered)) {
+          !_canApplyPendingForegroundResult) {
         return;
       }
 
@@ -501,8 +496,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       ).enrichRouteWithFamily(selected, provider: widget.provider);
       if (!mounted ||
           requestId != _refreshRequestId ||
-          (_shouldSuspendForegroundRefreshes &&
-              !_keepPendingRefreshWhileCovered)) {
+          !_canApplyPendingForegroundResult) {
         return;
       }
       _syncLiveMapData(enriched, replaceFamilyRouteIds: true);
@@ -560,10 +554,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       if (!_cancelledDeparturePromptChecked) {
         await _maybeShowTaichungCancelledDepartures(detail);
       }
-      if (!mounted ||
-          (_shouldSuspendForegroundRefreshes &&
-              !_keepPendingRefreshWhileCovered) ||
-          _alertsFetched) {
+      if (!mounted || !_canApplyPendingForegroundResult || _alertsFetched) {
         return;
       }
       _alertsFetched = true;
@@ -1488,13 +1479,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _appLifecycleState == AppLifecycleState.inactive;
 
   bool get _shouldSuspendForegroundRefreshes =>
-      !_isRouteVisible ||
-      (_isAndroid &&
-          !_appIsForeground &&
-          _backgroundTripMonitorReady &&
-          AppControllerScope.read(
-            context,
-          ).settings.enableRouteBackgroundMonitor);
+      !_appIsForeground || !_isRouteVisible;
+
+  bool get _canApplyPendingForegroundResult =>
+      _appIsForeground && (_isRouteVisible || _keepPendingRefreshWhileCovered);
 
   void _pauseForegroundRefreshLoop({bool invalidateRequest = false}) {
     _countdownTimer?.cancel();
@@ -1516,6 +1504,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       return;
     }
     unawaited(_refresh());
+    unawaited(_ensureLocationTracking(requestPermissionIfNeeded: false));
   }
 
   @override
@@ -1524,6 +1513,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _pauseForegroundRefreshLoop(
       invalidateRequest: !_keepPendingRefreshWhileCovered,
     );
+    if (!_keepPendingRefreshWhileCovered &&
+        !_locationTrackingConfiguredForBackground) {
+      _pauseForegroundLocationTracking();
+    }
   }
 
   @override
@@ -2009,6 +2002,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   Future<void> _configureBackgroundTripMonitorIfNeeded({
     bool forcePermissionCheck = false,
+  }) async {
+    try {
+      await _configureBackgroundTripMonitorUnchecked(
+        forcePermissionCheck: forcePermissionCheck,
+      );
+    } catch (_) {
+      // Lifecycle transitions can temporarily detach location/notification APIs.
+    }
+  }
+
+  Future<void> _configureBackgroundTripMonitorUnchecked({
+    required bool forcePermissionCheck,
   }) async {
     if (!mounted) {
       return;
@@ -2526,7 +2531,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   Future<void> _ensureLocationTracking({
     bool requestPermissionIfNeeded = true,
-  }) async {
+  }) {
+    if (!mounted) {
+      return Future<void>.value();
+    }
     final controller = AppControllerScope.read(context);
     final enableBackgroundLocationStream =
         _isIOS &&
@@ -2535,20 +2543,86 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (_didAttemptLocationTracking &&
         _locationTrackingConfiguredForBackground ==
             enableBackgroundLocationStream) {
-      return;
+      return Future<void>.value();
     }
 
+    final inFlight = _locationTrackingInFlight;
+    if (inFlight != null &&
+        _locationTrackingInFlightForBackground ==
+            enableBackgroundLocationStream) {
+      return inFlight;
+    }
+
+    final generation = ++_locationTrackingGeneration;
+    final future = _configureLocationTracking(
+      generation: generation,
+      enableBackgroundLocationStream: enableBackgroundLocationStream,
+      requestPermissionIfNeeded: requestPermissionIfNeeded,
+    );
+    _locationTrackingInFlight = future;
+    _locationTrackingInFlightForBackground = enableBackgroundLocationStream;
+    return future.whenComplete(() {
+      if (identical(_locationTrackingInFlight, future)) {
+        _locationTrackingInFlight = null;
+        _locationTrackingInFlightForBackground = null;
+      }
+    });
+  }
+
+  Future<void> _configureLocationTracking({
+    required int generation,
+    required bool enableBackgroundLocationStream,
+    required bool requestPermissionIfNeeded,
+  }) async {
+    try {
+      await _configureLocationTrackingUnchecked(
+        generation: generation,
+        enableBackgroundLocationStream: enableBackgroundLocationStream,
+        requestPermissionIfNeeded: requestPermissionIfNeeded,
+      );
+    } catch (_) {
+      // Location plugins can detach briefly while Android changes lifecycle.
+    }
+  }
+
+  Future<void> _configureLocationTrackingUnchecked({
+    required int generation,
+    required bool enableBackgroundLocationStream,
+    required bool requestPermissionIfNeeded,
+  }) async {
+    if (!_canContinueLocationTracking(
+      generation,
+      allowBackground: enableBackgroundLocationStream,
+    )) {
+      return;
+    }
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
+    if (!serviceEnabled ||
+        !_canContinueLocationTracking(
+          generation,
+          allowBackground: enableBackgroundLocationStream,
+        )) {
       return;
     }
 
     var permission = await Geolocator.checkPermission();
+    if (!_canContinueLocationTracking(
+      generation,
+      allowBackground: enableBackgroundLocationStream,
+    )) {
+      return;
+    }
     if (permission == LocationPermission.denied) {
       if (!requestPermissionIfNeeded) {
         return;
       }
       permission = await Geolocator.requestPermission();
+      if (!_canContinueLocationTracking(
+        generation,
+        allowBackground: enableBackgroundLocationStream,
+      )) {
+        return;
+      }
     }
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
@@ -2556,6 +2630,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     final lastKnown = await Geolocator.getLastKnownPosition();
+    if (!_canContinueLocationTracking(
+      generation,
+      allowBackground: enableBackgroundLocationStream,
+    )) {
+      return;
+    }
     if (lastKnown != null) {
       _updateNearestStops(lastKnown);
     }
@@ -2571,7 +2651,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     } catch (_) {
       current = null;
     }
-    if (!mounted) {
+    if (!_canContinueLocationTracking(
+      generation,
+      allowBackground: enableBackgroundLocationStream,
+    )) {
       return;
     }
     if (current != null) {
@@ -2593,11 +2676,47 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           );
 
     await _positionSubscription?.cancel();
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen(_updateNearestStops);
+    if (!_canContinueLocationTracking(
+      generation,
+      allowBackground: enableBackgroundLocationStream,
+    )) {
+      return;
+    }
+    _positionSubscription =
+        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+          (position) {
+            if (_canContinueLocationTracking(
+              generation,
+              allowBackground: enableBackgroundLocationStream,
+            )) {
+              _updateNearestStops(position);
+            }
+          },
+          onError: (_) {},
+        );
     _didAttemptLocationTracking = true;
     _locationTrackingConfiguredForBackground = enableBackgroundLocationStream;
+  }
+
+  bool _canContinueLocationTracking(
+    int generation, {
+    required bool allowBackground,
+  }) {
+    return mounted &&
+        generation == _locationTrackingGeneration &&
+        (allowBackground || _appIsForeground);
+  }
+
+  void _pauseForegroundLocationTracking() {
+    _locationTrackingGeneration += 1;
+    _locationTrackingInFlight = null;
+    _locationTrackingInFlightForBackground = null;
+    _didAttemptLocationTracking = false;
+    final subscription = _positionSubscription;
+    _positionSubscription = null;
+    if (subscription != null) {
+      unawaited(subscription.cancel());
+    }
   }
 
   void _recalculateNearestStops() {
@@ -2608,6 +2727,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   void _updateNearestStops(Position position) {
+    if (!mounted) {
+      return;
+    }
     final previousPosition = _lastPosition;
     _lastPosition = position;
     final detail = _detail;

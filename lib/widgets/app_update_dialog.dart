@@ -89,8 +89,8 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
 
     if (detailsUrl != null && detailsUrl.isNotEmpty) {
       final rangeLabel =
-          '${widget.update.currentVersionLabel}...${widget.update.latestVersionLabel}';
-      sections.add('變更紀錄：[$rangeLabel]($detailsUrl)');
+          '${widget.update.currentDisplayLabel}...${widget.update.latestDisplayLabel}';
+      sections.add('完整變更：[$rangeLabel]($detailsUrl)');
     }
 
     if (notes != null && notes.isNotEmpty) {
@@ -109,8 +109,7 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
       'github.com',
       '/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/commit/$commitHash',
     );
-    final comment = widget.update.summary.trim();
-    return '[`$commitHash`]($commitUrl): $comment';
+    return 'Commit：[`${widget.update.latestDisplayLabel}`]($commitUrl)';
   }
 
   Future<void> _installUpdate() async {
@@ -184,10 +183,11 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Text(widget.update.summary),
+              if (widget.update.channel == AppUpdateChannel.nightly)
+                Text(widget.update.summary),
               const SizedBox(height: 12),
-              Text('目前版本：${widget.update.currentVersionLabel}'),
-              Text('最新版本：${widget.update.latestVersionLabel}'),
+              Text('目前版本：${widget.update.currentDisplayLabel}'),
+              Text('最新版本：${widget.update.latestDisplayLabel}'),
               if (_installing) ...[
                 const SizedBox(height: 16),
                 LinearProgressIndicator(value: _progress),

@@ -17,6 +17,7 @@ const _generatedReleaseDownloadTableStart =
     '<!-- YABUS_RELEASE_DOWNLOAD_TABLE_START -->';
 const _generatedReleaseDownloadTableEnd =
     '<!-- YABUS_RELEASE_DOWNLOAD_TABLE_END -->';
+const _rollingNightlyReleaseMarker = '<!-- YABUS_ROLLING_NIGHTLY -->';
 final _fullGitShaPattern = RegExp(r'^[0-9a-f]{40}$');
 
 bool _isFullGitSha(String value) => _fullGitShaPattern.hasMatch(value);
@@ -28,6 +29,24 @@ String? _nightlyShaFromTag(String value) {
   }
   final sha = value.substring(prefix.length).trim().toLowerCase();
   return _isFullGitSha(sha) ? sha : null;
+}
+
+String _nightlyDisplayLabel(String value) {
+  final normalized = value.trim().toLowerCase();
+  return _isFullGitSha(normalized) ? normalized.substring(0, 7) : value;
+}
+
+String? _nightlyReleaseNotes(String markdown) {
+  final withoutMarker = markdown.replaceAll(_rollingNightlyReleaseMarker, '');
+  final withoutGeneratedSummary = withoutMarker.replaceAll(
+    RegExp(
+      r'^\s*Nightly build for commit\s+`?[0-9a-fA-F]{40}`?\.\s*$',
+      multiLine: true,
+    ),
+    '',
+  );
+  final result = withoutGeneratedSummary.trim();
+  return result.isEmpty ? null : result;
 }
 
 /// The preferred asset suffix for the current platform when checking
@@ -124,6 +143,14 @@ class AppUpdateInfo {
   final AppUpdatePackageFormat packageFormat;
   final String? detailsUrl;
   final String? notes;
+
+  String get currentDisplayLabel => channel == AppUpdateChannel.nightly
+      ? _nightlyDisplayLabel(currentVersionLabel)
+      : currentVersionLabel;
+
+  String get latestDisplayLabel => channel == AppUpdateChannel.nightly
+      ? _nightlyDisplayLabel(latestVersionLabel)
+      : latestVersionLabel;
 }
 
 class AppUpdateCheckResult {
@@ -209,7 +236,7 @@ class AppUpdateService {
     }
 
     final assets = nightlyRelease['assets'] as List<dynamic>? ?? const [];
-    final asset = _findPlatformReleaseAsset(assets);
+    final asset = _findNightlyPlatformReleaseAsset(assets, latestSha);
     final assetName = asset['name'] as String? ?? '';
     final downloadUrl = asset['browser_download_url'] as String? ?? '';
     if (downloadUrl.isEmpty) {
@@ -219,7 +246,9 @@ class AppUpdateService {
       );
     }
 
-    final releaseNotes = (nightlyRelease['body'] as String? ?? '').trim();
+    final releaseNotes = _nightlyReleaseNotes(
+      nightlyRelease['body'] as String? ?? '',
+    );
     final compareUrl =
         'https://github.com/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/compare/$currentSha...$latestSha';
 
@@ -230,14 +259,12 @@ class AppUpdateService {
         channel: AppUpdateChannel.nightly,
         currentVersionLabel: currentSha,
         latestVersionLabel: latestSha,
-        title: 'Nightly 更新：$latestSha',
+        title: 'Nightly 更新',
         summary: 'Nightly 建置 ${latestSha.substring(0, 7)} 已可下載。',
         downloadUrl: downloadUrl,
         packageFormat: _packageFormatFromAssetName(assetName),
         detailsUrl: compareUrl,
-        notes: releaseNotes.isEmpty
-            ? '目前版本：$currentSha\n最新版本：$latestSha'
-            : '$releaseNotes\n\n目前版本：$currentSha\n最新版本：$latestSha',
+        notes: releaseNotes,
       ),
     );
   }
@@ -324,12 +351,25 @@ class AppUpdateService {
     return platformAsset;
   }
 
+  Map<String, dynamic> _findNightlyPlatformReleaseAsset(
+    List<dynamic> assets,
+    String sha,
+  ) {
+    final expectedName = 'YABus-nightly-$sha$_platformAssetSuffix';
+    return assets.whereType<Map<String, dynamic>>().firstWhere(
+      (asset) => asset['name'] == expectedName,
+      orElse: () => const <String, dynamic>{},
+    );
+  }
+
   Future<Object?> _getJson(Uri uri) async {
     final response = await _client
         .get(
           uri,
           headers: ApiUserAgent.githubApplyTo(const {
             'Accept': 'application/vnd.github+json',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
             'X-GitHub-Api-Version': _githubApiVersion,
           }),
         )

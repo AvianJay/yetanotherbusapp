@@ -85,16 +85,14 @@ https://github.com/YetAnotherBusDeveloper/yetanotherbusapp/releases/latest
 
 ### Nightly Build
 
-最新測試版本請從 [`main` 分支最近一次成功的 Build](https://github.com/YetAnotherBusDeveloper/yetanotherbusapp/actions/workflows/build.yml?query=branch%3Amain) 中下載 Artifacts（GitHub 可能要求登入）：
+最新測試版本請從 [GitHub Releases](https://github.com/YetAnotherBusDeveloper/yetanotherbusapp/releases) 中標示為 Nightly 的預先發布版本下載。Nightly 只會指向 `main` 分支最近一次完整建置並成功發布的版本。
 
-| 平台 | Artifact |
+| 平台 | 發布檔案 |
 | --- | --- |
-| Android APK | `android-apk-release` |
-| iOS Unsigned IPA | `ios-unsigned-ipa` |
-| Web | `web-release` |
-| Windows | `windows-release` |
-| Linux | `linux-release` |
-| macOS | `macos-release` |
+| Android | `YABus-nightly-<commit>.apk` |
+| Windows | `YABus-nightly-<commit>-windows-x64-setup.exe` |
+| Linux | `YABus-nightly-<commit>-linux-amd64.deb` / `.AppImage` |
+| macOS | `YABus-nightly-<commit>-macos.dmg` |
 
 ## 技術棧
 

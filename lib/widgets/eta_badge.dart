@@ -7,12 +7,14 @@ class EtaBadge extends StatelessWidget {
     required this.stop,
     required this.alwaysShowSeconds,
     this.size = 58,
+    this.isLoading = false,
     super.key,
   });
 
   final StopInfo stop;
   final bool alwaysShowSeconds;
   final double size;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -30,16 +32,20 @@ class EtaBadge extends StatelessWidget {
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: eta.backgroundColor,
+        color: isLoading
+            ? theme.colorScheme.surfaceContainerHighest
+            : eta.backgroundColor,
         borderRadius: BorderRadius.circular(size * 0.31),
       ),
       child: Text(
-        eta.text,
+        isLoading ? '載入中' : eta.text,
         textAlign: TextAlign.center,
         softWrap: true,
         maxLines: 2,
         style: TextStyle(
-          color: eta.foregroundColor,
+          color: isLoading
+              ? theme.colorScheme.onSurfaceVariant
+              : eta.foregroundColor,
           fontWeight: FontWeight.w700,
           fontSize: fontSize,
           height: 1.1,

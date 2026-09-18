@@ -1800,6 +1800,23 @@ class StopInfo {
   }
 }
 
+enum RouteDetailPhase { stops, realtime, family }
+
+/// A progressively loaded route. Only the stops phase is waiting for the
+/// selected route's realtime request; supplementary family failures are local.
+class RouteDetailUpdate {
+  const RouteDetailUpdate({
+    required this.detail,
+    required this.phase,
+    this.familyUnavailable = false,
+  });
+
+  final RouteDetailData detail;
+  final RouteDetailPhase phase;
+  final bool familyUnavailable;
+  bool get isLoadingLive => phase == RouteDetailPhase.stops;
+}
+
 class RouteDetailData {
   const RouteDetailData({
     required this.route,

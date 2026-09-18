@@ -77,6 +77,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   late final ValueNotifier<Map<int, List<StopInfo>>> _liveMapStopsByPath;
   ModalRoute<dynamic>? _route;
   bool _isLoading = true;
+  bool _hasCompletedInitialRealtime = false;
   String? _error;
   String? _statusMessage;
   RouteDetailData? _detail;
@@ -265,84 +266,119 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   Future<void> _refresh() async {
-    if (_shouldSuspendForegroundRefreshes) {
-      return;
-    }
+    if (_shouldSuspendForegroundRefreshes) return;
+    _pauseForegroundRefreshLoop();
     final requestId = ++_refreshRequestId;
     final controller = AppControllerScope.read(context);
     final previousDetail = _detail;
-
     setState(() {
       _isLoading = true;
       _error = null;
-      _statusMessage = '正在更新';
+      _statusMessage = _detail == null ? '正在載入站牌' : '正在更新';
     });
 
     try {
-      final fetchedDetail = await controller.getRouteDetail(
+      await for (final update in controller.watchRouteDetail(
         widget.routeKey,
         provider: widget.provider,
         routeIdHint: widget.routeIdHint,
         routeNameHint: widget.routeNameHint,
-      );
+      )) {
+        if (!mounted ||
+            requestId != _refreshRequestId ||
+            _shouldSuspendForegroundRefreshes) {
+          return;
+        }
+        final fetchedDetail = update.detail;
+        var displayDetail = !fetchedDetail.hasLiveData && previousDetail != null
+            ? _mergeDetailWithPreviousLiveData(fetchedDetail, previousDetail)
+            : fetchedDetail;
+        // Refreshing the selected route must not remove/re-add the map's family
+        // sources every cycle. Replace membership once discovery completes.
+        if ((update.phase != RouteDetailPhase.family ||
+                update.familyUnavailable) &&
+            displayDetail.familyRouteIds.isEmpty &&
+            previousDetail != null &&
+            previousDetail.familyRouteIds.isNotEmpty) {
+          displayDetail = RouteDetailData(
+            route: displayDetail.route,
+            paths: displayDetail.paths,
+            stopsByPath: displayDetail.stopsByPath,
+            hasLiveData: displayDetail.hasLiveData,
+            familyRouteIds: previousDetail.familyRouteIds,
+          );
+        }
+        _syncLiveMapStopsByPath(displayDetail.stopsByPath);
+        _syncTabController(displayDetail);
+        setState(() {
+          _detail = displayDetail;
+          _isLoading = update.isLoadingLive;
+          _error = null;
+          if (update.isLoadingLive) {
+            _statusMessage = '正在載入即時資訊';
+          } else {
+            _hasCompletedInitialRealtime = true;
+            _statusMessage = !fetchedDetail.hasLiveData
+                ? '即時資訊暫時無法取得'
+                : update.familyUnavailable
+                ? '部分同組路線資訊暫時無法取得'
+                : null;
+          }
+        });
+        if (update.phase == RouteDetailPhase.stops) {
+          if (!_didRecordRouteVisit) {
+            _didRecordRouteVisit = true;
+            _routeVisitTimer = Timer(const Duration(seconds: 10), () {
+              if (!mounted) return;
+              final detail = _detail;
+              if (detail == null) return;
+              unawaited(
+                AppControllerScope.read(
+                  context,
+                ).recordRouteVisit(detail.route, provider: widget.provider),
+              );
+            });
+          }
+          _scrollToInitialStopIfNeeded();
+          _recalculateNearestStops();
+          unawaited(_applyRequestedDestinationIfPossible());
+        }
+        if (update.phase != RouteDetailPhase.realtime) continue;
+        _startCountdown(
+          fetchedDetail.hasLiveData
+              ? controller.settings.busUpdateTime
+              : controller.settings.busErrorUpdateTime,
+        );
+        if (!_cancelledDeparturePromptChecked) {
+          unawaited(_maybeShowTaichungCancelledDepartures(displayDetail));
+        }
+        if (!_alertsFetched) {
+          _alertsFetched = true;
+          unawaited(_fetchAndShowAlerts(displayDetail.route.routeId));
+        }
+        unawaited(_ensureLocationTracking());
+        unawaited(_maybePromptForBackgroundTripMonitor());
+        unawaited(_maybePromptForSamsungLiveNotifications());
+        unawaited(_configureBackgroundTripMonitorIfNeeded());
+      }
+      // A database replacement invalidated this generation before realtime
+      // completed. Reload once against the new files instead of leaving a spinner.
+      if (mounted &&
+          requestId == _refreshRequestId &&
+          _isLoading &&
+          !_shouldSuspendForegroundRefreshes) {
+        unawaited(_refresh());
+      }
+    } catch (error) {
       if (!mounted ||
           requestId != _refreshRequestId ||
           _shouldSuspendForegroundRefreshes) {
         return;
       }
-
-      final displayDetail = !fetchedDetail.hasLiveData && previousDetail != null
-          ? _mergeDetailWithPreviousLiveData(fetchedDetail, previousDetail)
-          : fetchedDetail;
-
-      _syncLiveMapStopsByPath(displayDetail.stopsByPath);
-      _syncTabController(displayDetail);
-      setState(() {
-        _detail = displayDetail;
-        _isLoading = false;
-        _error = null;
-        _statusMessage = fetchedDetail.hasLiveData ? null : '即時資訊暫時無法取得';
-      });
-      if (!_didRecordRouteVisit) {
-        _didRecordRouteVisit = true;
-        _routeVisitTimer = Timer(const Duration(seconds: 10), () {
-          if (!mounted) return;
-          final detail = _detail;
-          if (detail == null) return;
-          unawaited(
-            AppControllerScope.read(
-              context,
-            ).recordRouteVisit(detail.route, provider: widget.provider),
-          );
-        });
-      }
-      if (!_cancelledDeparturePromptChecked) {
-        await _maybeShowTaichungCancelledDepartures(displayDetail);
-      }
-      if (!_alertsFetched) {
-        _alertsFetched = true;
-        unawaited(_fetchAndShowAlerts(displayDetail.route.routeId));
-      }
-      _startCountdown(
-        fetchedDetail.hasLiveData
-            ? controller.settings.busUpdateTime
-            : controller.settings.busErrorUpdateTime,
-      );
-      _scrollToInitialStopIfNeeded();
-      _recalculateNearestStops();
-      await _applyRequestedDestinationIfPossible();
-      unawaited(_ensureLocationTracking());
-      unawaited(_maybePromptForBackgroundTripMonitor());
-      unawaited(_maybePromptForSamsungLiveNotifications());
-      unawaited(_configureBackgroundTripMonitorIfNeeded());
-    } catch (error) {
-      if (!mounted || requestId != _refreshRequestId) {
-        return;
-      }
       setState(() {
         _isLoading = false;
         _error = friendlyErrorMessage(error);
-        _statusMessage = previousDetail == null ? '讀取失敗' : '更新失敗，保留上一筆資料';
+        _statusMessage = _detail == null ? '讀取失敗' : '更新失敗，保留上一筆資料';
       });
       _startCountdown(controller.settings.busErrorUpdateTime);
     }
@@ -5194,6 +5230,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             children: [
               EtaBadge(
                 stop: stop,
+                isLoading: _isLoading && !hasRealtimeStopData(stop),
                 alwaysShowSeconds: alwaysShowSeconds,
                 size: 58,
               ),
@@ -5357,6 +5394,20 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   ) {
     return Column(
       children: [
+        if (!_isLoading && (_error != null || !detail.hasLiveData))
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(child: Text(_error ?? '即時資訊暫時無法取得，仍可查看站牌')),
+                TextButton(
+                  onPressed: () => unawaited(_refresh()),
+                  child: const Text('重試'),
+                ),
+              ],
+            ),
+          ),
+        if (_isLoading) const LinearProgressIndicator(minHeight: 2),
         if (_tabController != null)
           TabBar(
             controller: _tabController,
@@ -5485,7 +5536,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final isWideLayout =
         MediaQuery.sizeOf(context).width >= _wideLayoutBreakpoint;
     final canShowInlineMap =
-        isWideLayout && detail != null && currentPathId != null;
+        isWideLayout &&
+        detail != null &&
+        currentPathId != null &&
+        _hasCompletedInitialRealtime;
     final showInlineMap = canShowInlineMap && _showWideMapPanel;
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     final baseBottomBarColor =
@@ -5521,12 +5575,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             : null,
         appBar: AppBar(
           title: Text(
-            detail?.route.routeName ?? '公車資訊',
+            detail?.route.routeName ?? widget.routeNameHint ?? '公車資訊',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
           actions: [
-            if (detail != null && currentPathId != null)
+            if (detail != null &&
+                currentPathId != null &&
+                _hasCompletedInitialRealtime)
               IconButton(
                 onPressed: () {
                   if (isWideLayout) {
@@ -5629,7 +5685,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           ),
         ),
         body: _isLoading && detail == null
-            ? const Center(child: CircularProgressIndicator())
+            ? const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('正在載入站牌'),
+                  ],
+                ),
+              )
             : detail == null
             ? Center(
                 child: Padding(
@@ -5649,6 +5714,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       constraints.maxWidth >= _wideLayoutBreakpoint;
                   final showWideMap =
                       canUseWideLayout &&
+                      _hasCompletedInitialRealtime &&
                       _showWideMapPanel &&
                       currentPathId != null;
                   final stopsPane = _buildStopsPane(

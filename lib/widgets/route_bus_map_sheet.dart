@@ -153,7 +153,6 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         oldWidget.routeKey != widget.routeKey ||
         oldWidget.provider != widget.provider ||
         oldWidget.routeId != widget.routeId ||
-        !listEquals(oldWidget.familyRouteIds, widget.familyRouteIds) ||
         oldWidget.embedded != widget.embedded;
     if (routeIdentityChanged) {
       _refreshTimer?.cancel();
@@ -178,6 +177,10 @@ class _RouteBusMapSheetState extends State<RouteBusMapSheet>
         _busStates = <String, AnimatedBusState>{};
       });
       unawaited(_loadMapData(fitCamera: true));
+    } else if (!listEquals(oldWidget.familyRouteIds, widget.familyRouteIds)) {
+      // Family enrichment changes the vehicles, not the selected route's
+      // geometry, camera, stop selection or map controller.
+      unawaited(_loadMapData());
     } else if (oldWidget.focusedVehicleId != widget.focusedVehicleId ||
         oldWidget.focusedVehicleRequest != widget.focusedVehicleRequest) {
       _applyFocusedVehicleRequest();

@@ -175,3 +175,50 @@ class RailAlertCard extends StatelessWidget {
     );
   }
 }
+
+/// Disclosure header that hides the departures a user can no longer catch.
+///
+/// A full day of 臺北→臺中 is ~65 trains; by early evening ~45 have gone, so
+/// showing them all greyed means opening the app to a wall of grey. Collapsed,
+/// the first visible row is the next catchable train — which also removes any
+/// need for scroll-to-first machinery.
+class PastTrainsDisclosure extends StatelessWidget {
+  const PastTrainsDisclosure({
+    required this.count,
+    required this.expanded,
+    required this.onToggle,
+    super.key,
+  });
+
+  final int count;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onToggle,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Row(
+          children: [
+            Icon(
+              expanded ? Icons.expand_more_rounded : Icons.chevron_right_rounded,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              expanded ? '收合已開出的 $count 班' : '顯示已開出的 $count 班',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

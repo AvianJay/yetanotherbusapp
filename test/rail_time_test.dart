@@ -207,4 +207,18 @@ void main() {
       expect(railDurationLabel('18:10:00', '20:02:00'), '1h52m');
     });
   });
+
+  group('railWeekdayLabel', () {
+    test('maps DateTime.weekday values to single characters', () {
+      // DateTime.monday == 1 ... DateTime.sunday == 7
+      expect(railWeekdayLabel(DateTime(2026, 9, 14).weekday), '一');
+      expect(railWeekdayLabel(DateTime(2026, 9, 19).weekday), '六');
+      expect(railWeekdayLabel(DateTime(2026, 9, 20).weekday), '日');
+    });
+
+    test('returns empty for an out-of-range value', () {
+      expect(railWeekdayLabel(0), '');
+      expect(railWeekdayLabel(8), '');
+    });
+  });
 }

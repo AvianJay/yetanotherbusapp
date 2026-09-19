@@ -29,6 +29,7 @@ class _MainTransitShellState extends State<MainTransitShell>
   TransitMode? _outgoingMode;
   final Set<TransitMode> _loadedModes = {TransitMode.bus};
   late final AnimationController _modeTransitionController;
+  double _modeTransitionDirection = 1;
 
   static const _desktopRailExtendedBreakpoint = 1280.0;
   static const _compactNavigationHeight = 64.0;
@@ -62,11 +63,18 @@ class _MainTransitShellState extends State<MainTransitShell>
       return;
     }
     final outgoingMode = _currentMode;
+    final outgoingIndex = kTransitModeDestinations.indexWhere(
+      (destination) => destination.mode == outgoingMode,
+    );
+    final incomingIndex = kTransitModeDestinations.indexWhere(
+      (destination) => destination.mode == mode,
+    );
 
     setState(() {
       _loadedModes.add(mode);
       _outgoingMode = outgoingMode;
       _currentMode = mode;
+      _modeTransitionDirection = incomingIndex < outgoingIndex ? -1 : 1;
     });
     _modeTransitionController.forward(from: 0);
     unawaited(_syncDesktopPresenceForMode(mode));
@@ -278,10 +286,11 @@ class _MainTransitShellState extends State<MainTransitShell>
               child: content,
               builder: (context, child) {
                 final offset = isActive && _outgoingMode != null
-                    ? 1 -
-                          Curves.easeOutCubic.transform(
-                            _modeTransitionController.value,
-                          )
+                    ? _modeTransitionDirection *
+                          (1 -
+                              Curves.easeOutCubic.transform(
+                                _modeTransitionController.value,
+                              ))
                     : 0.0;
                 return FractionalTranslation(
                   translation: Offset(offset, 0),

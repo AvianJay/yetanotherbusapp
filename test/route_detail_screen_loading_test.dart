@@ -22,27 +22,74 @@ import 'package:taiwanbus_flutter/core/storage_service.dart';
 import 'package:taiwanbus_flutter/screens/route_detail_screen.dart';
 import 'package:taiwanbus_flutter/widgets/eta_badge.dart';
 
+class _FamilyRequest {
+  _FamilyRequest(this.selected);
+
+  final RouteDetailData selected;
+  final completer = Completer<RouteDetailData>();
+}
+
 class _Repository extends BusRepository {
   _Repository()
     : super(client: MockClient((_) async => http.Response('{}', 404)));
-  final requests = <StreamController<RouteDetailUpdate>>[];
+
+  final topologyRequests = <Completer<RouteDetailData>>[];
+  final primaryRequests = <Completer<RouteDetailData>>[];
+  final familyRequests = <_FamilyRequest>[];
 
   @override
-  Stream<RouteDetailUpdate> watchRouteDetail(
+  Future<RouteDetailData> getRouteTopology(
     int routeKey, {
     required BusProvider provider,
     String? routeIdHint,
     String? routeNameHint,
   }) {
-    final stream = StreamController<RouteDetailUpdate>();
-    requests.add(stream);
-    return stream.stream;
+    final request = Completer<RouteDetailData>();
+    topologyRequests.add(request);
+    return request.future;
+  }
+
+  @override
+  Future<RouteDetailData> getCompleteBusInfo(
+    int routeKey, {
+    required BusProvider provider,
+    String? routeIdHint,
+    String? routeNameHint,
+  }) {
+    final request = Completer<RouteDetailData>();
+    primaryRequests.add(request);
+    return request.future;
+  }
+
+  @override
+  Future<RouteDetailData> enrichRouteWithFamily(
+    RouteDetailData selected, {
+    required BusProvider provider,
+  }) {
+    final request = _FamilyRequest(selected);
+    familyRequests.add(request);
+    return request.completer.future;
+  }
+
+  void finishPending() {
+    for (final request in topologyRequests) {
+      if (!request.isCompleted) request.complete(_detail());
+    }
+    for (final request in primaryRequests) {
+      if (!request.isCompleted) request.complete(_detail());
+    }
+    for (final request in familyRequests) {
+      if (!request.completer.isCompleted) {
+        request.completer.complete(request.selected);
+      }
+    }
   }
 }
 
 class _NoLocation extends GeolocatorPlatform {
   @override
   Future<bool> isLocationServiceEnabled() async => false;
+
   @override
   Future<LocationPermission> checkPermission() async =>
       LocationPermission.denied;
@@ -124,6 +171,13 @@ Future<void> _frames(WidgetTester tester, [int count = 5]) async {
   }
 }
 
+Future<void> _resumeRoute(WidgetTester tester) async {
+  tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+  await tester.pump();
+  tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  await _frames(tester);
+}
+
 void _screenTest(
   String name,
   Future<void> Function(WidgetTester, _Repository) body,
@@ -156,9 +210,7 @@ void _screenTest(
       await body(tester, repository);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
-      for (final request in repository.requests) {
-        unawaited(request.close());
-      }
+      repository.finishPending();
       await _frames(tester);
       controller.dispose();
       GeolocatorPlatform.instance = previousLocation;
@@ -169,130 +221,114 @@ void _screenTest(
 
 void main() {
   _screenTest(
-    'shows hinted title, interactive stops and loading ETA before realtime',
+    'shows topology and loading ETA before realtime, then preserves scroll',
     (tester, repository) async {
       expect(find.text('標題提示'), findsOneWidget);
-      expect(find.text('正在載入站牌'), findsWidgets);
-      final request = repository.requests.single;
-      request.add(
-        RouteDetailUpdate(detail: _detail(), phase: RouteDetailPhase.stops),
-      );
+      expect(find.text('正在準備 標題提示 的站牌資訊'), findsOneWidget);
+      expect(repository.topologyRequests, hasLength(1));
+      expect(repository.primaryRequests, hasLength(1));
+
+      repository.topologyRequests.single.complete(_detail());
       await _frames(tester);
       expect(find.text('返程站1'), findsOneWidget);
       expect(find.text('載入中'), findsWidgets);
-      expect(find.byTooltip('公車地圖'), findsNothing);
+      expect(find.byTooltip('公車地圖'), findsOneWidget);
       await tester.tap(find.text('去程'));
       await _frames(tester);
       expect(find.text('去程站1'), findsOneWidget);
-      request.add(
-        RouteDetailUpdate(
-          detail: _detail(eta: 120),
-          phase: RouteDetailPhase.realtime,
-        ),
-      );
-      await _frames(tester);
+
+      repository.primaryRequests.single.complete(_detail(eta: 120));
+      await _frames(tester, 8);
       expect(find.text('載入中'), findsNothing);
       expect(find.byTooltip('公車地圖'), findsOneWidget);
-      expect(find.text('去程站1'), findsOneWidget);
-      expect(find.textContaining('秒後更新'), findsOneWidget);
+      expect(find.text('正在載入同路線班次'), findsOneWidget);
+      expect(repository.familyRequests, hasLength(1));
+
       final list = find.byType(ListView).first;
       await tester.drag(list, const Offset(0, -250));
       await _frames(tester);
       final positions = tester
           .stateList<ScrollableState>(find.byType(Scrollable))
-          .map((s) => s.position.pixels)
+          .map((state) => state.position.pixels)
           .toList();
-      request.add(
-        RouteDetailUpdate(
-          detail: _detail(eta: 60, family: ['TPE500', 'TPE501']),
-          phase: RouteDetailPhase.family,
-        ),
+      repository.familyRequests.single.completer.complete(
+        _detail(eta: 60, family: ['TPE500', 'TPE501']),
       );
       await _frames(tester);
       expect(
         tester
             .stateList<ScrollableState>(find.byType(Scrollable))
-            .map((s) => s.position.pixels)
+            .map((state) => state.position.pixels)
             .toList(),
         positions,
       );
     },
   );
 
-  _screenTest(
-    'failed realtime retains stops and retry rejects late previous results',
-    (tester, repository) async {
-      final first = repository.requests.single;
-      first.add(
-        RouteDetailUpdate(detail: _detail(), phase: RouteDetailPhase.stops),
-      );
-      first.add(
-        RouteDetailUpdate(detail: _detail(), phase: RouteDetailPhase.realtime),
-      );
-      await _frames(tester);
-      expect(find.text('返程站1'), findsOneWidget);
-      expect(find.text('載入中'), findsNothing);
-      expect(find.text('重試'), findsOneWidget);
-      await tester.tap(find.text('重試'));
-      await _frames(tester);
-      expect(repository.requests, hasLength(2));
-      first.add(
-        RouteDetailUpdate(
-          detail: _detail(eta: 10, name: '過期結果'),
-          phase: RouteDetailPhase.family,
-        ),
-      );
-      repository.requests.last.add(
-        RouteDetailUpdate(
-          detail: _detail(eta: 90),
-          phase: RouteDetailPhase.realtime,
-        ),
-      );
-      await _frames(tester);
-      expect(find.text('過期結果'), findsNothing);
-      expect(find.text('重試'), findsNothing);
-    },
-  );
+  _screenTest('a new refresh rejects late family results', (
+    tester,
+    repository,
+  ) async {
+    repository.topologyRequests.single.complete(_detail());
+    repository.primaryRequests.single.complete(_detail(eta: 120));
+    await _frames(tester, 8);
+    expect(repository.familyRequests, hasLength(1));
+
+    await _resumeRoute(tester);
+    expect(repository.primaryRequests, hasLength(2));
+    repository.familyRequests.first.completer.complete(
+      _detail(eta: 10, name: '過期結果'),
+    );
+    repository.primaryRequests.last.complete(_detail(eta: 90));
+    await _frames(tester, 8);
+    expect(repository.familyRequests, hasLength(2));
+    repository.familyRequests.last.completer.complete(
+      repository.familyRequests.last.selected,
+    );
+    await _frames(tester);
+    expect(find.text('過期結果'), findsNothing);
+    expect(find.byTooltip('公車地圖'), findsOneWidget);
+  });
 
   _screenTest(
-    'failed refresh keeps recent timestamps but drops data older than 90 seconds',
+    'failed realtime keeps recent values but drops values older than 90 seconds',
     (tester, repository) async {
-      final first = repository.requests.single;
-      final timestamp = DateTime.now().subtract(const Duration(seconds: 30));
-      first.add(
-        RouteDetailUpdate(
-          detail: _detail(eta: 120, updatedAt: timestamp),
-          phase: RouteDetailPhase.realtime,
-        ),
+      final recent = DateTime.now().subtract(const Duration(seconds: 30));
+      repository.topologyRequests.single.complete(_detail());
+      repository.primaryRequests.single.complete(
+        _detail(eta: 120, updatedAt: recent),
+      );
+      await _frames(tester, 8);
+      repository.familyRequests.single.completer.complete(
+        repository.familyRequests.single.selected,
       );
       await _frames(tester);
-      // An error offers retry while leaving the previously displayed snapshot.
-      first.addError(Exception('offline'));
-      await _frames(tester);
-      await tester.tap(find.text('重試'));
-      await _frames(tester);
-      repository.requests.last.add(
-        RouteDetailUpdate(detail: _detail(), phase: RouteDetailPhase.realtime),
-      );
+
+      await _resumeRoute(tester);
+      repository.primaryRequests.last.complete(_detail());
+      await _frames(tester, 8);
+      var latestFamily = repository.familyRequests.last;
+      latestFamily.completer.complete(latestFamily.selected);
       await _frames(tester);
       var stop = tester.widgetList<EtaBadge>(find.byType(EtaBadge)).first.stop;
       expect(stop.sec, 120);
-      expect(stop.t, timestamp.toIso8601String());
-      // The new successful snapshot is already stale, then the next refresh fails.
-      final oldTimestamp = DateTime.now().subtract(const Duration(seconds: 91));
-      repository.requests.last.add(
-        RouteDetailUpdate(
-          detail: _detail(eta: 120, updatedAt: oldTimestamp),
-          phase: RouteDetailPhase.family,
-        ),
+      expect(stop.t, recent.toIso8601String());
+
+      final stale = DateTime.now().subtract(const Duration(seconds: 91));
+      await _resumeRoute(tester);
+      repository.primaryRequests.last.complete(
+        _detail(eta: 120, updatedAt: stale),
       );
-      repository.requests.last.addError(Exception('offline'));
+      await _frames(tester, 8);
+      latestFamily = repository.familyRequests.last;
+      latestFamily.completer.complete(latestFamily.selected);
       await _frames(tester);
-      await tester.tap(find.text('重試'));
-      await _frames(tester);
-      repository.requests.last.add(
-        RouteDetailUpdate(detail: _detail(), phase: RouteDetailPhase.realtime),
-      );
+
+      await _resumeRoute(tester);
+      repository.primaryRequests.last.complete(_detail());
+      await _frames(tester, 8);
+      latestFamily = repository.familyRequests.last;
+      latestFamily.completer.complete(latestFamily.selected);
       await _frames(tester);
       stop = tester.widgetList<EtaBadge>(find.byType(EtaBadge)).first.stop;
       expect(stop.sec, isNull);
@@ -304,13 +340,14 @@ void main() {
     tester,
     repository,
   ) async {
-    final first = repository.requests.single;
+    final topology = repository.topologyRequests.single;
+    final primary = repository.primaryRequests.single;
     await tester.pumpWidget(const SizedBox.shrink());
-    first.add(
-      RouteDetailUpdate(detail: _detail(), phase: RouteDetailPhase.stops),
-    );
+    topology.complete(_detail());
+    primary.complete(_detail(eta: 60));
     await _frames(tester);
     expect(tester.takeException(), isNull);
-    expect(repository.requests, hasLength(1));
+    expect(repository.topologyRequests, hasLength(1));
+    expect(repository.primaryRequests, hasLength(1));
   });
 }

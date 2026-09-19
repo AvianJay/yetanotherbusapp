@@ -114,12 +114,26 @@ class AndroidTripMonitor {
   static bool get _isAndroid =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
+  static Future<T?> _invokeMethod<T>(
+    String method, [
+    Map<String, Object?>? arguments,
+  ]) async {
+    if (!_isAndroid) {
+      return null;
+    }
+    try {
+      return await _channel.invokeMethod<T>(method, arguments);
+    } catch (_) {
+      // The activity/engine can briefly detach during lifecycle transitions.
+      return null;
+    }
+  }
+
   static Future<bool> requestNotificationPermission() async {
     if (!_isAndroid) {
       return false;
     }
-    return await _channel.invokeMethod<bool>('requestNotificationPermission') ??
-        false;
+    return await _invokeMethod<bool>('requestNotificationPermission') ?? false;
   }
 
   static Future<AndroidBackgroundLocationPermissionRequestStatus>
@@ -127,7 +141,7 @@ class AndroidTripMonitor {
     if (!_isAndroid) {
       return AndroidBackgroundLocationPermissionRequestStatus.unavailable;
     }
-    final status = await _channel.invokeMethod<String>(
+    final status = await _invokeMethod<String>(
       'requestBackgroundLocationPermission',
     );
     return switch (status) {
@@ -143,7 +157,7 @@ class AndroidTripMonitor {
     if (!_isAndroid) {
       return;
     }
-    await _channel.invokeMethod<void>('startOrUpdateTripMonitor', {
+    await _invokeMethod<void>('startOrUpdateTripMonitor', {
       'session': session.toMap(),
     });
   }
@@ -152,7 +166,7 @@ class AndroidTripMonitor {
     if (!_isAndroid) {
       return;
     }
-    await _channel.invokeMethod<void>('setTripMonitorAppInForeground', {
+    await _invokeMethod<void>('setTripMonitorAppInForeground', {
       'appInForeground': value,
     });
   }
@@ -164,7 +178,7 @@ class AndroidTripMonitor {
     if (!_isAndroid) {
       return;
     }
-    await _channel.invokeMethod<void>('pauseTripMonitor', {
+    await _invokeMethod<void>('pauseTripMonitor', {
       'session': session.toMap(),
       'reason': reason,
     });
@@ -174,14 +188,14 @@ class AndroidTripMonitor {
     if (!_isAndroid) {
       return;
     }
-    await _channel.invokeMethod<void>('resumeTripMonitor');
+    await _invokeMethod<void>('resumeTripMonitor');
   }
 
   static Future<bool> isPausedFor(TripMonitorSession session) async {
     if (!_isAndroid) {
       return false;
     }
-    return await _channel.invokeMethod<bool>('isTripMonitorPaused', {
+    return await _invokeMethod<bool>('isTripMonitorPaused', {
           'session': session.toMap(),
         }) ??
         false;
@@ -191,14 +205,14 @@ class AndroidTripMonitor {
     if (!_isAndroid) {
       return;
     }
-    await _channel.invokeMethod<void>('stopTripMonitor');
+    await _invokeMethod<void>('stopTripMonitor');
   }
 
   static Future<AndroidDeviceInfo?> getAndroidDeviceInfo() async {
     if (!_isAndroid) {
       return null;
     }
-    final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+    final result = await _invokeMethod<Map<Object?, Object?>>(
       'getAndroidDeviceInfo',
     );
     if (result == null) return null;
@@ -214,20 +228,14 @@ class AndroidTripMonitor {
     if (!_isAndroid) {
       return;
     }
-    await _channel.invokeMethod<void>('openNotificationChannelSettings');
+    await _invokeMethod<void>('openNotificationChannelSettings');
   }
 
   static Future<bool> openSamsungLiveNotificationSettings() async {
     if (!_isAndroid) {
       return false;
     }
-    try {
-      return await _channel.invokeMethod<bool>(
-            'openSamsungLiveNotificationSettings',
-          ) ??
-          false;
-    } catch (_) {
-      return false;
-    }
+    return await _invokeMethod<bool>('openSamsungLiveNotificationSettings') ??
+        false;
   }
 }

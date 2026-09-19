@@ -13,6 +13,9 @@ Route<void> buildRouteDetailRoute({
   int? initialStopId,
   int? initialDestinationPathId,
   int? initialDestinationStopId,
+  Future<RouteDetailData?>? initialTopologyFuture,
+  Future<List<RouteAlert>>? initialAlertsFuture,
+  Future<List<CancelledDeparture>>? initialCancelledDeparturesFuture,
   bool suppressAutoDestinationSelection = false,
 }) {
   return MaterialPageRoute<void>(
@@ -36,6 +39,9 @@ Route<void> buildRouteDetailRoute({
       initialStopId: initialStopId,
       initialDestinationPathId: initialDestinationPathId,
       initialDestinationStopId: initialDestinationStopId,
+      initialTopologyFuture: initialTopologyFuture,
+      initialAlertsFuture: initialAlertsFuture,
+      initialCancelledDeparturesFuture: initialCancelledDeparturesFuture,
       suppressAutoDestinationSelection: suppressAutoDestinationSelection,
     ),
   );
@@ -64,6 +70,9 @@ Future<void> openRouteDetailPage(
   int? initialStopId,
   int? initialDestinationPathId,
   int? initialDestinationStopId,
+  Future<RouteDetailData?>? initialTopologyFuture,
+  Future<List<RouteAlert>>? initialAlertsFuture,
+  Future<List<CancelledDeparture>>? initialCancelledDeparturesFuture,
   bool suppressAutoDestinationSelection = false,
 }) {
   return Navigator.of(context).push(
@@ -76,6 +85,9 @@ Future<void> openRouteDetailPage(
       initialStopId: initialStopId,
       initialDestinationPathId: initialDestinationPathId,
       initialDestinationStopId: initialDestinationStopId,
+      initialTopologyFuture: initialTopologyFuture,
+      initialAlertsFuture: initialAlertsFuture,
+      initialCancelledDeparturesFuture: initialCancelledDeparturesFuture,
       suppressAutoDestinationSelection: suppressAutoDestinationSelection,
     ),
   );

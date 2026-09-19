@@ -138,3 +138,15 @@ int? _minutesOfDay(String value) {
   }
   return parsed.difference(DateTime(2000)).inMinutes;
 }
+
+/// Single Chinese character for a weekday, as used by the date buttons.
+String railWeekdayLabel(int weekday) => switch (weekday) {
+  1 => '一',
+  2 => '二',
+  3 => '三',
+  4 => '四',
+  5 => '五',
+  6 => '六',
+  7 => '日',
+  _ => '',
+};

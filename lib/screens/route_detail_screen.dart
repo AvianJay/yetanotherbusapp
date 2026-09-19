@@ -46,6 +46,9 @@ class RouteDetailScreen extends StatefulWidget {
     this.initialStopId,
     this.initialDestinationPathId,
     this.initialDestinationStopId,
+    this.initialTopologyFuture,
+    this.initialAlertsFuture,
+    this.initialCancelledDeparturesFuture,
     this.suppressAutoDestinationSelection = false,
     super.key,
   });
@@ -58,10 +61,26 @@ class RouteDetailScreen extends StatefulWidget {
   final int? initialStopId;
   final int? initialDestinationPathId;
   final int? initialDestinationStopId;
+  final Future<RouteDetailData?>? initialTopologyFuture;
+  final Future<List<RouteAlert>>? initialAlertsFuture;
+  final Future<List<CancelledDeparture>>? initialCancelledDeparturesFuture;
   final bool suppressAutoDestinationSelection;
 
   @override
   State<RouteDetailScreen> createState() => _RouteDetailScreenState();
+}
+
+class _RouteDetailLoadResult {
+  const _RouteDetailLoadResult.success(this.detail)
+    : error = null,
+      stackTrace = null;
+
+  const _RouteDetailLoadResult.failure(this.error, this.stackTrace)
+    : detail = null;
+
+  final RouteDetailData? detail;
+  final Object? error;
+  final StackTrace? stackTrace;
 }
 
 class _RouteDetailScreenState extends State<RouteDetailScreen>
@@ -75,18 +94,25 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   String? _focusedMapVehicleId;
   int _focusedMapVehicleRequest = 0;
   late final ValueNotifier<Map<int, List<StopInfo>>> _liveMapStopsByPath;
+  late final ValueNotifier<List<String>> _liveMapFamilyRouteIds;
   ModalRoute<dynamic>? _route;
   bool _isLoading = true;
   bool _hasCompletedInitialRealtime = false;
+  bool _isFamilyLoading = false;
+  bool _supplementaryNoticesLoading = false;
   String? _error;
   String? _statusMessage;
   RouteDetailData? _detail;
   Timer? _countdownTimer;
   late final AnimationController _countdownProgressController;
+  late final AnimationController _loadingPulseController;
   TabController? _tabController;
   StreamSubscription<Position>? _positionSubscription;
+  Future<void>? _locationTrackingInFlight;
+  bool? _locationTrackingInFlightForBackground;
+  int _locationTrackingGeneration = 0;
   Position? _lastPosition;
-  int _remainingSeconds = 0;
+  late final ValueNotifier<int> _remainingSeconds;
   bool _didScrollToInitialStop = false;
   bool _isScrollingToInitialStop = false;
   int? _autoScrolledPathId;
@@ -104,6 +130,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   bool _liveActivityActive = false;
   bool _showWideMapPanel = true;
   bool _isRouteVisible = true;
+  bool _keepPendingRefreshWhileCovered = false;
   int? _liveActivityStopId;
   int? _liveActivityPathId;
   int? _liveActivityRouteKey;
@@ -131,10 +158,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   int? _destinationStopId;
   String? _destinationStopName;
   List<RouteAlert> _alerts = const <RouteAlert>[];
+  List<CancelledDeparture> _initialCancelledDepartures =
+      const <CancelledDeparture>[];
   bool _alertsFetched = false;
   bool _alertsRead = false;
   bool _cancelledDeparturePromptChecked = false;
+  Future<void>? _cancelledDepartureDialogFuture;
+  int _supplementaryDialogDepth = 0;
   int _refreshRequestId = 0;
+  bool _didStartInitialRefresh = false;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
   Map<int, int> _nearestStopByPath = const <int, int>{};
   final Map<int, GlobalKey> _stopKeys = <int, GlobalKey>{};
@@ -151,14 +183,19 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _liveMapStopsByPath = ValueNotifier<Map<int, List<StopInfo>>>(
       const <int, List<StopInfo>>{},
     );
+    _liveMapFamilyRouteIds = ValueNotifier<List<String>>(const <String>[]);
+    _remainingSeconds = ValueNotifier<int>(0);
     _countdownProgressController = AnimationController(vsync: this);
+    _loadingPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 850),
+      lowerBound: 0.45,
+      upperBound: 0.9,
+    )..repeat(reverse: true);
     _requestedPathId = widget.initialPathId;
     _requestedStopId = widget.initialStopId;
     _requestedDestinationPathId = widget.initialDestinationPathId;
     _requestedDestinationStopId = widget.initialDestinationStopId;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_refresh());
-    });
   }
 
   @override
@@ -180,7 +217,46 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _syncWakelock(
       AppControllerScope.of(context).settings.keepScreenAwakeOnRouteDetail,
     );
+    if (!_didStartInitialRefresh) {
+      _didStartInitialRefresh = true;
+      _watchInitialSupplementaryData();
+      unawaited(_refresh(setLoadingState: false));
+    }
     unawaited(_configureBackgroundTripMonitorIfNeeded());
+  }
+
+  void _watchInitialSupplementaryData() {
+    final alertsFuture = widget.initialAlertsFuture;
+    if (alertsFuture != null) {
+      unawaited(() async {
+        try {
+          final alerts = await alertsFuture;
+          if (mounted && _detail == null && alerts.isNotEmpty) {
+            setState(() {
+              _alerts = alerts;
+            });
+          }
+        } catch (_) {
+          // Supplementary information must never delay route loading.
+        }
+      }());
+    }
+
+    final cancelledFuture = widget.initialCancelledDeparturesFuture;
+    if (cancelledFuture != null) {
+      unawaited(() async {
+        try {
+          final departures = await cancelledFuture;
+          if (mounted && _detail == null && departures.isNotEmpty) {
+            setState(() {
+              _initialCancelledDepartures = departures;
+            });
+          }
+        } catch (_) {
+          // Supplementary information must never delay route loading.
+        }
+      }());
+    }
   }
 
   @override
@@ -193,8 +269,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _countdownTimer?.cancel();
     _routeVisitTimer?.cancel();
     _countdownProgressController.dispose();
+    _loadingPulseController.dispose();
     _selectedMapPathId.dispose();
     _liveMapStopsByPath.dispose();
+    _liveMapFamilyRouteIds.dispose();
+    _remainingSeconds.dispose();
+    _locationTrackingGeneration += 1;
+    _locationTrackingInFlight = null;
     _positionSubscription?.cancel();
     _tabController?.dispose();
     for (final controller in _scrollControllers.values) {
@@ -217,6 +298,19 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final wasForeground = _appIsForeground;
     _appLifecycleState = state;
+    final isForeground = _appIsForeground;
+
+    if (!isForeground) {
+      _pauseForegroundRefreshLoop(invalidateRequest: true);
+      if (!_locationTrackingConfiguredForBackground) {
+        _pauseForegroundLocationTracking();
+      }
+      if (_isAndroid) {
+        unawaited(AndroidTripMonitor.setAppInForeground(false));
+      }
+      return;
+    }
+
     if (state == AppLifecycleState.resumed &&
         _awaitingBackgroundLocationPermission) {
       _awaitingBackgroundLocationPermission = false;
@@ -228,172 +322,257 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         );
       }
     }
-    if (state == AppLifecycleState.resumed && _isAndroid) {
-      unawaited(_syncBackgroundTripMonitorPausedState());
-    }
     if (state == AppLifecycleState.resumed && _isIOS) {
       unawaited(TripMonitorNotifications.cancelBoardingCheckPrompt());
     }
-    if (!_isAndroid) {
-      return;
-    }
-    final controller = AppControllerScope.read(context);
-    if (!controller.settings.enableRouteBackgroundMonitor ||
-        !_backgroundTripMonitorReady) {
-      return;
-    }
-    final isForeground = switch (state) {
-      AppLifecycleState.resumed => true,
-      AppLifecycleState.inactive => true,
-      AppLifecycleState.hidden => false,
-      AppLifecycleState.paused => false,
-      AppLifecycleState.detached => false,
-    };
-    unawaited(AndroidTripMonitor.setAppInForeground(isForeground));
-    if (isForeground == wasForeground) {
-      if (!isForeground) {
-        _pauseForegroundRefreshLoop();
+
+    if (_isAndroid) {
+      unawaited(AndroidTripMonitor.setAppInForeground(true));
+      if (_backgroundTripMonitorReady) {
+        unawaited(_syncBackgroundTripMonitorPausedState());
       }
-      return;
     }
-    if (isForeground) {
-      if (!wasForeground && _detail != null) {
-        unawaited(_refresh());
-      }
-    } else {
-      _pauseForegroundRefreshLoop();
+    if (!wasForeground && _isRouteVisible && _detail != null) {
+      unawaited(_refresh());
+      unawaited(_ensureLocationTracking(requestPermissionIfNeeded: false));
     }
   }
 
-  Future<void> _refresh() async {
-    if (_shouldSuspendForegroundRefreshes) return;
-    _pauseForegroundRefreshLoop();
+  Future<void> _refresh({bool setLoadingState = true}) async {
+    if (_shouldSuspendForegroundRefreshes) {
+      return;
+    }
     final requestId = ++_refreshRequestId;
     final controller = AppControllerScope.read(context);
     final previousDetail = _detail;
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      _statusMessage = _detail == null ? '正在載入站牌' : '正在更新';
-    });
 
-    try {
-      await for (final update in controller.watchRouteDetail(
-        widget.routeKey,
-        provider: widget.provider,
-        routeIdHint: widget.routeIdHint,
-        routeNameHint: widget.routeNameHint,
-      )) {
-        if (!mounted ||
-            requestId != _refreshRequestId ||
-            _shouldSuspendForegroundRefreshes) {
-          return;
-        }
-        final fetchedDetail = update.detail;
-        var displayDetail = !fetchedDetail.hasLiveData && previousDetail != null
-            ? _mergeDetailWithPreviousLiveData(fetchedDetail, previousDetail)
-            : fetchedDetail;
-        // Refreshing the selected route must not remove/re-add the map's family
-        // sources every cycle. Replace membership once discovery completes.
-        if ((update.phase != RouteDetailPhase.family ||
-                update.familyUnavailable) &&
-            displayDetail.familyRouteIds.isEmpty &&
-            previousDetail != null &&
-            previousDetail.familyRouteIds.isNotEmpty) {
-          displayDetail = RouteDetailData(
-            route: displayDetail.route,
-            paths: displayDetail.paths,
-            stopsByPath: displayDetail.stopsByPath,
-            hasLiveData: displayDetail.hasLiveData,
-            familyRouteIds: previousDetail.familyRouteIds,
-          );
-        }
-        _syncLiveMapStopsByPath(displayDetail.stopsByPath);
-        _syncTabController(displayDetail);
-        setState(() {
-          _detail = displayDetail;
-          _isLoading = update.isLoadingLive;
-          _error = null;
-          if (update.isLoadingLive) {
-            _statusMessage = '正在載入即時資訊';
-          } else {
-            _hasCompletedInitialRealtime = true;
-            _statusMessage = !fetchedDetail.hasLiveData
-                ? '即時資訊暫時無法取得'
-                : update.familyUnavailable
-                ? '部分同組路線資訊暫時無法取得'
-                : null;
-          }
-        });
-        if (update.phase == RouteDetailPhase.stops) {
-          if (!_didRecordRouteVisit) {
-            _didRecordRouteVisit = true;
-            _routeVisitTimer = Timer(const Duration(seconds: 10), () {
-              if (!mounted) return;
-              final detail = _detail;
-              if (detail == null) return;
-              unawaited(
-                AppControllerScope.read(
-                  context,
-                ).recordRouteVisit(detail.route, provider: widget.provider),
-              );
-            });
+    if (setLoadingState) {
+      setState(() {
+        _isLoading = true;
+        _isFamilyLoading = false;
+        _error = null;
+        _statusMessage = '正在更新';
+      });
+    } else {
+      _isLoading = true;
+      _isFamilyLoading = false;
+      _error = null;
+      _statusMessage = '正在載入路線資料';
+    }
+
+    final primaryDetailFuture = controller
+        .getPrimaryRouteDetail(
+          widget.routeKey,
+          provider: widget.provider,
+          routeIdHint: widget.routeIdHint,
+          routeNameHint: widget.routeNameHint,
+        )
+        .then<_RouteDetailLoadResult>(
+          _RouteDetailLoadResult.success,
+          onError: (Object error, StackTrace stackTrace) =>
+              _RouteDetailLoadResult.failure(error, stackTrace),
+        );
+
+    if (previousDetail == null) {
+      try {
+        final prefetchedTopology = await widget.initialTopologyFuture;
+        final topology =
+            prefetchedTopology ??
+            await controller.getRouteTopology(
+              widget.routeKey,
+              provider: widget.provider,
+              routeIdHint: widget.routeIdHint,
+              routeNameHint: widget.routeNameHint,
+            );
+        if (mounted &&
+            requestId == _refreshRequestId &&
+            _canApplyPendingForegroundResult) {
+          _syncLiveMapData(topology);
+          _syncTabController(topology);
+          setState(() {
+            _detail = topology;
+            _isLoading = false;
+            _statusMessage = '正在載入即時到站資訊';
+          });
+          _loadingPulseController.stop();
+          _updateDesktopPresence();
+          if (_isRouteVisible) {
+            unawaited(_loadSupplementaryNotices(topology));
           }
           _scrollToInitialStopIfNeeded();
-          _recalculateNearestStops();
-          unawaited(_applyRequestedDestinationIfPossible());
         }
-        if (update.phase != RouteDetailPhase.realtime) continue;
-        _startCountdown(
-          fetchedDetail.hasLiveData
-              ? controller.settings.busUpdateTime
-              : controller.settings.busErrorUpdateTime,
-        );
-        if (!_cancelledDeparturePromptChecked) {
-          unawaited(_maybeShowTaichungCancelledDepartures(displayDetail));
-        }
-        if (!_alertsFetched) {
-          _alertsFetched = true;
-          unawaited(_fetchAndShowAlerts(displayDetail.route.routeId));
-        }
+      } catch (_) {
+        // The primary detail request reports the actionable error below.
+      }
+    }
+
+    try {
+      final primaryResult = await primaryDetailFuture;
+      if (primaryResult.error case final error?) {
+        Error.throwWithStackTrace(error, primaryResult.stackTrace!);
+      }
+      final fetchedDetail = primaryResult.detail!;
+      if (!mounted ||
+          requestId != _refreshRequestId ||
+          !_canApplyPendingForegroundResult) {
+        return;
+      }
+
+      final displayDetail = !fetchedDetail.hasLiveData && previousDetail != null
+          ? _mergeDetailWithPreviousLiveData(fetchedDetail, previousDetail)
+          : fetchedDetail;
+
+      _syncLiveMapData(displayDetail);
+      _syncTabController(displayDetail);
+      setState(() {
+        _detail = displayDetail;
+        _isLoading = false;
+        _hasCompletedInitialRealtime = true;
+        _error = null;
+        _statusMessage = fetchedDetail.hasLiveData ? null : '即時資訊暫時無法取得';
+      });
+      _loadingPulseController.stop();
+      _updateDesktopPresence();
+      if (!_didRecordRouteVisit) {
+        _didRecordRouteVisit = true;
+        _routeVisitTimer = Timer(const Duration(seconds: 10), () {
+          if (!mounted) return;
+          final detail = _detail;
+          if (detail == null) return;
+          unawaited(
+            AppControllerScope.read(
+              context,
+            ).recordRouteVisit(detail.route, provider: widget.provider),
+          );
+        });
+      }
+      if (_isRouteVisible) {
+        unawaited(_loadSupplementaryNotices(displayDetail));
+      }
+      _startCountdown(
+        fetchedDetail.hasLiveData
+            ? controller.settings.busUpdateTime
+            : controller.settings.busErrorUpdateTime,
+      );
+      unawaited(
+        _loadRouteFamilyAfterCurrentFrame(displayDetail, requestId: requestId),
+      );
+      _scrollToInitialStopIfNeeded();
+      _recalculateNearestStops();
+      await _applyRequestedDestinationIfPossible();
+      if (_isRouteVisible) {
         unawaited(_ensureLocationTracking());
         unawaited(_maybePromptForBackgroundTripMonitor());
         unawaited(_maybePromptForSamsungLiveNotifications());
         unawaited(_configureBackgroundTripMonitorIfNeeded());
       }
-      // A database replacement invalidated this generation before realtime
-      // completed. Reload once against the new files instead of leaving a spinner.
-      if (mounted &&
-          requestId == _refreshRequestId &&
-          _isLoading &&
-          !_shouldSuspendForegroundRefreshes) {
-        unawaited(_refresh());
-      }
     } catch (error) {
-      if (!mounted ||
-          requestId != _refreshRequestId ||
-          _shouldSuspendForegroundRefreshes) {
+      if (!mounted || requestId != _refreshRequestId) {
         return;
       }
       setState(() {
         _isLoading = false;
+        _hasCompletedInitialRealtime = true;
+        _isFamilyLoading = false;
         _error = friendlyErrorMessage(error);
-        _statusMessage = _detail == null ? '讀取失敗' : '更新失敗，保留上一筆資料';
+        _statusMessage = _detail == null ? '讀取失敗' : '即時資訊暫時無法取得';
       });
+      _updateDesktopPresence();
       _startCountdown(controller.settings.busErrorUpdateTime);
     }
   }
 
-  void _syncLiveMapStopsByPath(Map<int, List<StopInfo>> stopsByPath) {
-    _liveMapStopsByPath.value = stopsByPath.map(
+  Future<void> _loadRouteFamily(
+    RouteDetailData selected, {
+    required int requestId,
+  }) async {
+    if (!mounted || requestId != _refreshRequestId) {
+      return;
+    }
+    setState(() {
+      _isFamilyLoading = true;
+      _statusMessage = '正在載入同路線班次';
+    });
+    try {
+      final enriched = await AppControllerScope.read(
+        context,
+      ).enrichRouteWithFamily(selected, provider: widget.provider);
+      if (!mounted ||
+          requestId != _refreshRequestId ||
+          !_canApplyPendingForegroundResult) {
+        return;
+      }
+      _syncLiveMapData(enriched, replaceFamilyRouteIds: true);
+      _syncTabController(enriched);
+      setState(() {
+        _detail = enriched;
+        _isFamilyLoading = false;
+        _statusMessage = enriched.hasLiveData ? null : '即時資訊暫時無法取得';
+      });
+      _updateDesktopPresence();
+      _recalculateNearestStops();
+    } catch (_) {
+      if (!mounted || requestId != _refreshRequestId) {
+        return;
+      }
+      setState(() {
+        _isFamilyLoading = false;
+        _statusMessage = selected.hasLiveData ? null : '即時資訊暫時無法取得';
+      });
+    }
+  }
+
+  Future<void> _loadRouteFamilyAfterCurrentFrame(
+    RouteDetailData selected, {
+    required int requestId,
+  }) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || requestId != _refreshRequestId) {
+      return;
+    }
+    await _loadRouteFamily(selected, requestId: requestId);
+  }
+
+  void _syncLiveMapData(
+    RouteDetailData detail, {
+    bool replaceFamilyRouteIds = false,
+  }) {
+    _liveMapStopsByPath.value = detail.stopsByPath.map(
       (pathId, stops) => MapEntry(pathId, List<StopInfo>.of(stops)),
     );
+    if (replaceFamilyRouteIds || _liveMapFamilyRouteIds.value.isEmpty) {
+      final nextFamilyRouteIds = List<String>.of(detail.familyRouteIds);
+      if (!listEquals(_liveMapFamilyRouteIds.value, nextFamilyRouteIds)) {
+        _liveMapFamilyRouteIds.value = nextFamilyRouteIds;
+      }
+    }
+  }
+
+  Future<void> _loadSupplementaryNotices(RouteDetailData detail) async {
+    if (_supplementaryNoticesLoading) {
+      return;
+    }
+    _supplementaryNoticesLoading = true;
+    try {
+      if (!_cancelledDeparturePromptChecked) {
+        await _maybeShowTaichungCancelledDepartures(detail);
+      }
+      if (!mounted || !_canApplyPendingForegroundResult || _alertsFetched) {
+        return;
+      }
+      _alertsFetched = true;
+      await _fetchAndShowAlerts(detail.route.routeId);
+    } finally {
+      _supplementaryNoticesLoading = false;
+    }
   }
 
   Future<void> _fetchAndShowAlerts(String routeId) async {
     try {
       final controller = AppControllerScope.read(context);
-      final alerts = await controller.getRouteAlerts(routeId);
+      final alerts =
+          await (widget.initialAlertsFuture ??
+              controller.getRouteAlerts(routeId));
       if (!mounted) return;
       final activeAlertIds = alerts
           .map((alert) => alert.alertId.trim())
@@ -418,6 +597,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           markAsReadAlertIds: unseenAlerts.map((alert) => alert.alertId),
         );
         if (!mounted) return;
+        final cancelledDialog = _cancelledDepartureDialogFuture;
+        if (cancelledDialog != null) {
+          await cancelledDialog;
+        }
+        if (!mounted || !_isRouteVisible) return;
         setState(() {
           _alertsRead = true;
         });
@@ -437,12 +621,15 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     _cancelledDeparturePromptChecked = true;
     try {
-      final departures = await AppControllerScope.read(context).repository
-          .fetchTaichungCancelledDepartures(
-            routeId: detail.route.routeId,
-            routeName: detail.route.routeName,
-            date: DateTime.now(),
-          );
+      final departures =
+          await (widget.initialCancelledDeparturesFuture ??
+              AppControllerScope.read(
+                context,
+              ).repository.fetchTaichungCancelledDepartures(
+                routeId: detail.route.routeId,
+                routeName: detail.route.routeName,
+                date: DateTime.now(),
+              ));
       if (!mounted || !_isRouteVisible || departures.isEmpty) {
         return;
       }
@@ -452,8 +639,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             .add(departure);
       }
       final directions = departuresByDirection.keys.toList()..sort();
-      await showDialog<void>(
-        context: context,
+      final dialogFuture = _showSupplementaryDialog<void>(
         builder: (dialogContext) {
           final theme = Theme.of(dialogContext);
           return AlertDialog(
@@ -494,6 +680,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             ],
           );
         },
+      ).then<void>((_) {});
+      _cancelledDepartureDialogFuture = dialogFuture;
+      unawaited(
+        dialogFuture.whenComplete(() {
+          if (identical(_cancelledDepartureDialogFuture, dialogFuture)) {
+            _cancelledDepartureDialogFuture = null;
+          }
+        }),
       );
     } catch (_) {
       // Cancellation data is supplementary; keep route details usable.
@@ -559,43 +753,68 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   void _showAlertsDialog() {
     if (_alerts.isEmpty || !mounted) return;
-    showDialog<void>(
-      context: context,
-      builder: (context) {
-        final theme = Theme.of(context);
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                color: theme.colorScheme.error,
-                size: 22,
+    unawaited(
+      _showSupplementaryDialog<void>(
+        builder: (context) {
+          final theme = Theme.of(context);
+          return AlertDialog(
+            title: Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: theme.colorScheme.error,
+                  size: 22,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('營運通知')),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: _alerts.length,
+                separatorBuilder: (_, _) => const Divider(height: 16),
+                itemBuilder: (context, index) {
+                  final alert = _alerts[index];
+                  return _buildAlertTile(alert, theme);
+                },
               ),
-              const SizedBox(width: 8),
-              const Expanded(child: Text('營運通知')),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('關閉'),
+              ),
             ],
-          ),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: ListView.separated(
-              shrinkWrap: true,
-              itemCount: _alerts.length,
-              separatorBuilder: (_, _) => const Divider(height: 16),
-              itemBuilder: (context, index) {
-                final alert = _alerts[index];
-                return _buildAlertTile(alert, theme);
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('關閉'),
-            ),
-          ],
-        );
-      },
+          );
+        },
+      ),
     );
+  }
+
+  Future<T?> _showSupplementaryDialog<T>({
+    required WidgetBuilder builder,
+  }) async {
+    _supplementaryDialogDepth += 1;
+    _keepPendingRefreshWhileCovered = true;
+    try {
+      return await showDialog<T>(context: context, builder: builder);
+    } finally {
+      _supplementaryDialogDepth -= 1;
+      if (_supplementaryDialogDepth == 0) {
+        _keepPendingRefreshWhileCovered = false;
+        final detail = _detail;
+        if (mounted && _isRouteVisible && detail != null) {
+          final settings = AppControllerScope.read(context).settings;
+          _startCountdown(
+            detail.hasLiveData
+                ? settings.busUpdateTime
+                : settings.busErrorUpdateTime,
+          );
+        }
+      }
+    }
   }
 
   Widget _buildAlertTile(RouteAlert alert, ThemeData theme) {
@@ -796,6 +1015,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       }
       _syncSelectedMapPathId();
       setState(() {});
+      _updateDesktopPresence();
       _scrollToInitialStopIfNeeded();
       _maybeScrollToCurrentLocation();
       unawaited(_configureBackgroundTripMonitorIfNeeded());
@@ -844,7 +1064,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   void _startCountdown(int seconds) {
     _countdownTimer?.cancel();
-    _remainingSeconds = seconds;
+    _remainingSeconds.value = seconds;
     _countdownProgressController
       ..stop()
       ..duration = Duration(seconds: seconds <= 0 ? 1 : seconds)
@@ -861,15 +1081,29 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         timer.cancel();
         return;
       }
-      if (_remainingSeconds <= 0) {
+      if (_remainingSeconds.value <= 0) {
         timer.cancel();
         unawaited(_refresh());
         return;
       }
-      setState(() {
-        _remainingSeconds -= 1;
-      });
+      _remainingSeconds.value -= 1;
     });
+  }
+
+  void _updateDesktopPresence() {
+    if (!mounted) {
+      return;
+    }
+    final controller = AppControllerScope.read(context);
+    unawaited(
+      desktopDiscordPresenceService.updateScreen(
+        settings: controller.settings,
+        screenLabel: '查看路線',
+        provider: widget.provider,
+        routeName: _detail?.route.routeName,
+        stateLabel: _buildDesktopDiscordArrivalStatus(controller.settings),
+      ),
+    );
   }
 
   Future<bool> _handleLaunchAction(AppLaunchAction action) async {
@@ -1076,32 +1310,37 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   Widget _buildBottomProgressIndicator() {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) {
-        return SizeTransition(
-          sizeFactor: animation,
-          axis: Axis.horizontal,
-          child: child,
+    return ValueListenableBuilder<int>(
+      valueListenable: _remainingSeconds,
+      builder: (context, remainingSeconds, child) {
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 260),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) {
+            return SizeTransition(
+              sizeFactor: animation,
+              axis: Axis.horizontal,
+              child: child,
+            );
+          },
+          child: remainingSeconds <= 0 || _isLoading || _isFamilyLoading
+              ? const LinearProgressIndicator(
+                  key: ValueKey('loading-progress'),
+                  minHeight: 4,
+                )
+              : AnimatedBuilder(
+                  key: const ValueKey('countdown-progress'),
+                  animation: _countdownProgressController,
+                  builder: (context, child) {
+                    return LinearProgressIndicator(
+                      value: _countdownProgressController.value,
+                      minHeight: 4,
+                    );
+                  },
+                ),
         );
       },
-      child: _remainingSeconds <= 0 || _isLoading
-          ? const LinearProgressIndicator(
-              key: ValueKey('loading-progress'),
-              minHeight: 4,
-            )
-          : AnimatedBuilder(
-              key: const ValueKey('countdown-progress'),
-              animation: _countdownProgressController,
-              builder: (context, child) {
-                return LinearProgressIndicator(
-                  value: _countdownProgressController.value,
-                  minHeight: 4,
-                );
-              },
-            ),
     );
   }
 
@@ -1243,13 +1482,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _appLifecycleState == AppLifecycleState.inactive;
 
   bool get _shouldSuspendForegroundRefreshes =>
-      !_isRouteVisible ||
-      (_isAndroid &&
-          !_appIsForeground &&
-          _backgroundTripMonitorReady &&
-          AppControllerScope.read(
-            context,
-          ).settings.enableRouteBackgroundMonitor);
+      !_appIsForeground || !_isRouteVisible;
+
+  bool get _canApplyPendingForegroundResult =>
+      _appIsForeground && (_isRouteVisible || _keepPendingRefreshWhileCovered);
 
   void _pauseForegroundRefreshLoop({bool invalidateRequest = false}) {
     _countdownTimer?.cancel();
@@ -1267,13 +1503,23 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   @override
   void didPopNext() {
     _isRouteVisible = true;
+    if (_supplementaryDialogDepth > 0) {
+      return;
+    }
     unawaited(_refresh());
+    unawaited(_ensureLocationTracking(requestPermissionIfNeeded: false));
   }
 
   @override
   void didPushNext() {
     _isRouteVisible = false;
-    _pauseForegroundRefreshLoop(invalidateRequest: true);
+    _pauseForegroundRefreshLoop(
+      invalidateRequest: !_keepPendingRefreshWhileCovered,
+    );
+    if (!_keepPendingRefreshWhileCovered &&
+        !_locationTrackingConfiguredForBackground) {
+      _pauseForegroundLocationTracking();
+    }
   }
 
   @override
@@ -1337,44 +1583,50 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       _requestMapVehicleFocus(vehicleId);
     }
     final controller = AppControllerScope.read(context);
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      enableDrag: true,
-      isDismissible: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.82,
-          minChildSize: 0.55,
-          maxChildSize: 1,
-          snap: true,
-          snapSizes: const [0.82, 1],
-          builder: (context, scrollController) {
-            return RouteBusMapSheet(
-              routeKey: widget.routeKey,
-              provider: widget.provider,
-              routeId: routeId,
-              routeIdHint: widget.routeIdHint,
-              routeName: detail.route.routeName,
-              paths: detail.paths,
-              stopsByPath: detail.stopsByPath,
-              familyRouteIds: detail.familyRouteIds,
-              liveStopsByPathListenable: _liveMapStopsByPath,
-              alwaysShowSeconds: controller.settings.alwaysShowSeconds,
-              selectedPathIdListenable: _selectedMapPathId,
-              focusedVehicleId: _focusedMapVehicleId,
-              focusedVehicleRequest: _focusedMapVehicleRequest,
-              refreshIntervalSeconds: controller.settings.busUpdateTime,
-              dragScrollController: scrollController,
-              onSelectedPathChanged: _handleMapPathSelection,
-            );
-          },
-        );
-      },
-    );
+    _keepPendingRefreshWhileCovered = true;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        enableDrag: true,
+        isDismissible: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) {
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.82,
+            minChildSize: 0.55,
+            maxChildSize: 1,
+            snap: true,
+            snapSizes: const [0.82, 1],
+            builder: (context, scrollController) {
+              return RouteBusMapSheet(
+                routeKey: widget.routeKey,
+                provider: widget.provider,
+                routeId: routeId,
+                routeIdHint: widget.routeIdHint,
+                routeName: detail.route.routeName,
+                paths: detail.paths,
+                stopsByPath: detail.stopsByPath,
+                familyRouteIds: detail.familyRouteIds,
+                familyRouteIdsListenable: _liveMapFamilyRouteIds,
+                liveStopsByPathListenable: _liveMapStopsByPath,
+                alwaysShowSeconds: controller.settings.alwaysShowSeconds,
+                selectedPathIdListenable: _selectedMapPathId,
+                focusedVehicleId: _focusedMapVehicleId,
+                focusedVehicleRequest: _focusedMapVehicleRequest,
+                refreshIntervalSeconds: controller.settings.busUpdateTime,
+                dragScrollController: scrollController,
+                onSelectedPathChanged: _handleMapPathSelection,
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      _keepPendingRefreshWhileCovered = false;
+    }
   }
 
   PathInfo? get _currentPathInfo {
@@ -1753,6 +2005,18 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   Future<void> _configureBackgroundTripMonitorIfNeeded({
     bool forcePermissionCheck = false,
+  }) async {
+    try {
+      await _configureBackgroundTripMonitorUnchecked(
+        forcePermissionCheck: forcePermissionCheck,
+      );
+    } catch (_) {
+      // Lifecycle transitions can temporarily detach location/notification APIs.
+    }
+  }
+
+  Future<void> _configureBackgroundTripMonitorUnchecked({
+    required bool forcePermissionCheck,
   }) async {
     if (!mounted) {
       return;
@@ -2270,7 +2534,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   Future<void> _ensureLocationTracking({
     bool requestPermissionIfNeeded = true,
-  }) async {
+  }) {
+    if (!mounted) {
+      return Future<void>.value();
+    }
     final controller = AppControllerScope.read(context);
     final enableBackgroundLocationStream =
         _isIOS &&
@@ -2279,20 +2546,86 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     if (_didAttemptLocationTracking &&
         _locationTrackingConfiguredForBackground ==
             enableBackgroundLocationStream) {
-      return;
+      return Future<void>.value();
     }
 
+    final inFlight = _locationTrackingInFlight;
+    if (inFlight != null &&
+        _locationTrackingInFlightForBackground ==
+            enableBackgroundLocationStream) {
+      return inFlight;
+    }
+
+    final generation = ++_locationTrackingGeneration;
+    final future = _configureLocationTracking(
+      generation: generation,
+      enableBackgroundLocationStream: enableBackgroundLocationStream,
+      requestPermissionIfNeeded: requestPermissionIfNeeded,
+    );
+    _locationTrackingInFlight = future;
+    _locationTrackingInFlightForBackground = enableBackgroundLocationStream;
+    return future.whenComplete(() {
+      if (identical(_locationTrackingInFlight, future)) {
+        _locationTrackingInFlight = null;
+        _locationTrackingInFlightForBackground = null;
+      }
+    });
+  }
+
+  Future<void> _configureLocationTracking({
+    required int generation,
+    required bool enableBackgroundLocationStream,
+    required bool requestPermissionIfNeeded,
+  }) async {
+    try {
+      await _configureLocationTrackingUnchecked(
+        generation: generation,
+        enableBackgroundLocationStream: enableBackgroundLocationStream,
+        requestPermissionIfNeeded: requestPermissionIfNeeded,
+      );
+    } catch (_) {
+      // Location plugins can detach briefly while Android changes lifecycle.
+    }
+  }
+
+  Future<void> _configureLocationTrackingUnchecked({
+    required int generation,
+    required bool enableBackgroundLocationStream,
+    required bool requestPermissionIfNeeded,
+  }) async {
+    if (!_canContinueLocationTracking(
+      generation,
+      allowBackground: enableBackgroundLocationStream,
+    )) {
+      return;
+    }
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
+    if (!serviceEnabled ||
+        !_canContinueLocationTracking(
+          generation,
+          allowBackground: enableBackgroundLocationStream,
+        )) {
       return;
     }
 
     var permission = await Geolocator.checkPermission();
+    if (!_canContinueLocationTracking(
+      generation,
+      allowBackground: enableBackgroundLocationStream,
+    )) {
+      return;
+    }
     if (permission == LocationPermission.denied) {
       if (!requestPermissionIfNeeded) {
         return;
       }
       permission = await Geolocator.requestPermission();
+      if (!_canContinueLocationTracking(
+        generation,
+        allowBackground: enableBackgroundLocationStream,
+      )) {
+        return;
+      }
     }
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
@@ -2300,6 +2633,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
 
     final lastKnown = await Geolocator.getLastKnownPosition();
+    if (!_canContinueLocationTracking(
+      generation,
+      allowBackground: enableBackgroundLocationStream,
+    )) {
+      return;
+    }
     if (lastKnown != null) {
       _updateNearestStops(lastKnown);
     }
@@ -2315,7 +2654,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     } catch (_) {
       current = null;
     }
-    if (!mounted) {
+    if (!_canContinueLocationTracking(
+      generation,
+      allowBackground: enableBackgroundLocationStream,
+    )) {
       return;
     }
     if (current != null) {
@@ -2337,11 +2679,47 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           );
 
     await _positionSubscription?.cancel();
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen(_updateNearestStops);
+    if (!_canContinueLocationTracking(
+      generation,
+      allowBackground: enableBackgroundLocationStream,
+    )) {
+      return;
+    }
+    _positionSubscription =
+        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+          (position) {
+            if (_canContinueLocationTracking(
+              generation,
+              allowBackground: enableBackgroundLocationStream,
+            )) {
+              _updateNearestStops(position);
+            }
+          },
+          onError: (_) {},
+        );
     _didAttemptLocationTracking = true;
     _locationTrackingConfiguredForBackground = enableBackgroundLocationStream;
+  }
+
+  bool _canContinueLocationTracking(
+    int generation, {
+    required bool allowBackground,
+  }) {
+    return mounted &&
+        generation == _locationTrackingGeneration &&
+        (allowBackground || _appIsForeground);
+  }
+
+  void _pauseForegroundLocationTracking() {
+    _locationTrackingGeneration += 1;
+    _locationTrackingInFlight = null;
+    _locationTrackingInFlightForBackground = null;
+    _didAttemptLocationTracking = false;
+    final subscription = _positionSubscription;
+    _positionSubscription = null;
+    if (subscription != null) {
+      unawaited(subscription.cancel());
+    }
   }
 
   void _recalculateNearestStops() {
@@ -2352,6 +2730,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   }
 
   void _updateNearestStops(Position position) {
+    if (!mounted) {
+      return;
+    }
     final previousPosition = _lastPosition;
     _lastPosition = position;
     final detail = _detail;
@@ -2401,6 +2782,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           unawaited(_configureBackgroundTripMonitorIfNeeded());
         }
       }
+      _updateDesktopPresence();
     }
     _maybeScrollToCurrentLocation();
     if (_isAndroid &&
@@ -3376,7 +3758,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final displayDetail = !fetchedDetail.hasLiveData && previousDetail != null
           ? _mergeDetailWithPreviousLiveData(fetchedDetail, previousDetail)
           : fetchedDetail;
-      _syncLiveMapStopsByPath(displayDetail.stopsByPath);
+      _syncLiveMapData(displayDetail, replaceFamilyRouteIds: true);
       _syncTabController(displayDetail);
       setState(() {
         _detail = displayDetail;
@@ -5230,9 +5612,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             children: [
               EtaBadge(
                 stop: stop,
-                isLoading: _isLoading && !hasRealtimeStopData(stop),
                 alwaysShowSeconds: alwaysShowSeconds,
                 size: 58,
+                isLoading: !_hasCompletedInitialRealtime,
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -5394,20 +5776,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   ) {
     return Column(
       children: [
-        if (!_isLoading && (_error != null || !detail.hasLiveData))
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(child: Text(_error ?? '即時資訊暫時無法取得，仍可查看站牌')),
-                TextButton(
-                  onPressed: () => unawaited(_refresh()),
-                  child: const Text('重試'),
-                ),
-              ],
-            ),
-          ),
-        if (_isLoading) const LinearProgressIndicator(minHeight: 2),
         if (_tabController != null)
           TabBar(
             controller: _tabController,
@@ -5504,6 +5872,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       paths: detail.paths,
       stopsByPath: detail.stopsByPath,
       familyRouteIds: detail.familyRouteIds,
+      familyRouteIdsListenable: _liveMapFamilyRouteIds,
       liveStopsByPathListenable: _liveMapStopsByPath,
       alwaysShowSeconds: controller.settings.alwaysShowSeconds,
       selectedPathIdListenable: _selectedMapPathId,
@@ -5512,6 +5881,219 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       refreshIntervalSeconds: controller.settings.busUpdateTime,
       onSelectedPathChanged: _handleMapPathSelection,
       embedded: true,
+    );
+  }
+
+  Widget _buildInitialLoadingBody(BuildContext context, ThemeData theme) {
+    final placeholderColor = theme.colorScheme.surfaceContainerHighest;
+    final hasInitialNotices =
+        _alerts.isNotEmpty || _initialCancelledDepartures.isNotEmpty;
+    return IgnorePointer(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 960),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+                child: Row(
+                  children: [
+                    Icon(Icons.route_rounded, color: theme.colorScheme.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '正在準備 ${widget.routeNameHint ?? '路線'} 的站牌資訊',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (hasInitialNotices)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                  child: Column(
+                    children: [
+                      if (_alerts.isNotEmpty)
+                        _buildInitialNoticeCard(
+                          theme: theme,
+                          icon: Icons.campaign_rounded,
+                          title: '路線公告',
+                          message: _alerts.first.title.trim().isEmpty
+                              ? '目前有營運資訊更新'
+                              : _alerts.first.title.trim(),
+                          additionalCount: _alerts.length - 1,
+                        ),
+                      if (_alerts.isNotEmpty &&
+                          _initialCancelledDepartures.isNotEmpty)
+                        const SizedBox(height: 8),
+                      if (_initialCancelledDepartures.isNotEmpty)
+                        _buildInitialNoticeCard(
+                          theme: theme,
+                          icon: Icons.event_busy_rounded,
+                          title: '今日取消發車',
+                          message: _initialCancelledDepartures
+                              .take(8)
+                              .map((departure) => departure.departureTime)
+                              .join('、'),
+                          additionalCount:
+                              _initialCancelledDepartures.length - 8,
+                        ),
+                    ],
+                  ),
+                ),
+              FadeTransition(
+                opacity: _loadingPulseController,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: placeholderColor,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Container(
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: placeholderColor,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: FadeTransition(
+                  opacity: _loadingPulseController,
+                  child: ListView.separated(
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                    itemCount: 7,
+                    separatorBuilder: (_, _) => const SizedBox(height: 14),
+                    itemBuilder: (context, index) {
+                      final widthFactor = switch (index % 3) {
+                        0 => 0.58,
+                        1 => 0.72,
+                        _ => 0.46,
+                      };
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 58,
+                              height: 58,
+                              decoration: BoxDecoration(
+                                color: placeholderColor,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  FractionallySizedBox(
+                                    widthFactor: widthFactor,
+                                    child: Container(
+                                      height: 18,
+                                      decoration: BoxDecoration(
+                                        color: placeholderColor,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  FractionallySizedBox(
+                                    widthFactor: widthFactor * 0.65,
+                                    child: Container(
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: placeholderColor,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInitialNoticeCard({
+    required ThemeData theme,
+    required IconData icon,
+    required String title,
+    required String message,
+    required int additionalCount,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.errorContainer.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.colorScheme.error.withValues(alpha: 0.22),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: theme.colorScheme.onErrorContainer, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: theme.colorScheme.onErrorContainer,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  additionalCount > 0
+                      ? '$message（另有 $additionalCount 則）'
+                      : message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onErrorContainer,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -5536,10 +6118,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final isWideLayout =
         MediaQuery.sizeOf(context).width >= _wideLayoutBreakpoint;
     final canShowInlineMap =
-        isWideLayout &&
-        detail != null &&
-        currentPathId != null &&
-        _hasCompletedInitialRealtime;
+        isWideLayout && detail != null && currentPathId != null;
     final showInlineMap = canShowInlineMap && _showWideMapPanel;
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     final baseBottomBarColor =
@@ -5552,16 +6131,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     final bottomBarColor = baseBottomBarColor.a < 0.92
         ? baseBottomBarColor.withValues(alpha: 0.92)
         : baseBottomBarColor;
-
-    unawaited(
-      desktopDiscordPresenceService.updateScreen(
-        settings: settings,
-        screenLabel: '查看路線',
-        provider: widget.provider,
-        routeName: detail?.route.routeName,
-        stateLabel: _buildDesktopDiscordArrivalStatus(settings),
-      ),
-    );
 
     return BackgroundImageWrapper(
       pageKey: 'route_detail',
@@ -5580,9 +6149,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             overflow: TextOverflow.ellipsis,
           ),
           actions: [
-            if (detail != null &&
-                currentPathId != null &&
-                _hasCompletedInitialRealtime)
+            if (detail != null && currentPathId != null)
               IconButton(
                 onPressed: () {
                   if (isWideLayout) {
@@ -5669,15 +6236,20 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 padding: EdgeInsets.fromLTRB(16, 8, 16, bottomInset + 10),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Text(
-                    _statusMessage ??
-                        (_remainingSeconds > 0
-                            ? '$_remainingSeconds 秒後更新'
-                            : '正在更新'),
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: theme.colorScheme.onSurface,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _remainingSeconds,
+                    builder: (context, remainingSeconds, child) {
+                      return Text(
+                        _statusMessage ??
+                            (remainingSeconds > 0
+                                ? '$remainingSeconds 秒後更新'
+                                : '正在更新'),
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: theme.colorScheme.onSurface,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -5685,16 +6257,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           ),
         ),
         body: _isLoading && detail == null
-            ? const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('正在載入站牌'),
-                  ],
-                ),
-              )
+            ? _buildInitialLoadingBody(context, theme)
             : detail == null
             ? Center(
                 child: Padding(
@@ -5714,7 +6277,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       constraints.maxWidth >= _wideLayoutBreakpoint;
                   final showWideMap =
                       canUseWideLayout &&
-                      _hasCompletedInitialRealtime &&
                       _showWideMapPanel &&
                       currentPathId != null;
                   final stopsPane = _buildStopsPane(

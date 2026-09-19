@@ -1245,7 +1245,7 @@ class _YouBikeScreenState extends State<YouBikeScreen>
         return Scaffold(
           backgroundColor: hasBackgroundImage ? Colors.transparent : null,
           appBar: AppBar(
-            title: const Text('YABike'),
+            title: const Text('YouBike'),
             automaticallyImplyLeading: false,
             actions: [
               if (!useSplitLayout)

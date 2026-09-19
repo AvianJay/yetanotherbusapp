@@ -2227,6 +2227,41 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  Future<RouteDetailData> getPrimaryRouteDetail(
+    int routeKey, {
+    BusProvider? provider,
+    String? routeIdHint,
+    String? routeNameHint,
+  }) {
+    return repository.getCompleteBusInfo(
+      routeKey,
+      provider: provider ?? _settings.provider,
+      routeIdHint: routeIdHint,
+      routeNameHint: routeNameHint,
+    );
+  }
+
+  Future<RouteDetailData> getRouteTopology(
+    int routeKey, {
+    BusProvider? provider,
+    String? routeIdHint,
+    String? routeNameHint,
+  }) {
+    return repository.getRouteTopology(
+      routeKey,
+      provider: provider ?? _settings.provider,
+      routeIdHint: routeIdHint,
+      routeNameHint: routeNameHint,
+    );
+  }
+
+  Future<RouteDetailData> enrichRouteWithFamily(
+    RouteDetailData selected, {
+    required BusProvider provider,
+  }) {
+    return repository.enrichRouteWithFamily(selected, provider: provider);
+  }
+
   Future<List<StopInfo>> getStopsByRoute(
     int routeKey, {
     required BusProvider provider,

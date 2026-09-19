@@ -548,3 +548,49 @@ class _WheelColumn extends StatelessWidget {
     );
   }
 }
+
+/// Tappable field that opens [showRailStationPicker].
+///
+/// Replaces the `Autocomplete<RailStation>` that the TRA and THSR dashboards
+/// each carried a private copy of.
+class RailStationField extends StatelessWidget {
+  const RailStationField({
+    required this.label,
+    required this.station,
+    required this.placeholder,
+    required this.onTap,
+    super.key,
+  });
+
+  final String label;
+  final RailStation? station;
+  final String placeholder;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final selected = station;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: const Icon(Icons.train_rounded),
+          suffixIcon: const Icon(Icons.expand_more_rounded),
+          border: const OutlineInputBorder(),
+        ),
+        child: Text(
+          selected == null ? placeholder : selected.name,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: selected == null
+                ? theme.colorScheme.onSurfaceVariant
+                : theme.colorScheme.onSurface,
+            fontWeight: selected == null ? FontWeight.w400 : FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}

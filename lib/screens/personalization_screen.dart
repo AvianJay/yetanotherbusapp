@@ -89,8 +89,8 @@ class PersonalizationScreen extends StatelessWidget {
     final controller = AppControllerScope.of(context);
     final settings = controller.settings;
     final backgroundOpacity = _backgroundOpacityValue(settings);
-    final isAmoled =
-        settings.useAmoledDark && settings.themeMode != ThemeMode.light;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isAmoled = settings.useAmoledDark && isDark;
 
     return Scaffold(
       appBar: AppBar(title: const Text('個人化')),
@@ -100,6 +100,9 @@ class PersonalizationScreen extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
             children: [
+              const _AppearancePreviewCard(),
+              const SizedBox(height: 12),
+
               // ── 背景圖片預覽滑動 ────────────────────────────
               if (settings.pageBackgroundImagePaths.isNotEmpty) ...[
                 _BackgroundPreviewCarousel(
@@ -141,7 +144,8 @@ class PersonalizationScreen extends StatelessWidget {
                             ],
                           ),
                         ),
-                        if (settings.seedColor != null) ...[
+                        if (settings.colorSource == AppColorSource.custom &&
+                            settings.seedColor != null) ...[
                           Container(
                             width: 20,
                             height: 20,
@@ -182,8 +186,8 @@ class PersonalizationScreen extends StatelessWidget {
                         secondary: const Icon(Icons.dark_mode_outlined),
                         title: const Text('純黑 (AMOLED) 深色主題'),
                         subtitle: const Text('深色模式下使用純黑背景，可省電並提升對比'),
-                        value: settings.useAmoledDark,
-                        onChanged: settings.themeMode == ThemeMode.light
+                        value: isAmoled,
+                        onChanged: !isDark
                             ? null
                             : (value) {
                                 controller.updateUseAmoledDark(value);
@@ -395,11 +399,11 @@ class PersonalizationScreen extends StatelessWidget {
   }
 
   String _colorSubtitle(AppSettings settings) {
-    final seedColor = settings.seedColor;
-    if (seedColor == null) {
-      return '自動';
-    }
-    return _formatColorValue(seedColor);
+    return switch (settings.colorSource) {
+      AppColorSource.system => '系統',
+      AppColorSource.automatic => '自動（背景圖片）',
+      AppColorSource.custom => _formatColorValue(settings.seedColor!),
+    };
   }
 
   String _formatColorValue(Color color) {
@@ -425,18 +429,24 @@ class PersonalizationScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '支援系統配色的裝置會自動套用系統色；選擇自訂色後會覆蓋自動配色。',
+                        '「自動」會依背景圖片取色；「系統」會使用裝置的動態配色。',
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 12),
                       _SeedColorPicker(
                         selectedColor: settings.seedColor,
+                        colorSource: settings.colorSource,
                         presetColors: _presetColors,
                         onColorSelected: (color) {
                           controller.updateSeedColor(color);
                         },
                         onClear: () {
-                          controller.updateSeedColor(null);
+                          controller.updateColorSource(AppColorSource.system);
+                        },
+                        onAutomaticSelected: () {
+                          controller.updateColorSource(
+                            AppColorSource.automatic,
+                          );
                         },
                       ),
                     ],
@@ -464,15 +474,19 @@ class PersonalizationScreen extends StatelessWidget {
 class _SeedColorPicker extends StatelessWidget {
   const _SeedColorPicker({
     required this.selectedColor,
+    required this.colorSource,
     required this.presetColors,
     required this.onColorSelected,
     required this.onClear,
+    required this.onAutomaticSelected,
   });
 
   final Color? selectedColor;
+  final AppColorSource colorSource;
   final List<Color> presetColors;
   final ValueChanged<Color> onColorSelected;
   final VoidCallback onClear;
+  final VoidCallback onAutomaticSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -488,10 +502,23 @@ class _SeedColorPicker extends StatelessWidget {
               context,
               color: null,
               label: '自動',
-              selected: selectedColor == null,
+              selected: colorSource == AppColorSource.automatic,
+              onSelected: onAutomaticSelected,
+            ),
+            _colorChip(
+              context,
+              color: null,
+              label: '系統',
+              selected: colorSource == AppColorSource.system,
+              onSelected: onClear,
             ),
             for (final c in presetColors)
-              _colorChip(context, color: c, selected: selectedColor == c),
+              _colorChip(
+                context,
+                color: c,
+                selected:
+                    colorSource == AppColorSource.custom && selectedColor == c,
+              ),
             ActionChip(
               avatar: Icon(
                 Icons.colorize_outlined,
@@ -518,6 +545,7 @@ class _SeedColorPicker extends StatelessWidget {
     required Color? color,
     required bool selected,
     String? label,
+    VoidCallback? onSelected,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -531,10 +559,10 @@ class _SeedColorPicker extends StatelessWidget {
           ? color.withValues(alpha: 0.18)
           : colorScheme.primaryContainer.withValues(alpha: 0.5),
       onSelected: (_) {
-        if (color != null) {
+        if (onSelected != null) {
+          onSelected();
+        } else if (color != null) {
           onColorSelected(color);
-        } else {
-          onClear();
         }
       },
     );
@@ -695,7 +723,8 @@ class _PerPageBackgroundScreen extends StatelessWidget {
     final controller = AppControllerScope.of(context);
     final settings = controller.settings;
     final isAmoled =
-        settings.useAmoledDark && settings.themeMode != ThemeMode.light;
+        settings.useAmoledDark &&
+        Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(title: const Text('各頁面背景設定')),
@@ -772,6 +801,220 @@ class _PerPageBackgroundScreen extends StatelessWidget {
 // ────────────────────────────────────────────────────────────────
 // Background preview carousel
 // ────────────────────────────────────────────────────────────────
+
+class _AppearancePreviewCard extends StatelessWidget {
+  const _AppearancePreviewCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = AppControllerScope.of(context);
+    final settings = controller.settings;
+    final theme = Theme.of(context);
+    final isAmoled =
+        settings.useAmoledDark && settings.themeMode != ThemeMode.light;
+    final modeLabel = isAmoled
+        ? 'AMOLED 純黑'
+        : theme.brightness == Brightness.dark
+        ? '深色模式'
+        : '淺色模式';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('外觀預覽', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(modeLabel, style: theme.textTheme.bodySmall),
+            const SizedBox(height: 14),
+            _HomeAppearancePreview(settings: settings, isAmoled: isAmoled),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeAppearancePreview extends StatelessWidget {
+  const _HomeAppearancePreview({
+    required this.settings,
+    required this.isAmoled,
+  });
+
+  final AppSettings settings;
+  final bool isAmoled;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final imagePath = settings.pageBackgroundImagePaths['bus'];
+    final hasImage = !isAmoled && imagePath != null && imagePath.isNotEmpty;
+    final cardColor = theme.cardTheme.color ?? colors.surface;
+    final appBarColor = theme.appBarTheme.backgroundColor ?? Colors.transparent;
+    final lineColor = colors.onSurfaceVariant;
+
+    return SizedBox(
+      height: 242,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: theme.scaffoldBackgroundColor,
+            border: Border.all(color: colors.outlineVariant),
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (hasImage)
+                buildStoredBackgroundImage(
+                  path: imagePath,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: imagePath.toLowerCase().endsWith('.gif'),
+                  opacity: settings.pageBackgroundImageOpacities['bus'] ?? 0.25,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                ),
+              if (!isAmoled && settings.homeBackgroundOpacity > 0)
+                Positioned.fill(
+                  top: 44,
+                  child: ColoredBox(
+                    color: colors.primaryContainer.withValues(
+                      alpha: settings.homeBackgroundOpacity.clamp(0.0, 1.0),
+                    ),
+                  ),
+                ),
+              Column(
+                children: [
+                  Container(
+                    height: 44,
+                    color: appBarColor,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.menu_rounded, color: colors.onSurface),
+                        const SizedBox(width: 12),
+                        Text('YABus', style: theme.textTheme.titleMedium),
+                        const Spacer(),
+                        Icon(Icons.campaign_outlined, color: colors.onSurface),
+                        const SizedBox(width: 12),
+                        Icon(Icons.settings_outlined, color: colors.onSurface),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        children: [
+                          _HomePreviewFeatureCard(
+                            icon: Icons.search_rounded,
+                            title: '搜尋路線',
+                            subtitle: '快速查詢即時到站資訊',
+                            cardColor: cardColor,
+                            lineColor: lineColor,
+                          ),
+                          const SizedBox(height: 8),
+                          _HomePreviewFeatureCard(
+                            icon: Icons.favorite_outline_rounded,
+                            title: '我的最愛',
+                            subtitle: '常用站牌與群組',
+                            cardColor: cardColor,
+                            lineColor: lineColor,
+                          ),
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              height: 28,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: colors.primary,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Text(
+                                '開啓設定',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: colors.onPrimary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomePreviewFeatureCard extends StatelessWidget {
+  const _HomePreviewFeatureCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.cardColor,
+    required this.lineColor,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color cardColor;
+  final Color lineColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Expanded(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: colors.outlineVariant),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              Icon(icon, color: colors.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: theme.textTheme.titleSmall),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: lineColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: lineColor),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _BackgroundPreviewCarousel extends StatelessWidget {
   const _BackgroundPreviewCarousel({

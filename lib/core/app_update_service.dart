@@ -17,6 +17,37 @@ const _generatedReleaseDownloadTableStart =
     '<!-- YABUS_RELEASE_DOWNLOAD_TABLE_START -->';
 const _generatedReleaseDownloadTableEnd =
     '<!-- YABUS_RELEASE_DOWNLOAD_TABLE_END -->';
+const _rollingNightlyReleaseMarker = '<!-- YABUS_ROLLING_NIGHTLY -->';
+final _fullGitShaPattern = RegExp(r'^[0-9a-f]{40}$');
+
+bool _isFullGitSha(String value) => _fullGitShaPattern.hasMatch(value);
+
+String? _nightlyShaFromTag(String value) {
+  const prefix = 'nightly-';
+  if (!value.startsWith(prefix)) {
+    return null;
+  }
+  final sha = value.substring(prefix.length).trim().toLowerCase();
+  return _isFullGitSha(sha) ? sha : null;
+}
+
+String _nightlyDisplayLabel(String value) {
+  final normalized = value.trim().toLowerCase();
+  return _isFullGitSha(normalized) ? normalized.substring(0, 7) : value;
+}
+
+String? _nightlyReleaseNotes(String markdown) {
+  final withoutMarker = markdown.replaceAll(_rollingNightlyReleaseMarker, '');
+  final withoutGeneratedSummary = withoutMarker.replaceAll(
+    RegExp(
+      r'^\s*Nightly build for commit\s+`?[0-9a-fA-F]{40}`?\.\s*$',
+      multiLine: true,
+    ),
+    '',
+  );
+  final result = withoutGeneratedSummary.trim();
+  return result.isEmpty ? null : result;
+}
 
 /// The preferred asset suffix for the current platform when checking
 /// GitHub Release assets for a downloadable update.
@@ -55,18 +86,6 @@ AppUpdatePackageFormat _packageFormatFromAssetName(String name) {
     return AppUpdatePackageFormat.appImage;
   }
   return AppUpdatePackageFormat.zip;
-}
-
-AppUpdatePackageFormat get _nightlyPackageFormat {
-  if (kIsWeb) {
-    return AppUpdatePackageFormat.zip;
-  }
-  return switch (defaultTargetPlatform) {
-    TargetPlatform.windows => AppUpdatePackageFormat.exe,
-    TargetPlatform.macOS => AppUpdatePackageFormat.dmg,
-    TargetPlatform.linux => AppUpdatePackageFormat.deb,
-    _ => AppUpdatePackageFormat.zip,
-  };
 }
 
 String _stripGeneratedReleaseDownloadTable(String markdown) {
@@ -124,6 +143,14 @@ class AppUpdateInfo {
   final AppUpdatePackageFormat packageFormat;
   final String? detailsUrl;
   final String? notes;
+
+  String get currentDisplayLabel => channel == AppUpdateChannel.nightly
+      ? _nightlyDisplayLabel(currentVersionLabel)
+      : currentVersionLabel;
+
+  String get latestDisplayLabel => channel == AppUpdateChannel.nightly
+      ? _nightlyDisplayLabel(latestVersionLabel)
+      : latestVersionLabel;
 }
 
 class AppUpdateCheckResult {
@@ -169,74 +196,75 @@ class AppUpdateService {
   }
 
   Future<AppUpdateCheckResult> _checkNightlyUpdates() async {
-    if (!buildInfo.hasKnownGitSha) {
+    final currentSha = buildInfo.normalizedGitSha;
+    if (!_isFullGitSha(currentSha)) {
       return const AppUpdateCheckResult(
         status: AppUpdateStatus.unavailable,
-        message: '這個安裝包沒有內建 commit 資訊，無法比較 nightly 更新。',
+        message: '這個安裝包沒有內建完整 commit 資訊，無法比較 nightly 更新。',
       );
     }
 
     final uri = Uri.https(
       'api.github.com',
-      '/repos/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/actions/workflows/${AppBuildInfo.workflowIdForApi}/runs',
-      {'branch': 'main', 'event': 'push', 'status': 'success', 'per_page': '1'},
+      '/repos/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/releases',
+      {'per_page': '30'},
     );
-    final payload = await _getJson(uri) as Map<String, dynamic>;
-    final workflowRuns = payload['workflow_runs'] as List<dynamic>? ?? const [];
-    if (workflowRuns.isEmpty) {
+    final releases = await _getJson(uri) as List<dynamic>;
+    final nightlyRelease = releases
+        .whereType<Map<String, dynamic>>()
+        .firstWhere(
+          (release) =>
+              release['prerelease'] == true &&
+              _nightlyShaFromTag(release['tag_name']?.toString() ?? '') != null,
+          orElse: () => const <String, dynamic>{},
+        );
+    final latestSha = _nightlyShaFromTag(
+      nightlyRelease['tag_name']?.toString() ?? '',
+    );
+    if (latestSha == null) {
       return const AppUpdateCheckResult(
         status: AppUpdateStatus.unavailable,
-        message: '找不到可用的 nightly 建置。',
+        message: '找不到可用的 nightly 發布版本。',
       );
     }
 
-    final latestRun = workflowRuns.first as Map<String, dynamic>;
-    final latestSha = (latestRun['head_sha'] as String? ?? '')
-        .trim()
-        .toLowerCase();
-    if (latestSha.isEmpty) {
-      return const AppUpdateCheckResult(
-        status: AppUpdateStatus.unavailable,
-        message: 'nightly 建置沒有回傳有效的 commit。',
-      );
-    }
-
-    final latestShortSha = latestSha.length <= 7
-        ? latestSha
-        : latestSha.substring(0, 7);
-    if (latestShortSha == buildInfo.shortGitSha) {
+    if (latestSha == currentSha) {
       return AppUpdateCheckResult(
         status: AppUpdateStatus.upToDate,
-        message: '目前已是最新 nightly commit：${buildInfo.shortGitSha}',
+        message: '目前已是最新 nightly commit：$currentSha',
       );
     }
 
-    final headCommit = latestRun['head_commit'] as Map<String, dynamic>?;
-    final commitMessage = (headCommit?['message'] as String? ?? '')
-        .trim()
-        .split('\n')
-        .firstWhere(
-          (line) => line.trim().isNotEmpty,
-          orElse: () => '新的 nightly 建置已可下載。',
-        );
+    final assets = nightlyRelease['assets'] as List<dynamic>? ?? const [];
+    final asset = _findNightlyPlatformReleaseAsset(assets, latestSha);
+    final assetName = asset['name'] as String? ?? '';
+    final downloadUrl = asset['browser_download_url'] as String? ?? '';
+    if (downloadUrl.isEmpty) {
+      return const AppUpdateCheckResult(
+        status: AppUpdateStatus.unavailable,
+        message: '最新 nightly 建置找不到此平台的下載檔。',
+      );
+    }
+
+    final releaseNotes = _nightlyReleaseNotes(
+      nightlyRelease['body'] as String? ?? '',
+    );
     final compareUrl =
-        'https://github.com/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/compare/${buildInfo.shortGitSha}...$latestShortSha';
-    final downloadUrl =
-        'https://nightly.link/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/workflows/${AppBuildInfo.workflowIdForNightlyLink}/main/${AppBuildInfo.nightlyArtifactName}.zip';
+        'https://github.com/${AppBuildInfo.repoOwner}/${AppBuildInfo.repoName}/compare/$currentSha...$latestSha';
 
     return AppUpdateCheckResult(
       status: AppUpdateStatus.updateAvailable,
-      message: '找到新的 nightly commit：$latestShortSha',
+      message: '找到新的 nightly commit：$latestSha',
       update: AppUpdateInfo(
         channel: AppUpdateChannel.nightly,
-        currentVersionLabel: buildInfo.shortGitSha,
-        latestVersionLabel: latestShortSha,
-        title: 'Nightly 更新：$latestShortSha',
-        summary: commitMessage,
+        currentVersionLabel: currentSha,
+        latestVersionLabel: latestSha,
+        title: 'Nightly 更新',
+        summary: 'Nightly 建置 ${latestSha.substring(0, 7)} 已可下載。',
         downloadUrl: downloadUrl,
-        packageFormat: _nightlyPackageFormat,
+        packageFormat: _packageFormatFromAssetName(assetName),
         detailsUrl: compareUrl,
-        notes: '目前版本：${buildInfo.shortGitSha}\n最新版本：$latestShortSha',
+        notes: releaseNotes,
       ),
     );
   }
@@ -264,30 +292,7 @@ class AppUpdateService {
 
     final assets = payload['assets'] as List<dynamic>? ?? const [];
 
-    // Find the best-matching asset for the current platform.
-    Map<String, dynamic>? platformAsset;
-    final suffix = _platformAssetSuffix;
-    if (suffix.isNotEmpty) {
-      for (final asset in assets.whereType<Map<String, dynamic>>()) {
-        final name = asset['name'] as String? ?? '';
-        if (name.contains(suffix)) {
-          platformAsset = asset;
-          break;
-        }
-      }
-    }
-
-    // Fallback: try APK for mobile, generic zip otherwise.
-    platformAsset ??= assets.whereType<Map<String, dynamic>>().firstWhere(
-      (asset) =>
-          (asset['name'] as String? ?? '').toLowerCase().endsWith('.apk'),
-      orElse: () => assets.whereType<Map<String, dynamic>>().firstWhere(
-        (asset) =>
-            (asset['name'] as String? ?? '').toLowerCase().endsWith('.zip'),
-        orElse: () => throw StateError('no matching asset'),
-      ),
-    );
-
+    final platformAsset = _findPlatformReleaseAsset(assets);
     final assetName = platformAsset['name'] as String? ?? '';
     final body = (payload['body'] as String? ?? '').trim();
     final notes = _stripGeneratedReleaseDownloadTable(body);
@@ -318,12 +323,53 @@ class AppUpdateService {
     );
   }
 
+  Map<String, dynamic> _findPlatformReleaseAsset(List<dynamic> assets) {
+    // Find the best-matching asset for the current platform.
+    Map<String, dynamic>? platformAsset;
+    final suffix = _platformAssetSuffix;
+    if (suffix.isNotEmpty) {
+      for (final asset in assets.whereType<Map<String, dynamic>>()) {
+        final name = asset['name'] as String? ?? '';
+        if (name.contains(suffix)) {
+          platformAsset = asset;
+          break;
+        }
+      }
+    }
+
+    // Fallback: try APK for mobile, generic zip otherwise.
+    platformAsset ??= assets.whereType<Map<String, dynamic>>().firstWhere(
+      (asset) =>
+          (asset['name'] as String? ?? '').toLowerCase().endsWith('.apk'),
+      orElse: () => assets.whereType<Map<String, dynamic>>().firstWhere(
+        (asset) =>
+            (asset['name'] as String? ?? '').toLowerCase().endsWith('.zip'),
+        orElse: () => throw StateError('no matching asset'),
+      ),
+    );
+
+    return platformAsset;
+  }
+
+  Map<String, dynamic> _findNightlyPlatformReleaseAsset(
+    List<dynamic> assets,
+    String sha,
+  ) {
+    final expectedName = 'YABus-nightly-$sha$_platformAssetSuffix';
+    return assets.whereType<Map<String, dynamic>>().firstWhere(
+      (asset) => asset['name'] == expectedName,
+      orElse: () => const <String, dynamic>{},
+    );
+  }
+
   Future<Object?> _getJson(Uri uri) async {
     final response = await _client
         .get(
           uri,
           headers: ApiUserAgent.githubApplyTo(const {
             'Accept': 'application/vnd.github+json',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
             'X-GitHub-Api-Version': _githubApiVersion,
           }),
         )

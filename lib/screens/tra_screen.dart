@@ -11,7 +11,6 @@ import '../core/transit_repository.dart';
 import '../core/user_location.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/rail_station_picker.dart';
-import '../widgets/transit_drawer.dart';
 import '../widgets/transit_panels.dart';
 import '../widgets/transit_station_map.dart';
 import '../widgets/ad_banner_widget.dart';
@@ -20,13 +19,13 @@ enum _TraPanel { query, map }
 
 class TraScreen extends StatefulWidget {
   const TraScreen({
-    required this.onModeChanged,
     required this.isActive,
+    this.showAdBanner = true,
     super.key,
   });
 
-  final ValueChanged<TransitMode> onModeChanged;
   final bool isActive;
+  final bool showAdBanner;
 
   @override
   State<TraScreen> createState() => _TraScreenState();
@@ -139,10 +138,7 @@ class _TraScreenState extends State<TraScreen> {
       setState(() {
         _stations = stations;
         _alerts = alerts;
-        _pickerGroups = buildRailPickerGroups(
-          stations: stations,
-          lines: lines,
-        );
+        _pickerGroups = buildRailPickerGroups(stations: stations, lines: lines);
         _origin =
             _pickStation(stations, _origin?.stationId) ??
             _pickStation(stations, saved.origin);
@@ -492,31 +488,33 @@ class _TraScreenState extends State<TraScreen> {
   }
 
   List<_TraOdRow> _buildRows() {
-    return _odTrains.map((train) {
-      final live = _liveFor(train);
-      final delay = live?.delayMinutes ?? 0;
-      return _TraOdRow(
-        train: train,
-        live: live,
-        isPast: isRailDeparturePast(
-          scheduledDeparture: train.originDeparture,
-          serviceDate: _date,
-          delayMinutes: delay,
-          now: _now,
-        ),
-        minutesUntilDeparture: minutesUntilRailDeparture(
-          scheduledDeparture: train.originDeparture,
-          serviceDate: _date,
-          delayMinutes: delay,
-          now: _now,
-        ),
-        effectiveDeparture: resolveRailDeparture(
-          scheduledDeparture: train.originDeparture,
-          serviceDate: _date,
-          delayMinutes: delay,
-        ),
-      );
-    }).toList(growable: false);
+    return _odTrains
+        .map((train) {
+          final live = _liveFor(train);
+          final delay = live?.delayMinutes ?? 0;
+          return _TraOdRow(
+            train: train,
+            live: live,
+            isPast: isRailDeparturePast(
+              scheduledDeparture: train.originDeparture,
+              serviceDate: _date,
+              delayMinutes: delay,
+              now: _now,
+            ),
+            minutesUntilDeparture: minutesUntilRailDeparture(
+              scheduledDeparture: train.originDeparture,
+              serviceDate: _date,
+              delayMinutes: delay,
+              now: _now,
+            ),
+            effectiveDeparture: resolveRailDeparture(
+              scheduledDeparture: train.originDeparture,
+              serviceDate: _date,
+              delayMinutes: delay,
+            ),
+          );
+        })
+        .toList(growable: false);
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -532,17 +530,8 @@ class _TraScreenState extends State<TraScreen> {
     return Scaffold(
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
-        title: const Text('YATrain'),
+        title: const Text('台鐵'),
         automaticallyImplyLeading: false,
-        leading:
-            MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
-            ? null
-            : Builder(
-                builder: (ctx) => IconButton(
-                  icon: const Icon(Icons.menu_rounded),
-                  onPressed: () => Scaffold.of(ctx).openDrawer(),
-                ),
-              ),
         actions: [
           IconButton(
             tooltip: '重新整理',
@@ -550,10 +539,6 @@ class _TraScreenState extends State<TraScreen> {
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
-      ),
-      drawer: TransitDrawer(
-        currentMode: TransitMode.tra,
-        onModeChanged: widget.onModeChanged,
       ),
       body: Column(
         children: [
@@ -594,7 +579,7 @@ class _TraScreenState extends State<TraScreen> {
               ),
             ),
           ),
-          const AdBannerWidget(),
+          if (widget.showAdBanner) const AdBannerWidget(),
         ],
       ),
     );
@@ -717,9 +702,7 @@ class _TraScreenState extends State<TraScreen> {
         else if (rows.isEmpty)
           TransitEmptyPanel(
             icon: Icons.schedule_rounded,
-            label: _loadingOd
-                ? '查詢中…'
-                : '這兩站之間今天沒有直達班次，可能需要轉車。',
+            label: _loadingOd ? '查詢中…' : '這兩站之間今天沒有直達班次，可能需要轉車。',
           )
         else ...[
           if (past.isNotEmpty) ...[
@@ -948,14 +931,18 @@ class _TraOdTile extends StatelessWidget {
         : cs.primaryContainer;
     final chipForeground = isPast ? cs.onSurfaceVariant : cs.onPrimaryContainer;
 
-    final duration = railDurationLabel(train.originDeparture, train.destArrival);
+    final duration = railDurationLabel(
+      train.originDeparture,
+      train.destArrival,
+    );
     final status = _status(cs);
     final headline =
         '${origin.name} ${train.originDeparture} → ${dest.name} ${train.destArrival}';
 
     return Semantics(
       button: true,
-      label: '${train.trainNo} 次 ${train.trainType}，$headline'
+      label:
+          '${train.trainNo} 次 ${train.trainType}，$headline'
           '${status == null ? '' : '，${status.text}'}',
       child: InkWell(
         key: ValueKey('tra-train-${train.trainNo}'),
@@ -975,10 +962,7 @@ class _TraOdTile extends StatelessWidget {
             children: [
               Container(
                 width: 62,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 8,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 decoration: BoxDecoration(
                   color: chipBackground,
                   borderRadius: BorderRadius.circular(12),

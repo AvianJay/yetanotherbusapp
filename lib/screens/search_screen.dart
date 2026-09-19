@@ -34,6 +34,9 @@ class _SearchScreenState extends State<SearchScreen> {
   BusProvider? _webPreferredProvider;
   Position? _lastResolvedSearchPosition;
   int _activeSearchToken = 0;
+  int _routeNameLoadToken = 0;
+  String? _loadedRouteNameProviders;
+  Set<String> _availableRouteNames = const <String>{};
   late bool _isRouteKeypadVisible;
   bool _isUsingNativeKeyboard = false;
 
@@ -50,6 +53,40 @@ class _SearchScreenState extends State<SearchScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         unawaited(_resolveWebPreferredProvider());
       });
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_supportsRouteKeypad) {
+      return;
+    }
+    final controller = AppControllerScope.of(context);
+    final providers = controller.downloadedProviders;
+    final providerKey = providers.map((provider) => provider.name).join('|');
+    if (_loadedRouteNameProviders == providerKey) {
+      return;
+    }
+    _loadedRouteNameProviders = providerKey;
+    final token = ++_routeNameLoadToken;
+    unawaited(_loadAvailableRouteNames(controller, token));
+  }
+
+  Future<void> _loadAvailableRouteNames(
+    AppController controller,
+    int token,
+  ) async {
+    try {
+      final routeNames = await controller.routeNamesForDownloadedProviders();
+      if (!mounted || token != _routeNameLoadToken) {
+        return;
+      }
+      setState(() => _availableRouteNames = routeNames);
+    } catch (_) {
+      if (mounted && token == _routeNameLoadToken) {
+        setState(() => _availableRouteNames = const <String>{});
+      }
     }
   }
 
@@ -1047,23 +1084,46 @@ class _SearchScreenState extends State<SearchScreen> {
   }) async {
     unawaited(AppHaptics.selectionClick());
     final busController = AppControllerScope.read(context);
-    if (saveHistory && route != null) {
-      await busController.addHistoryEntry(route, provider: provider);
-    }
-    final autoFavorited = await busController.recordRouteSelection(
-      provider: provider,
-      routeKey: routeKey,
-      routeName: routeName,
-      source: source,
-      pathId: initialPathId,
-      stopId: initialStopId,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (autoFavorited != null) {
-      showAutoFavoritedSnackBar(context, autoFavorited);
-    }
+    final initialTopologyFuture = busController
+        .getRouteTopology(
+          routeKey,
+          provider: provider,
+          routeIdHint: routeIdHint,
+          routeNameHint: routeName,
+        )
+        .then<RouteDetailData?>((detail) => detail)
+        .catchError((_) => null);
+    final normalizedRouteId = routeIdHint?.trim() ?? '';
+    final initialAlertsFuture = normalizedRouteId.isEmpty
+        ? null
+        : busController
+              .getRouteAlerts(normalizedRouteId)
+              .catchError((_) => const <RouteAlert>[]);
+    final initialCancelledDeparturesFuture = provider != BusProvider.txg
+        ? null
+        : busController.repository
+              .fetchTaichungCancelledDepartures(
+                routeId: normalizedRouteId,
+                routeName: routeName,
+                date: DateTime.now(),
+              )
+              .catchError((_) => const <CancelledDeparture>[]);
+    unawaited(() async {
+      if (saveHistory && route != null) {
+        await busController.addHistoryEntry(route, provider: provider);
+      }
+      final autoFavorited = await busController.recordRouteSelection(
+        provider: provider,
+        routeKey: routeKey,
+        routeName: routeName,
+        source: source,
+        pathId: initialPathId,
+        stopId: initialStopId,
+      );
+      if (mounted && autoFavorited != null) {
+        showAutoFavoritedSnackBar(context, autoFavorited);
+      }
+    }());
     await openRouteDetailPage(
       context,
       routeKey: routeKey,
@@ -1074,7 +1134,84 @@ class _SearchScreenState extends State<SearchScreen> {
       initialStopId: initialStopId,
       initialDestinationPathId: initialDestinationPathId,
       initialDestinationStopId: initialDestinationStopId,
+      initialTopologyFuture: initialTopologyFuture,
+      initialAlertsFuture: initialAlertsFuture,
+      initialCancelledDeparturesFuture: initialCancelledDeparturesFuture,
       suppressAutoDestinationSelection: suppressAutoDestinationSelection,
+    );
+  }
+
+  List<Widget> _buildRouteResultCards(AppController busController) {
+    return _results
+        .map((item) => _buildRouteResultCard(item, busController))
+        .toList(growable: false);
+  }
+
+  Widget _buildRouteResultCard(
+    _SearchDisplayItem item,
+    AppController busController,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Card(child: _buildRouteResultTile(item, busController)),
+    );
+  }
+
+  Widget _buildRouteResultTile(
+    _SearchDisplayItem item,
+    AppController busController,
+  ) {
+    return ListTile(
+      leading: CircleAvatar(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              item.route.routeName.trim().isEmpty
+                  ? '?'
+                  : item.route.routeName.characters.take(4).toString(),
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ),
+      title: item.stopSearch?.matchedStop.stopName != null
+          ? Text(
+              '${item.stopSearch!.matchedStop.stopName} (${item.route.routeName})',
+            )
+          : Text(item.route.routeName),
+      subtitle: Text(
+        _subtitleForResult(item),
+        maxLines: item.isStopSearchResult ? 3 : 1,
+      ),
+      onTap: () async {
+        final route = item.route;
+        final stopSearch = item.stopSearch;
+        final routeProvider = busProviderFromString(route.sourceProvider);
+        final resolvedStopSearchLaunch = stopSearch == null
+            ? null
+            : await _resolveStopSearchLaunch(stopSearch, busController);
+        await _openRoute(
+          provider: routeProvider,
+          routeKey: route.routeKey,
+          routeName: route.routeName,
+          routeIdHint: route.routeId,
+          initialPathId:
+              resolvedStopSearchLaunch?.pathId ??
+              stopSearch?.matchedStop.pathId ??
+              route.rtrip,
+          initialStopId: resolvedStopSearchLaunch?.stopId,
+          initialDestinationPathId: resolvedStopSearchLaunch?.destinationPathId,
+          initialDestinationStopId: resolvedStopSearchLaunch?.destinationStopId,
+          suppressAutoDestinationSelection:
+              resolvedStopSearchLaunch?.suppressAutoDestinationSelection ??
+              false,
+          route: route,
+          saveHistory: true,
+          source: stopSearch == null ? 'search_result' : 'search_stop_result',
+        );
+      },
     );
   }
 
@@ -1163,81 +1300,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         : '部分站牌搜尋需要本機資料庫，先更新資料庫後再試一次。',
                   )
                 else
-                  ..._results.map(
-                    (item) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Card(
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                              ),
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  item.route.routeName.trim().isEmpty
-                                      ? '?'
-                                      : item.route.routeName.characters
-                                            .take(4)
-                                            .toString(),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          title: item.stopSearch?.matchedStop.stopName != null
-                              ? Text(
-                                  "${item.stopSearch!.matchedStop.stopName} (${item.route.routeName})",
-                                )
-                              : Text(item.route.routeName),
-                          subtitle: Text(
-                            _subtitleForResult(item),
-                            maxLines: item.isStopSearchResult ? 3 : 1,
-                          ),
-                          onTap: () async {
-                            final route = item.route;
-                            final stopSearch = item.stopSearch;
-                            final routeProvider = busProviderFromString(
-                              route.sourceProvider,
-                            );
-                            final resolvedStopSearchLaunch = stopSearch == null
-                                ? null
-                                : await _resolveStopSearchLaunch(
-                                    stopSearch,
-                                    busController,
-                                  );
-                            await _openRoute(
-                              provider: routeProvider,
-                              routeKey: route.routeKey,
-                              routeName: route.routeName,
-                              routeIdHint: route.routeId,
-                              initialPathId:
-                                  resolvedStopSearchLaunch?.pathId ??
-                                  stopSearch?.matchedStop.pathId ??
-                                  route.rtrip,
-                              initialStopId: resolvedStopSearchLaunch?.stopId,
-                              initialDestinationPathId:
-                                  resolvedStopSearchLaunch?.destinationPathId,
-                              initialDestinationStopId:
-                                  resolvedStopSearchLaunch?.destinationStopId,
-                              suppressAutoDestinationSelection:
-                                  resolvedStopSearchLaunch
-                                      ?.suppressAutoDestinationSelection ??
-                                  false,
-                              route: route,
-                              saveHistory: true,
-                              source: stopSearch == null
-                                  ? 'search_result'
-                                  : 'search_stop_result',
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
+                  ..._buildRouteResultCards(busController),
               ],
             ),
           ),
@@ -1251,6 +1314,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 onChanged: _onQueryChanged,
                 onRequestTextInput: _requestNativeKeyboard,
                 onCollapse: _collapseRouteKeypad,
+                availableRouteNames: _availableRouteNames,
               )
             : null,
       ),

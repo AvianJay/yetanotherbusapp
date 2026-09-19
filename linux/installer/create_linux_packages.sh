@@ -78,7 +78,7 @@ Depends: ${DEPS}
 Installed-Size: ${INSTALLED_SIZE}
 Section: utils
 Priority: optional
-Homepage: https://github.com/AvianJay/yetanotherbusapp
+Homepage: https://github.com/YetAnotherBusDeveloper/yetanotherbusapp
 CONTROL
 
 # Post-install: update desktop database

@@ -13,19 +13,18 @@ import '../core/debouncer.dart';
 import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
 import '../widgets/background_image_wrapper.dart';
-import '../widgets/transit_drawer.dart';
 import '../widgets/platform_map_provider.dart';
 import '../widgets/ad_banner_widget.dart';
 
 class YouBikeScreen extends StatefulWidget {
   const YouBikeScreen({
-    required this.onModeChanged,
     required this.isActive,
+    this.showAdBanner = true,
     super.key,
   });
 
-  final ValueChanged<TransitMode> onModeChanged;
   final bool isActive;
+  final bool showAdBanner;
 
   @override
   State<YouBikeScreen> createState() => _YouBikeScreenState();
@@ -1246,18 +1245,8 @@ class _YouBikeScreenState extends State<YouBikeScreen>
         return Scaffold(
           backgroundColor: hasBackgroundImage ? Colors.transparent : null,
           appBar: AppBar(
-            title: const Text('YABike'),
+            title: const Text('YouBike'),
             automaticallyImplyLeading: false,
-            leading:
-                MediaQuery.sizeOf(context).width >=
-                    kDesktopNavigationRailBreakpoint
-                ? null
-                : Builder(
-                    builder: (ctx) => IconButton(
-                      icon: const Icon(Icons.menu_rounded),
-                      onPressed: () => Scaffold.of(ctx).openDrawer(),
-                    ),
-                  ),
             actions: [
               if (!useSplitLayout)
                 IconButton(
@@ -1270,10 +1259,6 @@ class _YouBikeScreenState extends State<YouBikeScreen>
                   ),
                 ),
             ],
-          ),
-          drawer: TransitDrawer(
-            currentMode: TransitMode.youbike,
-            onModeChanged: widget.onModeChanged,
           ),
           body: Column(
             children: [
@@ -1305,7 +1290,7 @@ class _YouBikeScreenState extends State<YouBikeScreen>
                         useGoogleMapsPointProvider: useGoogleMapsPointProvider,
                       ),
               ),
-              const AdBannerWidget(),
+              if (widget.showAdBanner) const AdBannerWidget(),
             ],
           ),
         );

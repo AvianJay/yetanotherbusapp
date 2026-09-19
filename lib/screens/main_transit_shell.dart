@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app/bus_app.dart';
 import '../core/desktop_discord_presence_service.dart';
@@ -22,13 +23,29 @@ class MainTransitShell extends StatefulWidget {
   State<MainTransitShell> createState() => _MainTransitShellState();
 }
 
-class _MainTransitShellState extends State<MainTransitShell> {
+class _MainTransitShellState extends State<MainTransitShell>
+    with SingleTickerProviderStateMixin {
   TransitMode _currentMode = TransitMode.bus;
+  TransitMode? _outgoingMode;
   final Set<TransitMode> _loadedModes = {TransitMode.bus};
+  late final AnimationController _modeTransitionController;
+  double _modeTransitionDirection = 1;
 
   static const _desktopRailExtendedBreakpoint = 1280.0;
+  static const _compactNavigationHeight = 64.0;
   static const _switchDuration = Duration(milliseconds: 220);
-  static const _hiddenOffset = Offset(0.035, 0);
+
+  @override
+  void initState() {
+    super.initState();
+    _modeTransitionController =
+        AnimationController(vsync: this, duration: _switchDuration)
+          ..addStatusListener((status) {
+            if (status == AnimationStatus.completed && mounted) {
+              setState(() => _outgoingMode = null);
+            }
+          });
+  }
 
   @override
   void didChangeDependencies() {
@@ -45,12 +62,28 @@ class _MainTransitShellState extends State<MainTransitShell> {
     if (mode == _currentMode) {
       return;
     }
+    final outgoingMode = _currentMode;
+    final outgoingIndex = kTransitModeDestinations.indexWhere(
+      (destination) => destination.mode == outgoingMode,
+    );
+    final incomingIndex = kTransitModeDestinations.indexWhere(
+      (destination) => destination.mode == mode,
+    );
 
     setState(() {
       _loadedModes.add(mode);
+      _outgoingMode = outgoingMode;
       _currentMode = mode;
+      _modeTransitionDirection = incomingIndex < outgoingIndex ? -1 : 1;
     });
+    _modeTransitionController.forward(from: 0);
     unawaited(_syncDesktopPresenceForMode(mode));
+  }
+
+  @override
+  void dispose() {
+    _modeTransitionController.dispose();
+    super.dispose();
   }
 
   Future<void> _syncDesktopPresenceForMode(TransitMode mode) async {
@@ -75,12 +108,14 @@ class _MainTransitShellState extends State<MainTransitShell> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isMobile = screenWidth < kDesktopNavigationRailBreakpoint;
     final screens = kTransitModeDestinations
         .where((destination) => _loadedModes.contains(destination.mode))
         .map(
           (destination) => (
             mode: destination.mode,
-            child: _buildScreenForMode(destination.mode),
+            child: _buildScreenForMode(destination.mode, isMobile: isMobile),
           ),
         )
         .toList();
@@ -100,9 +135,18 @@ class _MainTransitShellState extends State<MainTransitShell> {
       ],
     );
 
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    if (screenWidth < kDesktopNavigationRailBreakpoint) {
-      return modeStack;
+    if (isMobile) {
+      final mobileModeStack = MediaQuery.removePadding(
+        context: context,
+        removeBottom: true,
+        child: modeStack,
+      );
+      return Column(
+        children: [
+          Expanded(child: mobileModeStack),
+          _buildModeNavigation(),
+        ],
+      );
     }
 
     final colorScheme = Theme.of(context).colorScheme;
@@ -113,22 +157,21 @@ class _MainTransitShellState extends State<MainTransitShell> {
         NavigationRail(
           extended: isExtendedRail,
           minExtendedWidth: 184,
-          backgroundColor: colorScheme.surfaceContainerLow,
+          backgroundColor: colorScheme.surfaceContainerHigh,
           groupAlignment: -0.82,
-          leading: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 20, 12, 8),
-            child: isExtendedRail
-                ? Text(
-                    '交通工具',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  )
-                : Icon(
-                    Icons.directions_transit_rounded,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+          trailingAtBottom: true,
+          trailing: Padding(
+            padding: const EdgeInsets.all(16),
+            child: SvgPicture.asset(
+              'assets/branding/icon.svg',
+              width: 48,
+              height: 48,
+              semanticsLabel: 'YABus',
+              colorFilter: ColorFilter.mode(
+                colorScheme.onSurfaceVariant,
+                BlendMode.srcIn,
+              ),
+            ),
           ),
           selectedIndex: kTransitModeDestinations.indexWhere(
             (destination) => destination.mode == _currentMode,
@@ -158,49 +201,102 @@ class _MainTransitShellState extends State<MainTransitShell> {
     );
   }
 
-  Widget _buildScreenForMode(TransitMode mode) {
+  Widget _buildModeNavigation() {
+    final theme = Theme.of(context);
+    // NavigationBar has its own SafeArea. The status-bar inset belongs to
+    // the page above, not to this bottom bar; keep the other insets intact.
+    return MediaQuery.removePadding(
+      context: context,
+      removeTop: true,
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHigh,
+        elevation: 8,
+        shadowColor: theme.colorScheme.shadow.withValues(alpha: 0.2),
+        shape: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
+        child: SafeArea(
+          top: false,
+          child: NavigationBar(
+            height: _compactNavigationHeight,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            surfaceTintColor: Colors.transparent,
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            selectedIndex: kTransitModeDestinations.indexWhere(
+              (destination) => destination.mode == _currentMode,
+            ),
+            onDestinationSelected: (index) {
+              if (index >= 0 && index < kTransitModeDestinations.length) {
+                _setMode(kTransitModeDestinations[index].mode);
+              }
+            },
+            destinations: [
+              for (final destination in kTransitModeDestinations)
+                NavigationDestination(
+                  icon: Icon(destination.icon),
+                  selectedIcon: Icon(destination.icon),
+                  label: destination.label,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScreenForMode(TransitMode mode, {required bool isMobile}) {
     return switch (mode) {
-      TransitMode.bus => HomeScreen(onModeChanged: _setMode),
+      TransitMode.bus => const HomeScreen(),
       TransitMode.metro => MetroScreen(
-        onModeChanged: _setMode,
         isActive: mode == _currentMode,
+        showAdBanner: !isMobile,
       ),
       TransitMode.thsr => ThsrScreen(
-        onModeChanged: _setMode,
         isActive: mode == _currentMode,
+        showAdBanner: !isMobile,
       ),
       TransitMode.tra => TraScreen(
-        onModeChanged: _setMode,
         isActive: mode == _currentMode,
+        showAdBanner: !isMobile,
       ),
       TransitMode.youbike => YouBikeScreen(
-        onModeChanged: _setMode,
         isActive: mode == _currentMode,
+        showAdBanner: !isMobile,
       ),
     };
   }
 
   Widget _buildModeLayer({required TransitMode mode, required Widget child}) {
     final isActive = mode == _currentMode;
+    final isOutgoing = mode == _outgoingMode;
     // All 5 transit modes share the 'bus' (main/home) page key
     // so the background image is shared across the home page tabs.
     const pageKey = 'bus';
+    final content = BackgroundImageWrapper(pageKey: pageKey, child: child);
 
-    return IgnorePointer(
-      ignoring: !isActive,
-      child: ExcludeSemantics(
-        excluding: !isActive,
-        child: TickerMode(
-          enabled: isActive,
-          child: AnimatedSlide(
-            duration: _switchDuration,
-            curve: Curves.easeOutCubic,
-            offset: isActive ? Offset.zero : _hiddenOffset,
-            child: AnimatedOpacity(
-              duration: _switchDuration,
-              curve: Curves.easeOutCubic,
-              opacity: isActive ? 1 : 0,
-              child: BackgroundImageWrapper(pageKey: pageKey, child: child),
+    return Offstage(
+      offstage: !isActive && !isOutgoing,
+      child: IgnorePointer(
+        ignoring: !isActive,
+        child: ExcludeSemantics(
+          excluding: !isActive,
+          child: TickerMode(
+            enabled: isActive,
+            child: AnimatedBuilder(
+              animation: _modeTransitionController,
+              child: content,
+              builder: (context, child) {
+                final offset = isActive && _outgoingMode != null
+                    ? _modeTransitionDirection *
+                          (1 -
+                              Curves.easeOutCubic.transform(
+                                _modeTransitionController.value,
+                              ))
+                    : 0.0;
+                return FractionalTranslation(
+                  translation: Offset(offset, 0),
+                  child: child,
+                );
+              },
             ),
           ),
         ),

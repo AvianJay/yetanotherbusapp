@@ -58,12 +58,14 @@ dependencies:
   firebase_analytics: ^12.0.1
   firebase_messaging: ^16.2.0
   image_picker: ^1.1.2
+  palette_generator: ^0.3.3+6
   dynamic_color: ^1.8.1
   font_awesome_flutter: ^11.0.0
   discord_rich_presence: ^1.1.1
   ffi: ^2.2.0
   local_notifier: ^0.1.6
   flutter_markdown: ^0.7.7+1
+  flutter_svg: ^2.2.3
   google_maps_flutter: ^2.17.0
   google_sign_in: ^7.2.0
   google_mobile_ads: ^5.3.0
@@ -95,6 +97,8 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/branding/YABus-black.svg
+    - assets/branding/icon.svg
     - assets/branding/splash_android.png
     - assets/branding/icon_transparent.png
     - assets/cat_cry.png

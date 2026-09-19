@@ -11,7 +11,6 @@ import '../core/transit_repository.dart';
 import '../core/user_location.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/rail_station_picker.dart';
-import '../widgets/transit_drawer.dart';
 import '../widgets/transit_panels.dart';
 import '../widgets/transit_station_map.dart';
 import '../widgets/ad_banner_widget.dart';
@@ -20,13 +19,13 @@ enum _ThsrPanel { timetable, seats, map }
 
 class ThsrScreen extends StatefulWidget {
   const ThsrScreen({
-    required this.onModeChanged,
     required this.isActive,
+    this.showAdBanner = true,
     super.key,
   });
 
-  final ValueChanged<TransitMode> onModeChanged;
   final bool isActive;
+  final bool showAdBanner;
 
   @override
   State<ThsrScreen> createState() => _ThsrScreenState();
@@ -378,17 +377,8 @@ class _ThsrScreenState extends State<ThsrScreen> {
     return Scaffold(
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
-        title: const Text('YAHSR'),
+        title: const Text('高鐵'),
         automaticallyImplyLeading: false,
-        leading:
-            MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
-            ? null
-            : Builder(
-                builder: (ctx) => IconButton(
-                  icon: const Icon(Icons.menu_rounded),
-                  onPressed: () => Scaffold.of(ctx).openDrawer(),
-                ),
-              ),
         actions: [
           IconButton(
             tooltip: '重新整理',
@@ -396,10 +386,6 @@ class _ThsrScreenState extends State<ThsrScreen> {
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
-      ),
-      drawer: TransitDrawer(
-        currentMode: TransitMode.thsr,
-        onModeChanged: widget.onModeChanged,
       ),
       body: Column(
         children: [
@@ -448,7 +434,7 @@ class _ThsrScreenState extends State<ThsrScreen> {
               ),
             ),
           ),
-          const AdBannerWidget(),
+          if (widget.showAdBanner) const AdBannerWidget(),
         ],
       ),
     );

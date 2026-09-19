@@ -44,8 +44,19 @@ Future<void> main(List<String> args) async {
       accountSyncService: AccountSyncService(),
     );
     await controller.initialize();
+    final automaticSeedPath = automaticBackgroundColorPath(controller.settings);
+    final automaticSeedColor = await resolveAutomaticBackgroundColor(
+      automaticSeedPath,
+    );
     unawaited(AdService.instance.initialize());
-    runApp(BusApp(controller: controller, analytics: analytics));
+    runApp(
+      BusApp(
+        controller: controller,
+        analytics: analytics,
+        automaticSeedColor: automaticSeedColor,
+        automaticSeedPath: automaticSeedPath,
+      ),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(controller.initializeAfterFirstFrame());
     });

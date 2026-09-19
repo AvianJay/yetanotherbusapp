@@ -44,6 +44,22 @@ enum BusProvider {
   bool get supportsLocalDatabase => this != BusProvider.inter;
 }
 
+enum AppColorSource { system, automatic, custom }
+
+AppColorSource appColorSourceFromString(
+  String? value, {
+  required bool hasSeedColor,
+}) {
+  if (value == AppColorSource.custom.name && !hasSeedColor) {
+    return AppColorSource.system;
+  }
+  return AppColorSource.values.firstWhere(
+    (source) => source.name == value,
+    // Existing settings used a null seed color for the system color scheme.
+    orElse: () => hasSeedColor ? AppColorSource.custom : AppColorSource.system,
+  );
+}
+
 List<BusProvider> downloadableBusProviders() => BusProvider.values
     .where((provider) => provider.supportsLocalDatabase)
     .toList(growable: false);
@@ -319,6 +335,7 @@ class AppSettings {
     required this.themeMode,
     required this.mobileMapProvider,
     required this.useAmoledDark,
+    required this.colorSource,
     required this.seedColor,
     required this.homeBackgroundOpacity,
     required this.pageBackgroundImagePaths,
@@ -360,6 +377,7 @@ class AppSettings {
       themeMode: ThemeMode.system,
       mobileMapProvider: MobileMapProvider.googleMaps,
       useAmoledDark: false,
+      colorSource: AppColorSource.system,
       seedColor: null,
       homeBackgroundOpacity: 0.65,
       pageBackgroundImagePaths: const {},
@@ -451,6 +469,10 @@ class AppSettings {
         json['mobileMapProvider'] as String? ?? 'googleMaps',
       ),
       useAmoledDark: json['useAmoledDark'] as bool? ?? false,
+      colorSource: appColorSourceFromString(
+        json['colorSource'] as String?,
+        hasSeedColor: _colorFromJson(json['seedColor']) != null,
+      ),
       seedColor: _colorFromJson(json['seedColor']),
       homeBackgroundOpacity:
           (json['homeBackgroundOpacity'] as num?)?.toDouble() ?? 0.65,
@@ -537,6 +559,7 @@ class AppSettings {
   final ThemeMode themeMode;
   final MobileMapProvider mobileMapProvider;
   final bool useAmoledDark;
+  final AppColorSource colorSource;
   final Color? seedColor;
   final double homeBackgroundOpacity;
   final Map<String, String> pageBackgroundImagePaths;
@@ -576,6 +599,7 @@ class AppSettings {
     ThemeMode? themeMode,
     MobileMapProvider? mobileMapProvider,
     bool? useAmoledDark,
+    AppColorSource? colorSource,
     Color? seedColor,
     bool clearSeedColor = false,
     double? homeBackgroundOpacity,
@@ -617,6 +641,7 @@ class AppSettings {
       themeMode: themeMode ?? this.themeMode,
       mobileMapProvider: mobileMapProvider ?? this.mobileMapProvider,
       useAmoledDark: useAmoledDark ?? this.useAmoledDark,
+      colorSource: colorSource ?? this.colorSource,
       seedColor: clearSeedColor ? null : (seedColor ?? this.seedColor),
       homeBackgroundOpacity:
           homeBackgroundOpacity ?? this.homeBackgroundOpacity,
@@ -682,6 +707,7 @@ class AppSettings {
       'themeMode': themeMode.name,
       'mobileMapProvider': mobileMapProvider.name,
       'useAmoledDark': useAmoledDark,
+      'colorSource': colorSource.name,
       'seedColor': _colorToJson(seedColor),
       'homeBackgroundOpacity': homeBackgroundOpacity,
       'pageBackgroundImagePaths': pageBackgroundImagePaths,
@@ -1780,12 +1806,14 @@ class RouteDetailData {
     required this.paths,
     required this.stopsByPath,
     required this.hasLiveData,
+    this.familyRouteIds = const [],
   });
 
   final RouteSummary route;
   final List<PathInfo> paths;
   final Map<int, List<StopInfo>> stopsByPath;
   final bool hasLiveData;
+  final List<String> familyRouteIds;
 }
 
 class StopRouteSearchResult {

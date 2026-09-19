@@ -8,7 +8,6 @@ import '../core/request_sequence.dart';
 import '../core/transit_repository.dart';
 import '../widgets/background_image_wrapper.dart';
 import '../widgets/eta_badge.dart';
-import '../widgets/transit_drawer.dart';
 import '../widgets/transit_station_map.dart';
 import '../widgets/ad_banner_widget.dart';
 
@@ -16,13 +15,13 @@ enum _MetroPanel { live, map }
 
 class MetroScreen extends StatefulWidget {
   const MetroScreen({
-    required this.onModeChanged,
     required this.isActive,
+    this.showAdBanner = true,
     super.key,
   });
 
-  final ValueChanged<TransitMode> onModeChanged;
   final bool isActive;
+  final bool showAdBanner;
 
   @override
   State<MetroScreen> createState() => _MetroScreenState();
@@ -445,17 +444,8 @@ class _MetroScreenState extends State<MetroScreen> {
     return Scaffold(
       backgroundColor: hasBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
-        title: const Text('YAMetro'),
+        title: const Text('捷運'),
         automaticallyImplyLeading: false,
-        leading:
-            MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
-            ? null
-            : Builder(
-                builder: (ctx) => IconButton(
-                  icon: const Icon(Icons.menu_rounded),
-                  onPressed: () => Scaffold.of(ctx).openDrawer(),
-                ),
-              ),
         actions: [
           IconButton(
             tooltip: '重新整理',
@@ -466,10 +456,6 @@ class _MetroScreenState extends State<MetroScreen> {
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
-      ),
-      drawer: TransitDrawer(
-        currentMode: TransitMode.metro,
-        onModeChanged: widget.onModeChanged,
       ),
       body: Column(
         children: [
@@ -529,7 +515,7 @@ class _MetroScreenState extends State<MetroScreen> {
               ),
             ),
           ),
-          const AdBannerWidget(),
+          if (widget.showAdBanner) const AdBannerWidget(),
         ],
       ),
     );

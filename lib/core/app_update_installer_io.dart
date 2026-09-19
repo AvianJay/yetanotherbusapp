@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'api_user_agent.dart';
 import 'app_update_installer.dart';
 import 'friendly_error.dart';
 import 'http_error_utils.dart';
@@ -134,13 +135,22 @@ class IoAppUpdateInstaller extends AppUpdateInstaller {
   }) async {
     final client = http.Client();
     try {
+      final uri = Uri.parse(url);
+      final request = http.Request('GET', uri);
+      if (uri.host == 'api.github.com') {
+        request.headers.addAll(
+          ApiUserAgent.githubApplyTo(const {
+            'Accept': 'application/vnd.github+json',
+          }),
+        );
+      }
       final response = await client
-          .send(http.Request('GET', Uri.parse(url)))
+          .send(request)
           .timeout(const Duration(seconds: 30));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException(
           httpStatusMessage(response.statusCode, 'HTTP ${response.statusCode}'),
-          uri: Uri.parse(url),
+          uri: uri,
         );
       }
 

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../app/bus_app.dart';
@@ -11,9 +12,10 @@ import '../core/friendly_error.dart';
 import '../core/models.dart';
 import '../core/pwa_install_service.dart';
 import '../core/route_direction_label.dart';
+import '../core/smart_route_service.dart';
 import '../widgets/eta_badge.dart';
+import '../widgets/background_image_wrapper.dart';
 import '../widgets/transit_station_map.dart';
-import '../widgets/transit_drawer.dart';
 import 'adaptive_settings_presenter.dart';
 import 'bus_map_screen.dart';
 import 'database_settings_screen.dart';
@@ -24,12 +26,10 @@ import 'search_screen.dart';
 import '../widgets/ad_banner_widget.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({required this.onModeChanged, super.key});
+  const HomeScreen({super.key});
 
   static const _desktopSidebarBreakpoint = 1100.0;
   static const _desktopSidebarWidth = 450.0;
-
-  final ValueChanged<TransitMode> onModeChanged;
 
   Future<void> _openDatabaseSettings(
     BuildContext context,
@@ -48,26 +48,28 @@ class HomeScreen extends StatelessWidget {
     AppController controller, {
     required bool compactMode,
   }) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-      children: [
-        if (controller.settings.enableSmartRecommendations) ...[
-          _SmartRecommendationCard(
-            controller: controller,
-            compactMode: compactMode,
-          ),
-          const SizedBox(height: 16),
+    return MediaQuery.removePadding(
+      context: context,
+      removeBottom: true,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        children: [
+          if (controller.settings.enableSmartRecommendations) ...[
+            _SmartRecommendationCard(
+              controller: controller,
+              compactMode: compactMode,
+            ),
+            const SizedBox(height: 8),
+          ],
+          _buildSearchFeatureCard(context, compactMode: compactMode),
+          const SizedBox(height: 8),
+          _buildFavoritesFeatureCard(context, compactMode: compactMode),
+          const SizedBox(height: 8),
+          _buildNearbyFeatureCard(context, compactMode: compactMode),
+          const SizedBox(height: 8),
+          _buildBusMapFeatureCard(context, compactMode: compactMode),
         ],
-        _buildSearchFeatureCard(context, compactMode: compactMode),
-        const SizedBox(height: 12),
-        _buildFavoritesFeatureCard(context, compactMode: compactMode),
-        const SizedBox(height: 12),
-        _buildNearbyFeatureCard(context, compactMode: compactMode),
-        const SizedBox(height: 12),
-        _buildBusMapFeatureCard(context, compactMode: compactMode),
-        const SizedBox(height: 16),
-        const AdBannerWidget(),
-      ],
+      ),
     );
   }
 
@@ -303,24 +305,33 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = AppControllerScope.of(context);
-    final colorScheme = Theme.of(context).colorScheme;
-    final hasBusBackgroundImage = controller.settings.pageBackgroundImagePaths
-        .containsKey('bus');
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDesktop =
+        MediaQuery.sizeOf(context).width >= _desktopSidebarBreakpoint;
+    final hasBusBackgroundImage = hasBackgroundImageForPage(
+      controller.settings,
+      pageKey: 'bus',
+    );
     return Scaffold(
       backgroundColor: hasBusBackgroundImage ? Colors.transparent : null,
       appBar: AppBar(
-        title: const Text('YABus'),
+        title: Transform.translate(
+          offset: Offset(0, isDesktop ? 4 : 0),
+          child: SvgPicture.asset(
+            'assets/branding/YABus-black.svg',
+            width: isDesktop ? 164 : 96,
+            height: isDesktop ? 36 : 21,
+            semanticsLabel: 'YABus',
+            colorFilter: ColorFilter.mode(
+              colorScheme.onSurface,
+              BlendMode.srcIn,
+            ),
+          ),
+        ),
         titleSpacing: 24,
         automaticallyImplyLeading: false,
-        leading:
-            MediaQuery.sizeOf(context).width >= kDesktopNavigationRailBreakpoint
-            ? null
-            : Builder(
-                builder: (ctx) => IconButton(
-                  icon: const Icon(Icons.menu_rounded),
-                  onPressed: () => Scaffold.of(ctx).openDrawer(),
-                ),
-              ),
+        actionsPadding: const EdgeInsets.only(right: 16),
         actions: [
           if (kIsWeb) const _WebPwaInstallButton(),
           if (!kIsWeb)
@@ -363,10 +374,6 @@ class HomeScreen extends StatelessWidget {
             icon: const Icon(Icons.settings_outlined),
           ),
         ],
-      ),
-      drawer: TransitDrawer(
-        currentMode: TransitMode.bus,
-        onModeChanged: onModeChanged,
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -412,13 +419,10 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  /// Avoid tinting AMOLED black or a user-selected background image.
+  /// AMOLED mode keeps the home page pure black.
   bool _shouldShowHomeBackground(AppController controller) {
     final settings = controller.settings;
     if (settings.useAmoledDark && settings.themeMode != ThemeMode.light) {
-      return false;
-    }
-    if (settings.pageBackgroundImagePaths.containsKey('bus')) {
       return false;
     }
     return settings.homeBackgroundOpacity > 0;
@@ -537,11 +541,13 @@ class _SmartCardData {
 class _NearbyFallbackData {
   const _NearbyFallbackData({
     required this.result,
+    required this.detail,
     required this.liveStop,
     this.path,
   });
 
   final NearbyStopResult result;
+  final RouteDetailData detail;
   final StopInfo? liveStop;
   final PathInfo? path;
 }
@@ -601,10 +607,13 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       }
 
       try {
+        if (lastKnown != null) {
+          return lastKnown;
+        }
         return await Geolocator.getCurrentPosition(
           locationSettings: const LocationSettings(
             accuracy: LocationAccuracy.medium,
-            timeLimit: Duration(seconds: 5),
+            timeLimit: Duration(seconds: 3),
           ),
         );
       } catch (_) {
@@ -620,22 +629,49 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     if (!controller.settings.enableSmartRecommendations) {
       return null;
     }
+    final positionFuture = _resolvePosition();
+    Position? position;
 
     // Smart route suggestions require local database for usage profiles.
     // On web (or when DB not ready), skip to nearby fallback if location is available.
     if (controller.databaseReady && controller.routeUsageProfiles.isNotEmpty) {
-      final position = await _resolvePosition();
-      final suggestions = await controller.getSmartRouteSuggestions(
-        position: position,
+      final baseSuggestions = await controller.getSmartRouteSuggestions(
         limit: widget.maxSuggestions,
       );
-      if (suggestions.isNotEmpty) {
+      if (baseSuggestions.isNotEmpty) {
+        final allHaveFavoriteStops = baseSuggestions.every(
+          (suggestion) => suggestion.favoriteStop != null,
+        );
+        if (!allHaveFavoriteStops) {
+          position = await positionFuture.timeout(
+            const Duration(milliseconds: 800),
+            onTimeout: () => null,
+          );
+        }
+        final suggestions = position == null
+            ? baseSuggestions
+            : baseSuggestions
+                  .map((suggestion) {
+                    final detail = suggestion.detail;
+                    if (detail == null) {
+                      return suggestion;
+                    }
+                    return SmartRouteService.buildSuggestion(
+                      profile: suggestion.profile,
+                      score: suggestion.score,
+                      reason: suggestion.reason,
+                      detail: detail,
+                      favorite: suggestion.favorite,
+                      position: position,
+                    );
+                  })
+                  .toList(growable: false);
         return _SmartCardData.recommended(suggestions);
       }
     }
 
     // Nearby fallback via API — works on both native and web.
-    final position = await _resolvePosition();
+    position ??= await positionFuture;
     if (position == null) {
       return null;
     }
@@ -650,25 +686,30 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
         return null;
       }
 
-      final nearbyList = <_NearbyFallbackData>[];
-      for (final nearest in nearbyStops.take(widget.maxSuggestions)) {
-        final routeProvider = busProviderFromString(
-          nearest.route.sourceProvider,
-        );
-        final detail = await controller.getRouteDetail(
-          nearest.route.routeKey,
-          provider: routeProvider,
-        );
-        final liveStop = _findStopInDetail(
-          detail,
-          pathId: nearest.stop.pathId,
-          stopId: nearest.stop.stopId,
-        );
-        final path = _findPath(detail, nearest.stop.pathId);
-        nearbyList.add(
-          _NearbyFallbackData(result: nearest, liveStop: liveStop, path: path),
-        );
-      }
+      final nearbyList = await Future.wait(
+        nearbyStops.take(widget.maxSuggestions).map((nearest) async {
+          final routeProvider = busProviderFromString(
+            nearest.route.sourceProvider,
+          );
+          final detail = await controller.getPrimaryRouteDetail(
+            nearest.route.routeKey,
+            provider: routeProvider,
+            routeIdHint: nearest.route.routeId,
+            routeNameHint: nearest.route.routeName,
+          );
+          final liveStop = _findStopInDetail(
+            detail,
+            pathId: nearest.stop.pathId,
+            stopId: nearest.stop.stopId,
+          );
+          return _NearbyFallbackData(
+            result: nearest,
+            detail: detail,
+            liveStop: liveStop,
+            path: _findPath(detail, nearest.stop.pathId),
+          );
+        }),
+      );
       return _SmartCardData.nearby(nearbyList);
     } catch (_) {
       return null;
@@ -684,34 +725,52 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     final favorite = suggestion.favorite;
     final pathId = suggestion.recommendedPath?.pathId;
     final stopId = suggestion.recommendedStop?.stopId;
-    final autoFavorited = await controller.recordRouteSelection(
-      provider: suggestion.profile.provider,
-      routeKey: suggestion.profile.routeKey,
-      routeName: suggestion.profile.routeName,
-      favorite: favorite,
-      source: 'smart_suggestion',
-      pathId: pathId,
-      stopId: stopId,
-      stopName: suggestion.recommendedStop?.stopName,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (autoFavorited != null) {
-      showAutoFavoritedSnackBar(context, autoFavorited);
-    }
+    final detail = suggestion.detail;
+    final routeId = detail?.route.routeId.trim() ?? '';
+    final routeName = detail?.route.routeName ?? suggestion.profile.routeName;
+    final initialAlertsFuture = routeId.isEmpty
+        ? null
+        : controller
+              .getRouteAlerts(routeId)
+              .catchError((_) => const <RouteAlert>[]);
+    final initialCancelledDeparturesFuture =
+        suggestion.profile.provider != BusProvider.txg
+        ? null
+        : controller.repository
+              .fetchTaichungCancelledDepartures(
+                routeId: routeId,
+                routeName: routeName,
+                date: DateTime.now(),
+              )
+              .catchError((_) => const <CancelledDeparture>[]);
+    unawaited(() async {
+      final autoFavorited = await controller.recordRouteSelection(
+        provider: suggestion.profile.provider,
+        routeKey: suggestion.profile.routeKey,
+        routeName: suggestion.profile.routeName,
+        favorite: favorite,
+        source: 'smart_suggestion',
+        pathId: pathId,
+        stopId: stopId,
+        stopName: suggestion.recommendedStop?.stopName,
+      );
+      if (mounted && autoFavorited != null) {
+        showAutoFavoritedSnackBar(context, autoFavorited);
+      }
+    }());
     await openRouteDetailPage(
       context,
       routeKey: suggestion.profile.routeKey,
       provider: suggestion.profile.provider,
-      routeIdHint:
-          suggestion.detail?.route.routeId ?? suggestion.favorite?.routeId,
-      routeNameHint:
-          suggestion.detail?.route.routeName ?? suggestion.profile.routeName,
+      routeIdHint: routeId.isEmpty ? suggestion.favorite?.routeId : routeId,
+      routeNameHint: routeName,
       initialPathId: pathId,
       initialStopId: stopId,
       initialDestinationPathId: favorite?.destinationPathId,
       initialDestinationStopId: favorite?.destinationStopId,
+      initialTopologyFuture: Future<RouteDetailData?>.value(detail),
+      initialAlertsFuture: initialAlertsFuture,
+      initialCancelledDeparturesFuture: initialCancelledDeparturesFuture,
     );
   }
 
@@ -720,21 +779,35 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     final routeProvider = busProviderFromString(
       nearby.result.route.sourceProvider,
     );
-    final autoFavorited = await controller.recordRouteSelection(
-      provider: routeProvider,
-      routeKey: nearby.result.route.routeKey,
-      routeName: nearby.result.route.routeName,
-      source: 'nearby_fallback',
-      pathId: nearby.result.stop.pathId,
-      stopId: nearby.result.stop.stopId,
-      stopName: nearby.result.stop.stopName,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (autoFavorited != null) {
-      showAutoFavoritedSnackBar(context, autoFavorited);
-    }
+    final routeId = nearby.result.route.routeId.trim();
+    final initialAlertsFuture = routeId.isEmpty
+        ? null
+        : controller
+              .getRouteAlerts(routeId)
+              .catchError((_) => const <RouteAlert>[]);
+    final initialCancelledDeparturesFuture = routeProvider != BusProvider.txg
+        ? null
+        : controller.repository
+              .fetchTaichungCancelledDepartures(
+                routeId: routeId,
+                routeName: nearby.result.route.routeName,
+                date: DateTime.now(),
+              )
+              .catchError((_) => const <CancelledDeparture>[]);
+    unawaited(() async {
+      final autoFavorited = await controller.recordRouteSelection(
+        provider: routeProvider,
+        routeKey: nearby.result.route.routeKey,
+        routeName: nearby.result.route.routeName,
+        source: 'nearby_fallback',
+        pathId: nearby.result.stop.pathId,
+        stopId: nearby.result.stop.stopId,
+        stopName: nearby.result.stop.stopName,
+      );
+      if (mounted && autoFavorited != null) {
+        showAutoFavoritedSnackBar(context, autoFavorited);
+      }
+    }());
     await openRouteDetailPage(
       context,
       routeKey: nearby.result.route.routeKey,
@@ -743,6 +816,9 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
       routeNameHint: nearby.result.route.routeName,
       initialPathId: nearby.result.stop.pathId,
       initialStopId: nearby.result.stop.stopId,
+      initialTopologyFuture: Future<RouteDetailData?>.value(nearby.detail),
+      initialAlertsFuture: initialAlertsFuture,
+      initialCancelledDeparturesFuture: initialCancelledDeparturesFuture,
     );
   }
 
@@ -773,7 +849,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   Widget _buildDisabledState(BuildContext context) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '根據你在不同時段最常點開的路線，主動推薦現在最可能要查的那一條。',
       trailing: IconButton(
         tooltip: '設定',
         onPressed: _openSettings,
@@ -801,7 +876,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   Widget _buildNeedDatabaseState(BuildContext context) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '根據你平常點開路線的時間點，推薦你現在最可能要看的路線。',
       child: Text('請先下載本地資料庫。下載完成後，這張卡片才會開始學習你的使用習慣並顯示附近站牌到站時間。'),
     );
   }
@@ -810,7 +884,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   Widget _buildEmptyState(BuildContext context) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '根據你平常點開路線的時間點，推薦你現在最可能要看的路線。',
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -1030,13 +1103,8 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
     BuildContext context,
     List<SmartRouteSuggestion> suggestions,
   ) {
-    final subtitle = suggestions.length > 1
-        ? '根據你的使用習慣，整理出你現在最可能要查的路線。'
-        : suggestions.first.reason;
-
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: subtitle,
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -1099,7 +1167,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
   ) {
     return _SmartRecommendationShell(
       title: '智慧推薦',
-      subtitle: '最近的站點。',
       trailing: IconButton(
         tooltip: '重新整理',
         onPressed: _refresh,
@@ -1126,7 +1193,6 @@ class _SmartRecommendationCardState extends State<_SmartRecommendationCard> {
             !snapshot.hasData) {
           return _SmartRecommendationShell(
             title: '智慧推薦',
-            subtitle: '正在整理你這個時段最常看的路線...',
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Center(child: CircularProgressIndicator()),
@@ -1551,20 +1617,17 @@ class _DesktopNearbyMessage extends StatelessWidget {
 class _SmartRecommendationShell extends StatelessWidget {
   const _SmartRecommendationShell({
     required this.title,
-    required this.subtitle,
     required this.child,
     this.trailing,
   });
 
   final String title;
-  final String subtitle;
   final Widget child;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasSubtitle = subtitle.trim().isNotEmpty;
 
     return Card(
       child: Padding(
@@ -1576,21 +1639,19 @@ class _SmartRecommendationShell extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: theme.textTheme.headlineSmall),
-                      if (hasSubtitle) ...[
-                        const SizedBox(height: 6),
-                        Text(subtitle, style: theme.textTheme.bodyMedium),
-                      ],
-                    ],
-                  ),
+                  child: Text(title, style: theme.textTheme.headlineSmall),
                 ),
                 ?trailing,
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 1),
+            Text(
+              '根據你的使用習慣推薦路線',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 10),
             child,
           ],
         ),

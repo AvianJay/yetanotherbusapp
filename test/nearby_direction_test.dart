@@ -60,6 +60,74 @@ List<Map<String, Object?>> _nearbyPayload({
   ];
 }
 
+Map<String, Object?> _nearbyRow({
+  required String routeId,
+  required String routeName,
+  required String stopId,
+  required String stopName,
+  required double distance,
+}) {
+  return {
+    'routeid': routeId,
+    'pathid': 0,
+    'stopid': stopId,
+    'stop_name': stopName,
+    'seq': 1,
+    'lat': _latitude + distance / 111320,
+    'lon': _longitude,
+    'distance': distance,
+    'route_name': routeName,
+    'path_name': '往終點站',
+    'city_code': 'TPE',
+  };
+}
+
+Map<String, Object?> _stationPayload({
+  required String stationId,
+  required String stopName,
+  required String representativeStopId,
+  required String routePrefix,
+  required int routeCount,
+}) {
+  return {
+    'city': 'TPE',
+    'station_id': stationId,
+    'station_name': stopName,
+    'station_name_en': stopName,
+    'lat': _latitude,
+    'lon': _longitude,
+    'sides': [
+      {
+        'side_id': '$stationId-SIDE',
+        'label': 'A',
+        'direction': '往終點站',
+        'stop_uid': '$stationId-SIDE',
+        'stopid': representativeStopId,
+        'lat': _latitude + 0.0001,
+        'lon': _longitude,
+        'routes': [
+          for (var index = 0; index < routeCount; index++)
+            {
+              'routeid': 'TPE$routePrefix${index.toString().padLeft(3, '0')}',
+              'route_name': '$routePrefix${index + 1}',
+              'route_name_en': '$routePrefix${index + 1}',
+              'pathid': 0,
+              'path_name': '往終點站',
+              'path_name_en': 'Terminus',
+              'seq': index + 1,
+              'stopid': '$representativeStopId-ROUTE-$index',
+              'eta': (index + 1) * 60,
+              'message': '',
+              'updated_at': 1000,
+              'buses': <Object?>[],
+              'etas': <Object?>[],
+            },
+        ],
+      },
+    ],
+  };
+}
+
 /// Enough of the platform interface for [NearbyScreen] to reach the repository.
 class _FakeGeolocator extends GeolocatorPlatform {
   @override
@@ -74,7 +142,9 @@ class _FakeGeolocator extends GeolocatorPlatform {
       LocationPermission.whileInUse;
 
   @override
-  Future<Position> getCurrentPosition({LocationSettings? locationSettings}) async {
+  Future<Position> getCurrentPosition({
+    LocationSettings? locationSettings,
+  }) async {
     return Position(
       latitude: _latitude,
       longitude: _longitude,
@@ -113,19 +183,41 @@ Future<void> _pumpNearbyScreen(
   WidgetTester tester, {
   required String outboundPathName,
   required String inboundPathName,
+  List<Map<String, Object?>>? nearbyPayload,
+  Map<String, Map<String, Object?>> stationPayloads = const {},
+  Map<String, int> stationStatuses = const {},
+  List<Uri>? requestedUris,
 }) async {
   final client = MockClient((request) async {
+    requestedUris?.add(request.url);
     if (request.url.path.endsWith('/stops/nearby')) {
       return http.Response(
         jsonEncode(
-          _nearbyPayload(
-            outboundPathName: outboundPathName,
-            inboundPathName: inboundPathName,
-          ),
+          nearbyPayload ??
+              _nearbyPayload(
+                outboundPathName: outboundPathName,
+                inboundPathName: inboundPathName,
+              ),
         ),
         200,
         headers: {'content-type': 'application/json'},
       );
+    }
+    if (request.url.path.endsWith('/stations/resolve')) {
+      final stopId = request.url.queryParameters['stopid'] ?? '';
+      final status = stationStatuses[stopId];
+      if (status != null) {
+        return http.Response('{}', status);
+      }
+      final payload = stationPayloads[stopId];
+      if (payload != null) {
+        return http.Response(
+          jsonEncode(payload),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('{}', 404);
     }
     // Realtime is irrelevant here; 404 keeps the ETA badges empty.
     return http.Response('{}', 404);
@@ -158,6 +250,19 @@ Future<void> _pumpNearbyScreen(
     }
   }
   fail('Nearby results never rendered.');
+}
+
+Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
+  for (var attempt = 0; attempt < 20; attempt++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pump();
+    if (finder.evaluate().isNotEmpty) {
+      return;
+    }
+  }
+  fail('Expected nearby content never rendered.');
 }
 
 void main() {
@@ -229,6 +334,152 @@ void main() {
 
       expect(find.text('台北市 · 往捷運麟光新村站（去程）'), findsOneWidget);
       expect(find.text('台北市 · 往捷運麟光新村站（返程）'), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('completes every route in each stop group selected by 20 seeds', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    final requestedUris = <Uri>[];
+    final nearbyPayload = <Map<String, Object?>>[
+      for (var index = 0; index < 18; index++)
+        _nearbyRow(
+          routeId: 'TPEA${index.toString().padLeft(3, '0')}',
+          routeName: 'seed-A${index + 1}',
+          stopId: 'A-SEED-$index',
+          stopName: '第一站',
+          distance: 10 + index.toDouble(),
+        ),
+      for (var index = 0; index < 2; index++)
+        _nearbyRow(
+          routeId: 'TPEB${index.toString().padLeft(3, '0')}',
+          routeName: 'seed-B${index + 1}',
+          stopId: 'B-SEED-$index',
+          stopName: '第二站',
+          distance: 100 + index.toDouble(),
+        ),
+    ];
+
+    try {
+      await _pumpNearbyScreen(
+        tester,
+        outboundPathName: '',
+        inboundPathName: '',
+        nearbyPayload: nearbyPayload,
+        stationPayloads: {
+          'A-SEED-0': _stationPayload(
+            stationId: 'STATION-A',
+            stopName: '第一站',
+            representativeStopId: 'A-SEED-0',
+            routePrefix: 'A',
+            routeCount: 18,
+          ),
+          'B-SEED-0': _stationPayload(
+            stationId: 'STATION-B',
+            stopName: '第二站',
+            representativeStopId: 'B-SEED-0',
+            routePrefix: 'B',
+            routeCount: 5,
+          ),
+        },
+        requestedUris: requestedUris,
+      );
+      await _pumpUntilFound(tester, find.text('A18'));
+      await tester.scrollUntilVisible(find.text('第二站'), 500);
+      await tester.pump();
+
+      expect(find.text('第一站'), findsOneWidget);
+      expect(find.text('第二站'), findsOneWidget);
+      expect(find.text('B1'), findsOneWidget);
+      expect(find.text('B5'), findsOneWidget);
+      expect(find.text('seed-B1'), findsNothing);
+
+      final nearbyRequest = requestedUris.singleWhere(
+        (uri) => uri.path.endsWith('/stops/nearby'),
+      );
+      expect(nearbyRequest.queryParameters['limit'], '20');
+      final resolvedStopIds = requestedUris
+          .where((uri) => uri.path.endsWith('/stations/resolve'))
+          .map((uri) => uri.queryParameters['stopid'])
+          .toSet();
+      expect(resolvedStopIds, {'A-SEED-0', 'B-SEED-0'});
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('keeps seed routes when one station expansion fails', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    final requestedUris = <Uri>[];
+    try {
+      await _pumpNearbyScreen(
+        tester,
+        outboundPathName: '',
+        inboundPathName: '',
+        nearbyPayload: [
+          _nearbyRow(
+            routeId: 'TPEA001',
+            routeName: 'seed-A1',
+            stopId: 'A-SEED',
+            stopName: '第一站',
+            distance: 10,
+          ),
+          _nearbyRow(
+            routeId: 'TPEB001',
+            routeName: 'seed-B1',
+            stopId: 'B-SEED',
+            stopName: '第二站',
+            distance: 20,
+          ),
+          _nearbyRow(
+            routeId: 'TPEC001',
+            routeName: 'seed-C1',
+            stopId: 'C-SEED',
+            stopName: '第三站',
+            distance: 30,
+          ),
+        ],
+        stationPayloads: {
+          'C-SEED': _stationPayload(
+            stationId: 'STATION-C',
+            stopName: '另一個站名',
+            representativeStopId: 'C-SEED',
+            routePrefix: 'C',
+            routeCount: 3,
+          ),
+        },
+        stationStatuses: const {'B-SEED': 500},
+        requestedUris: requestedUris,
+      );
+
+      for (var attempt = 0; attempt < 10; attempt++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)),
+        );
+        await tester.pump();
+        if (requestedUris.any(
+          (uri) =>
+              uri.path.endsWith('/stations/resolve') &&
+              uri.queryParameters['stopid'] == 'B-SEED',
+        )) {
+          break;
+        }
+      }
+
+      expect(find.text('第一站'), findsOneWidget);
+      expect(find.text('第二站'), findsOneWidget);
+      expect(find.text('第三站'), findsOneWidget);
+      expect(find.text('seed-A1'), findsOneWidget);
+      expect(find.text('seed-B1'), findsOneWidget);
+      expect(find.text('seed-C1'), findsOneWidget);
+      expect(find.text('C3'), findsNothing);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       debugDefaultTargetPlatformOverride = null;

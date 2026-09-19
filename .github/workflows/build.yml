@@ -7,13 +7,16 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   FLUTTER_VERSION: 3.41.6
-  APP_REPO_OWNER: AvianJay
+  APP_REPO_OWNER: ${{ github.repository_owner }}
   APP_REPO_NAME: yetanotherbusapp
   APP_WORKFLOW_API_ID: build.yml
   APP_WORKFLOW_NIGHTLY_ID: build
@@ -518,3 +521,217 @@ jobs:
         with:
           name: ios-unsigned-ipa
           path: build/ipa/Generated_IPA.ipa
+
+  publish-nightly:
+    name: Publish Nightly
+    runs-on: ubuntu-latest
+    needs:
+      - build-android
+      - build-wearos
+      - build-web
+      - build-windows
+      - build-linux
+      - build-macos
+      - build-ios-ipa
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: nightly-artifacts
+          pattern: '*-release'
+
+      - name: Publish rolling nightly release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rolling_marker='YABUS_ROLLING_NIGHTLY'
+          new_tag="nightly-$GITHUB_SHA"
+          short_sha="${GITHUB_SHA::7}"
+          mkdir -p nightly-release
+          release_files=()
+          expected_asset_names=()
+
+          add_asset() {
+            local source="$1"
+            local target="$2"
+            if [[ -n "$source" ]]; then
+              cp "$source" "nightly-release/$target"
+              release_files+=("nightly-release/$target")
+              expected_asset_names+=("$target")
+            fi
+          }
+
+          add_asset "$(find nightly-artifacts/android-apk-release -type f -name '*.apk' -print -quit)" "YABus-nightly-$GITHUB_SHA.apk"
+          add_asset "$(find nightly-artifacts/windows-release -type f -name '*.exe' -print -quit)" "YABus-nightly-$GITHUB_SHA-windows-x64-setup.exe"
+          add_asset "$(find nightly-artifacts/linux-release -type f -name '*.deb' -print -quit)" "YABus-nightly-$GITHUB_SHA-linux-amd64.deb"
+          add_asset "$(find nightly-artifacts/linux-release -type f -name '*.AppImage' -print -quit)" "YABus-nightly-$GITHUB_SHA-linux-amd64.AppImage"
+          add_asset "$(find nightly-artifacts/macos-release -type f -name '*.dmg' -print -quit)" "YABus-nightly-$GITHUB_SHA-macos.dmg"
+
+          if [[ ${#release_files[@]} -ne 5 ]]; then
+            echo "Expected 5 installable nightly assets, found ${#release_files[@]}." >&2
+            exit 1
+          fi
+
+          release_notes="$(printf '<!-- %s -->\n\nNightly build for commit `%s`.' "$rolling_marker" "$GITHUB_SHA")"
+          created_draft=false
+          rolling_tag="$(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq '.[] | select(.prerelease == true and ((.body // "") | contains("YABUS_ROLLING_NIGHTLY"))) | .tag_name' \
+              | sed -n '1p'
+          )"
+
+          if [[ -z "$rolling_tag" ]]; then
+            rolling_tag="$(
+              gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+                --jq '.[] | select(.prerelease == true and (.tag_name | test("^nightly-[0-9a-f]{40}$"))) | .tag_name' \
+                | sed -n '1p'
+            )"
+          fi
+
+          if [[ -z "$rolling_tag" ]]; then
+            rolling_tag="$new_tag"
+            created_draft=true
+            gh release create "$rolling_tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Nightly $short_sha" \
+              --notes "$release_notes" \
+              --prerelease \
+              --draft
+          fi
+
+          release_id_before="$(
+            gh release view "$rolling_tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json databaseId \
+              --jq '.databaseId'
+          )"
+          metadata_published=false
+          quarantined_asset_urls=()
+          quarantined_asset_names=()
+
+          rollback_unpublished_assets() {
+            local status="$?"
+            if [[ "$status" -eq 0 || "$metadata_published" == true ]]; then
+              return
+            fi
+
+            echo 'Nightly publish failed before the metadata switch; restoring the previous release.' >&2
+            if [[ "$created_draft" == true ]]; then
+              gh release delete "$rolling_tag" \
+                --repo "$GITHUB_REPOSITORY" \
+                --yes \
+                --cleanup-tag \
+                >/dev/null 2>&1 || true
+              return
+            fi
+
+            for index in "${!quarantined_asset_urls[@]}"; do
+              api_path="${quarantined_asset_urls[$index]#https://api.github.com/}"
+              gh api --method PATCH "$api_path" \
+                -f name="${quarantined_asset_names[$index]}" \
+                >/dev/null 2>&1 || true
+            done
+            for expected_name in "${expected_asset_names[@]}"; do
+              gh release delete-asset "$rolling_tag" "$expected_name" \
+                --repo "$GITHUB_REPOSITORY" \
+                --yes \
+                >/dev/null 2>&1 || true
+            done
+          }
+          trap rollback_unpublished_assets EXIT
+
+          gh release upload "$rolling_tag" "${release_files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+          assets_json="$(
+            gh release view "$rolling_tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json assets
+          )"
+          for expected_name in "${expected_asset_names[@]}"; do
+            jq -e --arg name "$expected_name" \
+              '.assets[] | select(.name == $name and .size > 0)' \
+              <<<"$assets_json" >/dev/null
+          done
+
+          while IFS=$'\t' read -r asset_api_url asset_name; do
+            [[ -z "$asset_name" || "$asset_name" != YABus-nightly-* ]] && continue
+            keep_asset=false
+            for expected_name in "${expected_asset_names[@]}"; do
+              if [[ "$asset_name" == "$expected_name" ]]; then
+                keep_asset=true
+                break
+              fi
+            done
+            if [[ "$keep_asset" == false ]]; then
+              backup_name="rollback-$asset_name.bak"
+              api_path="${asset_api_url#https://api.github.com/}"
+              gh api --method PATCH "$api_path" \
+                -f name="$backup_name" \
+                >/dev/null
+              quarantined_asset_urls+=("$asset_api_url")
+              quarantined_asset_names+=("$asset_name")
+            fi
+          done < <(jq -r '.assets[] | [.apiUrl, .name] | @tsv' <<<"$assets_json")
+
+          if [[ "$rolling_tag" == "$new_tag" ]]; then
+            gh release edit "$rolling_tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Nightly $short_sha" \
+              --notes "$release_notes" \
+              --prerelease \
+              --draft=false
+          else
+            gh release edit "$rolling_tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --tag "$new_tag" \
+              --target "$GITHUB_SHA" \
+              --title "Nightly $short_sha" \
+              --notes "$release_notes" \
+              --prerelease \
+              --draft=false
+          fi
+          metadata_published=true
+
+          for asset_api_url in "${quarantined_asset_urls[@]}"; do
+            api_path="${asset_api_url#https://api.github.com/}"
+            gh api --method DELETE "$api_path" >/dev/null
+          done
+
+          published_json="$(
+            gh release view "$new_tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json databaseId,assets
+          )"
+          release_id_after="$(jq -r '.databaseId' <<<"$published_json")"
+          if [[ "$release_id_after" != "$release_id_before" ]]; then
+            echo 'Rolling nightly release ID changed unexpectedly.' >&2
+            exit 1
+          fi
+
+          for expected_name in "${expected_asset_names[@]}"; do
+            asset_url="$(
+              jq -er --arg name "$expected_name" \
+                '.assets[] | select(.name == $name and .size > 0) | .url' \
+                <<<"$published_json"
+            )"
+            curl --fail --silent --show-error --location --head "$asset_url" \
+              >/dev/null
+          done
+
+          if [[ "$rolling_tag" != "$new_tag" ]]; then
+            if gh api --method DELETE \
+              "repos/$GITHUB_REPOSITORY/git/refs/tags/$rolling_tag" \
+              >/dev/null 2>&1; then
+              echo "Removed previous rolling tag $rolling_tag."
+            else
+              echo "Previous rolling tag $rolling_tag was already absent."
+            fi
+          fi

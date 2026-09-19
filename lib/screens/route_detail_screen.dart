@@ -97,6 +97,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   late final ValueNotifier<List<String>> _liveMapFamilyRouteIds;
   ModalRoute<dynamic>? _route;
   bool _isLoading = true;
+  bool _hasCompletedInitialRealtime = false;
   bool _isFamilyLoading = false;
   bool _supplementaryNoticesLoading = false;
   String? _error;
@@ -426,6 +427,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       setState(() {
         _detail = displayDetail;
         _isLoading = false;
+        _hasCompletedInitialRealtime = true;
         _error = null;
         _statusMessage = fetchedDetail.hasLiveData ? null : '即時資訊暫時無法取得';
       });
@@ -470,6 +472,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       }
       setState(() {
         _isLoading = false;
+        _hasCompletedInitialRealtime = true;
         _isFamilyLoading = false;
         _error = friendlyErrorMessage(error);
         _statusMessage = _detail == null ? '讀取失敗' : '即時資訊暫時無法取得';
@@ -5611,6 +5614,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 stop: stop,
                 alwaysShowSeconds: alwaysShowSeconds,
                 size: 58,
+                isLoading: !_hasCompletedInitialRealtime,
               ),
               const SizedBox(width: 16),
               Expanded(

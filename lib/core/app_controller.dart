@@ -2201,6 +2201,18 @@ class AppController extends ChangeNotifier {
     return repository.searchRoutesFromApi(query, provider: provider);
   }
 
+  Stream<RouteDetailUpdate> watchRouteDetail(
+    int routeKey, {
+    BusProvider? provider,
+    String? routeIdHint,
+    String? routeNameHint,
+  }) => repository.watchRouteDetail(
+    routeKey,
+    provider: provider ?? _settings.provider,
+    routeIdHint: routeIdHint,
+    routeNameHint: routeNameHint,
+  );
+
   Future<RouteDetailData> getRouteDetail(
     int routeKey, {
     BusProvider? provider,

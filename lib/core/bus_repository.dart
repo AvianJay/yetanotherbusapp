@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -46,7 +47,6 @@ class BusRepository {
   static const _routeFamilyCacheTtl = Duration(minutes: 30);
   static const _searchApiCacheTtl = Duration(seconds: 2);
   static const _realtimeCacheTtl = Duration(seconds: 2);
-  static const _batchRealtimeCacheTtl = Duration(seconds: 2);
   static const _routeStopsApiCacheTtl = Duration(minutes: 30);
   static const _routePathGeometryCacheTtl = Duration(minutes: 30);
   static const _routeRealtimeBusesCacheTtl = Duration(seconds: 2);
@@ -60,6 +60,7 @@ class BusRepository {
       <String, _TimedValue<RouteDetailData>>{};
   final Map<String, Future<RouteDetailData>> _routeDetailInFlight =
       <String, Future<RouteDetailData>>{};
+  int _routeDataGeneration = 0;
   final Map<String, _TimedValue<RouteDetailData>> _routeTopologyCache =
       <String, _TimedValue<RouteDetailData>>{};
   final Map<String, Future<RouteDetailData>> _routeTopologyInFlight =
@@ -68,6 +69,25 @@ class BusRepository {
       <String, _TimedValue<List<RouteSummary>>>{};
   final Map<String, Future<List<RouteSummary>>> _routeFamilyInFlight =
       <String, Future<List<RouteSummary>>>{};
+
+  /// Invalidates route work so responses started against replaced data are ignored.
+  void invalidateRouteData() {
+    _routeDataGeneration++;
+    _clearAllStaticRouteCaches();
+    _realtimeCache.clear();
+    _realtimeInFlight.clear();
+    _routeRealtimeBusesCache.clear();
+    _routeRealtimeBusesInFlight.clear();
+    _routeDetailCache.clear();
+    _routeDetailInFlight.clear();
+    _routeStopsApiCache.clear();
+    _routeStopsApiInFlight.clear();
+    _routePathGeometryCache.clear();
+    _routePathGeometryInFlight.clear();
+    _searchRoutesApiCache.clear();
+    _searchRoutesApiInFlight.clear();
+  }
+
   final Map<BusProvider, int> _staticRouteCacheGeneration =
       <BusProvider, int>{};
   final Map<String, _TimedValue<List<RouteSummary>>> _searchRoutesApiCache =
@@ -78,10 +98,6 @@ class BusRepository {
       <String, _TimedValue<LiveStopMap>>{};
   final Map<String, Future<LiveStopMap>> _realtimeInFlight =
       <String, Future<LiveStopMap>>{};
-  final Map<String, _TimedValue<BatchLiveStopMap>> _batchRealtimeCache =
-      <String, _TimedValue<BatchLiveStopMap>>{};
-  final Map<String, Future<BatchLiveStopMap>> _batchRealtimeInFlight =
-      <String, Future<BatchLiveStopMap>>{};
   final Map<String, _TimedValue<Map<String, dynamic>>> _routeStopsApiCache =
       <String, _TimedValue<Map<String, dynamic>>>{};
   final Map<String, Future<Map<String, dynamic>>> _routeStopsApiInFlight =
@@ -202,6 +218,7 @@ class BusRepository {
   }
 
   Future<void> deleteProviderDatabase(BusProvider provider) async {
+    invalidateRouteData();
     if (!_supportsLocalDatabase) {
       return;
     }
@@ -247,6 +264,7 @@ class BusRepository {
   }
 
   Future<void> downloadDatabase(BusProvider provider) async {
+    invalidateRouteData();
     if (!provider.supportsLocalDatabase) {
       throw UnsupportedError('公路客運不提供離線資料庫下載。');
     }
@@ -281,6 +299,7 @@ class BusRepository {
       await _deleteDatabaseArtifacts(previousMetadataFile);
       await _deleteDatabaseArtifacts(previousCityFile);
     } finally {
+      invalidateRouteData();
       await _deleteDatabaseArtifacts(tempMetadataFile);
       await _deleteDatabaseArtifacts(tempCityFile);
     }
@@ -1204,10 +1223,13 @@ class BusRepository {
       routeId: routeId,
       routeNameHint: routeNameHint,
     );
+    final generation = _routeDataGeneration;
     _routeDetailInFlight[cacheKey] = future;
     try {
       final detail = await future;
-      _routeDetailCache[cacheKey] = _TimedValue<RouteDetailData>(detail);
+      if (generation == _routeDataGeneration) {
+        _routeDetailCache[cacheKey] = _TimedValue<RouteDetailData>(detail);
+      }
       return detail;
     } finally {
       if (identical(_routeDetailInFlight[cacheKey], future)) {
@@ -1322,6 +1344,116 @@ class BusRepository {
     }
   }
 
+  /// Emits route topology, selected-route realtime, then family realtime.
+  Stream<RouteDetailUpdate> watchRouteDetail(
+    int routeKey, {
+    required BusProvider provider,
+    String? routeIdHint,
+    String? routeNameHint,
+  }) async* {
+    final generation = _routeDataGeneration;
+    final routeId =
+        routeIdHint ?? await _resolveRouteIdByRouteKey(provider, routeKey);
+    if (routeId == null || routeId.isEmpty) {
+      throw StateError('找不到路線 $routeKey');
+    }
+
+    final topologyFuture = _getRouteTopologyById(
+      provider: provider,
+      routeId: routeId,
+      routeNameHint: routeNameHint,
+    );
+    // Attach error handling immediately: realtime may fail before stops finish.
+    final liveFuture = _loadLiveStopResult(routeId);
+    final topology = await topologyFuture;
+    if (generation != _routeDataGeneration) return;
+
+    final familyFuture = _loadFamilyTopologies(topology.route, provider);
+    yield RouteDetailUpdate(detail: topology, phase: RouteDetailPhase.stops);
+
+    final liveResult = await liveFuture;
+    if (generation != _routeDataGeneration) return;
+    final selected = _applyLiveStopMap(
+      topology,
+      liveResult.liveMap,
+      hasLiveData: liveResult.hasLiveData,
+    );
+    yield RouteDetailUpdate(detail: selected, phase: RouteDetailPhase.realtime);
+
+    final variants = await familyFuture;
+    if (generation != _routeDataGeneration) return;
+    if (variants == null) {
+      yield RouteDetailUpdate(
+        detail: selected,
+        phase: RouteDetailPhase.family,
+        familyUnavailable: true,
+      );
+      return;
+    }
+    if (variants.isEmpty) {
+      yield RouteDetailUpdate(detail: selected, phase: RouteDetailPhase.family);
+      return;
+    }
+
+    try {
+      final maps = await getBatchLiveStopMaps(
+        variants.map((detail) => detail.route.routeId).toList(),
+      );
+      if (generation != _routeDataGeneration) return;
+      final detail = mergeRouteFamilyLiveData(
+        selected,
+        variants
+            .map(
+              (variant) => _applyLiveStopMap(
+                variant,
+                maps[variant.route.routeId] ??
+                    const <String, LiveStopPayload>{},
+                hasLiveData: maps.containsKey(variant.route.routeId),
+              ),
+            )
+            .toList(growable: false),
+      );
+      yield RouteDetailUpdate(
+        detail: detail,
+        phase: RouteDetailPhase.family,
+        familyUnavailable: variants.any(
+          (variant) => !maps.containsKey(variant.route.routeId),
+        ),
+      );
+    } catch (_) {
+      if (generation != _routeDataGeneration) return;
+      yield RouteDetailUpdate(
+        detail: selected,
+        phase: RouteDetailPhase.family,
+        familyUnavailable: true,
+      );
+    }
+  }
+
+  Future<List<RouteDetailData>?> _loadFamilyTopologies(
+    RouteSummary selected,
+    BusProvider provider,
+  ) async {
+    final generation = _routeDataGeneration;
+    try {
+      final family = await getRouteFamily(selected, provider: provider);
+      if (generation != _routeDataGeneration) return null;
+      return await Future.wait(
+        family
+            .where((route) => route.routeId != selected.routeId)
+            .map(
+              (route) => _getRouteTopologyById(
+                provider: provider,
+                routeId: route.routeId,
+                routeNameHint: route.routeName,
+              ),
+            ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<RouteDetailData> _loadCompleteBusInfo({
     required BusProvider provider,
     required String routeId,
@@ -1396,6 +1528,7 @@ class BusRepository {
   }
 
   Future<Map<String, dynamic>> _loadRouteStopsPayload(String routeId) async {
+    final generation = _routeDataGeneration;
     final cached = _readFreshCache(
       _routeStopsApiCache,
       routeId,
@@ -1414,7 +1547,11 @@ class BusRepository {
     _routeStopsApiInFlight[routeId] = future;
     try {
       final payload = await future;
-      _routeStopsApiCache[routeId] = _TimedValue<Map<String, dynamic>>(payload);
+      if (generation == _routeDataGeneration) {
+        _routeStopsApiCache[routeId] = _TimedValue<Map<String, dynamic>>(
+          payload,
+        );
+      }
       return payload;
     } finally {
       if (identical(_routeStopsApiInFlight[routeId], future)) {
@@ -2371,6 +2508,7 @@ class BusRepository {
       _getLiveStopMap(routeId);
 
   Future<LiveStopMap> _getLiveStopMap(String routeId) async {
+    final generation = _routeDataGeneration;
     final cached = _readFreshCache(_realtimeCache, routeId, _realtimeCacheTtl);
     if (cached != null) {
       return cached;
@@ -2385,7 +2523,9 @@ class BusRepository {
     _realtimeInFlight[routeId] = future;
     try {
       final result = await future;
-      _realtimeCache[routeId] = _TimedValue<LiveStopMap>(result);
+      if (generation == _routeDataGeneration) {
+        _realtimeCache[routeId] = _TimedValue<LiveStopMap>(result);
+      }
       return result;
     } finally {
       if (identical(_realtimeInFlight[routeId], future)) {
@@ -2708,9 +2848,9 @@ class BusRepository {
   /// silently de-duplicated.
   ///
   /// Returns a map of routeId -> live-stop-payload map for each route that
-  /// the server was able to resolve.  Results are cached both as a batch
-  /// (keyed by the sorted, joined ID list) and individually so that
-  /// subsequent single-route lookups via [_getLiveStopMap] also benefit.
+  /// the server was able to resolve. Results and in-flight work are shared
+  /// per route with [_getLiveStopMap]; only uncached, idle routes enter a
+  /// new batch, including when callers request overlapping sets of routes.
   Future<BatchLiveStopMap> getBatchLiveStopMaps(List<String> routeIds) async {
     const chunkSize = 25;
     final deduped = <String>[];
@@ -2756,55 +2896,63 @@ class BusRepository {
   Future<BatchLiveStopMap> _getBatchLiveStopMapsChunk(
     List<String> routeIds,
   ) async {
-    // Check per-route caches first; if *every* route is fresh we can skip
-    // the batch HTTP request entirely.
-    final allCached = <String, LiveStopMap>{};
-    var allFresh = true;
-    for (final routeId in routeIds) {
-      final cached = _readFreshCache(
-        _realtimeCache,
-        routeId,
-        _realtimeCacheTtl,
-      );
+    final result = <String, LiveStopMap>{};
+    final missing = <String, Completer<LiveStopMap>>{};
+    final pending = <Future<void>>[];
+    for (final id in routeIds) {
+      final cached = _readFreshCache(_realtimeCache, id, _realtimeCacheTtl);
       if (cached != null) {
-        allCached[routeId] = cached;
-      } else {
-        allFresh = false;
+        result[id] = cached;
+        continue;
       }
+      var future = _realtimeInFlight[id];
+      if (future == null) {
+        final completer = Completer<LiveStopMap>();
+        missing[id] = completer;
+        future = completer.future;
+        _realtimeInFlight[id] = future;
+      }
+      // Attach handlers before starting a batch or waiting on other requests.
+      // An omitted/failed route stays absent; an empty successful map is valid.
+      pending.add(
+        future.then<void>((map) {
+          result[id] = map;
+        }, onError: (Object _) {}),
+      );
     }
-    if (allFresh) {
-      return allCached;
+    if (missing.isNotEmpty) {
+      unawaited(_fillBatchLiveStopMaps(missing, _routeDataGeneration));
     }
+    await Future.wait(pending);
+    return result;
+  }
 
-    final cacheKey = [...routeIds]..sort();
-    final cacheKeyStr = cacheKey.join(',');
-    final batchCached = _readFreshCache(
-      _batchRealtimeCache,
-      cacheKeyStr,
-      _batchRealtimeCacheTtl,
-    );
-    if (batchCached != null) {
-      return batchCached;
-    }
-
-    final inFlight = _batchRealtimeInFlight[cacheKeyStr];
-    if (inFlight != null) {
-      return inFlight;
-    }
-
-    final future = _loadBatchLiveStopMaps(routeIds);
-    _batchRealtimeInFlight[cacheKeyStr] = future;
+  Future<void> _fillBatchLiveStopMaps(
+    Map<String, Completer<LiveStopMap>> missing,
+    int generation,
+  ) async {
     try {
-      final result = await future;
-      _batchRealtimeCache[cacheKeyStr] = _TimedValue(result);
-      // Also populate the per-route cache so single-route lookups benefit.
-      for (final entry in result.entries) {
-        _realtimeCache[entry.key] = _TimedValue<LiveStopMap>(entry.value);
+      final maps = await _loadBatchLiveStopMaps(missing.keys.toList());
+      for (final entry in missing.entries) {
+        final map = maps[entry.key];
+        if (map == null) {
+          entry.value.completeError(HttpException('即時資料暫時無法取得：${entry.key}'));
+        } else {
+          if (generation == _routeDataGeneration) {
+            _realtimeCache[entry.key] = _TimedValue(map);
+          }
+          entry.value.complete(map);
+        }
       }
-      return result;
+    } catch (error, stack) {
+      for (final completer in missing.values) {
+        if (!completer.isCompleted) completer.completeError(error, stack);
+      }
     } finally {
-      if (identical(_batchRealtimeInFlight[cacheKeyStr], future)) {
-        _batchRealtimeInFlight.remove(cacheKeyStr);
+      for (final entry in missing.entries) {
+        if (identical(_realtimeInFlight[entry.key], entry.value.future)) {
+          _realtimeInFlight.remove(entry.key);
+        }
       }
     }
   }
@@ -3583,7 +3731,7 @@ class BusRepository {
   }
 
   Future<void> _markDatabaseInvalid(BusProvider provider, File file) async {
-    _clearStaticRouteCaches(provider);
+    invalidateRouteData();
     for (final candidatePath in <String>[
       file.path,
       '${file.path}-wal',
@@ -3604,7 +3752,7 @@ class BusRepository {
   }
 
   Future<void> _markMetadataDatabaseInvalid(File file) async {
-    _clearAllStaticRouteCaches();
+    invalidateRouteData();
     await _deleteDatabaseArtifacts(file);
   }
 

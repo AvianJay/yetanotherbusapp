@@ -1374,21 +1374,20 @@ class _DesktopNearbyMapPanelState extends State<_DesktopNearbyMapPanel> {
     }
 
     final routeProvider = busProviderFromString(selected.route.sourceProvider);
-    final autoFavorited = await widget.controller.recordRouteSelection(
-      provider: routeProvider,
-      routeKey: selected.route.routeKey,
-      routeName: selected.route.routeName,
-      source: 'home_nearby_map',
-      pathId: selected.stop.pathId,
-      stopId: selected.stop.stopId,
-      stopName: selected.stop.stopName,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (autoFavorited != null) {
-      showAutoFavoritedSnackBar(context, autoFavorited);
-    }
+    unawaited(() async {
+      final autoFavorited = await widget.controller.recordRouteSelection(
+        provider: routeProvider,
+        routeKey: selected.route.routeKey,
+        routeName: selected.route.routeName,
+        source: 'home_nearby_map',
+        pathId: selected.stop.pathId,
+        stopId: selected.stop.stopId,
+        stopName: selected.stop.stopName,
+      );
+      if (mounted && autoFavorited != null) {
+        showAutoFavoritedSnackBar(context, autoFavorited);
+      }
+    }());
     await openRouteDetailPage(
       context,
       routeKey: selected.route.routeKey,

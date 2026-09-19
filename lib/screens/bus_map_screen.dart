@@ -542,24 +542,24 @@ class _BusMapScreenState extends State<BusMapScreen>
     }
     final controller = AppControllerScope.read(context);
     final routeName = snapshot.displayNameFor(cityBus);
-    final autoFavorited = await controller.recordRouteSelection(
-      provider: _provider,
-      routeKey: controller.repository.routeKeyForRouteId(detailRouteId),
-      routeName: routeName,
-      source: stop == null ? 'bus_map_bus' : 'bus_map_stop',
-      pathId: stop?.pathId ?? cityBus.bus.pathId,
-      stopId: stop?.stopId,
-      stopName: stop?.stopName,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (autoFavorited != null) {
-      showAutoFavoritedSnackBar(context, autoFavorited);
-    }
+    final routeKey = controller.repository.routeKeyForRouteId(detailRouteId);
+    unawaited(() async {
+      final autoFavorited = await controller.recordRouteSelection(
+        provider: _provider,
+        routeKey: routeKey,
+        routeName: routeName,
+        source: stop == null ? 'bus_map_bus' : 'bus_map_stop',
+        pathId: stop?.pathId ?? cityBus.bus.pathId,
+        stopId: stop?.stopId,
+        stopName: stop?.stopName,
+      );
+      if (mounted && autoFavorited != null) {
+        showAutoFavoritedSnackBar(context, autoFavorited);
+      }
+    }());
     await openRouteDetailPage(
       context,
-      routeKey: controller.repository.routeKeyForRouteId(detailRouteId),
+      routeKey: routeKey,
       provider: _provider,
       routeIdHint: detailRouteId,
       routeNameHint: routeName,
